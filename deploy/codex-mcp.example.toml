@@ -1,0 +1,7 @@
+# Merge this entry into the owner's config only after the build and acceptance checks.
+[mcp_servers.rootlane]
+command = "/home/kyle/.local/bin/rootlane-mcp"
+enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs"]
+startup_timeout_sec = 10
+tool_timeout_sec = 15
+default_tools_approval_mode = "prompt"

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.sqlite*
+.env
+*.credential
+.agents/
+.aws/
+.codex/

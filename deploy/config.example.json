@@ -1,0 +1,28 @@
+{
+  "projectRoots": ["/home/kyle/code"],
+  "observationRoots": ["/home/kyle/code"],
+  "stateDirectory": "/home/kyle/.local/state/rootlane",
+  "port": 9480,
+  "origin": "https://neo.taile1abc7.ts.net:19483",
+  "tailnetHostname": "neo.taile1abc7.ts.net",
+  "projects": [],
+  "profiles": [{
+    "id": "disposable",
+    "projectPath": "/home/kyle/code/rootlane/fixtures/disposable",
+    "approved": true,
+    "effects": "Starts two disposable loopback services and adds only a previously unused HTTPS preview on port 19484. Writes bounded journals and a disposable Vite cache in /tmp. Stop terminates these owned services.",
+    "dataRequirements": "No database, persistent application data or external services. Rootlane retains its own ownership and operation history.",
+    "services": [{
+      "id": "api", "cwd": "/home/kyle/code/rootlane/fixtures/disposable",
+      "executable": "/home/kyle/.local/bin/node", "args": ["/home/kyle/code/rootlane/fixtures/disposable/api.mjs"],
+      "port": 19481, "dependencies": [],
+      "readiness": { "path": "/health", "status": 200, "bodyIncludes": "rootlane-disposable-api", "timeoutMs": 15000 }
+    }, {
+      "id": "web", "cwd": "/home/kyle/code/rootlane/fixtures/disposable",
+      "executable": "/home/kyle/.local/bin/node", "args": ["/home/kyle/code/rootlane/node_modules/vite/bin/vite.js", "--config", "/home/kyle/code/rootlane/fixtures/disposable/vite.config.mjs"],
+      "port": 19482, "dependencies": ["api"],
+      "readiness": { "path": "/", "status": 200, "bodyIncludes": "rootlane-disposable-frontend", "timeoutMs": 15000 }
+    }],
+    "previews": [{ "serviceId": "web", "httpsPort": 19484, "label": "Open disposable preview" }]
+  }]
+}

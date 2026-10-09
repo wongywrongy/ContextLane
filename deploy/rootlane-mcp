@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+IFS= read -r ROOTLANE_AGENT_TOKEN < /home/kyle/.config/rootlane/agent.credential
+export ROOTLANE_AGENT_TOKEN
+export ROOTLANE_URL=http://127.0.0.1:9480
+exec /home/kyle/.local/bin/node /home/kyle/code/rootlane/dist/mcp/main.js
