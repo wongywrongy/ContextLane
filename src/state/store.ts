@@ -24,6 +24,14 @@ export class Store {
   }
   meta(key: string) { return (this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as { value: string } | undefined)?.value; }
   setMeta(key: string, value: string) { this.db.prepare('INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value); }
+  consumeLoginAttempt(now = Date.now()): number {
+    // One owner-wide budget: proxy addresses and forwarded headers cannot create fresh buckets.
+    const recent: number[] = JSON.parse(this.meta('loginAttempts') ?? '[]');
+    const active = recent.filter(time => time > now - 60000);
+    if (active.length >= 10) return Math.max(1, Math.ceil((active[0]! + 60000 - now) / 1000));
+    this.setMeta('loginAttempts', JSON.stringify([...active, now]));
+    return 0;
+  }
   environment(id: string) { return this.db.prepare('SELECT * FROM environments WHERE id=?').get(id) as EnvironmentRow | undefined; }
   environments() { return this.db.prepare('SELECT * FROM environments ORDER BY id').all() as EnvironmentRow[]; }
   ensure(profile: Profile) {

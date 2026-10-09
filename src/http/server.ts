@@ -12,7 +12,6 @@ export async function createServer(config: Config, service: Rootlane, credential
   if (credentials.owner.length < 32 || credentials.agent.length < 32 || equal(credentials.owner, credentials.agent)) throw new Error('Distinct owner and agent credentials of at least 32 characters are required');
   const app = Fastify({ logger: false, bodyLimit: 16384, requestTimeout: 10000, connectionTimeout: 10000, keepAliveTimeout: 5000 });
   const sessions = new Map<string, { csrf: string; expires: number }>();
-  let loginWindow = Date.now(); let attempts = 0;
   const cookieName = '__Host-rootlane';
   const origins = new Set([config.origin, ...(config.additionalOrigins ?? [])]);
   const hosts = new Set([...origins].map(origin => new URL(origin).host));
@@ -27,7 +26,15 @@ export async function createServer(config: Config, service: Rootlane, credential
     reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer').header('Cache-Control', 'no-store').header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if (!request.headers.host || !(hosts.has(request.headers.host) || request.headers.host === loopback())) return reply.code(403).send({ code: 'INVALID_HOST', message: 'Unexpected Host' });
     if (request.headers.origin !== undefined && !browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Unexpected Origin' });
-    if (!request.url.startsWith('/api/') || request.url.split('?')[0] === '/api/login') return;
+    const path = request.routeOptions.url;
+    if (path === '/api/login') {
+      if (request.method !== 'POST') return;
+      if (!browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Use the configured HTTPS origin' });
+      const retryAfter = service.lifecycle.store.consumeLoginAttempt();
+      if (retryAfter) return reply.header('Retry-After', retryAfter).code(429).send({ code: 'RATE_LIMIT', message: 'Too many login attempts; wait before trying again' });
+      return;
+    }
+    if (!path?.startsWith('/api/')) return;
     const auth = request.headers.authorization;
     if (auth !== undefined) {
       if (request.ip !== '127.0.0.1' || !equal(auth, `Bearer ${credentials.agent}`)) return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Valid loopback agent credential required' });
@@ -44,9 +51,6 @@ export async function createServer(config: Config, service: Rootlane, credential
     return reply.code(status && status >= 400 && status < 500 ? status : 500).send({ code: 'REQUEST_FAILED', message: 'Request failed; check service availability and request limits' });
   });
   app.post('/api/login', async (request, reply) => {
-    if (!browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Use the configured HTTPS origin' });
-    if (Date.now() - loginWindow > 60000) { loginWindow = Date.now(); attempts = 0; }
-    if (++attempts > 10) return reply.code(429).send({ code: 'RATE_LIMIT', message: 'Wait a minute before trying again' });
     const { credential } = loginSchema.parse(request.body);
     if (!equal(credential, credentials.owner)) return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Invalid owner credential' });
     for (const [key, value] of sessions) if (value.expires <= Date.now()) sessions.delete(key);
