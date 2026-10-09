@@ -22,10 +22,10 @@ The initial commands failed inside the sandbox, rather than because neo lacked t
 - Installed the pinned dependencies and generated `package-lock.json`. The initial Fastify 5.6.1 pin had reported vulnerabilities; updated it to compatible patched 5.12.5. npm reports zero known vulnerabilities.
 - `dev-test -- npm run check` passed after that update: all server/browser/test TypeScript checks, production build and **25/25 tests**.
 - Native better-sqlite3 loads and its database/backup/restore tests pass on Node 24.11.0.
-- Real SDK stdio tests pass for both modern 2026-07-28 and legacy initialize traffic, including tools/list, calls, strict schemas, duplicate requests and harmless adapter disconnect. These are SDK clients, not installed Codex/Claude acceptance.
+- Real SDK stdio tests pass for both modern 2026-07-28 and legacy initialize traffic, including tools/list, calls, strict schemas, duplicate requests and harmless adapter disconnect. Installed-client acceptance is recorded separately below.
 - Rootlane's read-only host preflight passes. Tailscale identity is `neo.taile1abc7.ts.net`; ports 9480, 19483, 19481, 19482 and 19484 were unused at the time of the check.
 - Real discovery returned **16 project/worktree entries**, including **11 with Git metadata** and **4 with associated listeners**. Every observed runtime remains observe-only. Eight out-of-root/unavailable worktree warnings were returned rather than accessing those paths.
-- No service was installed/enabled, no fixture was launched, and no existing application or Serve route was changed.
+- At this initial checkpoint, no service was installed/enabled, no fixture was launched, and no route was changed. Subsequent temporary real-host checks are recorded below.
 
 The build emitted two non-fatal Rollup warnings about Zod pure-comment annotations; it completed successfully.
 
@@ -39,31 +39,45 @@ Lifecycle effects use fake host adapters. They do not establish real Linux/Tails
 
 | Client/path | Version or protocol | Discovery | Actual tool calls |
 | --- | --- | --- | --- |
-| Installed Codex | 0.162.0 | Not yet exercised | Not yet exercised |
-| Installed Claude Code | 2.1.295 | Not yet exercised | Not yet exercised |
+| Installed Codex | 0.162.0 | Passed | Real catalog, start, ready/preview, bounded logs, stop and safe rejection passed |
+| Installed Claude Code | 2.1.295 | Passed | Real catalog, start, ready/preview, bounded logs, stop and safe rejection passed |
 | SDK test client, legacy | v2.3.1; legacy initialize | Passed | Passed |
 | SDK test client, modern | v2.3.1; 2026-07-28 pin | Passed | Passed |
 
-Neither installed client was upgraded or reconfigured. SDK package installation, compilation and both protocol tests are verified. See the [SDK stdio documentation](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio) and [protocol-version documentation](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions).
+Neither installed client was upgraded or persistently reconfigured. Acceptance used temporary per-process configuration. SDK package installation, compilation and both protocol tests are verified. See the [SDK stdio documentation](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio) and [protocol-version documentation](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions).
 
-## Remaining host acceptance procedure
+## Additional real-host acceptance
 
-1. Completed: dependency installation, lockfile generation, required gate and native binding/backup tests. Re-run the gate after any subsequent code change.
-2. Install the reviewed private owner configuration and distinct credential files. Run the read-only host preflight. Verify the candidate ports and shared Serve configuration again immediately before setup. Existing mappings are untouchable.
-3. Resolve test-budget accounting for transient user-systemd fixture units. The user manager starts services outside a caller's `dev-test` scope by default; do not assume those units are budgeted. If the host policy cannot support this integration check, leave it blocked.
-4. Start Rootlane and establish its separately checked HTTPS route. Authenticate from a browser and test actual Host/Origin/cookie behavior through Tailscale. Capture real directories, worktree grouping, known links and unavailable/unknown associations. Review desktop/mobile structure once; exact visual matching remains pending the mockup.
-5. Start `disposable` twice concurrently and with a repeated request ID. Capture the shared operation ID, exactly two owned units, readiness results, invocation-scoped logs and the expected preview mapping. Reuse that request ID with `stop` and verify rejection. Close the requesting adapter/browser and SSH connection; owned processes must survive.
-6. From a second tailnet device, open HTTPS 19484. Verify the fixture text, `/api/message` proxy and a Vite HMR update. A matching Serve entry alone is not proof of working preview access.
-7. Restart only Rootlane. Verify healthy fixture units/invocations persist and no duplicates appear. Exercise interrupted startup/stop against the disposable fixture. Confirm a startup failure preserves diagnostics and rolls back only newly created resources. Use controlled failure settings in a temporary reviewed fixture profile; do not occupy or alter existing services to create conflicts.
-8. Stop the fixture. Verify process groups are empty, the owned route is removed, and reservations are released. Compare unrelated units/listeners/routes with the pre-test snapshot. Test route-change and failed-stop conflict behavior primarily with fake adapters; never commandeer an existing route to provoke failure.
-9. Back up through the SQLite API, stop Rootlane and restore to its private state directory. Restart and verify installation identity, request mappings and observed-state reconciliation. Never run a restored copy alongside the original.
-10. Configure each installed coding client with the same absolute local adapter executable and only five tools. Record its effective permission policy. In **each client**, discover the tools, list real projects, start the fixture, observe readiness/links, fetch bounded logs, repeat the start request ID, stop it, and confirm a disconnected adapter does not affect resources. Record outputs and negotiated protocol era where exposed. A successful configuration-list command is insufficient.
+The owner removed `dev-test` and explicitly authorized direct checks. Earlier backend/client checks ran inside `/devtests.slice`; subsequent native integration checks ran directly under that authorization. No persistent deployment was installed.
 
-Host reboot acceptance is a separate maintenance check: after an authorized reboot, Rootlane should start, development units should remain absent and no application should be relaunched. Do not reboot neo merely to complete this implementation session.
+- Installed Codex and Claude Code subsequently each started `disposable`, observed succeeded/ready/available status and its usable preview link, fetched bounded API logs, stopped it and observed succeeded/stopped status. Assertions on actual tool events and structured results passed; neither client used another environment.
+- The fixture's real Vite HMR WebSocket connected through HTTPS 19484. A temporary source edit generated a `full-reload` notification; the source was restored. This checks local proxy/WebSocket behavior, not a second-device browser update.
+- Browser inspection exposed eight identical discovery warnings obscuring the first rows; the UI now displays each identical warning once.
+- The compiled backend served the built application and real catalog through temporary Tailscale HTTPS port 19483. Actual socket tests passed for anonymous rejection, invalid Host/Origin, distinct agent authentication, owner login, Secure/HttpOnly/SameSite cookies, CSRF and browser-session invalidation after restart.
+- Installed Codex 0.162.0 and Claude Code 2.1.295 each discovered and called all five tools against that backend. Real project listing succeeded; get/start/stop/logs for a deliberately unapproved environment returned `NOT_FOUND`. The temporary configuration initially contained no profiles, so these calls could not launch anything.
+- Codex used only the five enabled Rootlane tools, default approval `prompt`, and explicit per-tool `approve` overrides for this authorized check. Claude used strict temporary MCP configuration, those five allowed tools, no built-in tools, `dontAsk` and no session persistence. Neither client configuration nor version was changed globally. Protocol era was not exposed by these installed-client traces; both protocol paths remain separately covered by SDK tests.
+- Real Chromium authenticated through HTTPS and rendered six grouped project rows. Desktop and 390-pixel mobile layouts had no horizontal overflow or JavaScript exceptions; the HttpOnly session cookie was inaccessible to JavaScript. Chromium required `--no-sandbox` for this temporary trusted-local test because the installed browser could not use the host's namespace sandbox; no host security setting was changed.
+- The approved disposable profile started exactly two real user-systemd services in dependency order. Concurrent starts, including a repeated request ID, returned the same durable operation. Application readiness and the exact reserved preview mapping passed; HTTPS port 19484 served the frontend and `/api/message` proxy.
+- Invocation-scoped API/web journal pages obeyed a one-line request bound. Stop removed the owned preview, stopped the control groups, released listeners, and left a separately running unmanaged test sentinel untouched.
+- A competing test-owned listener produced `PORT_CONFLICT`. A controlled second-service exit produced a visible failure, removed newly created services and retained its journal diagnostics. No existing application was used to provoke a failure.
+- Killing only Rootlane preserved healthy owned units and their invocation IDs on restart. Killing Rootlane during deliberately incorrect frontend readiness produced `INTERRUPTED` on restart and reconciled the partial startup without leaving its listeners running.
+- A SQLite backup through the backup API was restored with the backend stopped. Restart preserved installation identity, stopped state and the original request-ID-to-operation mapping.
+- Each temporary integration run removed its owned HTTPS routes and listeners and compared Serve configuration with its initial snapshot. Existing routes were preserved. No existing application/database/infrastructure lifecycle was changed.
+- The normal gate was rerun directly after authorization: type checks, production build and **25/25 tests passed**.
+
+Temporary harness and client traces were kept privately under `/tmp`; credentials were removed after successful runs.
+
+## Remaining deployment checks
+
+- Open the Rootlane UI and disposable preview from a second tailnet device, including API proxying and an actual browser HMR refresh. SSH to the available second Linux device rejected the current key; owner access from that device is still needed. Local HTTPS/API/HMR checks passed.
+- Exercise an actual SSH disconnect and interrupted-stop timing if required before rollout. Healthy units survived abrupt backend death; interrupted-stop behavior passes focused adapter tests, but these two exact host scenarios were not reproduced.
+- Review the approved visual reference when provided; only the agreed row structure is implemented and browser checked.
+- Install persistent private configuration/credentials and the reviewed user service, then check service enablement and its dedicated HTTPS route. Acceptance used temporary configuration and routes; no persistent deployment was installed or enabled.
+- During a separately authorized maintenance window, verify reboot behavior: Rootlane starts, development units remain absent and no application is automatically relaunched. Do not reboot neo solely to finish this session.
 
 ## Known limits
 
 - Shared Tailscale CLI updates cannot be made atomic with unrelated operator changes. Immediate rechecks and postchecks reduce but do not remove that race; avoid simultaneous edits on owned ports.
 - Logs are bounded journal tails with forward cursors; oversized journal command output fails rather than returning unbounded data. Failure snapshots are best-effort if journald itself is unavailable.
 - Catalog process-to-project association uses cwd metadata, not proof of task identity or application health. Readiness claims apply only to managed services with the reviewed check and listener/control-group match.
-- Compilation and focused tests are verified. Real managed-unit lifecycle, second-device preview/HMR, installed coding-client calls and stopped-service restoration still require the host acceptance procedure above.
+- Real managed-unit lifecycle, installed-client discovery/calls, local HTTPS/browser access and stopped-service restoration are verified as recorded above. Second-device preview/HMR, real interrupted-stop timing, SSH-disconnect survival, host reboot and exact mockup matching remain unverified. SSH to the available second Linux tailnet device rejected the current key (`Permission denied (publickey)`).

@@ -2,7 +2,7 @@
 
 Private project discovery and a durable development-environment controller for neo. One Fastify process serves React and authenticated HTTP; the local MCP adapter forwards the same five operations to that process.
 
-**Implementation status: local gate passed; host acceptance pending.** Dependencies and the npm lockfile are installed. Type checks, the frontend build and all 25 focused tests pass, including native SQLite backup/restore and modern/legacy SDK stdio calls. Real neo discovery and read-only host preflight also pass. No host units/routes were changed. See [verification](VERIFICATION.md).
+**Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 25 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. No persistent deployment was installed. Second-device access and exact mockup matching remain pending. See [verification](VERIFICATION.md).
 
 ## Build and checks
 
@@ -10,14 +10,14 @@ Node 24 LTS is required (observed: 24.11.0). Exact compatible direct versions ar
 
 ```sh
 npm ci
-dev-test -- npm run check
+npm run check
 ```
 
 The gate checks server, browser and test TypeScript, builds the compiled backend/static frontend, then runs focused Node tests. Tests use temporary SQLite files and controlled host adapters; discovery tests create real Git worktrees. MCP tests use the real SDK/stdio transport against a temporary authenticated backend, in legacy and modern modes.
 
 better-sqlite3 is a required native installation dependency. Verify installation and database/backup tests on Node 24.11.0 and neo's architecture. Do not suppress a native-binding failure or substitute Node's experimental SQLite API. If this pinned release lacks a compatible shipped binary, review its source-build instructions and install the required Python/make/C++ toolchain as an owner administration step. A successful npm metadata lookup is not native-binding verification.
 
-All checks on neo must run through `dev-test`; do not bypass a missing or failed limiter.
+On 2026-10-09 the owner removed `dev-test` and explicitly authorized direct checks on neo. Follow the current owner policy on any other installation; do not assume this exception applies elsewhere.
 
 ## Owner configuration
 
@@ -36,7 +36,7 @@ Profiles are executable authorization supplied by the owner, not discovered repo
 After configuring the environment, run the read-only check before any install:
 
 ```sh
-ROOTLANE_CONFIG=/home/kyle/.config/rootlane/config.json dev-test -- node dist/host/preflight.js
+ROOTLANE_CONFIG=/home/kyle/.config/rootlane/config.json node dist/host/preflight.js
 ```
 
 It checks user systemd, Tailscale identity/configuration and candidate ports. It changes no units or routes and does not establish second-device reachability.
@@ -47,7 +47,7 @@ Rootlane's own HTTPS route is an installation step, separate from managed fixtur
 
 Open `https://neo.taile1abc7.ts.net:19483/` and exchange the owner credential for a secure, HttpOnly, same-origin session. Plain HTTP browser login is intentionally unsupported. Host and Origin policies must be tested through the actual Tailscale proxy. The local API permits authenticated agent requests with no Origin; an invalid supplied Origin is rejected.
 
-Only after host test-budget prerequisites are satisfied, exercise the disposable profile. Never move live applications into the test budget. Current user-systemd fixtures cannot be assumed to inherit a `dev-test` scope merely because the backend was launched there; resolve the integration budget before launching them as tests.
+The disposable profile has been exercised with real user-systemd units under the owner's direct-test authorization. User-systemd services do not inherit a test launcher's cgroup; account for this explicitly if a limiter is introduced again. Existing applications remain observe-only.
 
 ## HTTP and MCP
 
@@ -75,6 +75,6 @@ Back up using SQLite's backup API:
 npm run backup -- /home/kyle/.local/state/rootlane/rootlane.sqlite /absolute/new-backup.sqlite
 ```
 
-The destination must not exist. Restore only with Rootlane stopped, into a private state directory, preserving the installation identity. Do not run two instances from copies of the same state. The focused restore test checks ownership and operation IDs in a backup; the host acceptance procedure must also verify a stopped-service restore and subsequent reconciliation.
+The destination must not exist. Restore only with Rootlane stopped, into a private state directory, preserving the installation identity. Do not run two instances from copies of the same state. The focused restore test checks ownership and operation IDs in a backup; real stopped-service restore and subsequent reconciliation also passed on neo.
 
 Shared Serve state has no cross-operator compare-and-swap in this implementation. Rootlane serializes its own writes, rechecks ownership immediately before them and verifies results, but an operator can still race a CLI update. Avoid simultaneous manual edits on Rootlane's reserved ports; mismatches remain conflicts. No global reset is used.

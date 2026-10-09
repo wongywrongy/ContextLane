@@ -63,7 +63,7 @@ function App() {
     {!csrf ? <section aria-labelledby="unlock"><h2 id="unlock">Unlock Rootlane</h2>{checking ? <p>Checking connection…</p> : <form onSubmit={login}><label htmlFor="credential">Installation owner credential</label><input id="credential" type="password" autoComplete="current-password" value={credential} onChange={e => setCredential(e.target.value)} required/><button disabled={working === 'login'}>{working === 'login' ? 'Unlocking…' : 'Unlock'}</button></form>}</section> : <>
       <div className="toolbar"><h2>Projects</h2><button onClick={() => setRefresh(n => n + 1)}>Refresh</button></div>
       {!catalog && <p>Reading project directories…</p>}
-      {catalog?.warnings.map((warning, i) => <p className="notice" key={i}>{warning}</p>)}
+      {[...new Set(catalog?.warnings ?? [])].map((warning, i) => <p className="notice" key={i}>{warning}</p>)}
       {catalog?.projects.length === 0 && <p>No projects found in the configured roots.</p>}
       {[...groups.entries()].map(([key, projects]) => <article className="project" key={key}>
         <h3>{projects[0].name}{projects.length > 1 ? ` · ${projects.length} worktrees` : ''}</h3>
