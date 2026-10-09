@@ -7,10 +7,10 @@ Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running u
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.4 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.4-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.5 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.5-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.4-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.5-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait

@@ -4,6 +4,7 @@ import { environmentOutput, logsOutput, type Environment } from '../src/shared/c
 import './style.css';
 import { groupProjects, loadCatalog, projectStatus, label } from './projects';
 import { Icon, Logo } from './icons';
+import { McpSetup } from './mcp-setup';
 type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
 async function json(path: string, body?: unknown, csrf?: string) {
   const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'content-type': 'application/json', 'x-rootlane-csrf': csrf ?? '' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
@@ -16,6 +17,7 @@ function App() {
   const [credential, setCredential] = useState(''); const [error, setError] = useState('');
   const [catalog, setCatalog] = useState<Catalog | null>(null); const [cursor, setCursor] = useState(0);
   const [view, setView] = useState<'projects' | 'settings'>('projects');
+  const [settingsPage, setSettingsPage] = useState<'connection' | 'mcp'>('connection');
   const [query, setQuery] = useState(''); const [sort, setSort] = useState('name');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tailnetHostname, setTailnetHostname] = useState<string | null>(null);
@@ -78,7 +80,7 @@ function App() {
     <main>
       {error && <div role="alert" className="error-banner"><span>{error}</span><button onClick={() => { setError(''); setRefresh(n => n+1); }}>Retry</button></div>}
       {!csrf ? <section className="unlock" aria-labelledby="unlock"><h1 id="unlock">Unlock Rootlane</h1><p className="muted">Your private project workspace.</p>{checking ? <p>Checking connection…</p> : <form onSubmit={login}><label htmlFor="credential">Installation owner credential</label><input id="credential" type="password" autoComplete="current-password" value={credential} onChange={e => setCredential(e.target.value)} required/><button className="primary" disabled={working === 'login'}>{working === 'login' ? 'Unlocking…' : 'Unlock'}</button></form>}</section>
-      : view === 'settings' ? <section className="settings-page"><h1>Settings</h1><p className="muted">Connection and access</p><dl><dt>Rootlane</dt><dd>{connection}</dd><dt>Operator address</dt><dd>{location.origin}</dd><dt>Tailscale</dt><dd>{tailscale}</dd><dt>Tailnet hostname</dt><dd>{tailnetHostname ?? 'Unavailable'}</dd><dt>Last observation</dt><dd>{catalog ? new Date(catalog.observedAt).toLocaleString() : 'Unavailable'}</dd><dt>Lifecycle</dt><dd>{connection === 'Connected' ? lifecycleAvailable ? 'Available' : 'Unavailable' : 'Unknown'}</dd><dt>Ownership</dt><dd>Existing projects are observe-only. Only reviewed environments have lifecycle controls.</dd></dl><p className="muted">Configuration is owner-controlled on neo. This view is read-only.</p></section>
+      : view === 'settings' ? <section className="settings-page"><h1>Settings</h1><nav className="settings-nav" aria-label="Settings pages"><button aria-current={settingsPage === 'connection' ? 'page' : undefined} onClick={() => setSettingsPage('connection')}>Connection and access</button><button aria-current={settingsPage === 'mcp' ? 'page' : undefined} onClick={() => setSettingsPage('mcp')}>MCP setup</button></nav>{settingsPage === 'mcp' ? <McpSetup/> : <><p className="muted">Connection and access</p><dl><dt>Rootlane</dt><dd>{connection}</dd><dt>Operator address</dt><dd>{location.origin}</dd><dt>Tailscale</dt><dd>{tailscale}</dd><dt>Tailnet hostname</dt><dd>{tailnetHostname ?? 'Unavailable'}</dd><dt>Last observation</dt><dd>{catalog ? new Date(catalog.observedAt).toLocaleString() : 'Unavailable'}</dd><dt>Lifecycle</dt><dd>{connection === 'Connected' ? lifecycleAvailable ? 'Available' : 'Unavailable' : 'Unknown'}</dd><dt>Ownership</dt><dd>Existing projects are observe-only. Only reviewed environments have lifecycle controls.</dd></dl><p className="muted">Configuration is owner-controlled on neo. This view is read-only.</p></>}</section>
       : <>
         <div className="page-heading"><div><h1>Projects</h1><p>{allGroups.length} {allGroups.length === 1 ? 'project' : 'projects'}{query ? ` · ${filtered.length} matching` : ''}</p></div><div className="page-controls"><button className="icon-button" aria-label="Refresh projects" onClick={() => setRefresh(n => n+1)}><Icon name="refresh"/></button><label className="sort">Sort by<select aria-label="Sort projects" value={sort} onChange={e => { setSort(e.target.value); setCursor(0); }}><option value="name">Name</option><option value="status">Status</option></select></label></div></div>
         {!!catalog?.warnings.length && <details className="catalog-notice"><summary>Discovery notices ({catalog.warnings.length})</summary>{catalog.warnings.map(w => <p key={w}>{w}</p>)}</details>}
