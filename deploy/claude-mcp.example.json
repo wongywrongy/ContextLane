@@ -1,5 +1,5 @@
 {
   "type": "stdio",
-  "command": "/home/kyle/.local/bin/rootlane-mcp",
+  "command": "/absolute/path/rootlane/deploy/rootlane-mcp-docker",
   "args": []
 }

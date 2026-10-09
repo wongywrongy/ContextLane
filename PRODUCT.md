@@ -1,6 +1,6 @@
 # Rootlane
 
-Rootlane is a private, single-owner project directory and development environment control service on neo. Its purpose is a trustworthy project → environment → runtime → URL mapping.
+Rootlane is a private, single-owner project directory and development environment control service for a Linux host. Its purpose is a trustworthy project → environment → runtime → URL mapping.
 
 ## Platform and stack
 

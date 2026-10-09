@@ -11,7 +11,7 @@ test('release setup creates private owner files, preserves credentials and rejec
   try {
     for (const dir of ['deploy', 'bin', 'projects', 'other']) await mkdir(join(temp, dir));
     await copyFile('deploy/setup.mjs', join(temp, 'deploy/setup.mjs'));
-    await writeFile(join(temp, 'bin/tailscale'), '#!/bin/sh\nprintf \'%s\\n\' \'{"BackendState":"Running","Self":{"DNSName":"neo.test.ts.net."}}\'\n', { mode: 0o700 });
+    await writeFile(join(temp, 'bin/tailscale'), '#!/bin/sh\nprintf \'%s\\n\' \'{"BackendState":"Running","Self":{"DNSName":"workstation.example.ts.net."}}\'\n', { mode: 0o700 });
     const env = { ...process.env, HOME: temp, PATH: `${temp}/bin:${process.env.PATH}` };
     await run(process.execPath, [join(temp, 'deploy/setup.mjs'), join(temp, 'projects')], { env });
     const directory = join(temp, '.config/rootlane');
@@ -21,10 +21,24 @@ test('release setup creates private owner files, preserves credentials and rejec
     for (const file of ['config.json', 'owner.credential', 'agent.credential']) assert.equal((await stat(join(directory, file))).mode & 0o077, 0);
     const config = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'));
     assert.deepEqual(config.profiles, []);
-    assert.equal(config.origin, 'https://neo.test.ts.net:19483');
+    assert.equal(config.origin, 'https://workstation.example.ts.net:19483');
     await run(process.execPath, [join(temp, 'deploy/setup.mjs'), join(temp, 'projects')], { env });
     assert.equal(await readFile(join(directory, 'owner.credential'), 'utf8'), credential);
     await assert.rejects(run(process.execPath, [join(temp, 'deploy/setup.mjs'), join(temp, 'other')], { env }), /different state\/roots/);
     assert.deepEqual(JSON.parse(await readFile(join(directory, 'config.json'), 'utf8')), config);
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test('disposable Vite configuration uses the reviewed host rather than a built-in hostname', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'rootlane-vite-'));
+  try {
+    const config = join(temp, 'config.json');
+    await writeFile(config, JSON.stringify({ tailnetHostname: 'laptop.different.ts.net' }));
+    const result = await run(process.execPath, ['--input-type=module', '-e', "const {default:c}=await import('./fixtures/disposable/vite.config.mjs'); console.log(JSON.stringify(c.server));"], { env: { ...process.env, ROOTLANE_CONFIG: config } });
+    const server = JSON.parse(result.stdout);
+    assert.deepEqual(server.allowedHosts, ['laptop.different.ts.net']);
+    assert.equal(server.hmr.host, 'laptop.different.ts.net'); assert.equal(server.strictPort, true); assert.equal(server.host, '127.0.0.1');
+    await writeFile(config, JSON.stringify({ tailnetHostname: '*' }));
+    await assert.rejects(run(process.execPath, ['--input-type=module', '-e', "await import('./fixtures/disposable/vite.config.mjs')"], { env: { ...process.env, ROOTLANE_CONFIG: config } }), /owner-configured/);
   } finally { await rm(temp, { recursive: true, force: true }); }
 });

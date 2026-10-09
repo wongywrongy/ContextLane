@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
-IFS= read -r ROOTLANE_AGENT_TOKEN < /home/kyle/.config/rootlane/agent.credential
-export ROOTLANE_AGENT_TOKEN
-export ROOTLANE_URL=http://127.0.0.1:9480
-exec /home/kyle/.local/bin/node /home/kyle/code/rootlane/dist/mcp/main.js
+release=$(dirname "$(dirname "$(readlink -f "$0")")")
+exec node --input-type=module -e '
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const config = JSON.parse(readFileSync(process.env.ROOTLANE_CONFIG ?? join(homedir(), ".config/rootlane/config.json"), "utf8"));
+process.env.ROOTLANE_URL = `http://127.0.0.1:${config.port}`;
+process.env.ROOTLANE_AGENT_TOKEN = readFileSync(process.env.ROOTLANE_AGENT_CREDENTIAL_FILE ?? join(homedir(), ".config/rootlane/agent.credential"), "utf8").trim();
+await import(pathToFileURL(join(process.argv[1], "dist/mcp/main.js")).href);
+' "$release"

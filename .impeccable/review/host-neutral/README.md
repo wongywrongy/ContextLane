@@ -1,0 +1,1 @@
+Rootlane 0.1.6 host-neutral wording, live HTTPS Chromium captures on 2026-10-09. Desktop 1678px and mobile 390px, certificate checks enabled. Copy/navigation/overflow/JS checks passed. Existing visual system retained; independent review: ship. Capture host is test evidence, not a required installation hostname.

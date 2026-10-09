@@ -13,5 +13,7 @@ test('MCP guide teaches installed local adapters and verification without creden
   assert(html.includes('Do not start or stop anything.'));
   assert(html.includes('does not currently expose a remote'));
   assert(!html.includes('ROOTLANE_AGENT_TOKEN'));
+  assert(!html.includes('neo'));
+  assert(html.includes('example Docker installation'));
   assert(!html.includes('dangerously-skip-permissions'));
 });

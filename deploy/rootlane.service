@@ -1,14 +1,15 @@
+# Replace the absolute checkout and Node paths before installing this template.
 [Unit]
 Description=Rootlane project catalog and environment service
 After=network.target
 
 [Service]
 Type=exec
-WorkingDirectory=/home/kyle/code/rootlane
-ExecStart=/home/kyle/.local/bin/node /home/kyle/code/rootlane/dist/main.js
-Environment=ROOTLANE_CONFIG=/home/kyle/.config/rootlane/config.json
-Environment=ROOTLANE_OWNER_CREDENTIAL_FILE=/home/kyle/.config/rootlane/owner.credential
-Environment=ROOTLANE_AGENT_CREDENTIAL_FILE=/home/kyle/.config/rootlane/agent.credential
+WorkingDirectory=/absolute/path/rootlane
+ExecStart=/absolute/path/node /absolute/path/rootlane/dist/main.js
+Environment=ROOTLANE_CONFIG=%h/.config/rootlane/config.json
+Environment=ROOTLANE_OWNER_CREDENTIAL_FILE=%h/.config/rootlane/owner.credential
+Environment=ROOTLANE_AGENT_CREDENTIAL_FILE=%h/.config/rootlane/agent.credential
 UMask=0077
 Restart=on-failure
 RestartSec=3
