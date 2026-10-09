@@ -16,4 +16,12 @@ test('MCP guide teaches installed local adapters and verification without creden
   assert(!html.includes('neo'));
   assert(html.includes('example Docker installation'));
   assert(!html.includes('dangerously-skip-permissions'));
+  assert(html.includes('aria-label="Copy setup prompt"'));
+  assert(html.indexOf('Register with Claude Code') < html.indexOf('Prefer agent-assisted setup?'));
+  assert(html.includes('inspect any existing rootlane registration'));
+  assert(html.includes('Never print or copy credentials.'));
+  assert(html.includes('Do not install another backend'));
+  assert(html.includes('report the blocker rather than replacing it'));
+  assert(html.includes('read-only list_projects call if available'));
+  assert(html.includes('normal approvals'));
 });

@@ -37,6 +37,14 @@ default_tools_approval_mode = "prompt"`}</Command>
       <p>Use <code>/mcp</code> inside Claude Code to check the connection and review tool permissions. If Rootlane is already registered, inspect that entry first; avoid competing local, project and user definitions.</p>
       <a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noreferrer">Official Claude Code MCP documentation</a>
     </section>
+    <section><h3>Prefer agent-assisted setup?</h3>
+      <p>Paste this optional prompt into Codex or Claude Code running on the Rootlane host. It asks the agent to use the same registration commands above. Client permissions or a fresh session may still be required.</p>
+      <details><summary>Show setup prompt</summary><Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment and get_logs.
+
+Never print or copy credentials. Do not install another backend, upgrade software, change routes, or launch environments. If the installation is missing or inaccessible, report the blocker rather than replacing it.
+
+Verify with tools/list and a read-only list_projects call if available; otherwise explain how to verify in a fresh session. Report exactly what changed.`}</Command></details>
+    </section>
     <section><h3>Verify a real tool call</h3>
       <p>In a new coding session, ask:</p>
       <Command title="Read-only verification prompt">{'Use Rootlane’s list_projects tool to list my projects. Do not start or stop anything.'}</Command>

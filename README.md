@@ -17,10 +17,10 @@ Download the compiled release and prebuilt Docker image. This repository is priv
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.6 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.6-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.7 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.7-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.6-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.7-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -47,7 +47,7 @@ For another directory, such as `/opt/stacks/rootlane`, substitute its absolute a
 
 > Use Rootlane's list_projects tool to list my projects. Do not start or stop anything.
 
-The adapter reads its private agent credential inside the running container. Keep normal tool approvals; never put credential values in client configuration. **Settings → MCP setup** covers tool permissions and troubleshooting. Rootlane currently supports local stdio, not a remote `/mcp` endpoint.
+The adapter reads its private agent credential inside the running container. Keep normal tool approvals; never put credential values in client configuration. **Settings → MCP setup** covers tool permissions, troubleshooting and an optional agent setup prompt. Rootlane currently supports local stdio, not a remote `/mcp` endpoint.
 
 ## Development
 
