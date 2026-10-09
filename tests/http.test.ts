@@ -7,6 +7,7 @@ import { setup, request } from './helpers.js';
 import { Store } from '../src/state/store.js';
 import { Lifecycle } from '../src/lifecycle/service.js';
 import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 test('owner-selected short credentials work while empty owner and weak/shared agent credentials fail', async t => {
   const { config, lifecycle, host } = await setup(t);
@@ -108,4 +109,19 @@ test('malformed and oversized login bodies consume the same bounded login budget
   assert.equal((await login(JSON.stringify({ credential: 'x'.repeat(40), extra: true }))).statusCode, 400);
   for (let i = 0; i < 7; i++) assert.equal((await login(JSON.stringify({ credential: 'x'.repeat(40) }))).statusCode, 401);
   assert.equal((await login('{')).statusCode, 429);
+});
+
+
+test('built font assets have the right MIME type and arbitrary files remain inaccessible', async t => {
+  const { root, config, lifecycle, host } = await setup(t);
+  const web = join(root, 'web'); await mkdir(join(web, 'assets'), { recursive: true });
+  await writeFile(join(web, 'index.html'), '<h1>Rootlane</h1>');
+  await writeFile(join(web, 'assets', 'font-test.woff2'), Buffer.from([1,2,3,4]));
+  await writeFile(join(web, 'assets', 'private.env'), 'not a built asset');
+  const app = await createServer(config, new Rootlane(new Catalog(config, host), lifecycle), { owner: 'chosen', agent: 'a'.repeat(40) }, web); t.after(() => app.close());
+  const headers = { host: new URL(config.origin).host };
+  const font = await app.inject({ url: '/assets/font-test.woff2', headers });
+  assert.equal(font.statusCode, 200); assert.equal(font.headers['content-type'], 'font/woff2');
+  assert.equal((await app.inject({ url: '/assets/private.env', headers })).statusCode, 404);
+  assert.equal((await app.inject({ url: '/assets/../private.env', headers })).statusCode, 404);
 });

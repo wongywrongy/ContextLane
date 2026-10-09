@@ -2,7 +2,7 @@
 
 Private project discovery and a durable development-environment controller for neo. One Fastify process serves React and authenticated HTTP; the local MCP adapter forwards the same five operations to that process.
 
-**Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 30 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. Release v0.1.3 is installed with Docker Compose at `/opt/stacks/rootlane` on neo. Second-device access and exact mockup matching remain pending. See [verification](VERIFICATION.md).
+**Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 34 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. Release v0.1.4 is installed with Docker Compose at `/opt/stacks/rootlane` on neo. Second-device access remains pending; the Projects UI now follows rootlane-ui-reference.png. See [verification](VERIFICATION.md).
 
 On neo, open [Rootlane](https://root.avlis.dev). The original Tailscale HTTPS address also remains available. Owner login is required; existing projects are observe-only.
 

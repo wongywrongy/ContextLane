@@ -1,0 +1,457 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-09T20:07:58.505109+00:00",
+  "title": "Design System: Rootlane",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Primary",
+        "tonalRamp": [
+          "oklch(15% 0.24527 267.32)",
+          "oklch(26% 0.24527 267.32)",
+          "oklch(38% 0.24527 267.32)",
+          "oklch(49% 0.24527 267.32)",
+          "oklch(61% 0.24527 267.32)",
+          "oklch(72% 0.24527 267.32)",
+          "oklch(84% 0.24527 267.32)",
+          "oklch(95% 0.24527 267.32)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(15% 0.02168 245.92)",
+          "oklch(26% 0.02168 245.92)",
+          "oklch(38% 0.02168 245.92)",
+          "oklch(49% 0.02168 245.92)",
+          "oklch(61% 0.02168 245.92)",
+          "oklch(72% 0.02168 245.92)",
+          "oklch(84% 0.02168 245.92)",
+          "oklch(95% 0.02168 245.92)"
+        ]
+      },
+      "chrome": {
+        "role": "neutral",
+        "displayName": "Chrome",
+        "tonalRamp": [
+          "oklch(15% 0.02577 246.90)",
+          "oklch(26% 0.02577 246.90)",
+          "oklch(38% 0.02577 246.90)",
+          "oklch(49% 0.02577 246.90)",
+          "oklch(61% 0.02577 246.90)",
+          "oklch(72% 0.02577 246.90)",
+          "oklch(84% 0.02577 246.90)",
+          "oklch(95% 0.02577 246.90)"
+        ]
+      },
+      "card-start": {
+        "role": "neutral",
+        "displayName": "Card Start",
+        "tonalRamp": [
+          "oklch(15% 0.02707 242.70)",
+          "oklch(26% 0.02707 242.70)",
+          "oklch(38% 0.02707 242.70)",
+          "oklch(49% 0.02707 242.70)",
+          "oklch(61% 0.02707 242.70)",
+          "oklch(72% 0.02707 242.70)",
+          "oklch(84% 0.02707 242.70)",
+          "oklch(95% 0.02707 242.70)"
+        ]
+      },
+      "card-end": {
+        "role": "neutral",
+        "displayName": "Card End",
+        "tonalRamp": [
+          "oklch(15% 0.02486 241.85)",
+          "oklch(26% 0.02486 241.85)",
+          "oklch(38% 0.02486 241.85)",
+          "oklch(49% 0.02486 241.85)",
+          "oklch(61% 0.02486 241.85)",
+          "oklch(72% 0.02486 241.85)",
+          "oklch(84% 0.02486 241.85)",
+          "oklch(95% 0.02486 241.85)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control",
+        "tonalRamp": [
+          "oklch(15% 0.03094 249.21)",
+          "oklch(26% 0.03094 249.21)",
+          "oklch(38% 0.03094 249.21)",
+          "oklch(49% 0.03094 249.21)",
+          "oklch(61% 0.03094 249.21)",
+          "oklch(72% 0.03094 249.21)",
+          "oklch(84% 0.03094 249.21)",
+          "oklch(95% 0.03094 249.21)"
+        ]
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Control Hover",
+        "tonalRamp": [
+          "oklch(15% 0.03969 252.11)",
+          "oklch(26% 0.03969 252.11)",
+          "oklch(38% 0.03969 252.11)",
+          "oklch(49% 0.03969 252.11)",
+          "oklch(61% 0.03969 252.11)",
+          "oklch(72% 0.03969 252.11)",
+          "oklch(84% 0.03969 252.11)",
+          "oklch(95% 0.03969 252.11)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "oklch(15% 0.01444 264.50)",
+          "oklch(26% 0.01444 264.50)",
+          "oklch(38% 0.01444 264.50)",
+          "oklch(49% 0.01444 264.50)",
+          "oklch(61% 0.01444 264.50)",
+          "oklch(72% 0.01444 264.50)",
+          "oklch(84% 0.01444 264.50)",
+          "oklch(95% 0.01444 264.50)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15% 0.04407 255.06)",
+          "oklch(26% 0.04407 255.06)",
+          "oklch(38% 0.04407 255.06)",
+          "oklch(49% 0.04407 255.06)",
+          "oklch(61% 0.04407 255.06)",
+          "oklch(72% 0.04407 255.06)",
+          "oklch(84% 0.04407 255.06)",
+          "oklch(95% 0.04407 255.06)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "tonalRamp": [
+          "oklch(15% 0.03530 245.92)",
+          "oklch(26% 0.03530 245.92)",
+          "oklch(38% 0.03530 245.92)",
+          "oklch(49% 0.03530 245.92)",
+          "oklch(61% 0.03530 245.92)",
+          "oklch(72% 0.03530 245.92)",
+          "oklch(84% 0.03530 245.92)",
+          "oklch(95% 0.03530 245.92)"
+        ]
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Focus",
+        "tonalRamp": [
+          "oklch(15% 0.10337 267.06)",
+          "oklch(26% 0.10337 267.06)",
+          "oklch(38% 0.10337 267.06)",
+          "oklch(49% 0.10337 267.06)",
+          "oklch(61% 0.10337 267.06)",
+          "oklch(72% 0.10337 267.06)",
+          "oklch(84% 0.10337 267.06)",
+          "oklch(95% 0.10337 267.06)"
+        ]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.17804 157.97)",
+          "oklch(26% 0.17804 157.97)",
+          "oklch(38% 0.17804 157.97)",
+          "oklch(49% 0.17804 157.97)",
+          "oklch(61% 0.17804 157.97)",
+          "oklch(72% 0.17804 157.97)",
+          "oklch(84% 0.17804 157.97)",
+          "oklch(95% 0.17804 157.97)"
+        ]
+      },
+      "ready-dot": {
+        "role": "secondary",
+        "displayName": "Ready Dot",
+        "tonalRamp": [
+          "oklch(15% 0.18727 155.09)",
+          "oklch(26% 0.18727 155.09)",
+          "oklch(38% 0.18727 155.09)",
+          "oklch(49% 0.18727 155.09)",
+          "oklch(61% 0.18727 155.09)",
+          "oklch(72% 0.18727 155.09)",
+          "oklch(84% 0.18727 155.09)",
+          "oklch(95% 0.18727 155.09)"
+        ]
+      },
+      "registered-dot": {
+        "role": "secondary",
+        "displayName": "Registered Dot",
+        "tonalRamp": [
+          "oklch(15% 0.11807 262.64)",
+          "oklch(26% 0.11807 262.64)",
+          "oklch(38% 0.11807 262.64)",
+          "oklch(49% 0.11807 262.64)",
+          "oklch(61% 0.11807 262.64)",
+          "oklch(72% 0.11807 262.64)",
+          "oklch(84% 0.11807 262.64)",
+          "oklch(95% 0.11807 262.64)"
+        ]
+      },
+      "quiet-dot": {
+        "role": "neutral",
+        "displayName": "Quiet Dot",
+        "tonalRamp": [
+          "oklch(15% 0.04137 255.67)",
+          "oklch(26% 0.04137 255.67)",
+          "oklch(38% 0.04137 255.67)",
+          "oklch(49% 0.04137 255.67)",
+          "oklch(61% 0.04137 255.67)",
+          "oklch(72% 0.04137 255.67)",
+          "oklch(84% 0.04137 255.67)",
+          "oklch(95% 0.04137 255.67)"
+        ]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "oklch(15% 0.11270 78.74)",
+          "oklch(26% 0.11270 78.74)",
+          "oklch(38% 0.11270 78.74)",
+          "oklch(49% 0.11270 78.74)",
+          "oklch(61% 0.11270 78.74)",
+          "oklch(72% 0.11270 78.74)",
+          "oklch(84% 0.11270 78.74)",
+          "oklch(95% 0.11270 78.74)"
+        ]
+      },
+      "icon": {
+        "role": "neutral",
+        "displayName": "Icon",
+        "tonalRamp": [
+          "oklch(15% 0.08612 262.06)",
+          "oklch(26% 0.08612 262.06)",
+          "oklch(38% 0.08612 262.06)",
+          "oklch(49% 0.08612 262.06)",
+          "oklch(61% 0.08612 262.06)",
+          "oklch(72% 0.08612 262.06)",
+          "oklch(84% 0.08612 262.06)",
+          "oklch(95% 0.08612 262.06)"
+        ]
+      },
+      "nav-active": {
+        "role": "neutral",
+        "displayName": "Nav Active",
+        "tonalRamp": [
+          "oklch(15% 0.05640 259.28)",
+          "oklch(26% 0.05640 259.28)",
+          "oklch(38% 0.05640 259.28)",
+          "oklch(49% 0.05640 259.28)",
+          "oklch(61% 0.05640 259.28)",
+          "oklch(72% 0.05640 259.28)",
+          "oklch(84% 0.05640 259.28)",
+          "oklch(95% 0.05640 259.28)"
+        ]
+      },
+      "badge-bg": {
+        "role": "secondary",
+        "displayName": "Badge Bg",
+        "tonalRamp": [
+          "oklch(15% 0.05924 241.49)",
+          "oklch(26% 0.05924 241.49)",
+          "oklch(38% 0.05924 241.49)",
+          "oklch(49% 0.05924 241.49)",
+          "oklch(61% 0.05924 241.49)",
+          "oklch(72% 0.05924 241.49)",
+          "oklch(84% 0.05924 241.49)",
+          "oklch(95% 0.05924 241.49)"
+        ]
+      },
+      "badge-text": {
+        "role": "secondary",
+        "displayName": "Badge Text",
+        "tonalRamp": [
+          "oklch(15% 0.10712 231.81)",
+          "oklch(26% 0.10712 231.81)",
+          "oklch(38% 0.10712 231.81)",
+          "oklch(49% 0.10712 231.81)",
+          "oklch(61% 0.10712 231.81)",
+          "oklch(72% 0.10712 231.81)",
+          "oklch(84% 0.10712 231.81)",
+          "oklch(95% 0.10712 231.81)"
+        ]
+      },
+      "badge-teal-bg": {
+        "role": "secondary",
+        "displayName": "Badge Teal Bg",
+        "tonalRamp": [
+          "oklch(15% 0.04745 205.92)",
+          "oklch(26% 0.04745 205.92)",
+          "oklch(38% 0.04745 205.92)",
+          "oklch(49% 0.04745 205.92)",
+          "oklch(61% 0.04745 205.92)",
+          "oklch(72% 0.04745 205.92)",
+          "oklch(84% 0.04745 205.92)",
+          "oklch(95% 0.04745 205.92)"
+        ]
+      },
+      "badge-teal-text": {
+        "role": "secondary",
+        "displayName": "Badge Teal Text",
+        "tonalRamp": [
+          "oklch(15% 0.09485 187.11)",
+          "oklch(26% 0.09485 187.11)",
+          "oklch(38% 0.09485 187.11)",
+          "oklch(49% 0.09485 187.11)",
+          "oklch(61% 0.09485 187.11)",
+          "oklch(72% 0.09485 187.11)",
+          "oklch(84% 0.09485 187.11)",
+          "oklch(95% 0.09485 187.11)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Project names."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Controls, paths, and explanations."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Summary section headings."
+      },
+      "detail": {
+        "displayName": "Detail",
+        "purpose": "Status, tags, and compact rows."
+      }
+    },
+    "shadows": [
+      {
+        "name": "more-menu",
+        "value": "0 12px 25px #0008",
+        "purpose": "Floating More menu only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "card-border",
+        "value": "border-color 160ms ease-out",
+        "purpose": "Subtle card hover; removed under reduced-motion preference."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "actions-wrap",
+        "value": "1400px"
+      },
+      {
+        "name": "compact-shell",
+        "value": "1000px"
+      },
+      {
+        "name": "mobile",
+        "value": "700px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The primary preview action when a route exists.",
+      "html": "<button class=\"ds-primary\">Open preview</button>",
+      "css": ".ds-primary {font: 400 14px/1.45 Inter, sans-serif; display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:10px 16px; border:1px solid #203140; border-radius:8px; min-height:44px; color:#edf2fc; cursor:pointer; text-decoration:none;background:var(--accent, #365bff);color:white;border-color:#4d6bff;} .ds-primary:hover {background:#476aff;border-color:#7690ff;} .ds-primary:focus-visible {outline:2px solid #9ebaff; outline-offset:4px;}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Bordered secondary action; unavailable actions retain an honest disabled state.",
+      "html": "<button class=\"ds-secondary\">View logs</button> <button class=\"ds-secondary\" disabled>Open folder</button>",
+      "css": ".ds-secondary {font: 400 14px/1.45 Inter, sans-serif; display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:10px 16px; border:1px solid #203140; border-radius:8px; min-height:44px; color:#edf2fc; cursor:pointer; text-decoration:none;background:#14212e;} .ds-secondary:hover:enabled {background:#1b2b3d;border-color:#3c5270;} .ds-secondary:focus-visible {outline:2px solid #9ebaff; outline-offset:4px;} .ds-secondary:disabled {cursor:not-allowed;color:#8394ad;opacity:.65;}"
+    },
+    {
+      "name": "Search",
+      "kind": "input",
+      "refersTo": "search",
+      "description": "Inset project search with an SVG line icon.",
+      "html": "<label class=\"ds-search\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0\"/></svg><input aria-label=\"Search projects\" placeholder=\"Search projects\u2026\"></label>",
+      "css": ".ds-search {display:flex;align-items:center;gap:14px;padding:0 14px;min-height:46px;border:1px solid #203140;border-radius:9px;background:#14212d;color:var(--muted,#94a8c2);} .ds-search svg {width:21px;height:21px;} .ds-search input {font:400 14px/1.45 Inter,sans-serif;width:100%;min-width:0;background:none;border:0;color:#edf2fc;padding:10px 0;caret-color:#a5bdff;} .ds-search input::placeholder {color:#94a8c2;} .ds-search input:focus-visible {outline:2px solid #9ebaff;outline-offset:0;}"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Quiet main navigation with a blue selected surface.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><button aria-current=\"page\">Projects</button><button>Settings</button></nav>",
+      "css": ".ds-nav {display:grid;gap:8px;background:#0c1721;padding:18px;} .ds-nav button {font: 400 14px/1.45 Inter, sans-serif; display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:10px 16px; border:1px solid #203140; border-radius:8px; min-height:44px; color:#edf2fc; cursor:pointer; text-decoration:none;justify-content:flex-start;border-color:transparent;background:transparent;color:#bfcef0;font-size:16px;padding:14px 20px;min-height:54px;} .ds-nav button[aria-current] {background:#10213c;border-left:1px solid #5678ff;color:#b8d4ff;} .ds-nav button:hover {background:#1b2b3d;border-color:#3c5270;} .ds-nav button:focus-visible {outline:2px solid #9ebaff; outline-offset:4px;}"
+    },
+    {
+      "name": "Technology Tag",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Noninteractive manifest-derived technology labels.",
+      "html": "<span class=\"ds-badge\">Node</span> <span class=\"ds-badge ds-teal\">Python</span>",
+      "css": ".ds-badge {display:inline-block;font:400 12px/1.4 Inter,sans-serif;padding:3px 11px;border-radius:6px;background:#11354d;color:#78d2ff;} .ds-teal {background:#0b383d;color:#7de0d6;}"
+    },
+    {
+      "name": "Project Card",
+      "kind": "card",
+      "refersTo": "project-card",
+      "description": "Flat full-width project surface with state explicitly named.",
+      "html": "<article class=\"ds-card\" tabindex=\"-1\" aria-label=\"Project\"><h2>Project <span>Observed</span></h2><p>Listening \u00b7 Published</p></article>",
+      "css": ".ds-card {font:400 14px/1.45 Inter,sans-serif;color:#edf2fc;padding:14px 20px 13px;border:1px solid #1d2f3d;border-radius:12px;background:linear-gradient(112deg,#0d1a24,#0d1922);transition:border-color 160ms ease-out;min-width:0;} .ds-card:hover {border-color:#2b4359;} .ds-card:focus-visible {outline:2px solid #9ebaff; outline-offset:4px;} .ds-card h2 {margin:0;padding-bottom:11px;border-bottom:1px solid #1b2e3c;font-size:20px;font-weight:600;line-height:1.25;letter-spacing:-.015em;overflow-wrap:anywhere;} .ds-card h2 span {font-size:12px;font-weight:400;letter-spacing:0;color:#94a8c2;margin-left:16px;} .ds-card p {margin:12px 0 0;color:#94a8c2;} @media(prefers-reduced-motion:reduce) {.ds-card {transition:none;}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Local project control",
+    "overview": "A quiet, dark workspace follows the approved rootlane-ui-reference.png: blue-black surfaces, restrained blue actions, and compact project rows. The shipped React interface, ordinary CSS, local Inter font, and inline SVG icons are the visual source of truth.\n\nDensity supports scanning real projects and runtime observations. Color, labels, and disabled controls communicate what the backend knows; they never imply fictional agent activity or verified preview readiness.",
+    "keyCharacteristics": [
+      "Blue-black tonal surfaces with fine dividing borders.",
+      "Compact, full-width project rows with inline expansion.",
+      "Local Inter typography and consistent SVG line icons.",
+      "Explicit status text alongside colored dots."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Rule",
+        "body": "Green means verified readiness or connection. Registered agents, observed listeners, and published routes use their explicit labels and quieter status colors.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Typeface Rule",
+        "body": "Use the shipped local Inter font for headings, interface text, and shortcut labels; preserve its tabular numerals and cv11 features.",
+        "section": "typography"
+      },
+      {
+        "name": "The Quiet Surface Rule",
+        "body": "Use tonal separation and fine borders for the workspace; reserve the shipped shadow for the floating More menu.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do preserve explicit state labels alongside status dots.",
+      "Do keep project details collapsed initially and expand them inline.",
+      "Do use the existing local font and SVG icon vocabulary.",
+      "Do preserve visible keyboard focus and honest disabled controls.",
+      "Do allow names, paths, and URLs to wrap on narrow screens."
+    ],
+    "donts": [
+      "Don't promote Registered to active agent behavior, Listening to Ready, or Published to verified Available.",
+      "Don't enable folder, preview, or logs controls without the corresponding capability.",
+      "Don't add system-stat cards, account chrome, or editable Settings to this approved surface.",
+      "Don't add a UI dependency to reproduce patterns already expressed in ordinary CSS."
+    ]
+  }
+}

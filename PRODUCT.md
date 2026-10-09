@@ -14,7 +14,7 @@ Discover real directories and Git worktrees. Existing services are observe-only.
 
 One full-width project row, with worktrees/environments, status, registered agents and useful links. Minimal navigation. Connected and Tailscale status replace an account menu. No system-stat cards. Five-second visible-page polling and immediate action refresh.
 
-Exact approved visual reference has not been provided. Current neutral CSS implements structure and interaction only; it is not a replacement visual direction. No visual-match claim may be made until the reference is available.
+The approved visual authority is rootlane-ui-reference.png: dark header with search and connection status, Projects/Settings sidebar, compact full-width cards with Agents, Services, Preview and actions. Worktrees and environments expand inline from counts and stay collapsed by default. Settings is read-only. Names, statuses, ports and URLs in the reference are illustrative; rendered content must come from the real backend.
 
 ## Success and exclusions
 

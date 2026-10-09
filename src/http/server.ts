@@ -69,9 +69,9 @@ export async function createServer(config: Config, service: Rootlane, credential
     // Only built assets are served; never expose arbitrary checkout files.
     const files = await readdir(join(webRoot, 'assets'));
     for (const file of files) {
-      if (!/^[a-zA-Z0-9_.-]+\.(js|css)$/.test(file)) continue;
+      if (!/^[a-zA-Z0-9_.-]+\.(js|css|woff2)$/.test(file)) continue;
       const data = await readFile(join(webRoot, 'assets', file));
-      app.get(`/assets/${file}`, async (_request, reply) => reply.type(file.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8').send(data));
+      app.get(`/assets/${file}`, async (_request, reply) => reply.type(file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.woff2') ? 'font/woff2' : 'text/css; charset=utf-8').send(data));
     }
   }
   return app;
