@@ -72,7 +72,7 @@ Temporary harness and client traces were kept privately under `/tmp`; credential
 - Open the Rootlane UI and disposable preview from a second tailnet device, including API proxying and an actual browser HMR refresh. SSH to the available second Linux device rejected the current key; owner access from that device is still needed. Local HTTPS/API/HMR checks passed.
 - Exercise an actual SSH disconnect and interrupted-stop timing if required before rollout. Healthy units survived abrupt backend death; interrupted-stop behavior passes focused adapter tests, but these two exact host scenarios were not reproduced.
 - Review the approved visual reference when provided; only the agreed row structure is implemented and browser checked.
-- Install persistent private configuration/credentials and the reviewed user service, then check service enablement and its dedicated HTTPS route. Acceptance used temporary configuration and routes; no persistent deployment was installed or enabled.
+- Completed for the owner-requested Compose installation: persistent private configuration/state and dedicated HTTPS were installed under the release deployment described below. A native user-service installation remains an alternative, not a second backend to enable concurrently.
 - During a separately authorized maintenance window, verify reboot behavior: Rootlane starts, development units remain absent and no application is automatically relaunched. Do not reboot neo solely to finish this session.
 
 ## Known limits
@@ -93,3 +93,11 @@ The owner requested a downloadable GitHub release runnable from a folder with Do
 - Setup's focused test verifies private/distinct credentials, initially observe-only profiles, repeat setup preserving credentials and configuration, and refusal of incompatible roots. The normal gate passes **26/26 tests**.
 
 The image is tested on neo/Linux amd64 only. Second-device acceptance and exact approved visual matching are still pending. See `deploy/RELEASE.md` for mount requirements, host trust boundary, configuration, upgrade and teardown behavior.
+
+## Persistent installation on neo — 2026-10-09
+
+At the owner's request, installed the published `v0.1.0` archive at `/opt/stacks/rootlane`, loaded its prebuilt image and started `rootlane-rootlane-1` through Docker Compose. The container is healthy with `restart: unless-stopped`. Private owner configuration and distinct credentials are under `/home/kyle/.config/rootlane`; SQLite state is under `/home/kyle/.local/state/rootlane`. The configuration observes `/home/kyle/code` and initially contains no launch profiles.
+
+The dedicated HTTPS origin is `https://neo.taile1abc7.ts.net:19483`. Actual HTTPS login/session/CSRF catalog calls passed, returning 11 real project/worktree entries, all observe-only. Lifecycle reconciliation is available and Tailscale reports connected. Private-file/directory checks passed; comparison with the pre-install Serve snapshot established that other mappings are unchanged. The installed `/opt/stacks/rootlane/deploy/rootlane-mcp-docker` wrapper exposed five tools and successfully called `list_projects` against this running backend. No global Codex/Claude configuration was changed, and no existing application was started, stopped or reconfigured.
+
+Second-device access, reboot behavior and exact visual-reference matching remain pending. The container uses the previously approved Rootlane-only AppArmor setting.
