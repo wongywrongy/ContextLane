@@ -4,6 +4,10 @@ Private project discovery and a durable development-environment controller for n
 
 **Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 25 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. No persistent deployment was installed. Second-device access and exact mockup matching remain pending. See [verification](VERIFICATION.md).
 
+## Downloadable Docker release
+
+A compiled Linux amd64 release with a prebuilt Docker image and Compose setup is available from [GitHub releases](https://github.com/wongywrongy/rootlane/releases). Follow [the folder deployment instructions](deploy/RELEASE.md). This optional packaging was explicitly requested after the original host-native implementation; it connects to existing user systemd and Tailscale rather than managing applications through Docker.
+
 ## Build and checks
 
 Node 24 LTS is required (observed: 24.11.0). Exact compatible direct versions are in `package.json` and `package-lock.json`; installation and the local gate passed on Node 24.11.0. Fastify is pinned to patched version 5.12.5; installation reports zero known vulnerabilities. The MCP client dependency is test-only.

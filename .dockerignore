@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!dist/
+!dist/**
+!deploy/
+!deploy/serve.mjs
