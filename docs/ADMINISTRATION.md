@@ -55,7 +55,7 @@ Retry a timed-out mutation with the same request ID and payload. Reuse with a di
 
 Lists and journals are bounded and paginated. Logs come only from recorded owned invocations; avoid secrets in application output. MCP uses a separate bearer credential over loopback and permits absent Origin while rejecting invalid supplied Origin. Standard tool annotations and client approval settings do not replace backend ownership checks.
 
-[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example](../deploy/claude-mcp.example.json) use an explicitly replaceable Docker adapter path. Allow only the five tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual tool calls, not just saved configuration. There is no remote MCP endpoint or agent-session orchestration.
+[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example](../deploy/claude-mcp.example.json) use an explicitly replaceable Docker adapter path. Allow only the five tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
 
 ## Failure and recovery
 

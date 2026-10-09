@@ -17,10 +17,10 @@ Download the compiled release and prebuilt Docker image. This repository is priv
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.7 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.7-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.8 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.8-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.7-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.8-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait

@@ -5,7 +5,7 @@ import { boundedText } from '../host/linux.js';
 export function createMcpServer(base: string, credential: string, request: typeof fetch = fetch) {
   const url = new URL(base);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.username || url.password || url.search || url.hash || credential.length < 32) throw new Error('MCP requires a loopback backend origin and a private agent credential');
-  const server = new McpServer({ name: 'rootlane', version: '0.1.0' }, { instructions: 'Manage reviewed development environments on this host. Discover IDs with list_projects. Start and stop return durable operations; poll get_environment. Keep requestId unchanged when retrying an action. Existing applications are observe-only.' });
+  const server = new McpServer({ name: 'rootlane', version: '0.1.0' }, { instructions: 'Manage reviewed development environments on this host. Use list_projects for project IDs and known project links. This service does not provide GitHub/Render API access or rewrite public URLs or payment callbacks. It exposes tools, not MCP resource entries. Start and stop return durable operations; poll get_environment. Keep requestId unchanged when retrying an action. Existing applications are observe-only.' });
   for (const name of Object.keys(toolContracts) as ToolName[]) {
     const contract = toolContracts[name];
     const inputSchema: z.ZodObject = contract.input; const outputSchema: z.ZodObject = contract.output;

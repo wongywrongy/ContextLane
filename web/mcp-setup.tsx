@@ -43,17 +43,17 @@ default_tools_approval_mode = "prompt"`}</Command>
 
 Never print or copy credentials. Do not install another backend, upgrade software, change routes, or launch environments. If the installation is missing or inaccessible, report the blocker rather than replacing it.
 
-Verify with tools/list and a read-only list_projects call if available; otherwise explain how to verify in a fresh session. Report exactly what changed.`}</Command></details>
+Verify Rootlane with tools/list and a read-only list_projects call. A list_mcp_resources result is not a tool-discovery check: Rootlane exposes tools, not resource entries. If this session has no Rootlane tools, report that limitation and give fresh-session or reconnect steps; do not claim setup succeeded from a saved registration or launcher text. Rootlane catalogs project links and reviewed local environments; it does not provide GitHub/Render API access or change public URLs or payment callbacks. Report exactly what changed.`}</Command></details>
     </section>
     <section><h3>Verify a real tool call</h3>
       <p>In a new coding session, ask:</p>
       <Command title="Read-only verification prompt">{'Use Rootlane’s list_projects tool to list my projects. Do not start or stop anything.'}</Command>
-      <p>A successful result contains your actual project catalog. Seeing a saved server entry alone does not verify a working connection.</p>
+      <p>A successful result contains your actual project catalog. Seeing a saved server entry alone does not verify a working connection. Rootlane exposes tools, not resource entries; list_mcp_resources is not a connection test.</p>
       <dl className="mcp-tools"><dt><code>list_projects</code></dt><dd>Discover projects, worktrees and known links.</dd><dt><code>get_environment</code></dt><dd>Read current environment status and its latest operation.</dd><dt><code>start_environment</code></dt><dd>Start an owner-reviewed profile by ID and request ID.</dd><dt><code>stop_environment</code></dt><dd>Stop Rootlane-owned resources by ID and request ID.</dd><dt><code>get_logs</code></dt><dd>Read bounded logs for a Rootlane-owned service.</dd></dl>
       <p>Existing projects remain observe-only. Start and stop require a reviewed profile; accepting an operation does not mean the application is ready.</p>
     </section>
     <section><h3>If it does not connect</h3>
-      <ul><li><strong>Adapter missing:</strong> check the installation path and that the wrapper is executable.</li><li><strong>Docker unavailable or permission denied:</strong> check Docker access as the installation owner.</li><li><strong>Rootlane unavailable:</strong> check the container status and retry after the backend is healthy. The adapter never starts another backend.</li><li><strong>Unauthorized:</strong> check the private agent credential file and container configuration on the Rootlane host. Keep its contents private.</li><li><strong>Tools missing:</strong> restart the coding session and inspect its MCP entry and tool permissions.</li></ul>
+      <ul><li><strong>Adapter missing:</strong> check the installation path and that the wrapper is executable.</li><li><strong>Docker unavailable or permission denied:</strong> check Docker access as the installation owner.</li><li><strong>Rootlane unavailable:</strong> check the container status and retry after the backend is healthy. The adapter never starts another backend.</li><li><strong>Unauthorized:</strong> check the private agent credential file and container configuration on the Rootlane host. Keep its contents private.</li><li><strong>Tools missing:</strong> use /mcp in the local coding client to inspect Rootlane connection errors and tool permissions, then reconnect or start a fresh session. A hosted chat may not expose your locally configured stdio tools.</li></ul>
       <p>This setup uses local stdio. Rootlane does not currently expose a remote <code>/mcp</code> endpoint; the browser URL cannot be used as an MCP server URL from another device.</p>
     </section>
   </div>;

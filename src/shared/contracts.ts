@@ -13,7 +13,7 @@ export const environmentOutput = z.strictObject({ id, profileRevision: z.string(
 export const acceptedOutput = z.strictObject({ operation, ownership: z.literal('rootlane'), links: z.array(link).default([]) });
 export const logsOutput = z.strictObject({ lines: z.array(z.string().max(2048)).max(100), nextCursor: z.string().nullable(), truncated: z.boolean() });
 export const toolContracts = {
-  list_projects: { input: page, output: catalogOutput, description: 'List real project directories and Git worktrees in approved observation roots. Existing services are observe-only.', read: true },
+  list_projects: { input: page, output: catalogOutput, description: 'List real project directories, Git worktrees and known project links in approved observation roots. Existing services are observe-only.', read: true },
   get_environment: { input: environmentInput, output: environmentOutput, description: 'Observe a Rootlane environment, readiness, preview links and its latest durable operation.', read: true },
   start_environment: { input: mutation, output: acceptedOutput, description: 'Start a reviewed environment by ID. Returns a durable operation immediately; poll get_environment for readiness. Reuse requestId on retries. Effects are defined by its owner-approved profile.', read: false },
   stop_environment: { input: mutation, output: acceptedOutput, description: 'Stop only recorded Rootlane units and matching preview routes. Terminates running work. Reuse requestId on retries.', read: false },
