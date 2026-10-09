@@ -8,6 +8,22 @@ import { Store } from '../src/state/store.js';
 import { Lifecycle } from '../src/lifecycle/service.js';
 import { join } from 'node:path';
 
+test('owner-selected short credentials work while empty owner and weak/shared agent credentials fail', async t => {
+  const { config, lifecycle, host } = await setup(t);
+  const service = new Rootlane(new Catalog(config, host), lifecycle);
+  const agent = 'a'.repeat(40);
+  for (const credentials of [{ owner: '', agent }, { owner: '   ', agent }, { owner: 'x'.repeat(257), agent }, { owner: 'chosen', agent: 'short' }, { owner: agent, agent }]) {
+    await assert.rejects(createServer(config, service, credentials), /credential/);
+  }
+  const app = await createServer(config, service, { owner: 'chosen', agent }); t.after(() => app.close());
+  const headers = { host: new URL(config.origin).host, origin: config.origin };
+  assert.equal((await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: '' } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: 'wrong' } })).statusCode, 401);
+  const login = await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: 'chosen' } });
+  assert.equal(login.statusCode, 200);
+  assert.match(String(login.headers['set-cookie']), /Secure; HttpOnly; SameSite=Strict/);
+});
+
 test('HTTP rejects unauthorized, host/origin, CSRF and extra fields; session and agent credentials remain separate', async t => {
   const { config, lifecycle, host } = await setup(t);
   const app = await createServer(config, new Rootlane(new Catalog(config, host), lifecycle), { owner: 'o'.repeat(40), agent: 'a'.repeat(40) }); t.after(() => app.close());

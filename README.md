@@ -2,7 +2,7 @@
 
 Private project discovery and a durable development-environment controller for neo. One Fastify process serves React and authenticated HTTP; the local MCP adapter forwards the same five operations to that process.
 
-**Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 29 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. Release v0.1.2 is installed with Docker Compose at `/opt/stacks/rootlane` on neo. Second-device access and exact mockup matching remain pending. See [verification](VERIFICATION.md).
+**Implementation status: first slice works on neo; final deployment checks remain.** The normal gate passes all 30 tests. Real discovery, browser login, native systemd start/readiness/logs/stop, Tailscale preview/API/HMR, failure rollback, restart reconciliation and stopped-state backup restore passed. Installed Codex and Claude Code each completed the same managed lifecycle through MCP. Test-owned resources were removed and existing routes were preserved. Release v0.1.3 is installed with Docker Compose at `/opt/stacks/rootlane` on neo. Second-device access and exact mockup matching remain pending. See [verification](VERIFICATION.md).
 
 On neo, open [Rootlane](https://root.avlis.dev). The original Tailscale HTTPS address also remains available. Owner login is required; existing projects are observe-only.
 
@@ -31,7 +31,7 @@ On 2026-10-09 the owner removed `dev-test` and explicitly authorized direct chec
 
 After the gate passes, install a mode-0600 copy of this configuration outside observation roots at `/home/kyle/.config/rootlane/config.json`. Keep its directory private. Review paths and executable locations before installation. Rootlane validates owner permissions, canonical observation boundaries, dependencies and port assignments.
 
-Create two distinct random credentials, each at least 32 characters, in mode-0600 files `owner.credential` and `agent.credential` in that same private directory. Keep them out of the repository and shell history. `openssl rand -hex 32` can generate each credential directly into its private file. The service reads their paths from the environment variables in `deploy/rootlane.service`; credential values are not unit arguments.
+Create two distinct random credentials, preferably 256-bit generated values, in mode-0600 files `owner.credential` and `agent.credential` in that same private directory. An owner-selected credential may be 1–256 characters; the agent credential still requires at least 32 characters. Short or predictable owner credentials provide less resistance to guessing. Keep them out of the repository and shell history. `openssl rand -hex 32` can generate each credential directly into its private file. The service reads their paths from the environment variables in `deploy/rootlane.service`; credential values are not unit arguments.
 
 The state directory is `/home/kyle/.local/state/rootlane`, mode 0700, outside discovery roots. It contains the SQLite database/WAL and lifetime instance lock. The database stores ownership, intent, invocation IDs, request mappings and bounded failure snapshots, not executable arguments, process environments or agent prompts. SQLite rows do not establish runtime health.
 

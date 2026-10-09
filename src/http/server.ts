@@ -7,9 +7,9 @@ import type { Config } from '../config.js';
 import type { Rootlane } from '../service.js';
 import { toolContracts, problem, Problem, type ToolName } from '../shared/contracts.js';
 const equal = (a: string, b: string) => Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const loginSchema = z.strictObject({ credential: z.string().min(32).max(256) });
+const loginSchema = z.strictObject({ credential: z.string().min(1).max(256) });
 export async function createServer(config: Config, service: Rootlane, credentials: { owner: string; agent: string }, webRoot?: string) {
-  if (credentials.owner.length < 32 || credentials.agent.length < 32 || equal(credentials.owner, credentials.agent)) throw new Error('Distinct owner and agent credentials of at least 32 characters are required');
+  if (!credentials.owner.trim() || credentials.owner.length > 256 || credentials.agent.length < 32 || equal(credentials.owner, credentials.agent)) throw new Error('A nonempty owner credential of at most 256 characters and a distinct agent credential of at least 32 characters are required');
   const app = Fastify({ logger: false, bodyLimit: 16384, requestTimeout: 10000, connectionTimeout: 10000, keepAliveTimeout: 5000 });
   const sessions = new Map<string, { csrf: string; expires: number }>();
   const cookieName = '__Host-rootlane';

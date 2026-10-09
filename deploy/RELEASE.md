@@ -7,10 +7,10 @@ Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running u
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.2 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.2-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.3 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.3-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.2-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.3-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -45,4 +45,4 @@ Upgrades: back up SQLite through its backup API; stop Rootlane before restoring;
 
 Owner-reviewed secondary operator addresses can be added with `additionalOrigins`, for example `["https://root.avlis.dev"]`. They must be canonical HTTPS origins. Rootlane validates both the allowed Host and its matching supplied Origin; original Tailscale access remains available. Configure the corresponding route in the existing proxy manager separately, without exposing the loopback backend directly.
 
-Login accepts at most ten attempts in any sliding minute across all operator origins and clients. The bounded attempt timestamps persist in SQLite across Rootlane restarts; no submitted credential is recorded. `429` responses provide `Retry-After`. Malformed/oversized bodies consume the same budget before parsing. A sustained attempt flood can temporarily deny new logins; already authenticated sessions remain usable. Owner credentials are generated with 256 bits of randomness and must remain private. This does not protect against credential theft, an owner-user compromise or network-level denial of service.
+Login accepts at most ten attempts in any sliding minute across all operator origins and clients. The bounded attempt timestamps persist in SQLite across Rootlane restarts; no submitted credential is recorded. `429` responses provide `Retry-After`. Malformed/oversized bodies consume the same budget before parsing. A sustained attempt flood can temporarily deny new logins; already authenticated sessions remain usable. Setup generates owner credentials with 256 bits of randomness. An owner may intentionally replace theirs with a nonempty credential up to 256 characters; agent credentials must remain distinct and at least 32 characters. Short or predictable credentials have less resistance to guessing. Keep credentials private. This does not protect against credential theft, an owner-user compromise or network-level denial of service.
