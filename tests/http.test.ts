@@ -27,3 +27,21 @@ test('HTTP rejects unauthorized, host/origin, CSRF and extra fields; session and
   assert.equal((await app.inject({ method: 'GET', url: '/api/session', headers: sessionHeaders })).statusCode, 401);
   t.mock.timers.reset();
 });
+
+
+test('reviewed HTTPS alias supports owner sessions and CSRF while rejecting cross-origin Host pairs', async t => {
+  const { config, lifecycle, host } = await setup(t);
+  config.additionalOrigins = ['https://root.avlis.dev'];
+  const app = await createServer(config, new Rootlane(new Catalog(config, host), lifecycle), { owner: 'o'.repeat(40), agent: 'a'.repeat(40) }); t.after(() => app.close());
+  const headers = { host: 'root.avlis.dev', origin: 'https://root.avlis.dev' };
+  const login = await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: 'o'.repeat(40) } });
+  assert.equal(login.statusCode, 200);
+  const cookie = String(login.headers['set-cookie']).split(';')[0];
+  const request = { method: 'POST' as const, url: '/api/tools/list_projects', payload: { limit: 1 } };
+  assert.equal((await app.inject({ ...request, headers: { ...headers, cookie } })).statusCode, 403);
+  const authorized = { ...headers, cookie, 'x-rootlane-csrf': login.json().csrf };
+  assert.equal((await app.inject({ ...request, headers: authorized })).statusCode, 200);
+  assert.equal((await app.inject({ ...request, headers: { ...authorized, origin: config.origin } })).statusCode, 403);
+  assert.equal((await app.inject({ ...request, headers: { ...authorized, host: 'evil.test' } })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/login', headers: { host: new URL(config.origin).host, origin: config.origin }, payload: { credential: 'o'.repeat(40) } })).statusCode, 200);
+});

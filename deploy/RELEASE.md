@@ -7,10 +7,10 @@ Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running u
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.0 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.0-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.1 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.1-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.0-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.1-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -42,3 +42,5 @@ Check `docker compose ps`, `docker compose logs --tail=100`, and the authenticat
 This is a trusted single-owner host controller. The owner explicitly approved `apparmor:unconfined` for Rootlane only because Docker's default AppArmor policy prevents attributing host listeners to owned control groups. Host network/PID/cgroup namespaces and user-systemd/Tailscale sockets expose host integration. The container runs as your UID with all capabilities dropped, no privileged mode, no Docker socket and read-only project mounts. It is not a sandbox against code running as that owner. Managed host units are outside the container's resource limits.
 
 Upgrades: back up SQLite through its backup API; stop Rootlane before restoring; preserve `~/.config/rootlane` and `~/.local/state/rootlane`. Load the new versioned image and use that release's Compose file. Do not run native-systemd and Compose backend installations simultaneously against the same state/port.
+
+Owner-reviewed secondary operator addresses can be added with `additionalOrigins`, for example `["https://root.avlis.dev"]`. They must be canonical HTTPS origins. Rootlane validates both the allowed Host and its matching supplied Origin; original Tailscale access remains available. Configure the corresponding route in the existing proxy manager separately, without exposing the loopback backend directly.

@@ -14,6 +14,10 @@ export async function createServer(config: Config, service: Rootlane, credential
   const sessions = new Map<string, { csrf: string; expires: number }>();
   let loginWindow = Date.now(); let attempts = 0;
   const cookieName = '__Host-rootlane';
+  const origins = new Set([config.origin, ...(config.additionalOrigins ?? [])]);
+  const hosts = new Set([...origins].map(origin => new URL(origin).host));
+  const loopback = () => `127.0.0.1:${config.port}`;
+  const browserOrigin = (host: string | undefined, origin: string | undefined) => origin !== undefined && origins.has(origin) && (host === loopback() || new URL(origin).host === host);
   const session = (cookie: string | undefined) => {
     const token = cookie?.split(';').map(s => s.trim()).find(s => s.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     const found = token ? sessions.get(token) : undefined;
@@ -21,8 +25,8 @@ export async function createServer(config: Config, service: Rootlane, credential
   };
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer').header('Cache-Control', 'no-store').header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-    if (!request.headers.host || ![new URL(config.origin).host, `127.0.0.1:${config.port}`].includes(request.headers.host)) return reply.code(403).send({ code: 'INVALID_HOST', message: 'Unexpected Host' });
-    if (request.headers.origin !== undefined && request.headers.origin !== config.origin) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Unexpected Origin' });
+    if (!request.headers.host || !(hosts.has(request.headers.host) || request.headers.host === loopback())) return reply.code(403).send({ code: 'INVALID_HOST', message: 'Unexpected Host' });
+    if (request.headers.origin !== undefined && !browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Unexpected Origin' });
     if (!request.url.startsWith('/api/') || request.url.split('?')[0] === '/api/login') return;
     const auth = request.headers.authorization;
     if (auth !== undefined) {
@@ -31,7 +35,7 @@ export async function createServer(config: Config, service: Rootlane, credential
     }
     const current = session(request.headers.cookie);
     if (!current) return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Unlock Rootlane with the installation owner credential' });
-    if (!['GET', 'HEAD'].includes(request.method) && (request.headers.origin !== config.origin || request.headers['x-rootlane-csrf'] !== current.csrf)) return reply.code(403).send({ code: 'CSRF_REJECTED', message: 'Refresh this page before retrying' });
+    if (!['GET', 'HEAD'].includes(request.method) && (!browserOrigin(request.headers.host, request.headers.origin) || request.headers['x-rootlane-csrf'] !== current.csrf)) return reply.code(403).send({ code: 'CSRF_REJECTED', message: 'Refresh this page before retrying' });
   });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ code: 'INVALID_INPUT', message: 'Request does not match the strict tool schema' });
@@ -40,7 +44,7 @@ export async function createServer(config: Config, service: Rootlane, credential
     return reply.code(status && status >= 400 && status < 500 ? status : 500).send({ code: 'REQUEST_FAILED', message: 'Request failed; check service availability and request limits' });
   });
   app.post('/api/login', async (request, reply) => {
-    if (request.headers.origin !== config.origin) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Use the configured HTTPS origin' });
+    if (!browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Use the configured HTTPS origin' });
     if (Date.now() - loginWindow > 60000) { loginWindow = Date.now(); attempts = 0; }
     if (++attempts > 10) return reply.code(429).send({ code: 'RATE_LIMIT', message: 'Wait a minute before trying again' });
     const { credential } = loginSchema.parse(request.body);

@@ -4,6 +4,7 @@ import { isAbsolute, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { id, link, Problem } from './shared/contracts.js';
 const absolute = z.string().max(4096).refine(v => !v.includes('\0') && !v.includes('\n'), 'Control characters are not allowed').refine(isAbsolute, 'Must be an absolute path');
+const origin = z.url().refine(v => { const u = new URL(v); return u.protocol === 'https:' && u.origin === v; }, 'Canonical HTTPS origin required');
 const port = z.number().int().min(1024).max(65535);
 const service = z.strictObject({
   id, cwd: absolute, executable: absolute, args: z.array(z.string().max(4096).refine(v => !v.includes('\0'))).max(100),
@@ -19,7 +20,7 @@ export const profileSchema = z.strictObject({
 export const configSchema = z.strictObject({
   projectRoots: z.array(absolute).min(1).max(16), observationRoots: z.array(absolute).min(1).max(32),
   stateDirectory: absolute, port: port.default(9480),
-  origin: z.url().refine(v => { const u = new URL(v); return u.protocol === 'https:' && u.origin === v; }, 'Canonical HTTPS origin required'),
+  origin, additionalOrigins: z.array(origin).max(4).optional(),
   tailnetHostname: z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/),
   profiles: z.array(profileSchema).max(50).default([]),
   projects: z.array(z.strictObject({ path: absolute, links: z.array(link).max(20).default([]), agents: z.array(z.strictObject({ name: z.string().min(1).max(100) })).max(20).default([]) })).max(200).default([])
