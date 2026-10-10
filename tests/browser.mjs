@@ -19,7 +19,7 @@ try {
  };
  const {targetId}=await send('Target.createTarget',{url:'about:blank'});const {sessionId}=await send('Target.attachToTarget',{targetId,flatten:true});
  await send('Browser.grantPermissions',{origin:'https://rootlane.test',permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
- const page=(method,params={})=>send(method,params,sessionId);
+ const page=async(method,params={})=>{if(method==='Emulation.setDeviceMetricsOverride')await send('Emulation.setTouchEmulationEnabled',{enabled:!!params.mobile},sessionId);return send(method,params,sessionId);};
  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  let editorTemplate='vscode://file{path}'; let unlocked=true; let failActionOnce=false; let failProject=false,failLogs=false,failCatalog=false,failEnvironment=false,failPreview=false,disconnect=false,delayProject=0,delayCatalog=0,delayLogs=0,activeCatalog=0,peakCatalog=0;
  const previewId='12345678-1234-4234-8234-123456789abc';
@@ -59,6 +59,14 @@ try {
  assert.equal(await evaluate('document.querySelectorAll(".project-details").length'),0); assert(!requests.some(r=>r.path.endsWith('get_environment')||r.path.endsWith('get_preview')),'Collapsed projects do not trigger readiness probes');
  assert(await evaluate('document.querySelector("#project-p1 .pv").textContent.includes("Not exposed") && !document.querySelector("#project-p1 .pv a")'),'Known URL is not a published preview');
  assert(await evaluate('document.querySelector(".mark.codex svg") !== null && document.querySelector(".mark.claude svg") !== null'),'Both vendor marks render in collapsed agent rows');
+ const mobileChecks=[];
+ const mobileLayout=async(surface,width)=>{
+  await page('Emulation.setDeviceMetricsOverride',{width,height:width>760?390:844,deviceScaleFactor:1,mobile:true});await pause(50);
+  const metrics=await evaluate(`({overflow:document.documentElement.scrollWidth>innerWidth,tableOverflow:[...document.querySelectorAll('.tbl-wrap')].some(el=>el.scrollWidth>el.clientWidth+1),unlabeledCells:[...document.querySelectorAll('.tbl td')].filter(el=>!el.dataset.label).length,smallControls:[...document.querySelectorAll('button,select,input')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0 && r.height>0 && (r.height<43 || r.width<43)}).map(el=>el.getAttribute('aria-label')||el.textContent)})`);
+  assert.equal(metrics.overflow,false,`${surface} ${width}: page overflow`);
+  if(width<=760){assert(await evaluate('[...document.querySelectorAll(".tab")].every(el=>{const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth})'),`${surface}: hidden detail tab`);assert.equal(metrics.tableOverflow,false,`${surface} ${width}: table overflow`);assert.equal(metrics.unlabeledCells,0,`${surface}: missing mobile labels`);assert.deepEqual(metrics.smallControls,[],`${surface} ${width}: touch targets`);}
+  mobileChecks.push({surface,width,...metrics});
+ };
  const captures=[];
  const capture=async name=>{await evaluate('document.fonts.ready');await page('Page.captureScreenshot').then(({data})=>writeFile(`${evidence}/${name}.png`,Buffer.from(data,'base64')));};
  for(const [width,name] of [[1440,'desktop'],[1000,'tablet'],[390,'mobile']]) {
@@ -81,8 +89,10 @@ try {
  await page('Input.insertText',{text:'6000'});await wait('document.querySelectorAll(".project").length===1');
  await evaluate(`(()=>{const input=document.querySelector('.cmd input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);await wait('document.querySelectorAll(".project").length===12');
  const openTab=async tab=>{await evaluate(`document.querySelector('#project-p0 .dbar').click()`);await evaluate(`document.getElementById('tab-p0-${tab}').click()`);};
- await openTab('Worktrees');await wait('document.querySelector(".project-details table")');await wait('document.querySelector(".proj-head").textContent.includes("Stop")');await capture('expanded');
- for(const tab of ['Agents','Services','Preview','Environment','Activity']) {await evaluate(`document.getElementById('tab-p0-${tab}').click()`);await wait(`document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')==='tab-p0-${tab}'`);if(tab==='Agents')assert(await evaluate('document.querySelector(".project-details .mark.codex svg") !== null'),'Codex mark renders in Agents details');await capture('tab-'+tab.toLowerCase());}
+ for(const width of [320,360,390,430,760,844])await mobileLayout('Projects',width);
+ await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await openTab('Worktrees');await wait('document.querySelector(".project-details table")');await wait('document.querySelector(".proj-head").textContent.includes("Stop")');await capture('expanded');for(const width of [320,390,430])await mobileLayout('Worktrees',width);await mobileLayout('Worktrees',390);await evaluate('window.scrollTo(0,document.querySelector(".tabs").getBoundingClientRect().top+scrollY-document.querySelector(".topbar").getBoundingClientRect().height-8)');await capture('mobile-worktrees');await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate('window.scrollTo(0,0)');
+ for(const tab of ['Agents','Services','Preview','Environment','Activity']) {await evaluate(`document.getElementById('tab-p0-${tab}').click()`);await wait(`document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')==='tab-p0-${tab}'`);if(tab==='Agents')assert(await evaluate('document.querySelector(".project-details .mark.codex svg") !== null'),'Codex mark renders in Agents details');await capture('tab-'+tab.toLowerCase());for(const width of [320,390,430])await mobileLayout(tab,width);await mobileLayout(tab,390);await evaluate('window.scrollTo(0,document.querySelector(".tabs").getBoundingClientRect().top+scrollY-document.querySelector(".topbar").getBoundingClientRect().height-8)');await capture('mobile-'+tab.toLowerCase());await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate('window.scrollTo(0,0)');}
  await evaluate(`document.getElementById('tab-p0-Services').click()`);
  await wait('document.querySelector(".project-details .tbl button")'); await evaluate('document.querySelector(".project-details .tbl button").click()');
  await wait('document.querySelector(".proposal pre")?.textContent.includes("CHANGE ME")');await evaluate('document.querySelector(".proposal .btn").click()'); await wait('document.querySelector(".copy-notice")?.textContent.includes("Draft copied")');
@@ -106,9 +116,9 @@ try {
  failCatalog=true;await evaluate(`document.querySelector('[aria-label="Refresh projects"]').click()`);await wait(`document.querySelector('.notice.bad')?.textContent.includes('Controlled catalog failure')`);failCatalog=false;
  disconnect=true;await evaluate(`document.querySelector('[aria-label="Refresh projects"]').click()`);await wait(`document.querySelector('.conn').textContent.includes('Disconnected')`);assert.equal(await evaluate('document.querySelectorAll(".project").length'),12);
  disconnect=false;await evaluate(`document.querySelector('[aria-label="Refresh projects"]').click()`);await wait(`document.querySelector('.conn').textContent.includes('Connected') && !document.querySelector('.notice.bad')`);
- await evaluate(`document.querySelector('.main-nav button:last-child').click()`);await capture('settings');
+ await evaluate(`document.querySelector('.main-nav button:last-child').click()`);await capture('settings');for(const width of [320,390,430])await mobileLayout('Settings',width);await mobileLayout('Settings',390);await capture('settings-mobile');await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`document.querySelector('.settings-nav button:last-child').click()`);await capture('mcp-desktop');
- await page('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});await pause(100);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);await capture('mcp-mobile');
+ await page('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});await pause(100);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);await capture('mcp-mobile');for(const width of [320,390,430])await mobileLayout('MCP',width);await mobileLayout('MCP',390);await evaluate('document.querySelector(".mcp-tools").scrollIntoView({block:"center"})');await capture('mcp-tools-mobile');await evaluate('window.scrollTo(0,0)');
  await page('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});assert.equal(await evaluate('getComputedStyle(document.querySelector(".seg button")).transitionDuration'),'0s');
  await evaluate(`document.querySelector('.main-nav button:first-child').click()`);await evaluate('window.scrollTo(0,0)');
  await page('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await page('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
@@ -119,9 +129,9 @@ try {
  await evaluate('window.originalCopy=navigator.clipboard.writeText.bind(navigator.clipboard);navigator.clipboard.writeText=async()=>{throw Error("Controlled clipboard denial")};document.querySelector(".copy-path").click()');await wait('document.querySelector(".path").textContent.includes("Copy unavailable. Select the path.")');
  await evaluate('navigator.clipboard.writeText=window.originalCopy;document.querySelector(".copy-path").click()');await wait('document.querySelector(".path .copy-path").textContent==="Copied"');
  await capture('editor-fallback-mobile');
- unlocked=false;await page('Page.reload');await wait('document.querySelector("#credential")');assert(!await evaluate('!!document.querySelector(".topbar")'));await capture('unlock-mobile');
+ unlocked=false;await page('Page.reload');await wait('document.querySelector("#credential")');assert(!await evaluate('!!document.querySelector(".topbar")'));await capture('unlock-mobile');for(const width of [320,390,430])await mobileLayout('Unlock',width);
  await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await capture('unlock');
  assert(!await evaluate('!!document.querySelector("[style],img[src^=\\"data:\\"]")'),'No inline styles or data images'); assert(await evaluate('document.querySelector(".mark.claude svg") !== null') || !await evaluate('document.querySelector(".mark.claude") !== null'));
- assert.deepEqual(consoleErrors,[]);await writeFile(evidence+'/browser-results.json',JSON.stringify({captures,peakCatalog,requests,consoleErrors},null,2));
+ assert.deepEqual(consoleErrors,[]);await writeFile(evidence+'/browser-results.json',JSON.stringify({captures,mobileChecks,peakCatalog,requests,consoleErrors},null,2));
  console.log('PASS Signal desktop/tablet/mobile, collapsed summaries, tabs, logs, search shortcut, stale observations, menu focus, coalesced refresh, settings, unlock and reduced motion');
 } finally {socket?.close();child.kill('SIGTERM');if(child.exitCode===null)await new Promise(resolve=>child.once('exit',resolve));await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

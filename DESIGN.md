@@ -204,9 +204,9 @@ The pairing is compact and precise. Interface text uses `ss01` and tabular numer
 
 A sticky topbar (64px) combines brand, segmented Projects/Settings navigation, centered search (maximum 520px) and real connection/tailnet status. Main content centers in a maximum 1320px container with desktop padding of 40px 28px 64px. Full-width project cards form a single list with 16px gaps; the toolbar wraps filters and sorting controls.
 
-Card summaries have three columns in a 1.15:1:1 ratio for Agents, Services and Preview. At 1100px and below they become two equal columns with Preview spanning the next row. At 760px and below all three panels stack. That breakpoint also wraps the topbar into brand/connection, full-width navigation and search rows; main padding becomes 28px 16px 48px. Card headings wrap when actions require space, and a lone actions button stays beside the identity.
+Card summaries have three columns in a 1.15:1:1 ratio for Agents, Services and Preview. At 1100px and below they become two equal columns with Preview spanning the next row. At 760px and below all three panels stack. That breakpoint also wraps the topbar into brand/connection, full-width navigation and search rows; main padding becomes 28px 16px 48px. Card headings wrap when actions require space, and a lone actions button stays beside the identity. Phone filters form two equal columns; controls have at least 44px tap targets, search and password inputs use 16px to avoid focus zoom, and keyboard hints are omitted on phones. Safe-area insets protect the shell and page edges.
 
-Details open inline for one project at a time. Horizontally scrolling tabs sit above tables or two-column information boxes; boxes and read-only definition lists stack on mobile. Tables preserve their columns in keyboard-focusable horizontal scroll containers. Names, paths and long values wrap where appropriate; compact summaries and preview URL pills may ellipsize.
+Details open inline for one project at a time. Desktop/tablet tabs scroll horizontally; phone tabs use three columns over two rows so every destination stays visible. Tabs sit above tables or two-column information boxes; boxes and read-only definition lists stack on mobile. Desktop and tablet tables preserve their columns in keyboard-focusable horizontal scroll containers. At 760px and below, each row becomes a labeled record with retained table semantics; headers remain accessible and all fields wrap within the phone width. Names, paths and long values wrap where appropriate; compact summaries and preview URL pills may ellipsize.
 
 ## Elevation & Depth
 
@@ -260,7 +260,7 @@ Runtime details use observed service names, process start times and worktree sta
 
 The fast observation loop runs every five seconds; active operations refresh every second. Git metadata refreshes every sixty seconds or on HEAD/index changes. Only an expanded project requests environment and preview readiness probes. Config reload and reconciliation failures use one status notice each. Stop and Unpublish require confirmation; retries preserve the click’s request ID. The shell displays the durable action status through accepted, running and completion without requiring a card to stay expanded. Valid-session reauthentication stays available during login throttling.
 
-Path links use the private host’s approved editorUrlTemplate. Without it, paths remain text with Copy. Proposal JSON stays unapproved, with literal readiness placeholders and exact host instructions to edit config.json and run rootlane-reload. Settings never writes config. Claude’s mark is an inline React SVG from Anthropic’s press asset; Codex retains CX until an official standalone mark is available. CSP allows only self-hosted assets; Geist fonts remain WOFF2 files, assetsInlineLimit is zero, and components use no inline style attributes or data URLs.
+Path links use the private host’s approved editorUrlTemplate. Without it, paths remain text with Copy. Proposal JSON stays unapproved, with literal readiness placeholders and exact host instructions to edit config.json and run rootlane-reload. Settings never writes config. Claude and Codex use locally sourced official inline React SVG marks. CSP allows only self-hosted assets; Geist fonts remain WOFF2 files, assetsInlineLimit is zero, and components use no inline style attributes or data URLs.
 
 ## Do's and Don'ts
 
@@ -268,7 +268,7 @@ Path links use the private host’s approved editorUrlTemplate. Without it, path
 - Do pair state color with an explicit label and an inline SVG symbol.
 - Do preserve the three, two and one panel layouts at the shipped breakpoints.
 - Do use locally hosted Geist and Geist Mono and preserve visible keyboard focus.
-- Do keep details inline, technical tables horizontally scrollable and long values able to wrap.
+- Do keep details inline, technical tables horizontally scrollable on desktop/tablet, labeled and stacked on phones, and long values able to wrap.
 - Do show stale observations and action failures beside the affected content.
 
 ### Don't:
@@ -276,3 +276,5 @@ Path links use the private host’s approved editorUrlTemplate. Without it, path
 - Don't restore gray status dots or replace explicit state labels with color alone.
 - Don't add account chrome, system-stat cards or editable Settings to this approved workspace.
 - Don't introduce a UI dependency or fabricated vendor logo to reproduce the shipped patterns.
+
+Phone refinement: agent metadata sits under the name in the shared grid; service names/worktrees and preview URLs wrap. Paths reserve space for Copy/editor actions, and success announcements stay accessible without duplicating visible text. Details metadata wraps on its own row; activity stacks its event text below time/status. Settings, MCP tool records, proposals, logs and Unlock use the same mobile spacing and control rules.
