@@ -56,3 +56,27 @@ test('agents attach to the deepest approved checkout; unknown directories stay u
   assert(failed.warnings.includes('Agent detection unavailable'));
   assert.equal(failed.projects.find(p => p.path === app)!.agents.length, 1);
 });
+
+test('Signal payload attributes agents and listeners to a checkout and exposes detached worktrees', async t => {
+  const { root, config, host } = await setup(t); config.profiles = [];
+  const repo = join(root, 'repo'); const tree = join(root, 'detached');
+  await mkdir(repo); await command('git', ['init', repo]);
+  await command('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'fixture']);
+  await command('git', ['-C', repo, 'worktree', 'add', '--detach', tree]);
+  await mkdir(join(tree, 'web'));
+  host.agentObservations.agents = [{id:'a'.repeat(24),name:'Codex',cwd:join(tree,'web')}];
+  host.listeners = async () => [{address:'127.0.0.1',port:3000,pid:1,cwd:tree,cgroup:null},{address:'127.0.0.1',port:4000,pid:null,cwd:null,cgroup:null}];
+  config.projects=[{path:repo,links:[{label:'Homepage',url:'https://example.invalid/'}],agents:[]}];
+  host.routes=async()=>({TCP:{'8443':{HTTPS:true}},Web:{[config.tailnetHostname+':8443']:{Handlers:{'/':{Proxy:'http://127.0.0.1:3000'}}}}});
+  const result = await new Catalog(config, host).list({limit:50});
+  const main = result.projects.find(p => p.path === repo)!; const checkout = result.projects.find(p => p.path === tree)!;
+  assert.match(checkout.detachedSha!, /^[a-f0-9]+$/);
+  assert.deepEqual(checkout.runtime.listeners,[{port:3000,worktreePath:tree}]);
+  assert.equal(checkout.agents[0].source,'detected process');
+  if (checkout.agents[0].source === 'detected process') { assert.equal(checkout.agents[0].cwd,join(tree,'web')); assert.equal(checkout.agents[0].worktreePath,tree); }
+  assert.deepEqual(main.observedPreviews,[]); assert.equal(main.links[0].label,'Homepage');
+  assert.equal(checkout.observedPreviews?.[0].url,`https://${config.tailnetHostname}:8443/`);
+  assert.equal(main.worktrees?.length,2); assert.deepEqual(main.worktrees?.find(w => w.path === tree)?.ports,[3000]);
+  assert(result.projects.every(p => !p.runtime.ports.includes(4000)));
+  const { catalogOutput } = await import('../src/shared/contracts.js'); assert.doesNotThrow(() => catalogOutput.parse(result));
+});

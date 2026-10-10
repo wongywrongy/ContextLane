@@ -1,0 +1,31 @@
+{
+  "origin": "https://root.avlis.dev",
+  "results": [
+    {
+      "width": 1440,
+      "cards": 5,
+      "panels": 15,
+      "details": 0,
+      "overflow": false,
+      "fonts": true
+    },
+    {
+      "width": 1000,
+      "cards": 5,
+      "panels": 15,
+      "details": 0,
+      "overflow": false,
+      "fonts": true
+    },
+    {
+      "width": 390,
+      "cards": 5,
+      "panels": 15,
+      "details": 0,
+      "overflow": false,
+      "fonts": true
+    }
+  ],
+  "exceptions": [],
+  "httpOnlyCookie": true
+}

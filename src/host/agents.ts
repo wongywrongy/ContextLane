@@ -32,7 +32,7 @@ export async function observeAgents(procRoot = '/proc', uid = process.getuid!())
       const cwd = await readlink(join(path, 'cwd'));
       const after = identity(await readFile(join(path, 'stat'), 'utf8'));
       if (before !== after || (await stat(path)).uid !== uid) continue;
-      agents.push({ id: createHash('sha256').update(`${entry.name}:${before}`).digest('hex').slice(0, 24), name, cwd });
+      agents.push({ id: createHash('sha256').update(`${entry.name}:${before}`).digest('hex').slice(0, 24), name, cwd, pid: Number(entry.name) });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'EACCES' || code === 'EPERM') denied++;

@@ -3,7 +3,7 @@ export interface Unit { name: string; marker: string; serviceId: string; port: n
 export interface UnitState { state: string; marker: string; cgroup: string; invocation: string }
 export interface Preview { hostname: string; port: number; upstream: string; label: string }
 export interface Listener { address: string; port: number; pid: number | null; cwd: string | null; cgroup: string | null }
-export interface AgentObservation { id: string; name: 'Codex' | 'Claude Code'; cwd: string }
+export interface AgentObservation { id: string; name: 'Codex' | 'Claude Code'; cwd: string; pid?: number }
 export interface LogPage { lines: string[]; nextCursor: string | null; truncated: boolean }
 export interface Host {
   bootId(): Promise<string>;

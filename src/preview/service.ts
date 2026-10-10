@@ -99,8 +99,11 @@ export class Publications {
     try { await this.listener(target); status.upstream = await this.host.probe(route.upstream, target.readiness) ? 'ready' : 'unready'; } catch (error) { status.errors.push(problem(error)); }
     if (!row.removed && row.attempted && status.route === 'matching' && status.upstream === 'ready') {
       status.https = await this.host.probe(status.url, target.readiness) ? 'verified' : 'failed';
+      if (status.https === 'verified') this.store.setMeta(`verified-preview:${row.id}`, status.observedAt);
       if (status.https === 'failed') status.errors.push({ code: 'HTTPS_FAILED', message: 'Route matches but HTTPS readiness failed; check tailnet connectivity and forwarding' });
     }
+    const verifiedAt = this.store.meta(`verified-preview:${row.id}`);
+    if (verifiedAt) status.verifiedAt = verifiedAt;
     return status;
   }
   async reconcile() {

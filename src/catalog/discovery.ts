@@ -77,7 +77,7 @@ export class Catalog {
     const projects: Project[] = [];
     for (const path of [...paths].sort()) {
       const metadataAllowed = Date.now() <= deadline;
-      let gitCommonDir: string | null = null; let branch: string | null = null; let detached = false;
+      let gitCommonDir: string | null = null; let branch: string | null = null; let detached = false; let detachedSha: string | undefined;
       try {
         if (!metadataAllowed) throw new Error('Git metadata budget exhausted');
         await lstat(join(path, '.git'));
@@ -85,12 +85,13 @@ export class Catalog {
         gitCommonDir = await safe(common);
         const head = (await command('git', ['-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 1000 })).trim();
         detached = head === 'HEAD'; branch = detached ? null : head;
+        if (detached) detachedSha = (await command('git', ['-C', path, 'rev-parse', '--short', 'HEAD'], { timeout: 1000 })).trim();
       } catch { /* Absence of Git metadata is not an application error. */ }
       const found: string[] = [];
       for (const manifest of manifests) try { const target = await safe(join(path, manifest)); if (target && inside(target, path)) { await access(target); found.push(manifest); } } catch { /* Known manifest is optional. */ }
       const settings = this.config.projects.find(p => p.path === path);
       const ownListeners = listeners.filter(l => l.cwd && inside(l.cwd, path) && ![...paths].some(other => other !== path && inside(other, path) && inside(l.cwd!, other)));
-      const links = [...(settings?.links ?? [])];
+      const links = [...(settings?.links ?? [])]; const observedPreviews: Project['links'] = [];
       const tcp = (routes as { TCP?: Record<string, { HTTPS?: boolean; HTTP?: boolean }> } | null)?.TCP ?? {};
       const web = (routes as { Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }> } | null)?.Web ?? {};
       for (const [origin, config] of Object.entries(web)) {
@@ -98,9 +99,11 @@ export class Catalog {
         const transport = tcp[origin.split(':').at(-1)!];
         if (!transport?.HTTPS && !transport?.HTTP) continue;
         const proxy = config.Handlers?.['/']?.Proxy;
-        if (ownListeners.some(l => ['127.0.0.1', '0.0.0.0', '*', '::'].includes(l.address) && proxy === `http://127.0.0.1:${l.port}`)) links.push({ label: 'Observed preview', url: `${transport.HTTPS ? 'https' : 'http'}://${origin}/` });
+        if (ownListeners.some(l => ['127.0.0.1', '0.0.0.0', '*', '::'].includes(l.address) && proxy === `http://127.0.0.1:${l.port}`)) {
+          const preview = { label: 'Observed preview', url: `${transport.HTTPS ? 'https' : 'http'}://${origin}/` }; links.push(preview); observedPreviews.push(preview);
+        }
       }
-      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, manifests: found, links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], logServices: recorded.filter(e => e.path === path).flatMap(e => (this.store?.resources(e.id, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId: e.id, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))), runtime: { services: [...new Map([...this.config.profiles.filter(p => p.projectPath === path).flatMap(p => p.services.map(s => ({ id: s.id, name: s.id, port: s.port }))), ...this.config.previewTargets.filter(t => t.checkoutPath === path).map(t => ({ id: t.serviceId, name: t.serviceName, port: t.port }))].map(s => [s.port, s])).values()], status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), ownership: 'observe-only' } });
+      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, ...(detachedSha ? { detachedSha } : {}), manifests: found, observedPreviews, previewIds: (this.store?.previews() ?? []).filter(r => !r.removed && (JSON.parse(r.target) as import('../config.js').PreviewTarget).checkoutPath === path).map(r => r.id), links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], logServices: recorded.filter(e => e.path === path).flatMap(e => (this.store?.resources(e.id, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId: e.id, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))), runtime: { services: [...new Map([...this.config.profiles.filter(p => p.projectPath === path).flatMap(p => p.services.map(s => ({ id: s.id, name: s.id, port: s.port }))), ...this.config.previewTargets.filter(t => t.checkoutPath === path).map(t => ({ id: t.serviceId, name: t.serviceName, port: t.port }))].map(s => [s.port, s])).values()], status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), listeners: ownListeners.map(l => ({ port: l.port, worktreePath: path })), ownership: 'observe-only' } });
     }
     let unassigned = 0;
     const closestFirst = [...projects].sort((a, b) => b.path.length - a.path.length);
@@ -108,9 +111,10 @@ export class Catalog {
       let cwd: string | null = null;
       try { cwd = await safe(agent.cwd); } catch { /* Exited processes and unmounted paths have unknown associations. */ }
       const project = cwd ? closestFirst.find(p => inside(cwd!, p.path)) : undefined;
-      if (project) project.agents.push({ id: agent.id, name: agent.name, source: 'detected process' });
+      if (project) project.agents.push({ id: agent.id, name: agent.name, source: 'detected process', cwd: cwd!, worktreePath: project.path, ...(agent.pid ? { pid: agent.pid } : {}) });
       else unassigned++;
     }
+    for (const project of projects) project.worktrees = projects.filter(p => p.path === project.path || (project.gitCommonDir !== null && p.gitCommonDir === project.gitCommonDir)).map(p => ({ name: p.name, path: p.path, branch: p.branch, ...(p.detachedSha ? { detachedSha: p.detachedSha } : {}), ports: p.runtime.ports }));
     if (unassigned) warnings.push(`${unassigned} detected agent process${unassigned === 1 ? '' : 'es'} unassigned to a known project`);
     if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
     return { projects, warnings: warnings.slice(0, 50), observedAt: new Date().toISOString(), expires: Date.now() + 5000 };

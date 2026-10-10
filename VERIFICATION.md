@@ -207,3 +207,13 @@ unpublish_preview {"previewId":"<returned preview UUID>","requestId":"<new UUID>
 ```
 
 Retries reuse the original request ID and payload. An accepted operation is not a readiness or HTTPS claim. Start the fixture separately; Rootlane owns only its publication route.
+
+## Signal deployment — 2026-10-10
+
+Deployed the tested Signal build to the existing `/opt/stacks/rootlane` stack as `rootlane:0.2.0-signal-20261010`. The image was built from this workspace's compiled backend and Vite assets. The package/API version remains 0.2.0; this image tag identifies the Signal revision. Hosted HTML at `https://root.avlis.dev` matches the workspace's compiled asset hashes exactly. Container health passed, and authenticated deployed `list_projects` and `get_project` responses validated against the updated contracts, including worktrees, attributed listeners, and observed preview links.
+
+SQLite backup: `/home/kyle/.local/state/rootlane/pre-signal-20261010-014745.sqlite`, created through the SQLite backup API before replacement. Previous installed compiled assets, package and Compose file: `/opt/stacks/rootlane/pre-signal-20261010-014745.tar.gz`. The previous `rootlane:0.2.0` image remains available. Configuration-directory file hashes (including both credentials) and Tailscale Serve configuration were identical before and after deployment. Only Rootlane was recreated.
+
+The build gate passed typecheck, production build and all 66 tests. Deterministic UI regression evidence remains in `.impeccable/review`; live deployment captures are separately identified under `.impeccable/review/live-signal`. Lifecycle actions, second-device acceptance, and host reboot were not repeated during this UI deployment.
+
+Live Chromium smoke testing subsequently passed HTTPS owner login, the actual project catalog, collapsed summary panels, local Geist/Geist Mono, 1440/1000/390 viewport overflow checks, expanded details, Settings/MCP, an inaccessible HttpOnly cookie and zero JavaScript exceptions. Captures and provenance: `.impeccable/review/live-signal/`.

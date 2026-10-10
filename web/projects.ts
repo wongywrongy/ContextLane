@@ -42,3 +42,32 @@ export function projectStatus(group: ProjectGroup, environments: Record<string, 
   return 'Not observed';
 }
 export const label = (id: string) => id.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase());
+
+export const editorHref = (path: string) => 'vscode://file' + path.split('/').map(encodeURIComponent).join('/');
+export const branchLabel = (project: Project) => project.detached ? `detached @ ${project.detachedSha ?? '—'}` : project.branch ?? '—';
+export function matchesProject(group: ProjectGroup, query: string) {
+  const text = query.trim().toLowerCase();
+  return group.checkouts.some(p => [p.name, p.path, p.branch ?? '', ...p.runtime.ports.map(String), ...p.runtime.services.map(s => String(s.port))].some(value => value.toLowerCase().includes(text)));
+}
+export type ProjectFilter = 'All' | 'Running' | 'With agents' | 'Managed';
+export function matchesFilter(group: ProjectGroup, filter: ProjectFilter, environments: Record<string, Environment>) {
+  if (filter === 'Running') return group.checkouts.some(p => p.runtime.ports.length > 0) || group.environmentIds.some(id => environments[id]?.application === 'ready');
+  if (filter === 'With agents') return groupAgents(group).length > 0;
+  if (filter === 'Managed') return group.environmentIds.length > 0;
+  return true;
+}
+export function groupServices(group: ProjectGroup, environments: Record<string, Environment>) {
+  return group.checkouts.flatMap(checkout => {
+    const configured = checkout.runtime.services;
+    const ports = [...new Set([...checkout.runtime.ports, ...configured.map(s => s.port)])];
+    return ports.map(port => {
+      const service = configured.find(s => s.port === port);
+      const environment = checkout.environmentIds.map(id => environments[id]).find(e => e?.services.some(s => s.id === service?.id && s.port === port));
+      const unit = environment?.services.find(s => s.id === service?.id && s.port === port);
+      const listening = checkout.runtime.ports.includes(port);
+      const state = environment?.observationError || unit?.state === 'failed' ? 'Attention' : environment?.application === 'ready' && unit?.state === 'active' ? 'Ready' : listening ? 'Listening' : unit && ['inactive', 'absent', 'not recorded'].includes(unit.state) ? 'Stopped' : 'Unknown';
+      return { key: `${checkout.id}:${port}`, name: service?.name ?? '—', port, checkout, unit: unit?.unit || '—', managed: !!environment, state };
+    });
+  });
+}
+export const chipTone = (state: string) => /^(Ready|Available|Connected|Succeeded)$/.test(state) ? 'ok' : /^(Listening|Published|Registered|Running|Accepted|Working)$/.test(state) ? 'info' : /^(Attention|Unhealthy|Partial)$/.test(state) ? 'warn' : state === 'Failed' ? 'bad' : 'idle';

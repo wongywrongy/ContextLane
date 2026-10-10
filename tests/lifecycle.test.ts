@@ -82,3 +82,16 @@ test('a start timeout after unit creation still rolls back that operation only',
   host.startUnit = async (unit, service) => { await start(unit, service); if (service.id === 'web') throw new Problem('HOST_COMMAND_FAILED', 'Reply lost after creation'); };
   const op = life.accept('start', request()); await life.drain(); assert.equal(store.getOperation(op.operation.id).status, 'failed'); assert.equal(host.stops.length, 2); assert.equal(host.units.size, 0); assert.equal(store.resources('fixture').length, 0);
 });
+
+test('Signal environment history is bounded and previews require independent HTTPS verification', async t => {
+  const { lifecycle, store, host } = await setup(t);
+  const accepted = lifecycle.accept('start', request()); await lifecycle.drain();
+  let env = await lifecycle.get({environmentId:'fixture'});
+  assert.equal(env.preview,'available'); assert.equal(env.previewRoutes?.[0].target,'http://127.0.0.1:19482');
+  const verifiedAt = env.previewRoutes?.[0].verifiedAt; assert(verifiedAt); assert.equal(env.recentOperations?.[0].id,accepted.operation.id);
+  host.probe = async () => false; env = await lifecycle.get({environmentId:'fixture'});
+  assert.equal(env.preview,'unavailable'); assert.equal(env.previewRoutes?.[0].https,'failed'); assert.equal(env.previewRoutes?.[0].verifiedAt,verifiedAt);
+  assert.equal(env.links.length,1, 'a matching route remains published when HTTPS is unverified');
+  for(let i=0;i<12;i++){const operation=store.accept('fixture','start',crypto.randomUUID()).operation;store.finish(operation.id,'succeeded');}
+  env = await lifecycle.get({environmentId:'fixture'}); assert.equal(env.recentOperations?.length,10); assert.equal(env.recentOperations?.[0].id,env.latestOperation?.id);
+});

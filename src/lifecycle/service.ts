@@ -144,13 +144,13 @@ export class Lifecycle {
     const { environmentId: id } = environmentInput.parse(input); this.exists(id);
     const env = this.store.environment(id)!; const rows = this.store.resources(id);
     const observation = JSON.parse(env.observation) as Observation;
-    const result: Environment = { id, profileRevision: env.revision, effects: observation.effects, dataRequirements: observation.dataRequirements, startAllowed: this.config.profiles.some(p => p.id === id), ownership: 'rootlane', desiredState: env.desired, application: 'unknown', preview: 'unknown', links: [], services: [], observedAt: new Date().toISOString(), latestOperation: this.store.latest(id), observationError: null };
+    const result: Environment = { id, profileRevision: env.revision, effects: observation.effects, dataRequirements: observation.dataRequirements, startAllowed: this.config.profiles.some(p => p.id === id), ownership: 'rootlane', desiredState: env.desired, application: 'unknown', preview: 'unknown', links: [], services: [], observedAt: new Date().toISOString(), latestOperation: this.store.latest(id), recentOperations: this.store.recent(id), previewRoutes: [], observationError: null };
     try {
       let healthy = 0; let absent = 0;
       for (const row of rows.filter(r => r.kind === 'unit')) {
         const unit = JSON.parse(row.data) as Unit; const current = await this.host.inspectUnit(unit.name);
         if (current && current.marker !== unit.marker) throw new Problem('OWNERSHIP_CONFLICT', `${unit.name} no longer matches recorded ownership`);
-        result.services.push({ id: unit.serviceId, unit: unit.name, state: current?.state ?? 'absent' });
+        result.services.push({ id: unit.serviceId, port: unit.port, unit: unit.name, state: current?.state ?? 'absent' });
         if (!current || current.state === 'inactive' || current.state === 'failed') absent++;
         if (await this.host.ready(unit)) healthy++;
       }
@@ -159,11 +159,23 @@ export class Lifecycle {
       const config = await this.host.routes(); const routeRows = rows.filter(r => r.kind === 'route');
       for (const row of routeRows) {
         const route = JSON.parse(row.data) as Preview;
-        if (row.attempted && this.host.routeState(config, route) === 'matching' && result.application === 'ready') result.links.push({ label: route.label, url: `https://${route.hostname}:${route.port}/` });
+        const url = `https://${route.hostname}:${route.port}/`; const state = this.host.routeState(config, route);
+        let https: 'verified' | 'unverified' | 'failed' = 'unverified';
+        const verifiedKey = `verified:${row.id}`;
+        if (row.attempted && state === 'matching') {
+          result.links.push({ label: route.label, url });
+          const service = observation.services.find(s => route.upstream === `http://127.0.0.1:${s.port}`);
+          if (service && result.application === 'ready') {
+            https = await this.host.probe(url, service.readiness) ? 'verified' : 'failed';
+            if (https === 'verified') this.store.setMeta(verifiedKey, result.observedAt);
+          }
+        }
+        const verifiedAt = this.store.meta(verifiedKey);
+        result.previewRoutes!.push({ url, target: route.upstream, route: state, https, ...(verifiedAt ? { verifiedAt } : {}) });
       }
-      result.preview = result.links.length > 0 && result.links.length === observation.previews.length ? 'available' : 'unavailable';
+      result.preview = result.previewRoutes!.length > 0 && result.previewRoutes!.length === observation.previews.length && result.previewRoutes!.every(r => r.https === 'verified') ? 'available' : 'unavailable';
     } catch (error) { result.observationError = problem(error); result.links = []; }
-    for (const service of observation.services) if (!result.services.some(s => s.id === service.id)) result.services.push({ id: service.id, unit: '', state: 'not recorded' });
+    for (const service of observation.services) if (!result.services.some(s => s.id === service.id)) result.services.push({ id: service.id, port: service.port, unit: '', state: 'not recorded' });
     return result;
   }
   async logs(input: unknown) {

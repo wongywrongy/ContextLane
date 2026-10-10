@@ -41,3 +41,33 @@ test('listeners are not readiness and missing observation is not stopped',()=>{
  const agents = groupAgents(groupProjects([main,tree])[0]);
  assert.equal(agents.length,3); assert.deepEqual(agents.map(agentLabel).sort(),['Detected process','Detected process','Registered']);
  });
+
+test('Signal search includes worktree branches and configured or observed ports; filters retain evidence semantics', async () => {
+  const { matchesProject, matchesFilter, groupServices, branchLabel, editorHref, chipTone } = await import('../web/projects.js');
+  const main = project('/code/a space', {gitCommonDir:'/code/a space/.git', branch:'main', environmentIds:['dev'], runtime:{services:[{id:'web', name:'Web', port:5173}], ports:[], status:'no associated listener', ownership:'observe-only'}});
+  const tree = project('/allowed/tree', {gitCommonDir:main.gitCommonDir, branch:'fix/login', agents:[{name:'Codex',source:'owner registration'}],runtime:{services:[],ports:[3000],status:'listeners observed',ownership:'observe-only'}});
+  const group = groupProjects([main, tree])[0];
+  assert(matchesProject(group,' FIX/LOGIN ')); assert(matchesProject(group,'5173')); assert(matchesProject(group,'3000')); assert(!matchesProject(group,'missing'));
+  assert(matchesFilter(group,'With agents',{})); assert(matchesFilter(group,'Managed',{})); assert(matchesFilter(group,'Running',{}));
+  assert(!matchesFilter(groupProjects([project('/code/registered',{agents:[{name:'Codex',source:'owner registration'}]})])[0], 'Running', {}));
+  assert.deepEqual(groupServices(group,{}).map(s => s.state).sort(),['Listening','Unknown']);
+  assert.equal(branchLabel(project('/code/detached',{detached:true,detachedSha:'abcd123'})), 'detached @ abcd123');
+  assert.equal(branchLabel(project('/code/unknown',{detached:true})), 'detached @ —');
+  assert.equal(editorHref('/code/a space/#x'), 'vscode://file/code/a%20space/%23x');
+  assert.equal(chipTone('Listening'),'info'); assert.equal(chipTone('Published'),'info'); assert.equal(chipTone('Detected'),'idle'); assert.equal(chipTone('Available'),'ok');
+});
+
+test('service readiness is never inferred from an observed listener or owner-reviewed name', async () => {
+  const { groupServices } = await import('../web/projects.js');
+  const group=groupProjects([project('/code/app',{runtime:{services:[{id:'web',name:'Web',port:3000}],ports:[3000],status:'listeners observed',ownership:'observe-only'}})])[0];
+  assert.equal(groupServices(group,{})[0].state,'Listening'); assert.equal(groupServices(group,{})[0].managed,false);
+});
+
+test('same service name across environments cannot transfer readiness to another port', async () => {
+  const { groupServices } = await import('../web/projects.js');
+  const { environmentOutput } = await import('../src/shared/contracts.js');
+  const group = groupProjects([project('/code/app',{environmentIds:['one','two'],runtime:{services:[{id:'web',name:'Web',port:3000},{id:'web',name:'Web',port:4000}],ports:[3000],status:'listeners observed',ownership:'observe-only'}})])[0];
+  const env = (id:string,port:number,application:'ready'|'stopped') => environmentOutput.parse({id,profileRevision:'revision',effects:'fixture',dataRequirements:'none',startAllowed:true,ownership:'rootlane',desiredState:application==='ready'?'running':'stopped',application,preview:'unavailable',links:[],services:[{id:'web',port,unit:id+'.service',state:application==='ready'?'active':'inactive'}],observedAt:'time',latestOperation:null,observationError:null});
+  const services=groupServices(group,{one:env('one',3000,'ready'),two:env('two',4000,'stopped')});
+  assert.deepEqual(services.map(s=>s.state),['Ready','Stopped']); assert.deepEqual(services.map(s=>s.unit),['one.service','two.service']);
+});

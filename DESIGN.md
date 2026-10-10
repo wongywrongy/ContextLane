@@ -1,221 +1,270 @@
 ---
 name: Rootlane
-description: "A private project workspace with visible, trustworthy runtime state."
+description: "Signal: a private workspace for trustworthy project, runtime and URL observations."
 colors:
-  primary: "#365bff"
-  canvas: "#081119"
-  chrome: "#0c1721"
-  card-start: "#0d1a24"
-  card-end: "#0d1922"
-  control: "#14212e"
-  control-hover: "#1b2b3d"
-  text: "#edf2fc"
-  muted: "#94a8c2"
-  border: "#203140"
-  focus: "#9ebaff"
-  success: "#32e394"
-  ready-dot: "#24dc83"
-  registered-dot: "#8bb3ff"
-  quiet-dot: "#8294ac"
-  warning: "#ffce7e"
-  icon: "#a8c7ff"
-  nav-active: "#10213c"
-  badge-bg: "#11354d"
-  badge-text: "#78d2ff"
-  badge-teal-bg: "#0b383d"
-  badge-teal-text: "#7de0d6"
+  bg: "#05060a"
+  bg-2: "#0a0c12"
+  glass: "rgba(255,255,255,.035)"
+  glass-2: "rgba(255,255,255,.06)"
+  glass-3: "rgba(255,255,255,.09)"
+  inset: "rgba(0,0,0,.28)"
+  stroke: "rgba(255,255,255,.075)"
+  stroke-2: "rgba(255,255,255,.13)"
+  stroke-3: "rgba(255,255,255,.22)"
+  text: "#f2f4f8"
+  text-2: "#c9cfdb"
+  muted: "#8e96a8"
+  faint: "#929aad"
+  accent: "#8b97ff"
+  accent-strong: "#5b68ff"
+  accent-glow: "rgba(91,104,255,.35)"
+  ok: "#3fe0a0"
+  ok-bg: "rgba(63,224,160,.1)"
+  ok-stroke: "rgba(63,224,160,.28)"
+  info: "#86aaff"
+  info-bg: "rgba(134,170,255,.1)"
+  info-stroke: "rgba(134,170,255,.26)"
+  idle: "#9aa2b4"
+  idle-bg: "rgba(154,162,180,.08)"
+  idle-stroke: "rgba(154,162,180,.18)"
+  warn: "#ffbe6b"
+  warn-bg: "rgba(255,190,107,.1)"
+  warn-stroke: "rgba(255,190,107,.3)"
+  bad: "#ff8a8a"
+  bad-bg: "rgba(255,120,120,.1)"
+  bad-stroke: "rgba(255,120,120,.3)"
 typography:
   headline:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "34px"
-    fontWeight: 650
-    lineHeight: 1.2
-    letterSpacing: "-.025em"
-  title:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "20px"
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "44px"
     fontWeight: 600
-    lineHeight: 1.25
-    letterSpacing: "-.015em"
+    lineHeight: 1.05
+    letterSpacing: "-.035em"
+  title:
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "19px"
+    fontWeight: 600
+    lineHeight: 1.5
+    letterSpacing: "-.02em"
   body:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.45
-  label:
-    fontFamily: "Inter, sans-serif"
-    fontSize: "13px"
+    lineHeight: 1.5
+  control:
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "12.5px"
     fontWeight: 500
-    lineHeight: 1.4
-  detail:
-    fontFamily: "Inter, sans-serif"
+    lineHeight: 1.5
+  status:
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "11.5px"
+    fontWeight: 500
+    lineHeight: 1
+  metadata:
+    fontFamily: "Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
     fontSize: "12px"
     fontWeight: 400
-    lineHeight: 1.45
+  label:
+    fontFamily: "Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "10.5px"
+    fontWeight: 500
+    lineHeight: 1
+    letterSpacing: ".14em"
 rounded:
-  badge: "6px"
+  sm: "6px"
   control: "8px"
-  search: "9px"
-  card: "12px"
-spacing:
-  xs: "8px"
-  sm: "12px"
-  md: "14px"
+  default: "10px"
   lg: "16px"
-  xl: "18px"
-  xxl: "24px"
+  xl: "20px"
+  pill: "999px"
+spacing:
+  tight: "6px"
+  sm: "8px"
+  md: "12px"
+  lg: "16px"
+  panel: "20px"
+  section: "24px"
+  page: "28px"
 components:
   button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "white"
+    backgroundColor: "linear-gradient(180deg,#6b78ff,#5260f5)"
+    textColor: "#fff"
     rounded: "{rounded.control}"
-    padding: "10px 16px"
-    height: "44px"
+    padding: "0 12px"
+    height: "34px"
+    typography: "{typography.control}"
   button-secondary:
-    backgroundColor: "{colors.control}"
+    backgroundColor: "{colors.glass-2}"
     textColor: "{colors.text}"
     rounded: "{rounded.control}"
-    padding: "10px 16px"
-    height: "44px"
+    padding: "0 12px"
+    height: "34px"
+    typography: "{typography.control}"
+  button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.muted}"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+    height: "34px"
+    typography: "{typography.control}"
   search:
-    backgroundColor: "#14212d"
+    backgroundColor: "{colors.glass}"
     textColor: "{colors.text}"
-    rounded: "{rounded.search}"
-    padding: "0 14px"
-    height: "46px"
+    rounded: "{rounded.default}"
+    padding: "0 6px 0 12px"
+    height: "38px"
   nav-item:
     backgroundColor: "transparent"
-    textColor: "#bfcef0"
-    rounded: "{rounded.control}"
-    padding: "14px 20px"
-    height: "54px"
-  badge:
-    backgroundColor: "{colors.badge-bg}"
-    textColor: "{colors.badge-text}"
-    rounded: "{rounded.badge}"
-    padding: "3px 11px"
-    typography: "{typography.detail}"
+    textColor: "{colors.muted}"
+    rounded: "7px"
+    padding: "0 12px"
+    height: "32px"
+  status-info:
+    backgroundColor: "{colors.info-bg}"
+    textColor: "{colors.info}"
+    rounded: "{rounded.pill}"
+    padding: "0 8px"
+    height: "22px"
+    typography: "{typography.status}"
+  filter:
+    backgroundColor: "transparent"
+    textColor: "{colors.muted}"
+    rounded: "{rounded.pill}"
+    padding: "0 12px"
+    height: "32px"
   project-card:
-    rounded: "{rounded.card}"
-    padding: "14px 20px 13px"
+    backgroundColor: "linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02))"
+    textColor: "{colors.text}"
+    rounded: "{rounded.xl}"
+  technology-tag:
+    backgroundColor: "{colors.glass}"
+    textColor: "{colors.text-2}"
+    rounded: "5px"
+    padding: "0 7px"
+    height: "20px"
 ---
-
 # Design System: Rootlane
 
 ## Overview
 
-**Creative North Star: "Local project control"**
+**Creative North Star: "Signal"**
 
-A quiet, dark workspace follows the approved rootlane-ui-reference.png: blue-black surfaces, restrained blue actions, and compact project rows. The shipped React interface, ordinary CSS, local Inter font, and inline SVG icons are the visual source of truth.
+Signal places clear project, runtime and URL observations on near-black glass. Soft violet and green ambient light, fine white borders, restrained inset highlights and a fading grid give the workspace depth without competing with its content. The user-pinned Signal HTML/CSS reference is the visual authority; the shipped React components and ordinary CSS define the implemented system.
 
-Density supports scanning real projects and runtime observations. Color, labels, and disabled controls communicate what the backend knows; they never imply fictional agent activity or verified preview readiness.
+Geist provides compact interface text; Geist Mono distinguishes paths, ports, branches, times and counts. Explicit labels and inline SVG symbols describe observed state. The interface must preserve Rootlane’s trustworthy mapping and ownership boundaries rather than infer agent activity or service readiness.
 
 **Key Characteristics:**
-- Blue-black tonal surfaces with fine dividing borders.
-- Compact, full-width project rows with inline expansion.
-- Local Inter typography and consistent SVG line icons.
-- Explicit status text alongside colored dots.
+- Near-black glass with subtle atmospheric light and fine borders.
+- Geist interface typography paired with Geist Mono technical metadata.
+- Full-width project cards with aligned summary panels and inline detail tabs.
+- Semantic state chips with explicit text and inline SVG symbols.
 
 ## Colors
 
-The palette is blue-black and cool white, with blue for action and small semantic signals for verified state.
+Near-black neutrals carry pale technical text, violet actions and small semantic green, blue, amber and red signals. Frontmatter values preserve the CSS source, including translucent colors; `faint` records the final readability override, not the reference’s original dimmer value.
 
 ### Primary
-- **Control Blue** (`primary`): primary controls and text selection.
-- **Ice Blue** (`icon`, `focus`): SVG line icons and the keyboard focus outline.
+- **Signal Violet** (`accent`, `accent-strong`, `accent-glow`): keyboard focus, selected counts, links, primary controls and their ambient light.
 
 ### Secondary
-- **Verified Green** (`success`, `ready-dot`): successful connection and independently ready managed runtime or preview state.
-- **Observation Blue** (`registered-dot`): registered agents, observed listeners, and published links without a readiness claim.
-- **Attention Amber** (`warning`): actionable warning text.
-- **Technology Cyan / Teal** (`badge-*`): manifest-derived technology tags.
+- **Verified Mint** (`ok` family): verified connection, ready application and available preview states.
+- **Observation Blue** (`info` family): registered agents, detected processes, listening services and published routes.
+- **Attention Amber** (`warn` family): attention, pending work and unavailable tailnet observations.
+- **Failure Rose** (`bad` family): failed operations and destructive-state observations.
 
 ### Neutral
-- **Deep Canvas** (`canvas`): page backdrop; a subtle upper-left radial wash sits over it.
-- **Chrome** (`chrome`): header and navigation.
-- **Project Surface** (`card-start`, `card-end`): the faint directional card gradient.
-- **Control Surface** (`control`, `control-hover`): secondary actions and hover feedback.
-- **Cool White / Slate** (`text`, `muted`): main content and secondary explanations.
-- **Fine Border** (`border`): controls and separators; cards use closely related dark strokes.
-- **Quiet Dot** (`quiet-dot`): unavailable or unverified state, always accompanied by text.
+- **Midnight Canvas** (`bg`, `bg-2`): page and scroll surfaces.
+- **Translucent Glass** (`glass` family): controls, cards and selected surfaces; **Inset Black** (`inset`) recesses summaries and technical commands.
+- **Fine White Stroke** (`stroke` family): borders, separators, hover and focus-within feedback.
+- **Cool White** (`text`, `text-2`): primary and secondary content; **Slate Metadata** (`muted`, `faint`): paths, explanations and structural labels.
+- **Quiet Slate** (`idle` family): stopped, unknown and not-exposed states, always as labeled chips rather than gray dots.
 
-**The Evidence Rule.** Green means verified readiness or connection. Registered agents, observed listeners, and published routes use their explicit labels and quieter status colors.
+**The Evidence Rule.** Registered and Detected describe agent evidence; Listening describes a socket; Published describes a route. None is a claim of activity, completion or verified availability.
 
 ## Typography
 
-**Display and Body Font:** locally hosted Inter variable, with sans-serif fallback. No separate display face is used.
+**Body and Heading Font:** locally hosted Geist variable with UI sans-serif fallbacks.
+**Technical Font:** locally hosted Geist Mono variable with UI monospace fallbacks. Fonts ship from the official Vercel font repository with their OFL license.
 
-**Character:** compact, legible interface typography with tabular numerals. The font is intentionally pinned to the approved visual reference.
+The pairing is compact and precise. Interface text uses `ss01` and tabular numerals; monospace metadata uses the slashed-zero feature.
 
 ### Hierarchy
-- **Headline:** page titles; headline token, reducing to 28px at the mobile breakpoint.
-- **Title:** project names; title token, reducing to 18px on mobile.
-- **Body:** controls, settings values, paths, and explanatory content.
-- **Label:** section headings within project summaries.
-- **Detail:** status text, tags, service rows, and timestamps.
-- Brand lettering uses 26px / 600 with a tight line height; it reduces in the compact header. Detail headings use 15px / 500–550.
+- **Headline:** page headings use the headline token; mobile reduces them to 34px.
+- **Title:** project names use the title token; mobile reduces them to 18px. Settings setup titles use 20px.
+- **Body:** the workspace base uses the body token. Explanatory setup prose uses 13px with a 1.65 line height and an introductory measure of 78ch.
+- **Control:** buttons, filters, tabs and table content use compact control typography; navigation and search use 13px.
+- **Status:** semantic chips use the status token.
+- **Metadata:** technical values use the metadata token; compact secondary rows use 11.5px and page root summaries 13px.
+- **Label:** summary panel headings use the label token. Table headers use the same face and size with .12em tracking; these identify data structure rather than add promotional eyebrows.
 
-**The One Typeface Rule.** Use the shipped local Inter font for headings, interface text, and shortcut labels; preserve its tabular numerals and cv11 features.
+**The Technical Type Rule.** Use Geist for interface language and Geist Mono for technical identifiers and observations; retain tabular numerals.
 
 ## Layout
 
-Desktop uses a 226px navigation column and an 82px header. The header and sidebar remain sticky; the search sits between branding and real connection indicators. Main content fills the available width with 28px top, 28px right, 24px bottom, and 32px left padding.
+A sticky topbar (64px) combines brand, segmented Projects/Settings navigation, centered search (maximum 520px) and real connection/tailnet status. Main content centers in a maximum 1320px container with desktop padding of 40px 28px 64px. Full-width project cards form a single list with 16px gaps; the toolbar wraps filters and sorting controls.
 
-Project rows form one vertical list with 14px gaps. Each compact row shows identity, branch and checkout counts, concise listener status, and a three-dot actions button. One project details section opens inline at a time. Worktree counts exclude the primary checkout. Services, routes, links, paths and agent metadata belong to their explicit checkout in details.
+Card summaries have three columns in a 1.15:1:1 ratio for Agents, Services and Preview. At 1100px and below they become two equal columns with Preview spanning the next row. At 760px and below all three panels stack. That breakpoint also wraps the topbar into brand/connection, full-width navigation and search rows; main padding becomes 28px 16px 48px. Card headings wrap when actions require space, and a lone actions button stays beside the identity.
 
-At 1000px and below, navigation narrows to 180px. At 700px and below, the header becomes static with search on its second row; navigation becomes horizontal, main padding becomes 24px 16px, service status sits beneath identity, and the three-dot button remains alongside both. Read-only Settings stacks its definition list. Long names, paths, and URLs wrap.
+Details open inline for one project at a time. Horizontally scrolling tabs sit above tables or two-column information boxes; boxes and read-only definition lists stack on mobile. Tables preserve their columns in keyboard-focusable horizontal scroll containers. Names, paths and long values wrap where appropriate; compact summaries and preview URL pills may ellipsize.
 
 ## Elevation & Depth
 
-The workspace uses dark tonal layering, subtle gradients, and thin borders. Cards have no resting shadow and change only their border color on hover. The native auto-popover uses a fine border and the Control Surface. CSS anchor positioning flips it at viewport edges; unsupported anchor positioning uses a viewport-contained fixed placement.
+Glass combines a faint white vertical gradient, fine stroke, inset top highlight, blur and a soft ambient shadow. Cards gain a larger ambient shadow and faint violet edge when opened. The topbar uses a translucent near-black background with stronger blur. The page carries three radial light washes and a 56px grid fading out over the upper 520px.
 
-**The Quiet Surface Rule.** Use tonal separation and fine borders for the workspace; use the fine-border vocabulary for the floating actions popover.
+### Shadow Vocabulary
+- **Glass highlight:** `inset 0 1px 0 rgba(255,255,255,.07)`.
+- **Glass ambient:** `0 20px 40px -24px rgba(0,0,0,.8)`.
+- **Open card:** `0 30px 60px -30px rgba(0,0,0,.9)` with a `0 0 0 1px rgba(139,151,255,.08)` edge.
+- **Primary action:** brighter inset highlight and a `0 6px 20px -6px` accent glow.
+
+**The Glass Rule.** Use translucent gradients, thin borders and inset highlights together; keep ambient shadows soft and attached to glass surfaces.
+
+Card border and shadow changes use 160ms ease-out; reduced-motion preference removes transitions. Glass surfaces use blur(18px) saturate(140%), while chrome uses blur(20px) saturate(150%).
 
 ## Shapes
 
-Cards and folder-symbol tiles use the card radius; buttons use the control radius, search and menus the search radius, and technology tags the badge radius. Status markers are circles (13px in summaries, 9px in connection chrome). Standard line icons use a 24-unit SVG viewBox, round caps and joins, and a 1.7 stroke; their usual rendered size is 21px.
+Project cards and unlock panels use the largest rounded token. Technical boxes, search and table containers use the default radius; setup sections use the large radius. Buttons and URL pills use the control radius; filter and status chips are fully rounded. Tags and keycaps have compact 5px corners, agent marks use 6px corners, and popovers use 12px corners. Thin borders and divided panels preserve alignment within these soft outer silhouettes.
+
+Icons are inline SVG linework, ordinarily 16px with round caps and joins; chip symbols use 12px linework. Vendor mark slots are 22px tiles. Claude uses the sourced official Anthropic Spark; Codex uses the documented CX fallback until an official standalone asset is available. Initials are a fallback, not a new logo system.
 
 ## Components
 
 ### Buttons
 
-Restrained, bordered secondary actions share the control surface and cool text. The primary action uses Control Blue, white text, and a brighter blue hover. Standard actions have a 44px minimum height; card actions are 45px. Text-only disclosure buttons use a 32px minimum height. Disabled buttons keep their label, muted text, 0.65 opacity, and a not-allowed cursor. Keyboard focus is a 2px Ice Blue outline offset by 4px.
+Secondary actions are restrained glass controls with a fine border, inset highlight and brighter hover surface. Primary actions use a violet gradient and glow; ghost actions remove their resting fill and border. Standard actions have a 34px minimum height; icon buttons are 34px squares. Disabled controls retain their label, reduced opacity and a not-allowed cursor. Unlock uses a taller primary control (42px).
 
 ### Chips
 
-Compact technology tags use cyan or teal tinted surfaces and detail text. Ownership remains plain secondary text rather than another badge. Tags describe detected manifests.
+Semantic chips combine explicit state text with inline SVG checks, arrows, warning triangles, crosses or neutral strokes. Each state family pairs text, tinted background and matching stroke. They are informational and do not gain artificial hover behavior. Filter chips are interactive, with a selected glass surface, inset highlight, brighter border and violet count; `aria-pressed` exposes selection. Technology tags are neutral monospace labels derived from manifests.
 
 ### Cards / Containers
 
-Full-width project cards use a fine border, the Project Surface gradient, and compact padding. The folder tile anchors identity; observed service status sits alongside it. Inline details have a thin separator. Unknown services use their actual port label; observed listeners never claim readiness.
+Project glass cards have separate identity/action headers, inset summary panels and a full-width Details bar. Header padding is 18px 20px 16px, summary padding 14px 20px 16px, and opened panels 16px 20px 20px; mobile uses 16px horizontal padding. Managed lifecycle and log actions appear only when ownership and capabilities allow them. Summary rows show up to three entries with explicit more links into details.
 
 ### Inputs / Fields
 
-Search uses a dark inset surface, a leading SVG search icon, and a bordered shortcut label. The input has no interior border and retains visible keyboard focus. Credential entry is a labeled password field; it shares the control radius and dark surface.
+Search has a leading inline SVG icon, dark glass fill and compact shortcut keycaps. Focus-within brightens its border and surface; the native input outline is replaced by that visible container state. Credential input is labeled, uses password autocomplete, an inset surface and a 44px height. General keyboard focus is a 2px violet outline offset by 3px; tab focus moves the outline inward to remain visible inside the scroll strip.
 
 ### Navigation
 
-Projects and Settings are the only main navigation destinations. The selected item uses a deeper blue fill, pale blue text, and a thin blue left edge. Selection is also conveyed with aria-current. On mobile, the same destinations sit side by side.
+Segmented navigation sits inside a recessed rounded frame. Selected destinations use brighter glass, an inset highlight and a thin surrounding stroke; `aria-current` conveys the page. Details tabs use a violet underline with `aria-selected`, a roving tab stop and Arrow/Home/End key support. Main and Settings navigation fill the mobile row.
 
-### Inline Details and Actions
+### Details, Actions and Technical Commands
 
-The three-dot auto-popover offers Details, Logs only for recorded owned services, and View/Copy paths using ordinary keyboard-accessible buttons. Native Escape/outside dismissal closes it; collapse and dismissal restore focus to the row action button. The dashboard has no prominent folder, preview or lifecycle controls. Details distinguish actual route configuration, upstream readiness and HTTPS verification independently. Settings exposes current connection and ownership information without editable controls.
-
-Hover feedback on cards transitions over 160ms ease-out. Reduced-motion preference removes transitions. Polling preserves project and log selection, coalesces refreshes, and aborts obsolete requests. Failures stay beside the affected catalog, project, environment, preview or logs; retained observations are labeled stale.
+The native actions popover offers Copy path, Open in editor and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
 
 ## Do's and Don'ts
 
 ### Do:
-- Do preserve explicit state labels alongside status dots.
-- Do keep project details collapsed initially and expand them inline.
-- Do use the existing local font and SVG icon vocabulary.
-- Do preserve visible keyboard focus and honest disabled controls.
-- Do allow names, paths, and URLs to wrap on narrow screens.
+- Do pair state color with an explicit label and an inline SVG symbol.
+- Do preserve the three, two and one panel layouts at the shipped breakpoints.
+- Do use locally hosted Geist and Geist Mono and preserve visible keyboard focus.
+- Do keep details inline, technical tables horizontally scrollable and long values able to wrap.
+- Do show stale observations and action failures beside the affected content.
 
 ### Don't:
-- Don't promote Registered to active agent behavior, Listening to Ready, or Published to verified Available.
-- Don't enable folder, preview, or logs controls without the corresponding capability.
-- Don't add system-stat cards, account chrome, or editable Settings to this approved surface.
-- Don't add a UI dependency to reproduce patterns already expressed in ordinary CSS.
-
-Agent rows preserve the compact card layout. Owner registrations show Registered; native process observations show Detected process with no activity or completion claim. Extra observations expand into existing project details, and unassigned counts stay in discovery notices.
+- Don't infer activity from an agent registration, readiness from a listening port or HTTPS verification from a published route.
+- Don't restore gray status dots or replace explicit state labels with color alone.
+- Don't add account chrome, system-stat cards or editable Settings to this approved workspace.
+- Don't introduce a UI dependency or fabricated vendor logo to reproduce the shipped patterns.

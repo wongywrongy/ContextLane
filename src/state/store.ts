@@ -47,6 +47,9 @@ export class Store {
     const row = this.db.prepare('SELECT id FROM operations WHERE environmentId=? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string } | undefined;
     return row ? this.getOperation(row.id) : null;
   }
+  recent(id: string): Operation[] {
+    return (this.db.prepare('SELECT id FROM operations WHERE environmentId=? ORDER BY rowid DESC LIMIT 10').all(id) as { id: string }[]).map(row => this.getOperation(row.id));
+  }
   retry(environmentId: string, action: 'start' | 'stop', requestId: string) {
     const prior = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; operation: string } | undefined;
     if (!prior) return null;

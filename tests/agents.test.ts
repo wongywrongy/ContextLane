@@ -28,6 +28,8 @@ test('bounded metadata observations skip exits and malformed identities without 
   const first = await observeAgents(root);
   assert.deepEqual(first.agents.map(a => a.name).sort(), ['Claude Code', 'Codex']);
   assert(first.agents.every(a => /^[a-f0-9]{24}$/.test(a.id)));
+  assert.equal(first.agents.find(a => a.name === 'Codex')!.pid, 1);
+  assert.equal(first.agents.find(a => a.name === 'Codex')!.cwd, '/approved/app/web');
   assert.deepEqual((await observeAgents(root, process.getuid!() + 1)).agents, []);
   const oldId = first.agents.find(a => a.name === 'Codex')!.id;
   await writeFile(join(root, '1', 'stat'), `1 (codex) S ${Array(18).fill('0').join(' ')} 456`);
