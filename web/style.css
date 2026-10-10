@@ -275,3 +275,14 @@ h1,h2,h3,h4,p{overflow-wrap:anywhere}
  .proj-head{flex-wrap:wrap;gap:12px}.title{flex-basis:100%}.head-actions{margin-left:0}.proj-head:has(.head-actions> .project-actions:only-child){flex-wrap:nowrap}.proj-head:has(.head-actions> .project-actions:only-child) .title{flex-basis:0}
  .dbar{padding:11px 16px;gap:12px}.dbar .facts{gap:6px 12px;font-size:11px}.dbar>span:first-child{align-self:flex-start}.panel{padding:16px}.title h2{font-size:18px}.path{font-size:11px}.toolbar{margin-top:24px;gap:12px}.toolbar-actions{width:100%;justify-content:flex-end}.observed{margin-right:auto}.fchip{padding:0 10px;font-size:12px}.settings-boxes .kv{grid-template-columns:1fr}.mcp-clients{grid-template-columns:1fr}.settings-nav{display:flex}.settings-nav button{flex:1;justify-content:center}.ev{grid-template-columns:64px auto minmax(0,1fr);gap:8px;font-size:12px}
 }
+.mark svg { width: 15px; height: 15px; }
+.copy-path { border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; padding: 2px 5px; }
+.dbar > .icon { margin-left: auto; }
+.is-open > .dbar > .icon { transform: rotate(180deg); }
+.proposal { margin-bottom: 20px; }
+.proposal li { margin: 8px 0; }
+
+.operation-status { margin: 0; padding: 8px 24px; color: var(--text-2); border-top: 1px solid var(--stroke); }
+
+.proposal { scroll-margin-top: 100px; }
+@media (max-width:760px) { .proposal { scroll-margin-top: 192px; } }

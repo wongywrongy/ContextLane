@@ -6,7 +6,7 @@ function Command({ title, children }: { title: string; children: string }) {
   return <div className="setup-command"><div className="toolbar"><span>{title}</span><button onClick={async () => {
     try { await navigator.clipboard.writeText(children); setNotice('Copied'); }
     catch { setNotice('Copy unavailable. Select and copy the text below.'); }
-  }} aria-label={`Copy ${title}`}>Copy</button></div><pre><code>{children}</code></pre><span className="muted" role="status">{notice}</span></div>;
+  }} aria-label={`Copy ${title}`}>{notice==='Copied'?'Copied':'Copy'}</button></div><pre><code>{children}</code></pre><span className="muted" role="status">{notice}</span></div>;
 }
 
 export function McpSetup() {

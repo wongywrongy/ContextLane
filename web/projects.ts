@@ -43,7 +43,11 @@ export function projectStatus(group: ProjectGroup, environments: Record<string, 
 }
 export const label = (id: string) => id.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase());
 
-export const editorHref = (path: string) => 'vscode://file' + path.split('/').map(encodeURIComponent).join('/');
+export function editorHref(path: string, template?: string | null, host?: string | null) {
+  if (!template || template.includes('{host}') && !host) return null;
+  const url = template.replaceAll('{host}',encodeURIComponent(host ?? '')).replaceAll('{path}',path.split('/').map(encodeURIComponent).join('/'));
+  try { return ['vscode:','vscode-insiders:','cursor:','zed:','jetbrains:'].includes(new URL(url).protocol) ? url : null; } catch { return null; }
+}
 export const branchLabel = (project: Project) => project.detached ? `detached @ ${project.detachedSha ?? '—'}` : project.branch ?? '—';
 export function matchesProject(group: ProjectGroup, query: string) {
   const text = query.trim().toLowerCase();
@@ -61,12 +65,13 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
     const configured = checkout.runtime.services;
     const ports = [...new Set([...checkout.runtime.ports, ...configured.map(s => s.port)])];
     return ports.map(port => {
+      const listener = checkout.runtime.listeners?.find(l=>l.port===port);
       const service = configured.find(s => s.port === port);
-      const environment = checkout.environmentIds.map(id => environments[id]).find(e => e?.services.some(s => s.id === service?.id && s.port === port));
+      const environment = group.environmentIds.map(id => environments[id]).find(e => e?.services.some(s => s.id === service?.id && s.port === port));
       const unit = environment?.services.find(s => s.id === service?.id && s.port === port);
       const listening = checkout.runtime.ports.includes(port);
       const state = environment?.observationError || unit?.state === 'failed' ? 'Attention' : environment?.application === 'ready' && unit?.state === 'active' ? 'Ready' : listening ? 'Listening' : unit && ['inactive', 'absent', 'not recorded'].includes(unit.state) ? 'Stopped' : 'Unknown';
-      return { key: `${checkout.id}:${port}`, name: service?.name ?? '—', port, checkout, unit: unit?.unit || '—', managed: !!environment, state };
+      return { key: `${checkout.id}:${port}`, name: listener?.process?.name ?? service?.name ?? '—', port, checkout, unit: unit?.unit || '—', process: listener?.process, managed: !!environment, state };
     });
   });
 }

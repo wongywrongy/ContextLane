@@ -16,7 +16,7 @@ const paths = {
   moon: 'M21 13A9 9 0 0 1 11 3a9 9 0 1 0 10 10'
 };
 export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSProperties }) {
-  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="icon" style={style}><path d={paths[name]}/></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="icon"><path d={paths[name]}/></svg>;
 }
 export function Logo() {
   return <svg aria-hidden="true" viewBox="0 0 40 44" className="logo"><path d="m20 2 17 9v22l-17 9L3 33V11Z" fill="#12213b" stroke="#6387ff" strokeWidth="2"/><path d="m5 12 15 8v19L5 32Z" fill="#3159ff"/><path d="m20 20 15-8v20l-15 7Z" fill="#0b1525"/></svg>;

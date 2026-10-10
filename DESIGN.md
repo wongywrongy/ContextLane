@@ -252,7 +252,15 @@ Segmented navigation sits inside a recessed rounded frame. Selected destinations
 
 ### Details, Actions and Technical Commands
 
-The native actions popover offers Copy path, Open in editor and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
+The native actions popover offers Copy path, Open in editor when an owner-configured template is present, read-only proposals, and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
+
+
+
+Runtime details use observed service names, process start times and worktree state. Unknown values stay “—”. HTTP observations show status separately from semantic readiness chips; they never confer Ready. Ready requires the reviewed readiness check, and Available requires HTTPS verification. Activity shows bounded durable lifecycle and preview history with error codes.
+
+The fast observation loop runs every five seconds; active operations refresh every second. Git metadata refreshes every sixty seconds or on HEAD/index changes. Only an expanded project requests environment and preview readiness probes. Config reload and reconciliation failures use one status notice each. Stop and Unpublish require confirmation; retries preserve the click’s request ID.
+
+Path links use the private host’s approved editorUrlTemplate. Without it, paths remain text with Copy. Proposal JSON stays unapproved, with literal readiness placeholders and exact host instructions to edit config.json and run rootlane-reload. Settings never writes config. Claude’s mark is an inline React SVG from Anthropic’s press asset; Codex retains CX until an official standalone mark is available. CSP allows only self-hosted assets; Geist fonts remain WOFF2 files, assetsInlineLimit is zero, and components use no inline style attributes or data URLs.
 
 ## Do's and Don'ts
 

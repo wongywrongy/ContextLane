@@ -71,7 +71,7 @@ test('Signal payload attributes agents and listeners to a checkout and exposes d
   const result = await new Catalog(config, host).list({limit:50});
   const main = result.projects.find(p => p.path === repo)!; const checkout = result.projects.find(p => p.path === tree)!;
   assert.match(checkout.detachedSha!, /^[a-f0-9]+$/);
-  assert.deepEqual(checkout.runtime.listeners,[{port:3000,worktreePath:tree,checkoutId:checkout.id}]);
+  assert.deepEqual(checkout.runtime.listeners,[{port:3000,worktreePath:tree,checkoutId:checkout.id,loopback:true}]);
   assert.equal(checkout.agents[0].source,'detected process');
   if (checkout.agents[0].source === 'detected process') { assert.equal(checkout.agents[0].cwd,join(tree,'web')); assert.equal(checkout.agents[0].worktreePath,tree); }
   assert.deepEqual(main.observedPreviews,[]); assert.equal(main.links[0].label,'Homepage');

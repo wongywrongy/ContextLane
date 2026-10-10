@@ -14,14 +14,16 @@ try {
  const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{const id=++sequence;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params,sessionId}));});
  socket.onmessage=event=>{const message=JSON.parse(event.data);if(message.id){const item=pending.get(message.id);pending.delete(message.id);message.error?item.reject(Error(JSON.stringify(message.error))):item.resolve(message.result);}
   if(message.method==='Runtime.exceptionThrown')consoleErrors.push(message.params.exceptionDetails.text);
+  if(message.method==='Page.javascriptDialogOpening') void send('Page.handleJavaScriptDialog',{accept:true},message.sessionId);
   if(message.method==='Fetch.requestPaused')void respond(message.params).catch(error=>{ if(!String(error).includes('Invalid InterceptionId')) consoleErrors.push(String(error)); });
  };
  const {targetId}=await send('Target.createTarget',{url:'about:blank'});const {sessionId}=await send('Target.attachToTarget',{targetId,flatten:true});
+ await send('Browser.grantPermissions',{origin:'https://rootlane.test',permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
  const page=(method,params={})=>send(method,params,sessionId);
  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
- let unlocked=true; let failProject=false,failLogs=false,failCatalog=false,failEnvironment=false,failPreview=false,disconnect=false,delayProject=0,delayCatalog=0,delayLogs=0,activeCatalog=0,peakCatalog=0;
+ let editorTemplate='vscode://file{path}'; let unlocked=true; let failProject=false,failLogs=false,failCatalog=false,failEnvironment=false,failPreview=false,disconnect=false,delayProject=0,delayCatalog=0,delayLogs=0,activeCatalog=0,peakCatalog=0;
  const previewId='12345678-1234-4234-8234-123456789abc';
- const projects=Array.from({length:12},(_,i)=>({id:'p'+i,name:i===0?'Disposable fixture':'Project '+i,path:'/code/'+('long-checkout-path/'.repeat(i===1?8:1))+i,gitCommonDir:null,branch:'feature/a-very-long-branch-name',detached:false,manifests:['package.json'],links:i===1?[{label:'Homepage',url:'https://example.invalid/'}]:[],agents:i===0?Array.from({length:5},(_,a)=>({name:a%2?'Claude Code':'Codex',source:'detected process',id:String(a).repeat(24),cwd:'/code',worktreePath:'/code/long-checkout-path/0'})):[],previewIds:i===0?[previewId]:[],environmentIds:i===0?['env']:[],logServices:i===0?[{environmentId:'env',serviceId:'web'}]:[],runtime:{services:i===0?[{id:'web',name:'Web',port:3000},{id:'api',name:'API',port:4000},{id:'worker',name:'Worker',port:5000},{id:'debug',name:'Debug',port:6000}]:[],status:i===0?'listeners observed':'no associated listener',ports:i===0?[3000,4000,5000,6000]:[],ownership:'observe-only'}}));
+ const projects=Array.from({length:12},(_,i)=>({id:'p'+i,name:i===0?'Disposable fixture':'Project '+i,path:'/code/'+('long-checkout-path/'.repeat(i===1?8:1))+i,controls:i===0?[{id:'env',desiredState:'running',hasResources:true,startAllowed:true,latestOperation:null}]:[],devCommand:i===0?'vite':undefined,git:{dirty:2,ahead:1,behind:0,lastCommit:{sha7:'abcdef1',subject:'Fixture change',committedAt:'2026-10-10T01:00:00Z'}},gitCommonDir:null,branch:'feature/a-very-long-branch-name',detached:false,manifests:['package.json'],links:i===1?[{label:'Homepage',url:'https://example.invalid/'}]:[],agents:i===0?Array.from({length:5},(_,a)=>({name:a%2?'Claude Code':'Codex',source:'detected process',id:String(a).repeat(24),startedAt:'2026-10-10T00:42:00Z',pid:100+a,cwd:'/code',worktreePath:'/code/long-checkout-path/0'})):[],previewIds:i===0?[previewId]:[],environmentIds:i===0?['env']:[],logServices:i===0?[{environmentId:'env',serviceId:'web'}]:[],runtime:{listeners:i===0?[3000,4000,5000,6000].map((port,index)=>({port,checkoutId:'p0',worktreePath:'/code/long-checkout-path/0',loopback:true,process:{name:index===0?'vite':index===1?'uvicorn':'node worker.js',pid:200+index,startedAt:'2026-10-10T00:50:00Z'}})):[],services:i===0?[{id:'web',name:'Web',port:3000},{id:'api',name:'API',port:4000},{id:'worker',name:'Worker',port:5000},{id:'debug',name:'Debug',port:6000}]:[],status:i===0?'listeners observed':'no associated listener',ports:i===0?[3000,4000,5000,6000]:[],ownership:'observe-only'}}));
  async function respond(event) {
   const {requestId,request}=event;const url=new URL(request.url);const path=url.pathname;
   let status=200,body,contentType='application/json';
@@ -30,12 +32,15 @@ try {
    if(disconnect){await page('Fetch.failRequest',{requestId,errorReason:'ConnectionRefused'});return;}
    if(path==='/api/session'){status=unlocked?200:401;body=unlocked?{csrf:'test'}:{message:'Unlock required'};}
    else if(path==='/api/login'){unlocked=true;body={csrf:'test'};}
-   else if(path==='/api/status')body={connected:true,tailscale:{status:'connected',hostname:'neo.example.ts.net'},lifecycleAvailable:true,projectRoots:['/code'],observationRoots:['/code','/worktrees']};
+   else if(path==='/api/status')body={connected:true,tailscale:{status:'connected',hostname:'neo.example.ts.net'},lifecycleAvailable:true,editorUrlTemplate:editorTemplate,projectRoots:['/code'],observationRoots:['/code','/worktrees']};
    else if(path.endsWith('list_projects')){activeCatalog++;peakCatalog=Math.max(peakCatalog,activeCatalog);const failed=failCatalog;await pause(delayCatalog);activeCatalog--;status=failed?503:200;body=failed?{message:'Controlled catalog failure'}:{projects,nextCursor:null,warnings:[],observedAt:'2026-10-10T01:00:00Z'};}
-   else if(path.endsWith('get_project')){const failed=failProject;await pause(delayProject);status=failed?503:200;body=failed?{message:'Controlled project failure'}:{project:projects.find(p=>p.id===payload.projectId),checkoutIds:[payload.projectId],services:[],approvedTargetIds:[],previews:payload.projectId==='p0'?[{previewId,checkoutId:'p0',serviceId:'web'}]:[],logServices:payload.projectId==='p0'?[{environmentId:'env',serviceId:'web'}]:[]};}
+   else if(path.endsWith('get_project')){const failed=failProject;await pause(delayProject);status=failed?503:200;body=failed?{message:'Controlled project failure'}:{project:projects.find(p=>p.id===payload.projectId),checkoutIds:[payload.projectId],http:[{checkoutId:'p0',port:3000,http:{status:200,checkedAt:'2026-10-10T01:00:00Z'}}],services:[],approvedTargetIds:payload.projectId==='p0'?['api']:[],previews:payload.projectId==='p0'?[{previewId,checkoutId:'p0',serviceId:'web'}]:[],logServices:payload.projectId==='p0'?[{environmentId:'env',serviceId:'web'}]:[]};}
    else if(path.endsWith('get_environment')){status=failEnvironment?503:200;body=failEnvironment?{message:'Controlled environment failure'}:{id:'env',profileRevision:'test',effects:'test',dataRequirements:'None',startAllowed:true,ownership:'rootlane',desiredState:'running',application:'ready',preview:'available',links:[],services:[{id:'web',port:3000,unit:'rootlane-web.service',state:'active'},{id:'api',port:4000,unit:'rootlane-api.service',state:'active'}],observedAt:'2026-10-10T01:00:00Z',latestOperation:null,recentOperations:[],previewRoutes:[],observationError:null};}
    else if(path.endsWith('get_preview')){status=failPreview?503:200;body=failPreview?{message:'Controlled preview failure'}:{id:previewId,targetId:'web',projectPath:'/code',checkoutPath:projects[0].path,serviceId:'web',serviceName:'Web',port:3000,httpsPort:19484,ownership:'rootlane route only',approved:true,removed:false,url:'https://neo.example.ts.net:19484/',route:'matching',actualConfiguration:{},upstream:'ready',https:'verified',errors:[],observedAt:'2026-10-10T01:00:00Z',verifiedAt:'2026-10-10T01:00:00Z',latestOperation:null};}
-   else if(path.endsWith('start_environment') || path.endsWith('stop_environment')) body={};
+   else if(path.endsWith('start_environment') || path.endsWith('stop_environment')) body={operation:{id:previewId,environmentId:'env',action:payload.environmentId?'stop':'start',status:'succeeded',error:null,createdAt:'2026-10-10T01:00:00Z',finishedAt:'2026-10-10T01:00:01Z'}};
+   else if(path.endsWith('list_operations')) body={operations:[]};
+   else if(path.endsWith('propose_preview_target') || path.endsWith('propose_profile')) body={draft:{approved:false,projectPath:projects[0].path,port:3000,httpsPort:20000,readiness:{path:'/',status:200,bodyIncludes:'<CHANGE ME>'}},steps:['Edit config.json on the host.','Run rootlane-reload.']};
+   else if(path.endsWith('publish_preview') || path.endsWith('unpublish_preview')) body={operation:{id:previewId,previewId,action:payload.targetId?'publish':'unpublish',status:'succeeded',error:null,createdAt:'2026-10-10T01:00:00Z',finishedAt:'2026-10-10T01:00:01Z'},previewId,url:'https://neo.example.ts.net:19484/',verification:'verified'};
    else if(path.endsWith('get_logs')){const failed=failLogs;await pause(delayLogs);status=failed?503:200;body=failed?{message:'Controlled logs failure'}:{lines:['bounded log output '.repeat(80)],nextCursor:null,truncated:true};}
    else throw Error('Unexpected API '+path);
    body=Buffer.from(JSON.stringify(body));
@@ -43,14 +48,14 @@ try {
    const file=resolve('dist/web',path==='/'?'index.html':'.'+path);assert(file.startsWith(resolve('dist/web')+'/'));
    body=await readFile(file);contentType={'.html':'text/html','.js':'text/javascript','.css':'text/css','.woff2':'font/woff2','.svg':'image/svg+xml'}[extname(file)] ?? 'text/plain';
   }
-  await page('Fetch.fulfillRequest',{requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:contentType}],body:body.toString('base64')});
+  await page('Fetch.fulfillRequest',{requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:contentType},{name:'Content-Security-Policy',value:"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"}],body:body.toString('base64')});
  }
  await page('Page.enable');await page('Runtime.enable');await page('Fetch.enable',{patterns:[{urlPattern:'https://rootlane.test/*'}]});
  const evaluate=async expression=>{const r=await page('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
  const wait=async expression=>{for(let i=0;i<120;i++){if(await evaluate(`!!(${expression})`))return;await pause(50);}throw Error('Wait failed: '+expression);};
  await page('Page.navigate',{url:'https://rootlane.test/'});await wait('document.querySelectorAll(".project").length===12');
  await wait('document.querySelector(".proj-head").textContent.includes("Stop")');
- assert.equal(await evaluate('document.querySelectorAll(".project-details").length'),0);
+ assert.equal(await evaluate('document.querySelectorAll(".project-details").length'),0); assert(!requests.some(r=>r.path.endsWith('get_environment')||r.path.endsWith('get_preview')),'Collapsed projects do not trigger readiness probes');
  assert(await evaluate('document.querySelector("#project-p1 .pv").textContent.includes("Not exposed") && !document.querySelector("#project-p1 .pv a")'),'Known URL is not a published preview');
  const captures=[];
  const capture=async name=>{await evaluate('document.fonts.ready');await page('Page.captureScreenshot').then(({data})=>writeFile(`${evidence}/${name}.png`,Buffer.from(data,'base64')));};
@@ -74,8 +79,14 @@ try {
  await page('Input.insertText',{text:'6000'});await wait('document.querySelectorAll(".project").length===1');
  await evaluate(`(()=>{const input=document.querySelector('.cmd input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);await wait('document.querySelectorAll(".project").length===12');
  const openTab=async tab=>{await evaluate(`document.querySelector('#project-p0 .dbar').click()`);await evaluate(`document.getElementById('tab-p0-${tab}').click()`);};
- await openTab('Worktrees');await wait('document.querySelector(".project-details table")');await capture('expanded');
+ await openTab('Worktrees');await wait('document.querySelector(".project-details table")');await wait('document.querySelector(".proj-head").textContent.includes("Stop")');await capture('expanded');
  for(const tab of ['Agents','Services','Preview','Environment','Activity']) {await evaluate(`document.getElementById('tab-p0-${tab}').click()`);await wait(`document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')==='tab-p0-${tab}'`);await capture('tab-'+tab.toLowerCase());}
+ await evaluate(`document.getElementById('tab-p0-Services').click()`);
+ await wait('document.querySelector(".project-details .tbl button")'); await evaluate('document.querySelector(".project-details .tbl button").click()');
+ await wait('document.querySelector(".proposal pre")?.textContent.includes("CHANGE ME")');await evaluate('document.querySelector(".proposal .btn").click()'); await wait('document.querySelector(".copy-notice")?.textContent.includes("Draft copied")');
+ assert(await evaluate('document.querySelector(".proposal").textContent.includes("Rootlane has changed no configuration") && document.querySelector(".proposal").textContent.includes("rootlane-reload")'));
+ for(const [width,name] of [[1440,'proposal-desktop'],[390,'proposal-mobile']]) {await page('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<500});await evaluate('document.querySelector(".proposal").scrollIntoView({block:"start"})');await pause(100);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);await capture(name);}
+ await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false}); await evaluate('window.scrollTo(0,0)');
  await evaluate(`document.getElementById('tab-p0-Environment').click()`);
  await evaluate(`document.querySelector('.environment-actions button:last-child').click()`);await wait('document.querySelector(".logs pre").textContent.includes("bounded")');
  await evaluate(`document.querySelector('.logs').scrollIntoView({block:'center'})`);await capture('environment-logs');await evaluate('window.scrollTo(0,0)');
@@ -100,8 +111,15 @@ try {
  await evaluate(`document.querySelector('.main-nav button:first-child').click()`);await evaluate('window.scrollTo(0,0)');
  await page('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await page('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
  assert.equal(await evaluate('getComputedStyle(document.activeElement).outlineStyle'),'solid','Visible keyboard focus');
+ assert(await evaluate(`!!document.querySelector('a[href^="vscode:"]')`));
+ editorTemplate=null;await evaluate(`document.querySelector('[aria-label="Refresh projects"]').click()`);await wait('document.querySelector(".path .copy-path")');
+ assert(!await evaluate(`!!document.querySelector('a[href^="vscode:"]')`));
+ await evaluate('window.originalCopy=navigator.clipboard.writeText.bind(navigator.clipboard);navigator.clipboard.writeText=async()=>{throw Error("Controlled clipboard denial")};document.querySelector(".copy-path").click()');await wait('document.querySelector(".path").textContent.includes("Copy unavailable. Select the path.")');
+ await evaluate('navigator.clipboard.writeText=window.originalCopy;document.querySelector(".copy-path").click()');await wait('document.querySelector(".path .copy-path").textContent==="Copied"');
+ await capture('editor-fallback-mobile');
  unlocked=false;await page('Page.reload');await wait('document.querySelector("#credential")');assert(!await evaluate('!!document.querySelector(".topbar")'));await capture('unlock-mobile');
  await page('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await capture('unlock');
+ assert(!await evaluate('!!document.querySelector("[style],img[src^=\\"data:\\"]")'),'No inline styles or data images'); assert(await evaluate('document.querySelector(".mark.claude svg") !== null') || !await evaluate('document.querySelector(".mark.claude") !== null'));
  assert.deepEqual(consoleErrors,[]);await writeFile(evidence+'/browser-results.json',JSON.stringify({captures,peakCatalog,requests,consoleErrors},null,2));
  console.log('PASS Signal desktop/tablet/mobile, collapsed summaries, tabs, logs, search shortcut, stale observations, menu focus, coalesced refresh, settings, unlock and reduced motion');
 } finally {socket?.close();child.kill('SIGTERM');if(child.exitCode===null)await new Promise(resolve=>child.once('exit',resolve));await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

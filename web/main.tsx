@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { environmentOutput, logsOutput, projectOutput, previewOutput, type Environment, type ProjectDetails, type PreviewStatus } from '../src/shared/contracts';
+import { operationsOutput, environmentOutput, logsOutput, projectOutput, previewOutput, type Environment, type ProjectDetails, type PreviewStatus } from '../src/shared/contracts';
 import './style.css';
 import { groupProjects, loadCatalog, projectStatus, matchesProject, matchesFilter, type ProjectFilter } from './projects';
 import { Icon, Logo } from './icons';
@@ -38,10 +38,13 @@ function App() {
   const selectProject = (id: string | null) => {
     detailAbort.current.abort(); detailAbort.current = new AbortController();
     logAbort.current.abort(); logAbort.current = new AbortController();
-    selectedRef.current = id; setSelected(id); setDetails(null); setProjectError(''); setLogs(null); setLogsError('');
+    selectedRef.current = id; setSelected(id); setDetails(null); setProjectError(''); setLogs(null); setLogsError(''); setActivity([]); setActivityError(''); setProposal(null);
     void refreshController.current?.refresh();
   };
   const [tailnetHostname, setTailnetHostname] = useState<string | null>(null);
+  const [editorTemplate, setEditorTemplate] = useState<string | null>(null);
+  const [activity, setActivity] = useState<ReturnType<typeof operationsOutput.parse>['operations']>([]); const [activityError,setActivityError] = useState('');
+  const [proposal,setProposal] = useState<{projectId:string;draft:unknown;steps:string[]} | null>(null);
   const [unavailableReason, setUnavailableReason] = useState(''); const [configError, setConfigError] = useState('');
   const activeRef = useRef(false); const lastPoll = useRef(0);
   const [pendingAction, setPendingAction] = useState<{ tool: string; body: Record<string,string> } | null>(null);
@@ -61,7 +64,7 @@ function App() {
       await Promise.allSettled([
         json('/api/status', undefined, undefined, signal).then(status => {
           if (signal.aborted) return;
-          setConnection('Connected'); setTailscale(status.tailscale.status === 'connected' ? 'Connected' : 'Unavailable'); setTailnetHostname(status.tailscale.hostname); setLifecycleAvailable(status.lifecycleAvailable); setUnavailableReason(status.reconciling ? status.lastError?.message ?? 'reconciling ownership' : ''); setConfigError(status.configError ? status.configError.code + ' · ' + status.configError.message : ''); setRoots(status.projectRoots ?? []); setObservationRoots(status.observationRoots ?? []);
+          setEditorTemplate(status.editorUrlTemplate); setConnection('Connected'); setTailscale(status.tailscale.status === 'connected' ? 'Connected' : 'Unavailable'); setTailnetHostname(status.tailscale.hostname); setLifecycleAvailable(status.lifecycleAvailable); setUnavailableReason(status.reconciling ? status.lastError?.message ?? 'reconciling ownership' : ''); setConfigError(status.configError ? status.configError.code + ' · ' + status.configError.message : ''); setRoots(status.projectRoots ?? []); setObservationRoots(status.observationRoots ?? []);
         }).catch(e => { if (!signal.aborted) { failed(e); setConnection('Disconnected'); setTailscale('Unknown'); setLifecycleAvailable(false); } }),
         loadCatalog((cursor, snapshot) => json('/api/tools/list_projects', { cursor, limit: 50, ...(snapshot ? {snapshot} : {}) }, csrf, signal)).then(data => {
           if (signal.aborted) return;
@@ -71,28 +74,29 @@ function App() {
       ]);
       if (signal.aborted) return;
       const snapshot = catalogRef.current;
-      const expanded = snapshot?.projects.find(p => p.id === selectedRef.current);
+      const id = selectedRef.current; const selectionSignal = AbortSignal.any([signal,detailAbort.current.signal]);
+      const expanded = snapshot?.projects.find(p => p.id === id);
       const checkouts = expanded ? snapshot?.projects.filter(p => p.id === expanded.id || expanded.gitCommonDir && p.gitCommonDir === expanded.gitCommonDir) ?? [] : [];
       const environmentIds = [...new Set(checkouts.flatMap(p => p.environmentIds))];
       const previewIds = [...new Set(checkouts.flatMap(p => p.previewIds ?? []))];
       const observations = [
         ...environmentIds.map(environmentId => async () => {
-          try { const env = environmentOutput.parse(await json('/api/tools/get_environment', { environmentId }, csrf, signal)); if (!signal.aborted) { setEnvironments(prev => ({ ...prev, [environmentId]: env })); setEnvironmentErrors(prev => ({ ...prev, [environmentId]: '' })); } }
-          catch (e) { if (!signal.aborted) setEnvironmentErrors(prev => ({ ...prev, [environmentId]: failed(e) })); }
+          try { const env = environmentOutput.parse(await json('/api/tools/get_environment', { environmentId }, csrf, selectionSignal)); if (!selectionSignal.aborted) { setEnvironments(prev => ({ ...prev, [environmentId]: env })); setEnvironmentErrors(prev => ({ ...prev, [environmentId]: '' })); } }
+          catch (e) { if (!selectionSignal.aborted) setEnvironmentErrors(prev => ({ ...prev, [environmentId]: failed(e) })); }
         }),
         ...previewIds.map(previewId => async () => {
-          try { const preview = previewOutput.parse(await json('/api/tools/get_preview', { previewId }, csrf, signal)); if (!signal.aborted) { setPreviews(prev => ({ ...prev, [previewId]: preview })); setPreviewErrors(prev => ({ ...prev, [previewId]: '' })); } }
-          catch (e) { if (!signal.aborted) setPreviewErrors(prev => ({ ...prev, [previewId]: failed(e) })); }
+          try { const preview = previewOutput.parse(await json('/api/tools/get_preview', { previewId }, csrf, selectionSignal)); if (!selectionSignal.aborted) { setPreviews(prev => ({ ...prev, [previewId]: preview })); setPreviewErrors(prev => ({ ...prev, [previewId]: '' })); } }
+          catch (e) { if (!selectionSignal.aborted) setPreviewErrors(prev => ({ ...prev, [previewId]: failed(e) })); }
         })
       ];
-      for (let i = 0; i < observations.length && !signal.aborted; i += 4) await Promise.allSettled(observations.slice(i, i+4).map(observe => observe()));
-      const id = selectedRef.current; if (!id || signal.aborted) return;
-      const selectionSignal = AbortSignal.any([signal, detailAbort.current.signal]);
+      for (let i = 0; i < observations.length && !selectionSignal.aborted; i += 4) await Promise.allSettled(observations.slice(i, i+4).map(observe => observe()));
+      if (!id || selectionSignal.aborted || selectedRef.current !== id) return;
       const current = () => !selectionSignal.aborted && selectedRef.current === id;
       try {
         const data = projectOutput.parse(await json('/api/tools/get_project', { projectId: id }, csrf, selectionSignal));
         if (!current()) return;
         setDetails(data); setProjectError('');
+        try { const operations = await Promise.all([...environmentIds.map(environmentId=>({environmentId})),...previewIds.map(previewId=>({previewId}))].map(scope=>json('/api/tools/list_operations',{...scope,limit:20},csrf,selectionSignal).then(value=>operationsOutput.parse(value).operations))); if (current()) {setActivity([...new Map(operations.flat().map(op=>[op.id,op])).values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,20));setActivityError('');} } catch(e){if(current())setActivityError(failed(e));}
 
       } catch (e) { if (current()) setProjectError(failed(e)); }
     });
@@ -126,7 +130,8 @@ function App() {
     if ((action === 'stop' || action === 'unpublish') && !window.confirm(action === 'stop' ? 'Stop this Rootlane environment? Running work will terminate.' : 'Unpublish this preview? Its application will keep running.')) return;
     void perform(action + (action === 'start' || action === 'stop' ? '_environment' : '_preview'), { [action === 'publish' ? 'targetId' : action === 'unpublish' ? 'previewId' : 'environmentId']: identity, requestId: crypto.randomUUID() });
   }
-  activeRef.current = !!working || [...Object.values(environments), ...Object.values(previews)].some(e => ['accepted','running'].includes(e.latestOperation?.status ?? ''));
+  activeRef.current = !!working || !!catalog?.projects.some(p=>p.controls?.some(e=>['accepted','running'].includes(e.latestOperation?.status??''))) || [...Object.values(environments), ...Object.values(previews)].some(e => ['accepted','running'].includes(e.latestOperation?.status ?? ''));
+  async function propose(projectId:string, checkoutId:string, kind:'target'|'profile', port?:number) { const signal=detailAbort.current.signal; setError(''); try {const value=await json('/api/tools/propose_'+(kind==='target'?'preview_target':'profile'),{checkoutId,...(port?{port}:{})},csrf!,signal); if(!signal.aborted && selectedRef.current===projectId)setProposal({projectId,...value});}catch(e){if(!signal.aborted)setError(String(e));} }
   const allGroups = groupProjects(catalog?.projects ?? []);
   const filtered = allGroups.filter(group => matchesProject(group, query) && matchesFilter(group, filter, environments));
   if (sort === 'status') filtered.sort((a,b) => projectStatus(a, environments).localeCompare(projectStatus(b, environments)) || a.primary.name.localeCompare(b.primary.name));
@@ -145,7 +150,7 @@ function App() {
         {catalogError && <div role="alert" className="notice bad">Catalog: {catalogError}{catalog && ' · Showing the last successful observation.'}</div>}
         {!!catalog?.warnings.length && <details className="notice catalog-notice"><summary>Discovery notices ({catalog.warnings.length})</summary>{catalog.warnings.map(w => <p key={w}>{w}</p>)}</details>}
         {!catalog && <p className="empty-state">Reading project directories…</p>}{catalog && !filtered.length && <p className="empty-state">{query || filter !== 'All' ? 'No projects match your filters.' : 'No projects found in the configured roots.'}</p>}
-        <div className="project-list">{filtered.slice(pageStart, pageStart+25).map(group => <ProjectCard key={group.id} group={group} open={selected === group.primary.id} tab={tab} onOpen={next => { if (next) { setTab(next); if (selected !== group.primary.id) selectProject(group.primary.id); } else { setTab('Worktrees'); selectProject(selected === group.primary.id ? null : group.primary.id); } }} environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={selected === group.primary.id ? details : null} projectError={selected === group.primary.id ? projectError : ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working} onAction={action} onLogs={(id,service) => { void showLogs(id,service); }} logs={selected === group.primary.id ? logs : null} logsError={selected === group.primary.id ? logsError : ''}/>)}</div>
+        <div className="project-list">{filtered.slice(pageStart, pageStart+25).map(group => <ProjectCard key={group.id} group={group} open={selected === group.primary.id} tab={tab} onOpen={next => { if (next) { setTab(next); if (selected !== group.primary.id) selectProject(group.primary.id); } else { setTab('Worktrees'); selectProject(selected === group.primary.id ? null : group.primary.id); } }} environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={selected === group.primary.id ? details : null} projectError={selected === group.primary.id ? projectError : ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={selected === group.primary.id ? activity : []} activityError={selected === group.primary.id ? activityError : ''} proposal={proposal?.projectId === group.primary.id ? proposal : null} onPropose={(checkoutId,kind,port)=>{ if(selected!==group.primary.id) {selectProject(group.primary.id);} setTab('Services'); void propose(group.primary.id,checkoutId,kind,port); }} onAction={action} onLogs={(id,service) => { void showLogs(id,service); }} logs={selected === group.primary.id ? logs : null} logsError={selected === group.primary.id ? logsError : ''}/>)}</div>
         {filtered.length > 25 && <nav className="pagination" aria-label="Project pages">{pageStart > 0 && <button className="btn" onClick={() => setCursor(Math.max(0,pageStart-25))}>Previous</button>}<span className="mono muted">{pageStart+1}–{Math.min(pageStart+25,filtered.length)} of {filtered.length}</span>{pageStart+25 < filtered.length && <button className="btn" onClick={() => setCursor(pageStart+25)}>Next</button>}</nav>}
       </>}
     </main>

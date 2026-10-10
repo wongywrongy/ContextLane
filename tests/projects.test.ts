@@ -53,7 +53,7 @@ test('Signal search includes worktree branches and configured or observed ports;
   assert.deepEqual(groupServices(group,{}).map(s => s.state).sort(),['Listening','Unknown']);
   assert.equal(branchLabel(project('/code/detached',{detached:true,detachedSha:'abcd123'})), 'detached @ abcd123');
   assert.equal(branchLabel(project('/code/unknown',{detached:true})), 'detached @ —');
-  assert.equal(editorHref('/code/a space/#x'), 'vscode://file/code/a%20space/%23x');
+  assert.equal(editorHref('/code/a space/#x','vscode://file{path}'), 'vscode://file/code/a%20space/%23x');
   assert.equal(chipTone('Listening'),'info'); assert.equal(chipTone('Published'),'info'); assert.equal(chipTone('Detected'),'idle'); assert.equal(chipTone('Available'),'ok');
 });
 
@@ -70,4 +70,13 @@ test('same service name across environments cannot transfer readiness to another
   const env = (id:string,port:number,application:'ready'|'stopped') => environmentOutput.parse({id,profileRevision:'revision',effects:'fixture',dataRequirements:'none',startAllowed:true,ownership:'rootlane',desiredState:application==='ready'?'running':'stopped',application,preview:'unavailable',links:[],services:[{id:'web',port,unit:id+'.service',state:application==='ready'?'active':'inactive'}],observedAt:'time',latestOperation:null,observationError:null});
   const services=groupServices(group,{one:env('one',3000,'ready'),two:env('two',4000,'stopped')});
   assert.deepEqual(services.map(s=>s.state),['Ready','Stopped']); assert.deepEqual(services.map(s=>s.unit),['one.service','two.service']);
+});
+
+
+test('editor URLs require an approved template; host and paths are safely encoded',async()=>{
+  const {editorHref}=await import('../web/projects.js');
+  assert.equal(editorHref('/code/app'),null);
+  assert.equal(editorHref('/code/a space','vscode://vscode-remote/ssh-remote+{host}{path}','neo'), 'vscode://vscode-remote/ssh-remote+neo/code/a%20space');
+  assert.equal(editorHref('/code/app','javascript:alert(1)'),null);
+  assert.equal(editorHref('/code/app','vscode://{host}{path}'),null);
 });
