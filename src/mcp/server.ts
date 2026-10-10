@@ -5,13 +5,13 @@ import { boundedText } from '../host/linux.js';
 export function createMcpServer(base: string, credential: string, request: typeof fetch = fetch) {
   const url = new URL(base);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.username || url.password || url.search || url.hash || credential.length < 32) throw new Error('MCP requires a loopback backend origin and a private agent credential');
-  const server = new McpServer({ name: 'rootlane', version: '0.1.0' }, { instructions: 'Manage reviewed development environments on this host. Use list_projects for project IDs and known project links. This service does not provide GitHub/Render API access or rewrite public URLs or payment callbacks. It exposes tools, not MCP resource entries. Start and stop return durable operations; poll get_environment. Keep requestId unchanged when retrying an action. Existing applications are observe-only.' });
+  const server = new McpServer({ name: 'rootlane', version: '0.1.0' }, { instructions: 'Discover projects and publish owner-approved running loopback services on this host. Begin with get_capabilities, then list_projects and get_project to identify approved target IDs. publish_preview and unpublish_preview return durable operations; poll get_preview for route, upstream and HTTPS verification. Publication owns only its recorded route and never starts or stops upstream applications. Manage reviewed development environments separately. Use list_projects for project IDs and known project links. This service does not provide GitHub/Render API access or rewrite public URLs or payment callbacks. It exposes tools, not MCP resource entries. Start and stop return durable operations; poll get_environment. Keep requestId unchanged when retrying an action. Existing applications are observe-only.' });
   for (const name of Object.keys(toolContracts) as ToolName[]) {
     const contract = toolContracts[name];
     const inputSchema: z.ZodObject = contract.input; const outputSchema: z.ZodObject = contract.output;
     server.registerTool(name, {
       description: contract.description, inputSchema, outputSchema,
-      annotations: { readOnlyHint: contract.read, destructiveHint: !contract.read, idempotentHint: true, openWorldHint: !contract.read || name === 'get_environment' }
+      annotations: { readOnlyHint: contract.read, destructiveHint: name === 'stop_environment' || name === 'unpublish_preview', idempotentHint: true, openWorldHint: !contract.read || name === 'get_environment' || name === 'get_preview' || name === 'get_capabilities' }
     }, async input => {
       try {
         const parsed = contract.input.parse(input);

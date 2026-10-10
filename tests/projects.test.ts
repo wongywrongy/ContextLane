@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { groupProjects, loadCatalog, projectStatus, groupAgents, agentLabel } from '../web/projects.js';
 import type { Project } from '../src/shared/contracts.js';
-const project = (path: string, overrides: Partial<Project> = {}): Project => ({ id:path,name:path.split('/').at(-1)!,path,gitCommonDir:null,branch:null,detached:false,manifests:[],links:[],agents:[],environmentIds:[],runtime:{status:'no associated listener',ports:[],ownership:'observe-only'},...overrides });
+const project = (path: string, overrides: Partial<Project> = {}): Project => ({ id:path,name:path.split('/').at(-1)!,path,gitCommonDir:null,branch:null,detached:false,manifests:[],links:[],agents:[],environmentIds:[],logServices:[],runtime:{services:[],status:'no associated listener',ports:[],ownership:'observe-only'},...overrides });
 test('primary projects group detached/external worktrees and nested environments, while container folders disappear', () => {
   const main=project('/code/app',{gitCommonDir:'/code/app/.git',manifests:['package.json']});
   const tree=project('/code/app-worktrees/feature',{gitCommonDir:main.gitCommonDir,detached:true});
@@ -29,9 +29,9 @@ test('all bounded pages load before grouping and incomplete snapshots are reject
   assert.equal(bounded.projects.length,1000);assert(bounded.warnings.some(w=>w.includes('1,000')));
 });
 test('listeners are not readiness and missing observation is not stopped',()=>{
- const listening=groupProjects([project('/code/plain',{runtime:{status:'listeners observed',ports:[3000],ownership:'observe-only'}})])[0];
+ const listening=groupProjects([project('/code/plain',{logServices:[],runtime:{services:[],status:'listeners observed',ports:[3000],ownership:'observe-only'}})])[0];
  assert.equal(projectStatus(listening,{}),'Listening');
- const unknown=groupProjects([project('/code/unknown',{runtime:{status:'unknown',ports:[],ownership:'observe-only'}})])[0];
+ const unknown=groupProjects([project('/code/unknown',{logServices:[],runtime:{services:[],status:'unknown',ports:[],ownership:'observe-only'}})])[0];
  assert.equal(projectStatus(unknown,{}),'Unknown');
 });
 

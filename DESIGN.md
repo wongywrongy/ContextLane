@@ -121,7 +121,7 @@ Density supports scanning real projects and runtime observations. Color, labels,
 The palette is blue-black and cool white, with blue for action and small semantic signals for verified state.
 
 ### Primary
-- **Control Blue** (`primary`): the primary preview action and text selection.
+- **Control Blue** (`primary`): primary controls and text selection.
 - **Ice Blue** (`icon`, `focus`): SVG line icons and the keyboard focus outline.
 
 ### Secondary
@@ -161,15 +161,15 @@ The palette is blue-black and cool white, with blue for action and small semanti
 
 Desktop uses a 226px navigation column and an 82px header. The header and sidebar remain sticky; the search sits between branding and real connection indicators. Main content fills the available width with 28px top, 28px right, 24px bottom, and 32px left padding.
 
-Project rows form one vertical list with 14px gaps. Their heading separates identity and counts from Agents, Services, Preview, and actions below. Details expand inside the same card. Worktree counts exclude the primary checkout.
+Project rows form one vertical list with 14px gaps. Each compact row shows identity, branch and checkout counts, concise listener status, and a three-dot actions button. One project details section opens inline at a time. Worktree counts exclude the primary checkout. Services, routes, links, paths and agent metadata belong to their explicit checkout in details.
 
-At 1400px and below, actions move beneath the three summary columns. At 1000px and below, navigation narrows to 180px and controls wrap. At 700px and below, the header becomes static with search on its second row; navigation becomes horizontal, main padding becomes 24px 16px, Agents and Services form two columns, Preview spans the row, and actions form a two-column grid. Read-only Settings stacks its definition list. Long names, paths, and URLs wrap.
+At 1000px and below, navigation narrows to 180px. At 700px and below, the header becomes static with search on its second row; navigation becomes horizontal, main padding becomes 24px 16px, service status sits beneath identity, and the three-dot button remains alongside both. Read-only Settings stacks its definition list. Long names, paths, and URLs wrap.
 
 ## Elevation & Depth
 
-The workspace uses dark tonal layering, subtle gradients, and thin borders. Cards have no resting shadow and change only their border color on hover. The floating More menu uses `0 12px 25px #0008`; it is the shipped shadow vocabulary.
+The workspace uses dark tonal layering, subtle gradients, and thin borders. Cards have no resting shadow and change only their border color on hover. The native auto-popover uses a fine border and the Control Surface. CSS anchor positioning flips it at viewport edges; unsupported anchor positioning uses a viewport-contained fixed placement.
 
-**The Quiet Surface Rule.** Use tonal separation and fine borders for the workspace; reserve the shipped shadow for the floating More menu.
+**The Quiet Surface Rule.** Use tonal separation and fine borders for the workspace; use the fine-border vocabulary for the floating actions popover.
 
 ## Shapes
 
@@ -187,7 +187,7 @@ Compact technology tags use cyan or teal tinted surfaces and detail text. Owners
 
 ### Cards / Containers
 
-Full-width project cards use a fine border, the Project Surface gradient, and compact padding. Heading and summary areas are separated by thin strokes. The folder tile anchors identity; explicit project state sits beside the title. Summary rows show up to two agents or services with an inline expansion control for the remainder.
+Full-width project cards use a fine border, the Project Surface gradient, and compact padding. The folder tile anchors identity; observed service status sits alongside it. Inline details have a thin separator. Unknown services use their actual port label; observed listeners never claim readiness.
 
 ### Inputs / Fields
 
@@ -199,9 +199,9 @@ Projects and Settings are the only main navigation destinations. The selected it
 
 ### Inline Details and Actions
 
-Counts and More disclose checkout details inline. Collapse returns focus to the project card. Folder opening is disabled when the browser cannot support it; preview links and managed-service log controls depend on real capabilities. Preview labels distinguish Published from verified Available. Settings exposes current connection and ownership information without editable controls.
+The three-dot auto-popover offers Details, Logs only for recorded owned services, and View/Copy paths using ordinary keyboard-accessible buttons. Native Escape/outside dismissal closes it; collapse and dismissal restore focus to the row action button. The dashboard has no prominent folder, preview or lifecycle controls. Details distinguish actual route configuration, upstream readiness and HTTPS verification independently. Settings exposes current connection and ownership information without editable controls.
 
-Hover feedback on cards transitions over 160ms ease-out. Reduced-motion preference removes transitions. Menu actions return focus to the menu summary when they close it.
+Hover feedback on cards transitions over 160ms ease-out. Reduced-motion preference removes transitions. Polling preserves project and log selection, coalesces refreshes, and aborts obsolete requests. Failures stay beside the affected catalog, project, environment, preview or logs; retained observations are labeled stale.
 
 ## Do's and Don'ts
 

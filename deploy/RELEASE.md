@@ -7,10 +7,10 @@ Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running u
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.9 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.9-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.2.0 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.2.0-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.9-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.2.0-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -27,7 +27,7 @@ For managed profiles, review the [configuration example](config.example.json) an
 
 The project-root mount already includes its existing checkout and installed Vite. Downloading this release does not install dependencies in any observed project or authorize another launch profile. Restart only Rootlane after an owner configuration change: `docker compose up -d --no-build --force-recreate --wait`.
 
-For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the five Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
+For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the ten Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
 
 Check `docker compose ps`, `docker compose logs --tail=100`, and the authenticated UI status. Container health establishes that HTTP serves requests; managed readiness is a separate systemd/listener/application check. `docker compose restart` preserves managed host services, which Rootlane reconciles. `docker compose down` removes the backend container, not its SQLite state or managed host services. Stop managed environments through Rootlane before decommissioning; inspect and remove only the matching dedicated Rootlane Serve route separately.
 

@@ -49,13 +49,13 @@ The fixture's Vite configuration reads the owner's Rootlane configuration for it
 
 ## MCP and HTTP contracts
 
-Both adapters expose `list_projects`, `get_environment`, `start_environment`, `stop_environment` and `get_logs`. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; commands, paths, unit names and URLs are not accepted from callers.
+Both adapters expose the ten tools listed in the README. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; commands, paths, unit names and URLs are not accepted from callers.
 
 Retry a timed-out mutation with the same request ID and payload. Reuse with a different payload fails. Start/stop return a durable operation handle; poll `get_environment` for completion. An accepted start is not application readiness or preview availability.
 
 Lists and journals are bounded and paginated. Logs come only from recorded owned invocations; avoid secrets in application output. MCP uses a separate bearer credential over loopback and permits absent Origin while rejecting invalid supplied Origin. Standard tool annotations and client approval settings do not replace backend ownership checks.
 
-[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example](../deploy/claude-mcp.example.json) use an explicitly replaceable Docker adapter path. Allow only the five tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
+[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example and tool policy](../deploy/claude-mcp.example.md) use an explicitly replaceable Docker adapter path. Allow only the ten documented tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
 
 ## Failure and recovery
 
@@ -63,7 +63,7 @@ SQLite records ownership, intent, resource reservations and request mappings, no
 
 Stop requires recorded unit ownership and matching upstream routes, verifies teardown, and retains reservations when cleanup fails. It never kills by port, command-name matching or loose PID attribution. Ownership changes are conflicts, never forced replacements. Startup reconciliation preserves healthy owned applications, handles interrupted operations and does not recreate development environments after host reboot.
 
-If host observation is unavailable, catalog reads can continue while mutations remain blocked until successful reconciliation. Rootlane serializes its own route writes, rechecks ownership and verifies results, but another operator can still race shared Serve changes. Avoid simultaneous manual edits on reserved ports. Never use a global Serve reset.
+If host observation is unavailable, catalog reads can continue while mutations remain blocked until successful reconciliation. Rootlane shares a host route lock across lifecycle and independent publication. Bounded Unix-socket Serve requests require ETag/If-Match and fail closed on missing guards or concurrent changes. The local API is version-sensitive; inspect conflicts before retrying. Never use a global Serve reset.
 
 ## Backups
 
@@ -87,3 +87,26 @@ Use paths within the mounted state directory. The destination must not exist. St
 Rootlane scans same-user native Codex and Claude process metadata when the catalog refreshes. It reads executable identity, process start time and working directory, not command arguments, environments, prompts or transcripts. Working directories must resolve inside observation roots and a known project or Git worktree. Rootlane does not infer project associations from a parent project-root directory.
 
 Detected process rows are separate from owner registrations. Each scan has a two-second budget, an 8,192-process entry limit and a 128-observation limit. Permission failures and limits appear in discovery notices; unknown associations contribute an unassigned count without exposing their directories. These observations are not persisted and disappear after an expired catalog refresh when the process exits. Native helper processes can be included; process counts are not session counts or evidence of active work. Generic Node wrappers and remote agents are unsupported.
+
+## Independent preview targets
+
+Publication approves an existing service, independently of `profiles`. Example owner configuration (replace paths and hostname; check the HTTPS port is unused):
+
+```json
+"previewTargets": [{
+  "id": "disposable-web", "approved": true,
+  "projectPath": "/home/owner/code/rootlane",
+  "checkoutPath": "/home/owner/code/rootlane/fixtures/disposable",
+  "serviceId": "web", "serviceName": "Disposable frontend",
+  "port": 19482, "httpsPort": 19484,
+  "readiness": { "path": "/", "status": 200, "bodyIncludes": "rootlane-disposable-frontend", "timeoutMs": 15000 }
+}]
+```
+
+Paths resolve within observation roots. Operator ports, application ports and profile route reservations cannot overlap target HTTPS ports. Publication requires a live attributable listener within the approved checkout, bound strictly to `127.0.0.1`. The application port is deliberately neither reserved nor adopted by Rootlane. Start the disposable API/frontend separately before publishing. Never approve infrastructure, databases or arbitrary discovered services.
+
+`get_capabilities {}` distinguishes observed support from unverified write/lifecycle permissions. `get_project {projectId}` returns checkout associations, known services, agent sources, links, approved targets and recorded previews. `publish_preview {targetId, requestId}` records durable intent and reserves HTTPS before changing the host; inspect `get_preview {previewId}` for the latest operation, actual routing, upstream readiness and verified HTTPS. `unpublish_preview {previewId, requestId}` removes only the recorded matching route and leaves the upstream running. Neither mutation accepts caller-provided ports, paths or URLs.
+
+Request IDs share collision protection with lifecycle actions. Repeated publication returns the recorded preview and operation. Changed target configuration requires explicit unpublication first. Removed approval blocks new publication but recorded route removal remains available. Interrupted publication never recreates a route. Interrupted removal resumes only against recorded ownership; uncertain removal retains its reservation. Missing and conflicting routes are observations, never automatic repairs.
+
+The guarded Serve API follows [Tailscale's official local client](https://raw.githubusercontent.com/tailscale/tailscale/main/client/local/serve.go), which documents ETag conditional writes and labels this API unstable. Missing guards block changes. Foreground routes and unrelated Serve configuration are preserved.

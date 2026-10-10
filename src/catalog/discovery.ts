@@ -3,7 +3,7 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
-import { page, type Project } from '../shared/contracts.js';
+import { page, Problem, type Project, type ProjectDetails } from '../shared/contracts.js';
 import type { Store, Observation } from '../state/store.js';
 import type { Host, Listener, AgentObservation } from '../host/types.js';
 const manifests = ['package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'go.mod', 'web/package.json', 'frontend/package.json', 'apps/api/pyproject.toml'];
@@ -17,6 +17,21 @@ export class Catalog {
       this.scan ??= this.discover().finally(() => { this.scan = null; }); this.cached = await this.scan;
     }
     return { projects: this.cached.projects.slice(cursor, cursor + limit), nextCursor: cursor + limit < this.cached.projects.length ? cursor + limit : null, warnings: this.cached.warnings, observedAt: this.cached.observedAt };
+  }
+  async get(projectId: string): Promise<ProjectDetails> {
+    await this.list({ limit: 1 });
+    const projects = this.cached!.projects; const project = projects.find(p => p.id === projectId);
+    if (!project) throw new Problem('NOT_FOUND', 'Project is no longer in the observed catalog');
+    const checkouts = projects.filter(p => p.id === projectId || (project.gitCommonDir && p.gitCommonDir === project.gitCommonDir) || inside(p.path, project.path));
+    const targets = this.config.previewTargets.filter(t => checkouts.some(p => p.path === t.checkoutPath));
+    const services: ProjectDetails['services'] = checkouts.flatMap(p => p.runtime.ports.map(port => {
+      const target = targets.find(t => t.checkoutPath === p.path && t.port === port);
+      const service = this.config.profiles.find(e => e.projectPath === p.path)?.services.find(s => s.port === port);
+      return { checkoutId: p.id, serviceId: target?.serviceId ?? service?.id ?? null, name: target?.serviceName ?? service?.id ?? `Port ${port}`, port, source: target || service ? 'owner reviewed' as const : 'listener observation' as const, readiness: 'unverified' as const };
+    }));
+    const previews = (this.store?.previews() ?? []).filter(row => !row.removed).flatMap(row => { const target = JSON.parse(row.target) as import('../config.js').PreviewTarget; const checkout = checkouts.find(p => p.path === target.checkoutPath); return checkout ? [{ previewId: row.id, checkoutId: checkout.id, serviceId: target.serviceId }] : []; });
+    const logServices = checkouts.flatMap(p => p.environmentIds.flatMap(environmentId => (this.store?.resources(environmentId, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))));
+    return { project, checkoutIds: checkouts.map(p => p.id), services, approvedTargetIds: targets.map(t => t.id), previews, logServices: [...new Map(logServices.map(s => [s.environmentId + '/' + s.serviceId, s])).values()] };
   }
   private async discover() {
     const warnings: string[] = []; const deadline = Date.now() + 5000; const paths = new Set<string>();
@@ -33,6 +48,12 @@ export class Catalog {
     }
     // Only reviewed profile paths are additional seeds; do not recursively traverse repositories.
     for (const profile of this.config.profiles) { try { const path = await safe(profile.projectPath); if (path) paths.add(path); } catch { warnings.push(`${profile.id}: project directory unavailable`); } }
+    for (const target of this.config.previewTargets) for (const candidate of [target.projectPath, target.checkoutPath]) { try { const path = await safe(candidate); if (path) paths.add(path); } catch { warnings.push(`${target.id}: approved preview directory unavailable`); } }
+    for (const row of this.store?.previews() ?? []) {
+      if (row.removed) continue;
+      const target = JSON.parse(row.target) as import('../config.js').PreviewTarget;
+      for (const candidate of [target.projectPath, target.checkoutPath]) { try { const path = await safe(candidate); if (path) paths.add(path); } catch { warnings.push(`Recorded preview ${row.id} directory unavailable; unpublish remains available by ID`); } }
+    }
     const recorded = (this.store?.environments() ?? []).map(e => ({ id: e.id, path: (JSON.parse(e.observation) as Observation).projectPath }));
     for (const entry of recorded) { try { const path = await safe(entry.path); if (path) paths.add(path); } catch { warnings.push(`Recorded environment ${entry.id} project is unavailable; stop remains available by ID`); } }
     for (const path of [...paths]) {
@@ -79,7 +100,7 @@ export class Catalog {
         const proxy = config.Handlers?.['/']?.Proxy;
         if (ownListeners.some(l => ['127.0.0.1', '0.0.0.0', '*', '::'].includes(l.address) && proxy === `http://127.0.0.1:${l.port}`)) links.push({ label: 'Observed preview', url: `${transport.HTTPS ? 'https' : 'http'}://${origin}/` });
       }
-      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, manifests: found, links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], runtime: { status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), ownership: 'observe-only' } });
+      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, manifests: found, links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], logServices: recorded.filter(e => e.path === path).flatMap(e => (this.store?.resources(e.id, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId: e.id, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))), runtime: { services: [...new Map([...this.config.profiles.filter(p => p.projectPath === path).flatMap(p => p.services.map(s => ({ id: s.id, name: s.id, port: s.port }))), ...this.config.previewTargets.filter(t => t.checkoutPath === path).map(t => ({ id: t.serviceId, name: t.serviceName, port: t.port }))].map(s => [s.port, s])).values()], status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), ownership: 'observe-only' } });
     }
     let unassigned = 0;
     const closestFirst = [...projects].sort((a, b) => b.path.length - a.path.length);

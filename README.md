@@ -4,7 +4,8 @@ A private, self-hosted workspace for your projects, worktrees, development envir
 
 - Discover projects and Git worktrees without recursively indexing internal folders.
 - See observed services, detected Codex/Claude processes, registered agents and known preview links in one place.
-- Start and stop owner-reviewed environments through the browser, Codex or Claude Code.
+- Publish approved running loopback services through MCP without owning their processes.
+- Start and stop owner-reviewed environments through Codex or Claude Code.
 
 Existing projects are **observe-only**. Rootlane controls only resources it owns.
 
@@ -17,10 +18,10 @@ Download the compiled release and prebuilt Docker image. This repository is priv
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.9 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.9-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.2.0 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.2.0-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.9-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.2.0-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -50,6 +51,14 @@ For another directory, such as `/opt/stacks/rootlane`, substitute its absolute a
 The adapter reads its private agent credential inside the running container. Keep normal tool approvals; never put credential values in client configuration. **Settings → MCP setup** covers tool permissions, troubleshooting and an optional agent setup prompt. Rootlane currently supports local stdio, not a remote `/mcp` endpoint.
 
 Agent detection uses same-user native process metadata and project working directories. “Detected process” does not establish a task or active session. Node wrappers and remote agents are not detected; unassigned processes appear in discovery notices.
+
+## Preview workflow
+
+The ten MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`.
+
+Check `get_capabilities {}`, list projects, then call `get_project {projectId}` for approved target IDs. Start the approved application separately. Call `publish_preview {targetId, requestId}` with a new UUID; poll `get_preview {previewId}` until its HTTPS forwarding is verified. Remove it with `unpublish_preview {previewId, requestId}`. Retry a timed-out action with its original request ID and payload. Publication changes only the reserved route; unpublishing leaves the application running. Missing or changed routes are reported after restart and never recreated automatically.
+
+The owner approves `previewTargets` independently of launch profiles in private host configuration. See [configuration](docs/ADMINISTRATION.md#independent-preview-targets). Discovery and an observed listener grant no approval. The dashboard loads checkout, service, route and agent details inline through the three-dot button, one project at a time.
 
 ## Development
 

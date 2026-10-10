@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 const server = createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
   if (req.url === '/health') res.end(JSON.stringify({ service: 'rootlane-disposable-api', ready: true }));
+  else if (req.url === '/api/redirect') { res.statusCode = 302; res.setHeader('location', '/api/message'); res.end(); }
   else if (req.url === '/api/message') res.end(JSON.stringify({ message: 'The disposable API is reachable.' }));
   else { res.statusCode = 404; res.end(JSON.stringify({ error: 'Not found' })); }
 });

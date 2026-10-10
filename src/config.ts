@@ -6,10 +6,13 @@ import { id, link, Problem } from './shared/contracts.js';
 const absolute = z.string().max(4096).refine(v => !v.includes('\0') && !v.includes('\n'), 'Control characters are not allowed').refine(isAbsolute, 'Must be an absolute path');
 const origin = z.url().refine(v => { const u = new URL(v); return u.protocol === 'https:' && u.origin === v; }, 'Canonical HTTPS origin required');
 const port = z.number().int().min(1024).max(65535);
+const readiness = z.strictObject({ path: z.string().regex(/^\/(?!\/)[^\s#]*$/).max(256), status: z.number().int().min(200).max(299).default(200), bodyIncludes: z.string().min(1).max(256), timeoutMs: z.number().int().min(100).max(60000).default(15000) });
+export const previewTargetSchema = z.strictObject({ id, approved: z.literal(true), projectPath: absolute, checkoutPath: absolute, serviceId: id, serviceName: z.string().min(1).max(100), port, httpsPort: port, readiness });
+export type PreviewTarget = z.infer<typeof previewTargetSchema>;
 const service = z.strictObject({
   id, cwd: absolute, executable: absolute, args: z.array(z.string().max(4096).refine(v => !v.includes('\0'))).max(100),
   port, dependencies: z.array(id).max(16).default([]),
-  readiness: z.strictObject({ path: z.string().regex(/^\/(?!\/)[^\s#]*$/).max(256), status: z.number().int().min(200).max(299).default(200), bodyIncludes: z.string().min(1).max(256), timeoutMs: z.number().int().min(100).max(60000).default(15000) })
+  readiness
 });
 export const profileSchema = z.strictObject({
   id, projectPath: absolute, approved: z.literal(true), effects: z.string().min(1).max(1000),
@@ -22,6 +25,7 @@ export const configSchema = z.strictObject({
   stateDirectory: absolute, port: port.default(9480),
   origin, additionalOrigins: z.array(origin).max(4).optional(),
   tailnetHostname: z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/),
+  previewTargets: z.array(previewTargetSchema).max(50).default([]),
   profiles: z.array(profileSchema).max(50).default([]),
   projects: z.array(z.strictObject({ path: absolute, links: z.array(link).max(20).default([]), agents: z.array(z.strictObject({ name: z.string().min(1).max(100) })).max(20).default([]) })).max(200).default([])
 });
@@ -29,7 +33,7 @@ export type Config = z.infer<typeof configSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type Service = Profile['services'][number];
 export function inside(path: string, root: string) { const r = relative(root, path); return r === '' || (r !== '..' && !r.startsWith('../') && !isAbsolute(r)); }
-export function revision(profile: Profile) { return createHash('sha256').update(JSON.stringify(profile)).digest('hex'); }
+export function revision(profile: Profile | PreviewTarget) { return createHash('sha256').update(JSON.stringify(profile)).digest('hex'); }
 export async function privateFile(path: string) {
   const info = await stat(path);
   if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077)) throw new Problem('PRIVATE_FILE_REQUIRED', `${path} must be owned by this user with mode 0600`);
@@ -64,6 +68,15 @@ export async function loadConfig(path: string): Promise<Config> {
       if (!services.has(route.serviceId) || routes.has(route.httpsPort) || ports.has(route.httpsPort) || route.httpsPort === config.port || route.httpsPort === Number(new URL(config.origin).port || 443)) throw new Problem('INVALID_PROFILE', 'Invalid or reserved preview port');
       routes.add(route.httpsPort);
     }
+  }
+  const reserved = new Set([config.port, ...[config.origin, ...(config.additionalOrigins ?? [])].map(o => Number(new URL(o).port || 443))]);
+  const ids = new Set<string>(); const routes = new Set<number>();
+  const appPorts = new Set([...config.profiles.flatMap(p => p.services.map(s => s.port)), ...config.previewTargets.map(t => t.port)]);
+  for (const target of config.previewTargets) {
+    target.projectPath = await realpath(target.projectPath); target.checkoutPath = await realpath(target.checkoutPath);
+    if (![target.projectPath, target.checkoutPath].every(p => config.observationRoots.some(r => inside(p, r)))) throw new Problem('INVALID_TARGET', 'Preview paths must be within observation roots');
+    if (ids.has(target.id) || routes.has(target.httpsPort) || reserved.has(target.port) || reserved.has(target.httpsPort) || appPorts.has(target.httpsPort) || config.profiles.some(p => p.previews.some(r => r.httpsPort === target.httpsPort))) throw new Problem('INVALID_TARGET', 'Duplicate target or reserved preview/application port');
+    ids.add(target.id); routes.add(target.httpsPort);
   }
   return config;
 }

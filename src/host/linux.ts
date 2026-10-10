@@ -4,6 +4,8 @@ import { command } from './command.js';
 import type { Host, Unit, Preview, Listener } from './types.js';
 import type { Service } from '../config.js';
 import { Problem } from '../shared/contracts.js';
+import { ServeRoutes, routeState } from './routes.js';
+export { routeState } from './routes.js';
 import { observeAgents } from './agents.js';
 
 export async function boundedText(response: Response, limit: number): Promise<string> {
@@ -19,19 +21,17 @@ export async function boundedText(response: Response, limit: number): Promise<st
     return Buffer.concat(parts).toString('utf8');
   } finally { await reader.cancel(); }
 }
-export function routeState(raw: unknown, route: Preview): 'absent' | 'matching' | 'conflict' {
-  const config = raw as { TCP?: Record<string, unknown>; Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }>; AllowFunnel?: Record<string, boolean> };
-  if (!config || typeof config !== 'object') throw new Problem('ROUTE_CONFIG', 'Unrecognized Serve configuration');
-  const key = `${route.hostname}:${route.port}`;
-  const web = Object.entries(config.Web ?? {}).filter(([name]) => name.endsWith(`:${route.port}`));
-  const tcp = config.TCP?.[String(route.port)];
-  if (!web.length && !tcp && !config.AllowFunnel?.[key]) return 'absent';
-  const handlers = config.Web?.[key]?.Handlers;
-  const httpsOnly = tcp && typeof tcp === 'object' && (tcp as Record<string, unknown>).HTTPS === true && Object.keys(tcp).length === 1;
-  return web.length === 1 && httpsOnly && !config.AllowFunnel?.[key] && handlers && Object.keys(handlers).length === 1 && handlers['/']?.Proxy === route.upstream && Object.keys(handlers['/']).length === 1 ? 'matching' : 'conflict';
-}
 export class LinuxHost implements Host {
+  private serve = new ServeRoutes();
   agents = observeAgents;
+  guardedRoutes() { return this.serve.guarded(); }
+  async probe(url: string, readiness: Service['readiness']) {
+    try {
+      const response = await fetch(new URL(readiness.path, url), { redirect: 'error', signal: AbortSignal.timeout(1500) });
+      if (response.status !== readiness.status) { await response.body?.cancel(); return false; }
+      return (await boundedText(response, 16384)).includes(readiness.bodyIncludes);
+    } catch { return false; }
+  }
   bootId() { return readFile('/proc/sys/kernel/random/boot_id', 'utf8').then(s => s.trim()); }
   async capabilities(services: Service[]) {
     for (const service of services) {
@@ -96,19 +96,10 @@ export class LinuxHost implements Host {
       return (await boundedText(response, 16384)).includes(unit.readiness.bodyIncludes);
     } catch { return false; }
   }
-  async routes(): Promise<unknown> { return JSON.parse(await command('tailscale', ['serve', 'status', '--json'])); }
+  routes(): Promise<unknown> { return this.serve.read(); }
   routeState = routeState;
-  async addRoute(route: Preview) {
-    if (routeState(await this.routes(), route) !== 'absent') throw new Problem('ROUTE_CONFLICT', `HTTPS port ${route.port} is already configured`);
-    await command('tailscale', ['serve', '--bg', '--yes', `--https=${route.port}`, route.upstream]);
-    if (routeState(await this.routes(), route) !== 'matching') throw new Problem('PREVIEW_UNAVAILABLE', `HTTPS port ${route.port} does not match its reserved upstream`);
-  }
-  async removeRoute(route: Preview) {
-    const state = routeState(await this.routes(), route); if (state === 'absent') return;
-    if (state !== 'matching') throw new Problem('OWNERSHIP_CONFLICT', `HTTPS port ${route.port} configuration changed`);
-    await command('tailscale', ['serve', `--https=${route.port}`, 'off']);
-    if (routeState(await this.routes(), route) !== 'absent') throw new Problem('STOP_FAILED', `HTTPS port ${route.port} remains configured`);
-  }
+  addRoute(route: Preview) { return this.serve.change(route, false); }
+  removeRoute(route: Preview) { return this.serve.change(route, true); }
   async logs(unit: Unit, cursor: string | undefined, limit: number) {
     if (!unit.invocation) return { lines: [], nextCursor: null, truncated: false };
     const args = ['--user', '--no-pager', '--output=json', '--output-fields=MESSAGE,__CURSOR', `--unit=${unit.name}`, `_SYSTEMD_INVOCATION_ID=${unit.invocation}`, `--lines=${limit + 1}`];

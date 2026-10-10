@@ -1,3 +1,4 @@
+import { routeLock } from '../host/routes.js';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { orderedServices, revision, type Config, type Profile } from '../config.js';
@@ -7,11 +8,10 @@ import type { Host, Preview, Unit } from '../host/types.js';
 
 export class Lifecycle {
   private tasks = new Map<string, Promise<void>>();
-  private routeQueue: Promise<unknown> = Promise.resolve();
   private reconciling = true;
   constructor(readonly config: Config, readonly store: Store, readonly host: Host) { for (const p of config.profiles) store.ensure(p); }
   private routeLock<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.routeQueue.then(work); this.routeQueue = next.catch(() => undefined); return next;
+    return routeLock(this.host, work);
   }
   private profile(id: string): Profile {
     const profile = this.config.profiles.find(p => p.id === id);

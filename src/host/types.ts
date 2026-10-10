@@ -14,6 +14,8 @@ export interface Host {
   startUnit(unit: Unit, service: Service): Promise<void>;
   stopUnit(unit: Unit): Promise<void>;
   ready(unit: Unit): Promise<boolean>;
+  guardedRoutes(): Promise<boolean>;
+  probe(url: string, readiness: Service['readiness']): Promise<boolean>;
   routes(): Promise<unknown>;
   routeState(config: unknown, route: Preview): 'absent' | 'matching' | 'conflict';
   addRoute(route: Preview): Promise<void>;

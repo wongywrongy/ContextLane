@@ -6,6 +6,7 @@
   "origin": "https://host.example.ts.net:19483",
   "tailnetHostname": "host.example.ts.net",
   "projects": [],
+  "previewTargets": [],
   "profiles": [{
     "id": "disposable",
     "projectPath": "/home/owner/code/rootlane/fixtures/disposable",

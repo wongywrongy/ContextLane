@@ -30,6 +30,8 @@ export class FakeHost implements Host {
     this.stops.push(unit.name); this.units.delete(unit.name);
   }
   async ready(unit: Unit) { return this.units.get(unit.name)?.marker === unit.marker && this.unready !== unit.serviceId; }
+  async guardedRoutes() { return true; }
+  async probe() { return true; }
   async routes() { return new Map(this.routesMap); }
   routeState(config: unknown, route: Preview): 'absent' | 'matching' | 'conflict' { const upstream = (config as Map<number, string>).get(route.port); return upstream === undefined ? 'absent' : upstream === route.upstream ? 'matching' : 'conflict'; }
   async addRoute(route: Preview) { if (this.failPreview) throw new Problem('PREVIEW_UNAVAILABLE', 'preview unavailable'); if (this.routesMap.has(route.port)) throw new Problem('ROUTE_CONFLICT', 'Existing route'); this.routesMap.set(route.port, route.upstream); }

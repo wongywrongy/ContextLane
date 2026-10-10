@@ -1,0 +1,45 @@
+{
+  "results": [
+    {
+      "width": 360,
+      "bottom": 794.328125,
+      "height": 844,
+      "overflow": false,
+      "escapeClosed": true,
+      "outsideClosed": true
+    },
+    {
+      "width": 390,
+      "bottom": 793.9375,
+      "height": 844,
+      "overflow": false,
+      "escapeClosed": true,
+      "outsideClosed": true
+    },
+    {
+      "width": 768,
+      "bottom": 667.640625,
+      "height": 844,
+      "overflow": false,
+      "escapeClosed": true,
+      "outsideClosed": true
+    },
+    {
+      "width": 1280,
+      "bottom": 671.640625,
+      "height": 844,
+      "overflow": false,
+      "escapeClosed": true,
+      "outsideClosed": true
+    },
+    {
+      "width": 1440,
+      "bottom": 671.640625,
+      "height": 844,
+      "overflow": false,
+      "escapeClosed": true,
+      "outsideClosed": true
+    }
+  ],
+  "errors": []
+}

@@ -1,15 +1,16 @@
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { Profile } from '../config.js';
+import type { Profile, PreviewTarget } from '../config.js';
 import { revision } from '../config.js';
-import { Problem, type Operation } from '../shared/contracts.js';
+import { Problem, type Operation, type PreviewOperation } from '../shared/contracts.js';
 import type { Unit, Preview } from '../host/types.js';
 
 export interface EnvironmentRow { id: string; revision: string; observation: string; desired: 'running' | 'stopped' }
 export interface Resource { id: string; environment: string; operation: string; kind: 'unit' | 'route'; data: string; attempted: number; removed: number; ordinal: number }
 export type Observation = { projectPath: string; effects: string; dataRequirements: string; services: { id: string; port: number; readiness: Profile['services'][number]['readiness'] }[]; previews: Profile['previews'] };
-const migrations = ['001_initial.sql'];
+export interface PreviewRow { id: string; targetId: string; revision: string; target: string; route: string; attempted: number; removed: number; desired: 'published' | 'removed' }
+const migrations = ['001_initial.sql', '002_previews.sql'];
 export class Store {
   readonly db: Database.Database;
   readonly installation: string;
@@ -61,7 +62,7 @@ export class Store {
       if (active && active.action !== action) throw new Problem('OPERATION_IN_PROGRESS', `Wait for operation ${active.id}`);
       const opId = active?.id ?? randomUUID();
       if (!active) this.db.prepare('INSERT INTO operations VALUES (?, ?, ?, ?, NULL, ?, NULL)').run(opId, environmentId, action, 'accepted', new Date().toISOString());
-      this.db.prepare('INSERT INTO requests VALUES (?, ?, ?)').run(requestId, payload, opId);
+      this.db.prepare('INSERT INTO requests (id,payload,operation) VALUES (?, ?, ?)').run(requestId, payload, opId);
       this.db.prepare('UPDATE environments SET desired=? WHERE id=?').run(action === 'start' ? 'running' : 'stopped', environmentId);
       return { operation: this.getOperation(opId), fresh: !active };
     }).immediate();
@@ -80,9 +81,9 @@ export class Store {
         const id = randomUUID();
         this.db.prepare('INSERT INTO resources (id, environment, operation, kind, data, ordinal) VALUES (?, ?, ?, ?, ?, ?)').run(id, profile.id, opId, item.kind, JSON.stringify(item.data), ordinal);
         for (const key of item.keys) {
-          const conflict = this.db.prepare('SELECT r.environment FROM reservations v JOIN resources r ON r.id=v.resource WHERE v.key=?').get(key) as { environment: string } | undefined;
+          const conflict = this.db.prepare('SELECT COALESCE(r.environment,p.targetId) AS environment FROM reservations v LEFT JOIN resources r ON r.id=v.resource LEFT JOIN previews p ON p.id=v.preview WHERE v.key=?').get(key) as { environment: string } | undefined;
           if (conflict) throw new Problem('RESOURCE_CONFLICT', `${key} is reserved by ${conflict.environment}`);
-          this.db.prepare('INSERT INTO reservations VALUES (?, ?)').run(key, id);
+          this.db.prepare('INSERT INTO reservations (key,resource) VALUES (?, ?)').run(key, id);
         }
       });
     }).immediate();
@@ -92,5 +93,52 @@ export class Store {
   release(id: string) { this.db.transaction(() => { this.db.prepare('DELETE FROM reservations WHERE resource=?').run(id); this.db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(id); })(); }
   saveLogs(id: string, lines: string[]) { this.db.prepare('INSERT INTO failure_logs VALUES (?, ?) ON CONFLICT(resource) DO UPDATE SET lines=excluded.lines').run(id, JSON.stringify(lines.slice(-100).map(l => l.slice(0, 2048)))); }
   savedLogs(id: string): string[] { const row = this.db.prepare('SELECT lines FROM failure_logs WHERE resource=?').get(id) as { lines: string } | undefined; return row ? JSON.parse(row.lines) : []; }
+  previews() { return this.db.prepare('SELECT * FROM previews ORDER BY rowid').all() as PreviewRow[]; }
+  preview(id: string) { return this.db.prepare('SELECT * FROM previews WHERE id=?').get(id) as PreviewRow | undefined; }
+  previewOperation(id: string): PreviewOperation {
+    const row = this.db.prepare('SELECT * FROM preview_operations WHERE id=?').get(id) as Omit<PreviewOperation, 'error'> & { error: string | null };
+    return { ...row, error: row.error ? JSON.parse(row.error) : null };
+  }
+  latestPreview(id: string) {
+    const row = this.db.prepare('SELECT id FROM preview_operations WHERE previewId=? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string } | undefined;
+    return row ? this.previewOperation(row.id) : null;
+  }
+  retryPreview(payload: string, requestId: string) {
+    const row = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; previewOperation: string | null } | undefined;
+    if (!row) return null;
+    if (row.payload !== payload || !row.previewOperation) throw new Problem('REQUEST_ID_REUSED', 'requestId already belongs to another action');
+    return this.previewOperation(row.previewOperation);
+  }
+  acceptPreview(action: 'publish' | 'unpublish', identity: string, requestId: string, target?: PreviewTarget, route?: Preview) {
+    const payload = JSON.stringify(action === 'publish' ? { targetId: identity, action } : { previewId: identity, action });
+    return this.db.transaction(() => {
+      const prior = this.retryPreview(payload, requestId); if (prior) return { operation: prior, fresh: false };
+      let row = action === 'publish' ? this.previews().find(p => p.targetId === identity && !p.removed) : this.preview(identity);
+      if (action === 'publish' && row && row.revision !== revision(target!)) throw new Problem('NEEDS_UNPUBLISH', 'Target changed; explicitly remove its recorded preview first');
+      if (!row && action === 'unpublish') throw new Problem('NOT_FOUND', 'No recorded preview');
+      if (!row) {
+        const previewId = randomUUID();
+        this.db.prepare('INSERT INTO previews(id,targetId,revision,target,route,desired) VALUES (?,?,?,?,?,?)').run(previewId, target!.id, revision(target!), JSON.stringify(target), JSON.stringify(route), 'published');
+        row = this.preview(previewId)!;
+        const key = `tcp:${route!.port}`;
+        if (this.db.prepare('SELECT key FROM reservations WHERE key=?').get(key)) throw new Problem('RESOURCE_CONFLICT', `${key} already reserved`);
+        this.db.prepare('INSERT INTO reservations(key,preview) VALUES (?,?)').run(key, row.id);
+      }
+      const active = this.latestPreview(row.id);
+      if (active && ['accepted', 'running'].includes(active.status) && active.action !== action) throw new Problem('OPERATION_IN_PROGRESS', `Wait for operation ${active.id}`);
+      const reused = active && (['accepted', 'running'].includes(active.status) || (action === 'publish' && active.action === action && row.desired === 'published')) ? active : null;
+      const opId = reused?.id ?? randomUUID();
+      if (!reused) this.db.prepare('INSERT INTO preview_operations VALUES (?,?,?,?,NULL,?,NULL)').run(opId, row.id, action, 'accepted', new Date().toISOString());
+      this.db.prepare('INSERT INTO requests(id,payload,previewOperation) VALUES (?,?,?)').run(requestId, payload, opId);
+      this.db.prepare('UPDATE previews SET desired=? WHERE id=?').run(action === 'publish' ? 'published' : 'removed', row.id);
+      return { operation: this.previewOperation(opId), fresh: !reused };
+    }).immediate();
+  }
+  finishPreview(id: string, status: PreviewOperation['status'], error: PreviewOperation['error'] = null) {
+    this.db.prepare('UPDATE preview_operations SET status=?,error=?,finishedAt=? WHERE id=?').run(status, error ? JSON.stringify(error) : null, ['accepted', 'running'].includes(status) ? null : new Date().toISOString(), id);
+  }
+  releasePreview(id: string) {
+    this.db.transaction(() => { this.db.prepare('DELETE FROM reservations WHERE preview=?').run(id); this.db.prepare('UPDATE previews SET removed=1 WHERE id=?').run(id); })();
+  }
   close() { this.db.close(); }
 }

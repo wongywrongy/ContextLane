@@ -26,11 +26,13 @@ const unlock = await instanceLock(join(statePath, 'instance.lock'));
 const store = new Store(join(statePath, 'rootlane.sqlite'));
 const host = new LinuxHost(); const lifecycle = new Lifecycle(config, store, host);
 try { await lifecycle.reconcile(); } catch { console.error('Host reconciliation unavailable; catalog remains available and lifecycle mutations are blocked until a successful restart.'); }
-const app = await createServer(config, new Rootlane(new Catalog(config, host, store), lifecycle), { owner: (await privateFile(ownerPath)).trim(), agent: (await privateFile(agentPath)).trim() }, join(dirname(fileURLToPath(import.meta.url)), 'web'));
+const service = new Rootlane(new Catalog(config, host, store), lifecycle);
+try { await service.publications.reconcile(); } catch { console.error('Preview reconciliation unavailable; publication is blocked until restart.'); }
+const app = await createServer(config, service, { owner: (await privateFile(ownerPath)).trim(), agent: (await privateFile(agentPath)).trim() }, join(dirname(fileURLToPath(import.meta.url)), 'web'));
 await app.listen({ host: '127.0.0.1', port: config.port });
 let closing = false;
 async function shutdown() {
   if (closing) return; closing = true;
-  await app.close(); await lifecycle.drain(); store.close(); unlock();
+  await app.close(); await lifecycle.drain(); await service.publications.drain(); store.close(); unlock();
 }
 process.on('SIGTERM', () => { void shutdown(); }); process.on('SIGINT', () => { void shutdown(); });
