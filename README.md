@@ -13,7 +13,7 @@ Existing projects are **observe-only**. Rootlane controls only resources it owns
 
 Requires Linux amd64, Docker Compose 2.15+, Node 24 for setup, a running user-systemd manager and connected Tailscale. Review the host mounts and permissions in the [installation guide](deploy/RELEASE.md) first.
 
-Build the checked-out 0.5.0 source and image as the installation owner:
+Build the checked-out 0.5.1 source and image as the installation owner:
 
 ```sh
 npm ci
@@ -48,13 +48,25 @@ The adapter reads its private agent credential inside the running container. Kee
 
 Agent detection uses bounded same-user native and npm Node/Bun process metadata, start times and the closest checkout. “Detected process” does not establish a task or active session. Wrapper/child pairs count once; remote agents are not detected; unassigned processes appear in discovery notices.
 
-## Preview workflow
+## MCP workflows
 
 The thirteen MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`, `locate`, `request_environment`, `list_operations`.
 
-Call `locate {path}` with your absolute working directory first. Check `get_capabilities {}`, list projects, then call `get_project {projectId}` for approved target IDs. Start the approved application separately. Call `publish_preview {targetId, requestId}` with a new UUID; poll `get_preview {previewId}` until its HTTPS forwarding is verified. Remove it with `unpublish_preview {previewId, requestId}`. Retry a timed-out action with its original request ID and payload. Publication changes only the reserved route; unpublishing leaves the application running. Missing or changed routes are reported after restart and never recreated automatically.
+| Intent | Workflow |
+|---|---|
+| Observe | `locate {path}` → `get_project {projectId}` or `get_environment {environmentId}` as needed. No approval or lifecycle mutation. |
+| Publish a running service | `locate` → `get_capabilities` and identify an approved target → `publish_preview {targetId, requestId}` → poll `get_preview {previewId}`. |
+| Start a managed environment | `locate` → `request_environment` and owner review at `approvalUrl` when required → `start_environment {environmentId, requestId}` → poll `get_environment`. |
 
-The owner approves `previewTargets` independently of launch profiles in private host configuration. See [configuration](docs/ADMINISTRATION.md#independent-preview-targets). Discovery and an observed listener grant no approval. The dashboard loads checkout, service, route and agent details inline through the three-dot button, one project at a time.
+`path` is an absolute host directory. `projectId` comes from `locate.project.id` or `list_projects.projects[].id`; checkout IDs identify directories, not managed environments. `environmentId` comes from `locate.environments[].id`, `locate.instances[].id`, or `request_environment.resolvedPreview.instanceId`. `targetId` comes from approved target IDs in `locate`, `get_project`, or capability approval scope. Use the independent `previewId` returned by `publish_preview` or `get_project.previews[].previewId` for `get_preview` and `unpublish_preview`; managed route IDs in `locate.previews` are not independent publications.
+
+Start, stop, publish, and unpublish return durable operations with an operation UUID. Poll the corresponding environment or preview status tool; `list_operations` lists recent operation history. Use a new request UUID for a new action and preserve the same UUID **and payload** when retrying a timeout or connection failure. A failed durable operation remains the result for that request ID; after correcting its cause, submit a new action with a new UUID. For a failed independent publication, inspect and unpublish its recorded preview before publishing again. Approval requests return a review, not a lifecycle operation.
+
+Publication changes only its reserved route; unpublishing leaves the application running. A URL can be returned before verification: inspect route, upstream, and HTTPS states separately, and share it as verified only after HTTPS succeeds. Missing or changed routes are reported after restart and never recreated automatically.
+
+Connection failure (`BACKEND_UNAVAILABLE`), timeout (`BACKEND_TIMEOUT`), and malformed/schema-invalid responses (`BACKEND_INVALID_RESPONSE`) are distinct. Check the existing service and matching adapter version before retrying. Invalid inputs require the documented schema and returned IDs; approval requires owner review; route conflicts must preserve unrelated mappings; unready upstreams require checking the application. No adapter error includes raw transport exceptions or credential values.
+
+The owner approves `previewTargets` independently of launch profiles in private host configuration. See [configuration](docs/ADMINISTRATION.md#independent-preview-targets). Discovery and an observed listener grant no approval. The dashboard loads checkout, service, route and agent details in a dialog through the three-dot menu, one project at a time.
 
 ## Recipes and owner approval
 

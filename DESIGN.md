@@ -4,6 +4,11 @@ description: "Signal: a private workspace for trustworthy project, runtime and U
 colors:
   bg: "#05060a"
   bg-2: "#0a0c12"
+  table: "#0c0f16"
+  table-head: "#10141c"
+  agent: "#161b25"
+  agent-claude: "#241b19"
+  agent-claude-mark: "#e69570"
   glass: "rgba(255,255,255,.035)"
   glass-2: "rgba(255,255,255,.06)"
   glass-3: "rgba(255,255,255,.09)"
@@ -13,10 +18,10 @@ colors:
   stroke-3: "rgba(255,255,255,.22)"
   text: "#f2f4f8"
   text-2: "#c9cfdb"
-  muted: "#8e96a8"
+  muted: "#929eb2"
   faint: "#929aad"
-  accent: "#8b97ff"
-  accent-strong: "#5b68ff"
+  accent: "#86aaff"
+  accent-strong: "#527cff"
   accent-glow: "rgba(91,104,255,.35)"
   ok: "#3fe0a0"
   ok-bg: "rgba(63,224,160,.1)"
@@ -36,16 +41,15 @@ colors:
 typography:
   headline:
     fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "44px"
+    fontSize: "30px"
     fontWeight: 600
-    lineHeight: 1.05
+    lineHeight: 1.2
     letterSpacing: "-.035em"
   title:
     fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "19px"
-    fontWeight: 600
+    fontSize: "15px"
+    fontWeight: 700
     lineHeight: 1.5
-    letterSpacing: "-.02em"
   body:
     fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
     fontSize: "14px"
@@ -77,6 +81,7 @@ rounded:
   default: "10px"
   lg: "16px"
   xl: "20px"
+  table: "14px"
   pill: "999px"
 spacing:
   tight: "6px"
@@ -133,10 +138,22 @@ components:
     rounded: "{rounded.pill}"
     padding: "0 12px"
     height: "32px"
-  project-card:
-    backgroundColor: "linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02))"
+  project-table:
+    backgroundColor: "{colors.table}"
     textColor: "{colors.text}"
-    rounded: "{rounded.xl}"
+    rounded: "{rounded.table}"
+  project-row:
+    textColor: "{colors.text}"
+    padding: "22px 20px"
+  agent-circle:
+    backgroundColor: "{colors.agent}"
+    rounded: "50%"
+    size: "38px"
+  details-panel:
+    backgroundColor: "{colors.table}"
+    textColor: "{colors.text}"
+    padding: "24px"
+    width: "min(900px, 90vw)"
   technology-tag:
     backgroundColor: "{colors.glass}"
     textColor: "{colors.text-2}"
@@ -150,136 +167,125 @@ components:
 
 **Creative North Star: "Signal"**
 
-Signal places clear project, runtime and URL observations on near-black glass. Soft violet and green ambient light, fine white borders, restrained inset highlights and a fading grid give the workspace depth without competing with its content. The user-pinned Signal HTML/CSS reference is the visual authority; the shipped React components and ordinary CSS define the implemented system.
+Signal places trustworthy project, runtime and URL observations in one shared table on a restrained near-black canvas. Fine borders, quiet blue links and a faint fading grid support scanning. The user's approved replacement interface supersedes the earlier Signal HTML/image references; those files remain historical evidence. The shipped React components and ordinary CSS define the implemented system.
 
-Geist provides compact interface text; Geist Mono distinguishes paths, ports, branches, times and counts. Explicit labels and inline SVG symbols describe observed state. The interface must preserve Rootlane’s trustworthy mapping and ownership boundaries rather than infer agent activity or service readiness.
+Geist provides compact interface text; Geist Mono distinguishes paths, ports, branches, times and counts. Rows remain static. Project actions open Details in a side panel, keeping the shared table concise and the full observations accessible.
 
 **Key Characteristics:**
-- Near-black glass with subtle atmospheric light and fine borders.
-- Geist interface typography paired with Geist Mono technical metadata.
-- Full-width project cards with aligned summary panels and inline detail tabs.
-- Semantic state chips with explicit text and inline SVG symbols.
+- One rounded table with aligned Project, Branch, Agents, Services, Links and menu columns.
+- Individual circular vendor marks with actual detected-process uptime.
+- Compact service name/port lines and useful real links.
+- Desktop Details side panel and fullscreen Details below 1000px.
 
 ## Colors
 
-Near-black neutrals carry pale technical text, violet actions and small semantic green, blue, amber and red signals. Frontmatter values preserve the CSS source, including translucent colors; `faint` records the final readability override, not the reference’s original dimmer value.
+Near-black neutrals carry pale text, quiet blue focus and links, and small semantic green, amber and red signals. Frontmatter records the final CSS values, including overrides. Violet gradient primary controls remain in Unlock and existing capability flows; they do not establish an ambient violet background for Projects.
 
 ### Primary
-- **Signal Violet** (`accent`, `accent-strong`, `accent-glow`): keyboard focus, selected counts, links, primary controls and their ambient light.
+- **Signal Blue** (`accent`, `accent-strong`): keyboard focus, selected counts, links and text selection.
 
 ### Secondary
-- **Verified Mint** (`ok` family): verified connection, ready application and available preview states.
-- **Observation Blue** (`info` family): registered agents, detected processes, listening services and published routes.
+- **Verified Mint** (`ok` family): verified connection, reviewed application readiness and HTTPS availability. Service dots also identify an observed listening socket; listening does not imply application readiness.
+- **Observation Blue** (`info` family): registered agents, detected processes, listening services and published routes in Details.
 - **Attention Amber** (`warn` family): attention, pending work and unavailable tailnet observations.
 - **Failure Rose** (`bad` family): failed operations and destructive-state observations.
 
 ### Neutral
-- **Midnight Canvas** (`bg`, `bg-2`): page and scroll surfaces.
-- **Translucent Glass** (`glass` family): controls, cards and selected surfaces; **Inset Black** (`inset`) recesses summaries and technical commands.
-- **Fine White Stroke** (`stroke` family): borders, separators, hover and focus-within feedback.
-- **Cool White** (`text`, `text-2`): primary and secondary content; **Slate Metadata** (`muted`, `faint`): paths, explanations and structural labels.
-- **Quiet Slate** (`idle` family): stopped, unknown and not-exposed states, always as labeled chips rather than gray dots.
+- **Midnight Canvas** (`bg`, `bg-2`): page and topbar surfaces.
+- **Observation Surface** (`table`, `table-head`): shared table, header and Details panel.
+- **Translucent Glass** (`glass` family) and **Inset Black** (`inset`): existing controls, setup boxes and technical commands.
+- **Fine White Stroke** (`stroke` family): borders, row separators and focus-within feedback.
+- **Cool White** (`text`, `text-2`) and **Slate Metadata** (`muted`, `faint`): content, paths and labels.
+- **Quiet Slate** (`idle` family): stopped, unknown and unverified observations.
+- **Vendor Mark Surfaces** (`agent`, `agent-claude`, `agent-claude-mark`): circular agent tiles and the sourced Claude mark.
 
-**The Evidence Rule.** Registered and Detected describe agent evidence; Listening describes a socket; Published describes a route. None is a claim of activity, completion or verified availability.
+**The Evidence Rule.** Registered and Detected describe agent evidence; Listening describes a socket; Published describes a route. None is a claim of activity, completion or verified availability. A link becomes green only after HTTPS verification; stale observations lose positive row coloring. Dots expose their observed state through accessible labels or the link label.
 
 ## Typography
 
-**Body and Heading Font:** locally hosted Geist variable with UI sans-serif fallbacks.
-**Technical Font:** locally hosted Geist Mono variable with UI monospace fallbacks. Fonts ship from the official Vercel font repository with their OFL license.
-
-The pairing is compact and precise. Interface text uses `ss01` and tabular numerals; monospace metadata uses the slashed-zero feature.
+Locally hosted Geist variable serves interface text; Geist Mono variable serves technical values. Fonts ship from the official Vercel font repository with their OFL license. Interface text uses `ss01` and tabular numerals; monospace metadata uses the slashed-zero feature.
 
 ### Hierarchy
-- **Headline:** page headings use the headline token; mobile reduces them to 34px.
-- **Title:** project names use the title token; mobile reduces them to 18px. Settings setup titles use 20px.
-- **Body:** the workspace base uses the body token. Explanatory setup prose uses 13px with a 1.65 line height and an introductory measure of 78ch.
-- **Control:** buttons, filters, tabs and table content use compact control typography; navigation and search use 13px.
-- **Status:** semantic chips use the status token.
-- **Metadata:** technical values use the metadata token; compact secondary rows use 11.5px and page root summaries 13px.
-- **Label:** summary panel headings use the label token. Table headers use the same face and size with .12em tracking; these identify data structure rather than add promotional eyebrows.
+- **Headline:** Projects headings use 30px with a 1.2 line height.
+- **Title:** project row names use 15px; Details titles use 22px; Settings setup titles retain 20px.
+- **Body:** workspace base text uses 14px. Setup explanations retain 13px and a 1.65 line height.
+- **Control:** standard controls use 12.5px; navigation and search use 13px.
+- **Status:** Details chips use 11.5px.
+- **Metadata:** row paths, branches, service ports and links use 12px; actual process uptime uses 10px.
+- **Label:** technical headings retain compact monospace labels. Shared table headers use 12px Geist.
 
 **The Technical Type Rule.** Use Geist for interface language and Geist Mono for technical identifiers and observations; retain tabular numerals.
 
 ## Layout
 
-A sticky topbar (64px) combines brand, segmented Projects/Settings navigation, centered search (maximum 520px) and real connection/tailnet status. Main content centers in a maximum 1320px container with desktop padding of 40px 28px 64px. Full-width project cards form a single list with 16px gaps; the toolbar wraps filters and sorting controls.
+A sticky 64px desktop topbar combines brand, segmented Projects/Settings navigation, centered search (maximum 460px) and real connection/tailnet status. The outer container is 1456px including 28px side padding, leaving a maximum 1400px content area. Desktop main padding is 34px 28px. The toolbar precedes one table with a 16px gap.
 
-Card summaries have three columns in a 1.15:1:1 ratio for Agents, Services and Preview. At 1100px and below they become two equal columns with Preview spanning the next row. At 760px and below all three panels stack. That breakpoint also wraps the topbar into brand/connection, full-width navigation and search rows; main padding becomes 28px 16px 48px. Card headings wrap when actions require space, and a lone actions button stays beside the identity. Phone filters form two equal columns; controls have at least 44px tap targets, search and password inputs use 16px to avoid focus zoom, and keyboard hints are omitted on phones. Safe-area insets protect the shell and page edges.
+The six shared columns use 22/12/26/18/16/6 proportions for Project, Branch, Agents, Services, Links and menu; the final column reserves at least 44px. Table header padding is 12px 20px; rows use 22px 20px padding and a 96px minimum height. Every project shares those columns and row dividers, with no separate card gaps. Project paths and branch labels may ellipsize on desktop; full values remain available in titles and Details. Agents wrap within their column; service and link summaries show up to three entries with explicit more links.
 
-Details open inline for one project at a time. Desktop/tablet tabs scroll horizontally; phone tabs use three columns over two rows so every destination stays visible. Tabs sit above tables or two-column information boxes; boxes and read-only definition lists stack on mobile. Desktop and tablet tables preserve their columns in keyboard-focusable horizontal scroll containers. At 760px and below, each row becomes a labeled record with retained table semantics; headers remain accessible and all fields wrap within the phone width. Names, paths and long values wrap where appropriate; compact summaries and preview URL pills may ellipsize.
+At 999px and below the header disappears and each static row stacks project identity, branch, agents, services and links. The menu stays beside identity. Paths and branches wrap; services and links wrap as compact horizontal lines. Details becomes fullscreen at the same breakpoint. At 760px and below, the topbar wraps into brand/connection, navigation and search rows; main padding becomes 24px 16px and row padding 16px. Controls retain at least 44px touch targets, search and password inputs use 16px to avoid focus zoom, and keyboard hints are omitted on phones. Safe-area insets protect the shell and page edges. At 1100px the chrome becomes more compact; it does not change the table structure.
+
+One project opens in a modal Details side panel, `min(900px, 90vw)` wide and 100dvh tall on desktop, with 24px padding. Fullscreen Details uses 20px padding below 1000px and 16px below 761px. Tabs wrap and retain keyboard navigation. Detail tables render as labeled records at every width, using a label column of `minmax(90px, 25%)`, a flexible value column and a 16px gap; full paths and endpoints wrap within the value column. Settings and setup definition lists keep their existing responsive behavior.
 
 ## Elevation & Depth
 
-Glass combines a faint white vertical gradient, fine stroke, inset top highlight, blur and a soft ambient shadow. Cards gain a larger ambient shadow and faint violet edge when opened. The topbar uses a translucent near-black background with stronger blur. The page carries three radial light washes and a 56px grid fading out over the upper 520px.
+Projects uses a flat near-black canvas with a 56px grid fading through the upper 520px at .28 opacity. The topbar is opaque `bg-2`, with no backdrop blur. The shared table and Details panel use opaque `table` surfaces, thin borders and divided rows. A dark `#0009` dialog backdrop separates Details from the table.
 
-### Shadow Vocabulary
-- **Glass highlight:** `inset 0 1px 0 rgba(255,255,255,.07)`.
-- **Glass ambient:** `0 20px 40px -24px rgba(0,0,0,.8)`.
-- **Open card:** `0 30px 60px -30px rgba(0,0,0,.9)` with a `0 0 0 1px rgba(139,151,255,.08)` edge.
-- **Primary action:** brighter inset highlight and a `0 6px 20px -6px` accent glow.
+Existing controls and setup surfaces retain inset glass highlights; primary actions retain their existing violet gradient and soft action shadow. Menus use `0 8px 28px #0008`. Static project rows do not lift, expand or gain card shadows. Reduced-motion preference removes inherited transitions.
 
-**The Glass Rule.** Use translucent gradients, thin borders and inset highlights together; keep ambient shadows soft and attached to glass surfaces.
-
-Card border and shadow changes use 160ms ease-out; reduced-motion preference removes transitions. Glass surfaces use blur(18px) saturate(140%), while chrome uses blur(20px) saturate(150%).
+**The Surface Rule.** Let shared alignment, fine borders and restrained tonal changes carry hierarchy; keep depth attached to controls and overlays.
 
 ## Shapes
 
-Project cards and unlock panels use the largest rounded token. Technical boxes, search and table containers use the default radius; setup sections use the large radius. Buttons and URL pills use the control radius; filter and status chips are fully rounded. Tags and keycaps have compact 5px corners, agent marks use 6px corners, and popovers use 12px corners. Thin borders and divided panels preserve alignment within these soft outer silhouettes.
+The shared table has 14px corners and clipped contents. Details is a rectangular edge-attached panel. Existing unlock panels use the 20px radius; search and technical boxes use 10px, setup sections 16px, controls 8px, and status/filter chips fully rounded corners. Vendor marks are 38px circles in rows, with 24px artwork and uptime underneath; Details keeps the existing compact mark treatment. Claude uses the sourced Anthropic Spark and Codex uses the sourced OpenAI Codex symbol. Initials remain the fallback.
 
-Icons are inline SVG linework, ordinarily 16px with round caps and joins; chip symbols use 12px linework. Vendor mark slots are 22px tiles. Claude uses the sourced official Anthropic Spark; Codex uses the sourced official symbol from OpenAI's Codex IDE extension. Initials are a fallback, not a new logo system.
+Inline SVG line icons ordinarily use 16px round-capped linework; compact link icons use 12px. Thin separators preserve the table's common geometry.
 
 ## Components
 
 ### Buttons
 
-Secondary actions are restrained glass controls with a fine border, inset highlight and brighter hover surface. Primary actions use a violet gradient and glow; ghost actions remove their resting fill and border. Standard actions have a 34px minimum height; icon buttons are 34px squares. Disabled controls retain their label, reduced opacity and a not-allowed cursor. Unlock uses a taller primary control (42px).
+Secondary actions retain restrained glass fills, fine borders and brighter hover surfaces. Primary controls retain the existing violet gradient; ghost controls remove resting fill and border. Standard desktop actions have a 34px minimum height, with 34px icon buttons. Disabled controls retain labels and reduced opacity. Unlock uses 42px; stacked-row and phone controls use 44px targets.
 
-### Chips
+### Observation rows
 
-Semantic chips combine explicit state text with inline SVG checks, arrows, warning triangles, crosses or neutral strokes. Each state family pairs text, tinted background and matching stroke. They are informational and do not gain artificial hover behavior. Filter chips are interactive, with a selected glass surface, inset highlight, brighter border and violet count; `aria-pressed` exposes selection. Technology tags are neutral monospace labels derived from manifests.
-
-### Cards / Containers
-
-Project glass cards have separate identity/action headers, inset summary panels and a full-width Details bar. Header padding is 18px 20px 16px, summary padding 14px 20px 16px, and opened panels 16px 20px 20px; mobile uses 16px horizontal padding. Managed lifecycle and log actions appear only when ownership and capabilities allow them. Summary rows show up to three entries with explicit more links into details.
+Rows show the project name and short path, branch, individual agent circles, service name plus port, concise real links and a trailing menu. Uptime appears only for detected processes with an observed start time; registered-only agents have no invented duration. Unknown values remain “—”. Agent identity and evidence are available through accessible labels and titles. Service and link dots carry observed state rather than a claim of agent activity.
 
 ### Inputs / Fields
 
-Search has a leading inline SVG icon, dark glass fill and compact shortcut keycaps. Focus-within brightens its border and surface; the native input outline is replaced by that visible container state. Credential input is labeled, uses password autocomplete, an inset surface and a 44px height. General keyboard focus is a 2px violet outline offset by 3px; tab focus moves the outline inward to remain visible inside the scroll strip.
+Search has a leading SVG icon, dark glass fill and shortcut keycaps on wider screens. Focus-within brightens the container border and surface. Credential input remains labeled with password autocomplete, an inset surface and a 44px height. Keyboard focus is a 2px blue outline offset by 3px; tab focus is inset to remain visible.
 
 ### Navigation
 
-Segmented navigation sits inside a recessed rounded frame. Selected destinations use brighter glass, an inset highlight and a thin surrounding stroke; `aria-current` conveys the page. Details tabs use a violet underline with `aria-selected`, a roving tab stop and Arrow/Home/End key support. Main and Settings navigation fill the mobile row.
+Projects/Settings navigation retains the recessed segmented frame and selected glass surface, with `aria-current`. Details tabs retain the accent underline, `aria-selected`, a roving tab stop and Arrow/Home/End support. Available sections are Worktrees, Agents, Services, Links, Environment and Activity, according to observed content and backend capability.
 
 ### Details, Actions and Technical Commands
 
-The native actions popover offers Copy path, Open in editor when an owner-configured template is present, Request environment when a valid recipe is observed, and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
+The native row menu offers Details, Logs when backend log capability exists, and Copy path. Rows do not open on click. The menu supports arrows, Home/End, Escape and outside dismissal; positioning keeps it within the viewport. Details uses a native modal dialog, a visible Close button, Escape dismissal, scroll containment and focus restoration. The surrounding table remains static.
 
-
+Recipe authorization, Request environment, lifecycle actions, publication controls, recorded logs and complete technical values live in Details. Each remains governed by the existing backend capability and owner approval rules. Copy operations announce success or failure. Settings remains read-only, including MCP setup; Projects retains the owner approval/rejection review.
 
 Runtime details use observed service names, process start times and worktree state. Unknown values stay “—”. HTTP observations show status separately from semantic readiness chips; they never confer Ready. Ready requires the reviewed readiness check, and Available requires HTTPS verification. Activity shows bounded durable lifecycle and preview history with error codes.
 
-The fast observation loop runs every five seconds; active operations refresh every second. Git metadata refreshes every sixty seconds or on HEAD/index changes. Only an expanded project requests environment and preview readiness probes. Config reload and reconciliation failures use one status notice each. Stop and Unpublish require confirmation; retries preserve the click’s request ID. The shell displays the durable action status through accepted, running and completion without requiring a card to stay expanded. Valid-session reauthentication stays available during login throttling.
+The fast observation loop runs every five seconds; active operations refresh every second. Git metadata refreshes every sixty seconds or on HEAD/index changes. Only the project open in Details requests environment and preview readiness probes. Config reload and reconciliation failures use one status notice each. Stop and Unpublish require confirmation; retries preserve the click’s request ID. The shell displays active and failed durable action status without requiring Details to stay open; successful operations leave no persistent banner. Valid-session reauthentication stays available during login throttling.
 
-Path links use the private host’s approved editorUrlTemplate. Without it, paths remain text with Copy. Proposal JSON stays unapproved, with literal readiness placeholders and exact host instructions to edit config.json and run rootlane-reload. Settings never writes config. Claude and Codex use locally sourced official inline React SVG marks. CSP allows only self-hosted assets; Geist fonts remain WOFF2 files, assetsInlineLimit is zero, and components use no inline style attributes or data URLs.
+Path links use the private host’s approved editorUrlTemplate. Without it, paths remain text with Copy. Proposal JSON stays unapproved, with literal readiness placeholders and exact host instructions to edit config.json and run rootlane-reload. Settings never writes config. Claude and Codex use locally sourced official inline React SVG marks. CSP allows only self-hosted assets; Geist fonts remain WOFF2 files and assetsInlineLimit is zero. Popovers assign measured viewport coordinates through CSSOM; no inline scripts or data URLs are required.
+
+Recipe approval follows Signal's Operate mode. Details shows a glyph-and-label Recipe chip: Approved, Pending approval, Stale, Invalid, or Needs approval before the first request. This describes authorization, never activity or readiness. A toolbar notice counts pending environment reviews. Deep links open an owner review with the checkout, SHA256, toolchain revision, argument arrays, cwd, env names, allocated ports, reviewed readiness, planned previews and informational setup hints. Values and secrets are absent. Approve requires a confirmation; Reject does not launch or terminate services. Stale reviews offer Reject and ask for a new request. Settings remains read-only; approval/rejection is the owner review write, alongside existing lifecycle and route controls.
+
+Environment details show each checkout instance with its ports, allocated preview URLs, application/route verification, Start/Stop and recorded logs. Planned URLs do not imply availability. The review heading receives keyboard focus; controls meet phone target sizing and hashes/path/env names wrap within the available width. Current interface evidence is `.impeccable/review/projects-{360,390,768,1280,1440}.png` and `.impeccable/review/details-{360,390,768,1280,1440}.png`. The older approval captures document the existing authorization flow, rather than the replacement table and panel styling.
 
 ## Do's and Don'ts
 
 ### Do:
-- Do pair state color with an explicit label and an inline SVG symbol.
-- Do preserve the three, two and one panel layouts at the shipped breakpoints.
-- Do use locally hosted Geist and Geist Mono and preserve visible keyboard focus.
-- Do keep details inline, technical tables horizontally scrollable on desktop/tablet, labeled and stacked on phones, and long values able to wrap.
-- Do show stale observations and action failures beside the affected content.
+- Do retain one shared table and static project rows.
+- Do show individual real agent marks and actual detected-process uptime.
+- Do show concise real links and require verification for green link state.
+- Do retain the 999px stacked-row/fullscreen-Details breakpoint.
+- Do wrap full technical values in labeled Details records.
+- Do preserve local fonts, accessible state labels, keyboard focus and action failures.
 
 ### Don't:
-- Don't infer activity from an agent registration, readiness from a listening port or HTTPS verification from a published route.
-- Don't restore gray status dots or replace explicit state labels with color alone.
-- Don't add account chrome, system-stat cards or editable Settings to this approved workspace.
-- Don't introduce a UI dependency or fabricated vendor logo to reproduce the shipped patterns.
-
-Phone refinement: agent metadata sits under the name in the shared grid; service names/worktrees and preview URLs wrap. Paths reserve space for Copy/editor actions, and success announcements stay accessible without duplicating visible text. Details metadata wraps on its own row; activity stacks its event text below time/status. Settings, MCP tool records, approval reviews, logs and Unlock use the same mobile spacing and control rules.
-
-
-Recipe approval follows Signal's Operate mode. Cards show a glyph-and-label Recipe chip: Approved, Pending approval, Stale, Invalid, or Needs approval before the first request. This describes authorization, never activity or readiness. A toolbar notice counts pending environment reviews. Deep links open an inline glass review with the checkout, SHA256, toolchain revision, argument arrays, cwd, env names, allocated ports, reviewed readiness, planned previews and informational setup hints. Values and secrets are absent. Approve requires a confirmation; Reject does not launch or terminate services. Stale reviews offer Reject and ask for a new request. Settings remains read-only; approval/rejection is the owner review write, alongside existing lifecycle and route controls.
-
-Environment details show each checkout instance with its ports, allocated preview URLs, application/route verification, Start/Stop and recorded logs. Planned URLs do not imply availability. The review heading receives keyboard focus; controls meet phone target sizing and hashes/path/env names wrap at 760px. Desktop/tablet/phone evidence is `approval-desktop.png`, `approval-tablet.png`, `approval-mobile.png` under `.impeccable/review`.
+- Don't infer activity from registration, readiness from a socket or HTTPS verification from publication.
+- Don't restore separate project cards, inline row expansion or always-visible lifecycle controls.
+- Don't use the historical Signal reference as authority over the approved replacement.
+- Don't add account chrome, system-stat cards, editable Settings, dependencies or fabricated vendor logos.

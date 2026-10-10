@@ -1,0 +1,26 @@
+{
+  "observedAt": "2026-10-10T07:55:46.352Z",
+  "checks": [
+    "actual stdio MCP agent calls",
+    "managed start requires approval",
+    "committed recipe locate",
+    "request idempotency",
+    "agent approval 403",
+    "owner cookie + CSRF approval",
+    "start idempotency",
+    "reviewed Ready",
+    "HTTPS Available",
+    "HMR websocket through HTTPS preview port",
+    "bounded logs",
+    "locate real vite and preview URL",
+    "invalid/valid config reload",
+    "stop",
+    "ports released",
+    "Serve snapshot restored"
+  ],
+  "ownerChecksOpen": [
+    "second-device preview and HMR",
+    "reboot",
+    "SSH disconnect"
+  ]
+}

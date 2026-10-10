@@ -1,0 +1,12 @@
+{
+  "version": "0.5.1",
+  "backup": "/home/kyle/.local/state/rootlane/pre-051-2026-10-10T07-57-10.347Z.sqlite",
+  "releaseBackup": "/opt/stacks/rootlane/pre-051-2026-10-10T07-57-10.347Z.tar.gz",
+  "checks": [
+    "healthy Compose service",
+    "owner configuration and credentials unchanged",
+    "Serve routes unchanged",
+    "durable owned resources unchanged",
+    "loopback and HTTPS assets match build"
+  ]
+}

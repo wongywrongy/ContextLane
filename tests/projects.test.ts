@@ -126,3 +126,18 @@ test('recipe presentation distinguishes invalid, pending, stale and approved rev
   assert.equal(recipePresentation({ ...recipe, approval: 'approved' }).state, 'Ready');
   assert.equal(recipePresentation({ ...recipe, approval: 'stale' }).state, 'Attention');
 });
+
+test('observation rows shorten paths and only show valid process elapsed time', async () => {
+  const { shortPath, elapsed, groupServices, branchLabel } = await import('../web/projects.js');
+  assert.equal(shortPath('/home/kyle/code/ShuttleWorks'), 'code/ShuttleWorks');
+  assert.equal(shortPath('/'), '/');
+  const now = Date.parse('2026-10-10T01:00:00Z');
+  assert.equal(elapsed('2026-10-10T00:00:00Z', now), '1h 0m');
+  assert.equal(elapsed('2026-10-10T00:59:52Z', now), '8s');
+  assert.equal(elapsed(undefined, now), null);
+  assert.equal(elapsed('invalid', now), null);
+  assert.equal(elapsed('2026-10-11T00:00:00Z', now), null);
+  assert.equal(branchLabel(project('/code/plain')), '—');
+  const group = groupProjects([project('/code/plain', { runtime: { services: [], ports: [8765], status: 'listeners observed', ownership: 'observe-only' } })])[0];
+  assert.equal(groupServices(group, {})[0].name, 'Listener');
+});

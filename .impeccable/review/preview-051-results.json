@@ -1,0 +1,23 @@
+{
+  "previewId": "08ad3801-c684-404f-bfee-dea370884004",
+  "url": "https://neo.taile1abc7.ts.net:19484/",
+  "fixturePids": [
+    352493,
+    352494
+  ],
+  "protocols": [
+    "modern",
+    "legacy"
+  ],
+  "checks": [
+    "HTML",
+    "assets",
+    "API",
+    "redirect",
+    "WebSocket connected",
+    "HMR traffic",
+    "restart preserves applications",
+    "unpublish preserves local upstream",
+    "unrelated routes unchanged"
+  ]
+}

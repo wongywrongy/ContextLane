@@ -144,17 +144,20 @@ Verify Rootlane with tools/list and a read-only locate call with your working di
           </table>
         </div>
         <p>
-          Use get_capabilities → list_projects → get_project → publish_preview → get_preview → unpublish_preview. Keep the same UUID request ID on
-          retries. Wait for verified HTTPS before sharing a preview. Publication requires an owner-approved target and a separately running service;
-          discovery never approves it.
+          Observe: locate with your absolute working directory, then get_project or get_environment as needed. Observation does not request approval
+          or start anything.
         </p>
         <p>
-          For recipes: locate with your cwd → request_environment → owner approval at approvalUrl → poll locate → start_environment → poll
-          get_environment. Never edit Rootlane configuration or bypass checks.
+          Publish a running service: locate → get_capabilities and identify an owner-approved target → publish_preview → poll get_preview.
+          Publication and removal own only the route and leave the application running. A returned URL may still be unverified.
         </p>
         <p>
-          Existing projects remain observe-only. Start requires an approved recipe instance or reviewed profile; accepting an operation does not mean
-          the application is ready.
+          Start a managed environment: locate → request_environment and owner approval at approvalUrl when required → start_environment → poll
+          get_environment. An accepted operation does not mean the application is ready. Agents cannot approve or edit owner configuration.
+        </p>
+        <p>
+          Start, stop, publish and unpublish return durable operations. Use list_operations for recent history. Keep the same UUID request ID and
+          payload when retrying the same action; use a new UUID for a new action after resolving a failure.
         </p>
       </section>
       <section>

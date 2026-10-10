@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, PreviewOperation } from '../src/shared/contracts';
 import {
   agentKey,
@@ -10,7 +10,6 @@ import {
   groupLinks,
   type GroupLink,
   label,
-  projectStatus,
   recipePresentation,
   type ProjectGroup,
 } from './projects';
@@ -42,7 +41,7 @@ export function Chip({ state, children }: { state: string; children?: React.Reac
     </span>
   );
 }
-function Mark({ name }: { name: string }) {
+export function Mark({ name }: { name: string }) {
   const vendor = name === 'Codex' ? 'codex' : name === 'Claude Code' ? 'claude' : 'other';
   return (
     <span className={`mark ${vendor}`} aria-hidden="true">
@@ -114,73 +113,8 @@ function Table({ headings, children }: { headings: string[]; children: React.Rea
     </div>
   );
 }
-function Actions({
-  project,
-  open,
-  onToggle,
-  onCopy,
-  editorTemplate,
-  editorHost,
-  onRequest,
-  canRequest,
-}: {
-  editorTemplate: string | null;
-  editorHost: string | null;
-  onRequest: () => void;
-  canRequest: boolean;
-  project: Project;
-  open: boolean;
-  onToggle: () => void;
-  onCopy: () => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  const popover = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const dismiss = (work: () => void) => {
-    popover.current?.hidePopover();
-    work();
-    button.current?.focus();
-  };
-  return (
-    <div className="project-actions">
-      <button
-        ref={button}
-        id={`actions-${project.id}`}
-        className="icon-btn"
-        aria-label={`${project.name} actions`}
-        aria-expanded={menuOpen}
-        popoverTarget={`menu-${project.id}`}
-      >
-        <Icon name="more" />
-      </button>
-      <div
-        ref={popover}
-        id={`menu-${project.id}`}
-        popover="auto"
-        className="project-popover glass"
-        onToggle={(e) => {
-          setMenuOpen(e.newState === 'open');
-          if (e.newState === 'closed' && (document.activeElement === document.body || popover.current?.contains(document.activeElement)))
-            button.current?.focus();
-        }}
-      >
-        <button onClick={() => dismiss(onCopy)}>Copy path</button>
-        {editorHref(project.path, editorTemplate, editorHost) && (
-          <a href={editorHref(project.path, editorTemplate, editorHost)!} onClick={() => popover.current?.hidePopover()}>
-            Open in editor
-          </a>
-        )}
-        {canRequest && <button onClick={() => dismiss(onRequest)}>Request environment…</button>}
-        <button onClick={() => dismiss(onToggle)} aria-expanded={open}>
-          {open ? 'Hide details' : 'Show details'}
-        </button>
-      </div>
-    </div>
-  );
-}
-export function ProjectCard({
+export function ProjectDetailsPanel({
   group,
-  open,
   tab,
   onOpen,
   environments,
@@ -202,14 +136,15 @@ export function ProjectCard({
   activity,
   activityError,
   onRequest,
+  onClose,
 }: {
   editorTemplate: string | null;
   editorHost: string | null;
   activity: (Operation | PreviewOperation)[];
   activityError: string;
   onRequest: (path: string) => void;
+  onClose: () => void;
   group: ProjectGroup;
-  open: boolean;
   tab: DetailTab;
   onOpen: (tab?: DetailTab) => void;
   environments: Record<string, Environment>;
@@ -238,8 +173,7 @@ export function ProjectCard({
   const links = groupLinks(group, environments, previews, details);
   if (previewStale) for (const link of links) link.state = 'Unknown';
   const operations = activity;
-  const lastEvent = operations[0]?.finishedAt ?? operations[0]?.createdAt;
-  const [copyNotice, setCopyNotice] = useState('');
+
   const conflict =
     !!working ||
     group.checkouts.flatMap((p) => p.controls ?? []).some((e) => ['accepted', 'running'].includes(e.latestOperation?.status ?? '')) ||
@@ -269,89 +203,39 @@ export function ProjectCard({
       </button>
     ) : null);
   const logServices = group.checkouts.flatMap((p) => p.logServices);
-  const tabs: DetailTab[] = ['Worktrees', 'Agents', 'Services', 'Links', ...(managed ? ['Environment' as const] : []), 'Activity'];
+  const tabs: DetailTab[] = ['Worktrees', ...(agents.length ? ['Agents' as const] : []), ...(services.length ? ['Services' as const] : []), ...(links.length || publications.length ? ['Links' as const] : []), ...(managed ? ['Environment' as const] : []), ...(operations.length || activityError ? ['Activity' as const] : [])];
+  const activeTab = tabs.includes(tab) ? tab : 'Worktrees';
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = dialog.current!;
+    panel.showModal();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      panel.close();
+      document.body.style.overflow = overflow;
+      if (previous?.isConnected) previous.focus();
+      else document.getElementById('projects-title')?.focus();
+    };
+  }, []);
   const agentCheckout = (a: Project['agents'][number]) =>
     group.checkouts.find((p) =>
       a.source === 'detected process' && a.worktreePath ? p.path === a.worktreePath : p.agents.some((other) => agentKey(other) === agentKey(a)),
     );
   const count = (t: DetailTab) =>
     t === 'Worktrees' ? group.checkouts.length : t === 'Agents' ? agents.length : t === 'Services' ? services.length : null;
-  const logButton = logServices[0];
-  const recordedControls = [...new Map(group.checkouts.flatMap((p) => p.controls ?? []).map((e) => [e.id, e])).values()];
   const recipeCheckout = group.checkouts.find((p) => p.recipe?.found);
   const recipe = recipeCheckout?.recipe;
   const http = (checkoutId: string, port: number) => details?.http?.find((h) => h.checkoutId === checkoutId && h.port === port)?.http;
   return (
-    <article className={`project proj glass ${open ? 'is-open' : ''}`} id={`project-${project.id}`} aria-label={`${project.name} project`}>
-      <CardHeader
-        project={project}
-        recipe={recipe}
-        managed={managed}
-        stale={stale}
-        group={group}
-        environmentErrors={environmentErrors}
-        environments={environments}
-        editorTemplate={editorTemplate}
-        editorHost={editorHost}
-        envs={envs}
-        recordedControls={recordedControls}
-        controls={controls}
-        logButton={logButton}
-        onOpen={onOpen}
-        onLogs={onLogs}
-        open={open}
-        working={working}
-        recipeCheckout={recipeCheckout}
-        onRequest={onRequest}
-        setCopyNotice={setCopyNotice}
-      />
-      {recordedControls
-        .filter((e) => e.latestOperation)
-        .map((e) => (
-          <p className="operation-status" role="status" key={e.id}>
-            {label(e.latestOperation!.action)} · <Chip state={label(e.latestOperation!.status)} />
-            {e.latestOperation!.error && (
-              <span>
-                {e.latestOperation!.error!.code} · {e.latestOperation!.error!.message}
-              </span>
-            )}
-          </p>
-        ))}
-      {copyNotice && (
-        <p className="copy-notice" role="status">
-          {copyNotice}
-        </p>
-      )}
-      <div className="cols">
-        <AgentsColumn agents={agents} agentCheckout={agentCheckout} project={project} onOpen={onOpen} />
-        <ServicesColumn
-          services={services}
-          group={group}
-          project={project}
-          http={http}
-          stale={stale}
-          environmentErrors={environmentErrors}
-          onOpen={onOpen}
-        />
-        <LinksColumn links={links} onOpen={() => onOpen('Links')} />
-      </div>
-      <button className="dbar" aria-expanded={open} aria-controls={`details-${project.id}`} onClick={() => onOpen()}>
-        <span>Details</span>
-        <span className="facts">
-          <span>
-            <b>{group.worktreeCount}</b> worktrees
-          </span>
-          <span className="detail-branch">
-            <b>{branchLabel(project)}</b>
-          </span>
-          <span>
-            last event <b>{time(lastEvent)}</b>
-          </span>
-        </span>
-        <Icon name="chevron" />
-      </button>
-      {open && (
-        <div className="details project-details" id={`details-${project.id}`}>
+    <dialog ref={dialog} className="details-drawer" aria-labelledby={`details-title-${project.id}`} onCancel={onClose} onClose={onClose} onClick={(event) => { if (event.target === dialog.current && event.clientX < dialog.current.getBoundingClientRect().left) onClose(); }}>
+      <header className="drawer-header">
+        <div><h2 id={`details-title-${project.id}`}>{project.name}</h2><span className="mono muted">{project.path}</span></div>
+        <button className="btn" autoFocus onClick={onClose}>Close</button>
+      </header>
+      {recipe?.found && <div className="drawer-recipe"><Chip state={recipePresentation(recipe).state}>Recipe · {recipePresentation(recipe).text}</Chip>{recipe.valid && !stale && !working && <button className="btn" onClick={() => onRequest(recipeCheckout!.path)}>Request environment…</button>}</div>}
+      <div className="details project-details" id={`details-${project.id}`}>
           <div
             className="tabs"
             role="tablist"
@@ -359,7 +243,7 @@ export function ProjectCard({
             onKeyDown={(event) => {
               if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault();
-              const index = tabs.indexOf(tab);
+              const index = tabs.indexOf(activeTab);
               const next =
                 event.key === 'Home'
                   ? 0
@@ -372,10 +256,10 @@ export function ProjectCard({
           >
             {tabs.map((t) => (
               <button
-                className={`tab ${t === tab ? 'on' : ''}`}
+                className={`tab ${t === activeTab ? 'on' : ''}`}
                 role="tab"
-                aria-selected={t === tab}
-                tabIndex={t === tab ? 0 : -1}
+                aria-selected={t === activeTab}
+                tabIndex={t === activeTab ? 0 : -1}
                 id={`tab-${project.id}-${t}`}
                 aria-controls={`panel-${project.id}`}
                 key={t}
@@ -386,7 +270,7 @@ export function ProjectCard({
               </button>
             ))}
           </div>
-          <div className="panel" role="tabpanel" id={`panel-${project.id}`} aria-labelledby={`tab-${project.id}-${tab}`} tabIndex={0}>
+          <div className="panel" role="tabpanel" id={`panel-${project.id}`} aria-labelledby={`tab-${project.id}-${activeTab}`} tabIndex={0}>
             {recipe?.errors.map((e) => (
               <p className="notice bad" role="alert" key={e.code}>
                 {e.code} · {e.message}
@@ -397,11 +281,12 @@ export function ProjectCard({
                 {projectError} · Details observation stale
               </p>
             )}
+            {group.checkouts.filter(p => p.runtime.status === 'unknown').map(p => <p className="notice bad" role="alert" key={p.id}>Listener observation unavailable · {p.path}</p>)}
             {stale && <p className="notice">Showing the last successful observation.</p>}
-            {tab === 'Worktrees' && <WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost} />}
-            {tab === 'Agents' && <AgentsTab agents={agents} agentCheckout={agentCheckout} />}
-            {tab === 'Services' && <ServicesTab services={services} stale={stale} environmentErrors={environmentErrors} http={http} />}
-            {tab === 'Links' && (
+            {activeTab === 'Worktrees' && <WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost} />}
+            {activeTab === 'Agents' && <AgentsTab agents={agents} agentCheckout={agentCheckout} />}
+            {activeTab === 'Services' && <ServicesTab services={services} stale={stale} environmentErrors={environmentErrors} http={http} />}
+            {activeTab === 'Links' && (
               <LinksTab
                 links={links}
                 publications={publications}
@@ -411,7 +296,7 @@ export function ProjectCard({
                 previewErrors={previewErrors}
               />
             )}
-            {tab === 'Environment' && (
+            {activeTab === 'Environment' && (
               <EnvironmentTab
                 group={group}
                 environments={environments}
@@ -425,44 +310,15 @@ export function ProjectCard({
                 logsError={logsError}
               />
             )}
-            {tab === 'Activity' && (
+            {activeTab === 'Activity' && (
               <ActivityTab activityError={activityError} operations={operations} envs={envs} observedAt={observedAt} services={services} />
             )}
           </div>
         </div>
-      )}
-    </article>
+    </dialog>
   );
 }
 
-export function LinksColumn({ links, onOpen }: { links: GroupLink[]; onOpen: () => void }) {
-  return (
-    <section className="col pv" aria-label="Links">
-      <div className="col-h">
-        <Icon name="globe" />
-        Links<span className="n">{links.length}</span>
-      </div>
-      {!links.length && <div className="empty">No links</div>}
-      <div className="list links-list">
-        {links.slice(0, 3).map((link) => (
-          <a className="link-row" key={link.key} href={link.url} target="_blank" rel="noreferrer" aria-label={`${link.label}, ${link.url}`}>
-            <span className="link-label">{link.label}</span>
-            <Chip state={link.state} />
-            <span className="link-url mono" title={link.url}>
-              <span>{link.url}</span>
-              <Icon name="external" />
-            </span>
-          </a>
-        ))}
-        {links.length > 3 && (
-          <button className="more-link" onClick={onOpen}>
-            +{links.length - 3} more
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
 function LinksTab({
   links,
   publications,
@@ -530,204 +386,7 @@ function LinksTab({
   );
 }
 
-type CardProps = Parameters<typeof ProjectCard>[0];
-
-function CardHeader({
-  project,
-  recipe,
-  managed,
-  stale,
-  group,
-  environmentErrors,
-  environments,
-  editorTemplate,
-  editorHost,
-  envs,
-  recordedControls,
-  controls,
-  logButton,
-  onOpen,
-  onLogs,
-  open,
-  working,
-  recipeCheckout,
-  onRequest,
-  setCopyNotice,
-}: {
-  project: Project;
-  recipe: Project['recipe'];
-  managed: boolean;
-  stale: CardProps['stale'];
-  group: CardProps['group'];
-  environmentErrors: CardProps['environmentErrors'];
-  environments: CardProps['environments'];
-  editorTemplate: CardProps['editorTemplate'];
-  editorHost: CardProps['editorHost'];
-  envs: Environment[];
-  recordedControls: NonNullable<Project['controls']>;
-  controls: (env: Environment | NonNullable<Project['controls']>[number]) => React.ReactNode;
-  logButton: Project['logServices'][number] | undefined;
-  onOpen: CardProps['onOpen'];
-  onLogs: CardProps['onLogs'];
-  open: CardProps['open'];
-  working: CardProps['working'];
-  recipeCheckout: Project | undefined;
-  onRequest: CardProps['onRequest'];
-  setCopyNotice: React.Dispatch<React.SetStateAction<string>>;
-}) {
-  return (
-    <div className="proj-head">
-      <div className="title">
-        <div className="title-row">
-          <h2>{project.name}</h2>
-          {recipe?.found && <Chip state={recipePresentation(recipe).state}>Recipe · {recipePresentation(recipe).text}</Chip>}
-          {managed && (
-            <Chip state={stale || group.environmentIds.some((id) => environmentErrors[id]) ? 'Unknown' : projectStatus(group, environments)}>
-              Managed · {stale || group.environmentIds.some((id) => environmentErrors[id]) ? 'Unknown' : projectStatus(group, environments)}
-            </Chip>
-          )}
-        </div>
-        <div className="meta-row">
-          <PathLink path={project.path} template={editorTemplate} host={editorHost} />
-          {project.manifests.map((tag) => (
-            <span className="tag" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="head-actions">
-        {(envs.length ? envs : recordedControls).map((env) => (
-          <React.Fragment key={env.id}>{controls(env)}</React.Fragment>
-        ))}
-        {managed && logButton && (
-          <button
-            className="icon-btn"
-            aria-label={`View ${project.name} logs`}
-            onClick={() => {
-              onOpen('Environment');
-              onLogs(logButton.environmentId, logButton.serviceId);
-            }}
-          >
-            <Icon name="logs" />
-          </button>
-        )}
-        <Actions
-          project={project}
-          open={open}
-          editorTemplate={editorTemplate}
-          editorHost={editorHost}
-          canRequest={!!recipe?.valid && !stale && !working}
-          onRequest={() => {
-            if (recipeCheckout) onRequest(recipeCheckout.path);
-          }}
-          onToggle={() => onOpen()}
-          onCopy={() => {
-            void navigator.clipboard
-              .writeText(project.path)
-              .then(() => setCopyNotice('Path copied'))
-              .catch(() => setCopyNotice('Copy unavailable. Select the path above.'));
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AgentsColumn({
-  agents,
-  agentCheckout,
-  project,
-  onOpen,
-}: {
-  agents: ReturnType<typeof groupAgents>;
-  agentCheckout: (agent: Project['agents'][number]) => Project | undefined;
-  project: Project;
-  onOpen: CardProps['onOpen'];
-}) {
-  return (
-    <section className="col" aria-label="Agents">
-      <div className="col-h">
-        <Icon name="agents" />
-        Agents<span className="n">{agents.length}</span>
-      </div>
-      {!agents.length && <div className="empty">No agents attached</div>}
-      <div className="list">
-        {agents.slice(0, 3).map((a) => {
-          const checkout = agentCheckout(a);
-          return (
-            <div className="r" key={agentKey(a)}>
-              <Mark name={a.name} />
-              <span className="agent-label">
-                <span className="name">{a.name}</span>
-                <span className="sub-mono" title={checkout?.path}>
-                  {checkout && checkout !== project ? (checkout.branch ?? checkout.name) : ''}
-                  {a.source === 'detected process' && a.startedAt
-                    ? `${checkout && checkout !== project ? ' · ' : ''}since ${time(a.startedAt).slice(0, 5)}`
-                    : ''}
-                </span>
-              </span>
-              <Chip state={a.source === 'detected process' ? 'Detected' : 'Registered'} />
-            </div>
-          );
-        })}
-        {agents.length > 3 && (
-          <button className="more-link" onClick={() => onOpen('Agents')}>
-            +{agents.length - 3} more
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ServicesColumn({
-  services,
-  group,
-  project,
-  http,
-  stale,
-  environmentErrors,
-  onOpen,
-}: {
-  services: ReturnType<typeof groupServices>;
-  group: CardProps['group'];
-  project: Project;
-  http: (checkoutId: string, port: number) => NonNullable<ProjectDetails['http']>[number]['http'] | undefined;
-  stale: CardProps['stale'];
-  environmentErrors: CardProps['environmentErrors'];
-  onOpen: CardProps['onOpen'];
-}) {
-  return (
-    <section className="col" aria-label="Services">
-      <div className="col-h">
-        <Icon name="services" />
-        Services<span className="n">{services.length}</span>
-      </div>
-      {!services.length && (
-        <div className="empty">{group.checkouts.some((p) => p.runtime.status === 'unknown') ? 'Observation unavailable' : 'Nothing listening'}</div>
-      )}
-      <div className="list svc">
-        {services.slice(0, 3).map((s) => (
-          <div className="r" key={s.key}>
-            <span className="port">:{s.port}</span>
-            <span className="sub-mono" title={s.checkout.path}>
-              {s.name}
-              {s.checkout !== project ? ` · ${s.checkout.branch ?? s.checkout.name}` : ''}
-              {http(s.checkout.id, s.port) && ` · HTTP ${http(s.checkout.id, s.port)!.status}`}
-            </span>
-            <Chip state={stale || s.checkout.environmentIds.some((id) => environmentErrors[id]) ? 'Unknown' : s.state} />
-          </div>
-        ))}
-        {services.length > 3 && (
-          <button className="more-link" onClick={() => onOpen('Services')}>
-            +{services.length - 3} more
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
+type CardProps = Parameters<typeof ProjectDetailsPanel>[0];
 
 function WorktreesTab({
   group,
@@ -772,7 +431,7 @@ function AgentsTab({
 }) {
   return (
     <>
-      <Table headings={['Agent', 'Source', 'Working in', 'Since', 'Process id', 'State']}>
+      <Table headings={['Agent', 'Source', 'Checkout', 'Working directory', 'Process started', 'Process id']}>
         {agents.map((a) => (
           <tr key={agentKey(a)}>
             <td>
@@ -782,12 +441,10 @@ function AgentsTab({
               </span>
             </td>
             <td>{a.source === 'detected process' ? 'Detected process' : 'Owner registration'}</td>
-            <td className="mono">{agentCheckout(a)?.name ?? '—'}</td>
-            <td className="mono">{a.source === 'detected process' ? time(a.startedAt) : '—'}</td>
+            <td className="mono">{agentCheckout(a)?.path ?? '—'}</td>
+            <td className="mono">{a.source === 'detected process' ? a.cwd ?? '—' : '—'}</td>
+            <td className="mono">{a.source === 'detected process' ? date(a.startedAt) : '—'}</td>
             <td className="mono">{a.source === 'detected process' ? (a.pid ?? '—') : '—'}</td>
-            <td>
-              <Chip state={a.source === 'detected process' ? 'Detected' : 'Registered'} />
-            </td>
           </tr>
         ))}
       </Table>
@@ -810,14 +467,14 @@ function ServicesTab({
 }) {
   return (
     <>
-      <Table headings={['Name', 'Port', 'Process', 'Started', 'Worktree', 'Unit', 'Ownership', 'State', 'HTTP']}>
+      <Table headings={['Name', 'Endpoint', 'Process', 'Started', 'Checkout', 'Unit', 'Ownership', 'State', 'HTTP']}>
         {services.map((s) => (
           <tr key={s.key}>
             <td>{s.name}</td>
-            <td className="mono">:{s.port}</td>
+            <td className="mono">{s.checkout.runtime.listeners?.find(l => l.port === s.port)?.loopback ? `localhost:${s.port}` : `:${s.port} · bind address unknown`}</td>
             <td className="mono">{s.process?.pid ?? '—'}</td>
-            <td className="mono">{time(s.process?.startedAt)}</td>
-            <td className="mono">{s.checkout.name}</td>
+            <td className="mono">{date(s.process?.startedAt)}</td>
+            <td className="mono">{s.checkout.path}</td>
             <td className="mono">{s.unit}</td>
             <td>{s.managed ? 'Rootlane' : 'Observe-only'}</td>
             <td>

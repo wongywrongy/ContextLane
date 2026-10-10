@@ -1,21 +1,24 @@
 import { z } from 'zod';
 export const id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 export const page = z.strictObject({
-  snapshot: z.string().datetime().optional(),
-  cursor: z.number().int().min(0).max(10000).default(0),
-  limit: z.number().int().min(1).max(50).default(25),
+  snapshot: z.string().datetime().optional().describe('Snapshot timestamp returned by list_projects; reuse for subsequent pages.'),
+  cursor: z.number().int().min(0).max(10000).default(0).describe('Offset from list_projects.nextCursor; omit for the first page.'),
+  limit: z.number().int().min(1).max(50).default(25).describe('Maximum projects per page, up to 50.'),
 });
-export const mutation = z.strictObject({ environmentId: id, requestId: z.uuid() });
-export const environmentInput = z.strictObject({ environmentId: id });
+const environmentId = id.describe('Managed environment/profile ID from locate.environments[].id, locate.instances[].id or request_environment.resolvedPreview.instanceId; not a project or checkout ID.');
+const requestId = z.uuid().describe('New UUID for a new action. Reuse this UUID and identical payload when retrying the same action; durable retries return the original operation.');
+const previewId = z.uuid().describe('Independent publication ID from publish_preview.previewId or get_project.previews[].previewId. Managed route IDs in locate.previews are not independent publications.');
+export const mutation = z.strictObject({ environmentId, requestId });
+export const environmentInput = z.strictObject({ environmentId });
 export const logsInput = z.strictObject({
-  environmentId: id,
-  serviceId: id,
+  environmentId,
+  serviceId: id.describe('Recorded managed service ID from get_project.logServices[].serviceId or get_environment.services[].id.'),
   cursor: z
     .string()
     .max(512)
     .regex(/^[a-zA-Z0-9=;_:-]*$/)
-    .optional(),
-  limit: z.number().int().min(1).max(100).default(50),
+    .optional().describe('Opaque cursor from get_logs.nextCursor; omit for the first page.'),
+  limit: z.number().int().min(1).max(100).default(50).describe('Maximum journal lines, up to 100.'),
 });
 export const failure = z.strictObject({ code: z.string().max(80), message: z.string().max(1024), approvalUrl: z.url().optional() });
 export const operation = z.strictObject({
@@ -109,8 +112,8 @@ export const requestEnvironmentInput = z.strictObject({
   path: z
     .string()
     .max(4096)
-    .refine((p) => p.startsWith('/') && !/[\0\r\n]/.test(p)),
-  requestId: z.uuid(),
+    .refine((p) => p.startsWith('/') && !/[\0\r\n]/.test(p)).describe('Absolute working directory or checkout path on the Rootlane host; locate resolves the project and checkout.'),
+  requestId,
 });
 export const requestEnvironmentOutput = z.strictObject({ status: z.enum(['approved', 'pending']), approvalUrl: z.url(), resolvedPreview });
 export const project = z.strictObject({
@@ -227,10 +230,10 @@ export const logsOutput = z.strictObject({
   truncated: z.boolean(),
 });
 export const emptyInput = z.strictObject({});
-export const projectInput = z.strictObject({ projectId: id });
-export const publishInput = z.strictObject({ targetId: id, requestId: z.uuid() });
-export const previewInput = z.strictObject({ previewId: z.uuid() });
-export const unpublishInput = previewInput.extend({ requestId: z.uuid() });
+export const projectInput = z.strictObject({ projectId: id.describe('Project ID from locate.project.id or list_projects.projects[].id; not a checkout or environment ID.') });
+export const publishInput = z.strictObject({ targetId: id.describe('Owner-approved publication target ID from locate.approvedTargetIds, get_project.approvedTargetIds or get_capabilities.approvalScope.previewTargetIds. Identifies the configured checkout and endpoint.'), requestId });
+export const previewInput = z.strictObject({ previewId });
+export const unpublishInput = previewInput.extend({ requestId });
 export const previewOperation = operation
   .omit({ environmentId: true, action: true })
   .extend({ previewId: z.uuid(), action: z.enum(['publish', 'unpublish']) });
@@ -309,12 +312,12 @@ export const locateInput = z.strictObject({
   path: z
     .string()
     .max(4096)
-    .refine((p) => p.startsWith('/') && !/[\0\r\n]/.test(p)),
+    .refine((p) => p.startsWith('/') && !/[\0\r\n]/.test(p)).describe('Absolute working directory or checkout path on the Rootlane host; locate resolves the project and checkout.'),
 });
 export const operationsInput = z.strictObject({
-  environmentId: id.optional(),
-  previewId: z.uuid().optional(),
-  limit: z.number().int().min(1).max(20).default(10),
+  environmentId: environmentId.optional(),
+  previewId: previewId.optional(),
+  limit: z.number().int().min(1).max(20).default(10).describe('Maximum recent durable operations, up to 20; omit scope IDs to list all.'),
 });
 export const operationsOutput = z.strictObject({ operations: z.array(z.union([operation, previewOperation])).max(20) });
 export const locateOutput = z.strictObject({
@@ -355,7 +358,7 @@ export const toolContracts = {
   list_operations: {
     input: operationsInput,
     output: operationsOutput,
-    description: 'Read up to 20 recent durable lifecycle and preview operations, newest first, including error codes.',
+    description: 'Read recent durable operation IDs, statuses and errors, newest first. Scope by environmentId or independent previewId. Poll get_environment or get_preview for current readiness.',
     read: true,
   },
   get_capabilities: {
@@ -375,7 +378,7 @@ export const toolContracts = {
     input: publishInput,
     output: publicationOutput,
     description:
-      'Publish an owner-approved, already running loopback service. Owns only the route; never launches applications. Reuse requestId on retry, then inspect get_preview.',
+      'Publish an owner-approved, already running loopback service. Owns only the route; never launches applications. Returns a durable operation and previewId; poll get_preview. A returned URL may be unverified. Reuse requestId on retry.',
     read: false,
   },
   get_preview: {
@@ -387,7 +390,7 @@ export const toolContracts = {
   unpublish_preview: {
     input: unpublishInput,
     output: publicationOutput,
-    description: 'Remove only a recorded matching preview route. Leaves the upstream application running. Reuse requestId on retry.',
+    description: 'Remove only a recorded matching preview route. Leaves the upstream application running. Returns a durable operation; poll get_preview for removal. Reuse requestId on retry.',
     read: false,
   },
   list_projects: {
@@ -413,7 +416,7 @@ export const toolContracts = {
   stop_environment: {
     input: mutation,
     output: acceptedOutput,
-    description: 'Stop only recorded Rootlane units and matching preview routes. Terminates running work. Reuse requestId on retries.',
+    description: 'Stop only recorded Rootlane units and matching preview routes. Terminates running work. Returns a durable operation; poll get_environment. Reuse requestId on retries.',
     read: false,
   },
   get_logs: {

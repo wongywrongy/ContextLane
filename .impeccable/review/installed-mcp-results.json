@@ -1,0 +1,11 @@
+{
+  "version": "0.5.1",
+  "toolCount": 13,
+  "describedInputFields": 24,
+  "catalogEntries": 6,
+  "blockers": [
+    "IMPLICIT_ENV_WRAPPER"
+  ],
+  "environments": [],
+  "observedAt": "2026-10-10T08:01:48.518Z"
+}

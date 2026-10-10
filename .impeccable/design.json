@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-10T01:11:58.188941+00:00",
+  "generatedAt": "2026-10-10T07:36:55.182321+00:00",
   "title": "Design System: Rootlane",
   "extensions": {
     "colorMeta": {
@@ -160,17 +160,7 @@
       },
       "muted": {
         "role": "neutral",
-        "displayName": "Muted",
-        "tonalRamp": [
-          "oklch(15% 0.02816 266.50)",
-          "oklch(26% 0.02816 266.50)",
-          "oklch(38% 0.02816 266.50)",
-          "oklch(49% 0.02816 266.50)",
-          "oklch(61% 0.02816 266.50)",
-          "oklch(72% 0.02816 266.50)",
-          "oklch(84% 0.02816 266.50)",
-          "oklch(95% 0.02816 266.50)"
-        ]
+        "displayName": "Slate Metadata"
       },
       "faint": {
         "role": "neutral",
@@ -188,31 +178,11 @@
       },
       "accent": {
         "role": "primary",
-        "displayName": "Accent",
-        "tonalRamp": [
-          "oklch(15% 0.15138 276.86)",
-          "oklch(26% 0.15138 276.86)",
-          "oklch(38% 0.15138 276.86)",
-          "oklch(49% 0.15138 276.86)",
-          "oklch(61% 0.15138 276.86)",
-          "oklch(72% 0.15138 276.86)",
-          "oklch(84% 0.15138 276.86)",
-          "oklch(95% 0.15138 276.86)"
-        ]
+        "displayName": "Signal Blue"
       },
       "accent-strong": {
         "role": "primary",
-        "displayName": "Accent Strong",
-        "tonalRamp": [
-          "oklch(15% 0.22142 273.78)",
-          "oklch(26% 0.22142 273.78)",
-          "oklch(38% 0.22142 273.78)",
-          "oklch(49% 0.22142 273.78)",
-          "oklch(61% 0.22142 273.78)",
-          "oklch(72% 0.22142 273.78)",
-          "oklch(84% 0.22142 273.78)",
-          "oklch(95% 0.22142 273.78)"
-        ]
+        "displayName": "Strong Signal Blue"
       },
       "accent-glow": {
         "role": "primary",
@@ -437,6 +407,26 @@
           "oklch(84% 0.16517 21.99)",
           "oklch(95% 0.16517 21.99)"
         ]
+      },
+      "table": {
+        "role": "neutral",
+        "displayName": "Observation Surface"
+      },
+      "table-head": {
+        "role": "neutral",
+        "displayName": "Observation Header"
+      },
+      "agent": {
+        "role": "neutral",
+        "displayName": "Agent Surface"
+      },
+      "agent-claude": {
+        "role": "neutral",
+        "displayName": "Claude Surface"
+      },
+      "agent-claude-mark": {
+        "role": "secondary",
+        "displayName": "Claude Mark"
       }
     },
     "typographyMeta": {
@@ -446,7 +436,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Project names."
+        "purpose": "Project row names (15px); Details titles use 22px."
       },
       "body": {
         "displayName": "Body",
@@ -466,40 +456,38 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Structural summary headings."
+        "purpose": "Technical section headings; shared table headers use 12px Geist."
       }
     },
     "shadows": [
       {
         "name": "glass",
         "value": "inset 0 1px 0 rgba(255,255,255,.07),0 20px 40px -24px rgba(0,0,0,.8)",
-        "purpose": "Resting glass surfaces."
-      },
-      {
-        "name": "open-card",
-        "value": "inset 0 1px 0 rgba(255,255,255,.07),0 30px 60px -30px rgba(0,0,0,.9),0 0 0 1px rgba(139,151,255,.08)",
-        "purpose": "Expanded project card."
+        "purpose": "Existing controls and setup surfaces; project rows remain flat."
       },
       {
         "name": "primary-action",
         "value": "inset 0 1px 0 rgba(255,255,255,.25),0 6px 20px -6px var(--accent-glow)",
         "purpose": "Primary violet action."
-      }
-    ],
-    "motion": [
+      },
       {
-        "name": "card-state",
-        "value": "border-color .16s ease-out,box-shadow .16s ease-out",
-        "purpose": "Card hover and open state; removed by reduced-motion preference."
+        "name": "row-menu",
+        "value": "0 8px 28px #0008",
+        "purpose": "Viewport-contained row actions menu."
       }
     ],
+    "motion": [],
     "breakpoints": [
       {
-        "name": "two-panels",
+        "name": "compact-chrome",
         "value": "1100px"
       },
       {
-        "name": "one-panel",
+        "name": "stacked-rows-fullscreen-details",
+        "value": "999px"
+      },
+      {
+        "name": "phone-chrome",
         "value": "760px"
       }
     ]
@@ -511,7 +499,7 @@
       "refersTo": "button-primary",
       "description": "Shipped primary action style.",
       "html": "<button class=\"ds-primary\">Unlock</button>",
-      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:linear-gradient(180deg,#6b78ff,#5260f5);color:#fff;border-color:rgba(139,151,255,.55);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 6px 20px -6px var(--accent-glow,rgba(91,104,255,.35));}.ds-primary:hover:enabled{background:linear-gradient(180deg,#7b87ff,#5d6bff);}.ds-primary:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}.ds-primary:disabled{opacity:.45;cursor:not-allowed}"
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:linear-gradient(180deg,#6b78ff,#5260f5);color:#fff;border-color:rgba(139,151,255,.55);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 6px 20px -6px var(--accent-glow,rgba(91,104,255,.35));}.ds-primary:hover:enabled{background:linear-gradient(180deg,#7b87ff,#5d6bff);}.ds-primary:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}.ds-primary:disabled{opacity:.45;cursor:not-allowed}"
     },
     {
       "name": "Secondary Button",
@@ -519,7 +507,7 @@
       "refersTo": "button-secondary",
       "description": "Shipped secondary action style.",
       "html": "<button class=\"ds-secondary\">View logs</button>",
-      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:var(--glass-2,rgba(255,255,255,.06));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);}.ds-secondary:hover:enabled{background:var(--glass-3,rgba(255,255,255,.09));border-color:var(--stroke-3,rgba(255,255,255,.22));}.ds-secondary:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}.ds-secondary:disabled{opacity:.45;cursor:not-allowed}"
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:var(--glass-2,rgba(255,255,255,.06));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07);}.ds-secondary:hover:enabled{background:var(--glass-3,rgba(255,255,255,.09));border-color:var(--stroke-3,rgba(255,255,255,.22));}.ds-secondary:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}.ds-secondary:disabled{opacity:.45;cursor:not-allowed}"
     },
     {
       "name": "Ghost Button",
@@ -527,15 +515,15 @@
       "refersTo": "button-ghost",
       "description": "Shipped ghost action style.",
       "html": "<button class=\"ds-ghost\">Dismiss</button>",
-      "css": ".ds-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:transparent;border-color:transparent;color:var(--muted,#8e96a8);}.ds-ghost:hover:enabled{background:var(--glass,rgba(255,255,255,.035));color:var(--text,#f2f4f8);}.ds-ghost:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}.ds-ghost:disabled{opacity:.45;cursor:not-allowed}"
+      "css": ".ds-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;font:500 12.5px/1.5 var(--sans,Geist,sans-serif);cursor:pointer;background:transparent;border-color:transparent;color:var(--muted,#929eb2);}.ds-ghost:hover:enabled{background:var(--glass,rgba(255,255,255,.035));color:var(--text,#f2f4f8);}.ds-ghost:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}.ds-ghost:disabled{opacity:.45;cursor:not-allowed}"
     },
     {
       "name": "Project Search",
       "kind": "input",
       "refersTo": "search",
       "description": "Inset search with visible container focus.",
-      "html": "<label class=\"ds-search\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"><circle cx=\"10\" cy=\"10\" r=\"6\"/><path d=\"m15 15 5 5\"/></svg><input aria-label=\"Search projects\" placeholder=\"Search name, branch, port…\"></label>",
-      "css": ".ds-search{display:flex;align-items:center;gap:10px;height:38px;padding:0 6px 0 12px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--glass,rgba(255,255,255,.035));color:var(--muted,#8e96a8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}.ds-search:focus-within{border-color:var(--stroke-3,rgba(255,255,255,.22));background:var(--glass-2,rgba(255,255,255,.06))}.ds-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--text,#f2f4f8);font:13px var(--sans,Geist,sans-serif)}.ds-search input::placeholder{color:var(--muted,#8e96a8)}"
+      "html": "<label class=\"ds-search\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"><circle cx=\"10\" cy=\"10\" r=\"6\"/><path d=\"m15 15 5 5\"/></svg><input aria-label=\"Search projects\" placeholder=\"Search name, branch, port\u2026\"></label>",
+      "css": ".ds-search{display:flex;align-items:center;gap:10px;height:38px;padding:0 6px 0 12px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--glass,rgba(255,255,255,.035));color:var(--muted,#929eb2);box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}.ds-search:focus-within{border-color:var(--stroke-3,rgba(255,255,255,.22));background:var(--glass-2,rgba(255,255,255,.06))}.ds-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--text,#f2f4f8);font:13px var(--sans,Geist,sans-serif)}.ds-search input::placeholder{color:var(--muted,#929eb2)}"
     },
     {
       "name": "Segmented Navigation",
@@ -543,7 +531,7 @@
       "refersTo": "nav-item",
       "description": "Projects and Settings in a recessed frame.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><button aria-current=\"page\">Projects</button><button>Settings</button></nav>",
-      "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--inset,rgba(0,0,0,.28))}.ds-nav button{min-height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:var(--muted,#8e96a8);font:500 13px var(--sans,Geist,sans-serif);cursor:pointer}.ds-nav button[aria-current]{background:var(--glass-3,rgba(255,255,255,.09));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 0 0 1px var(--stroke,rgba(255,255,255,.075))}.ds-nav button:hover{color:var(--text,#f2f4f8)}.ds-nav button:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}"
+      "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--inset,rgba(0,0,0,.28))}.ds-nav button{min-height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:var(--muted,#929eb2);font:500 13px var(--sans,Geist,sans-serif);cursor:pointer}.ds-nav button[aria-current]{background:var(--glass-3,rgba(255,255,255,.09));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 0 0 1px var(--stroke,rgba(255,255,255,.075))}.ds-nav button:hover{color:var(--text,#f2f4f8)}.ds-nav button:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}"
     },
     {
       "name": "Observation Chip",
@@ -559,15 +547,7 @@
       "refersTo": "filter",
       "description": "Interactive list filter with selected count.",
       "html": "<button class=\"ds-filter\" aria-pressed=\"true\">All <b>3</b></button>",
-      "css": ".ds-filter{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:999px;background:var(--glass-2,rgba(255,255,255,.06));color:var(--text,#f2f4f8);font:500 12.5px var(--sans,Geist,sans-serif);cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}.ds-filter b{font:500 11px var(--mono,monospace);color:var(--accent,#8b97ff)}.ds-filter:hover{border-color:var(--stroke-3,rgba(255,255,255,.22))}.ds-filter:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}"
-    },
-    {
-      "name": "Project Glass Card",
-      "kind": "card",
-      "refersTo": "project-card",
-      "description": "Shipped glass shell with header and inset summary.",
-      "html": "<article class=\"ds-card\"><header><h2>Project</h2><p>/workspace/project</p></header><section>Nothing listening</section></article>",
-      "css": ".ds-card{border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:20px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 20px 40px -24px rgba(0,0,0,.8);backdrop-filter:blur(18px) saturate(140%);transition:border-color .16s ease-out,box-shadow .16s ease-out}.ds-card:hover{border-color:var(--stroke-2,rgba(255,255,255,.13))}.ds-card header{padding:18px 20px 16px}.ds-card h2{margin:0;font:600 19px/1.5 var(--sans,Geist,sans-serif);letter-spacing:-.02em}.ds-card p{margin:6px 0 0;font:12px var(--mono,monospace);color:var(--muted,#8e96a8)}.ds-card section{padding:14px 20px 16px;border-top:1px solid var(--stroke,rgba(255,255,255,.075));background:var(--inset,rgba(0,0,0,.28));font:12.5px var(--sans,Geist,sans-serif);color:var(--faint,#929aad)}@media(prefers-reduced-motion:reduce){.ds-card{transition:none}}"
+      "css": ".ds-filter{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:999px;background:var(--glass-2,rgba(255,255,255,.06));color:var(--text,#f2f4f8);font:500 12.5px var(--sans,Geist,sans-serif);cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}.ds-filter b{font:500 11px var(--mono,monospace);color:var(--accent,#86aaff)}.ds-filter:hover{border-color:var(--stroke-3,rgba(255,255,255,.22))}.ds-filter:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}"
     },
     {
       "name": "Technology Tag",
@@ -576,21 +556,45 @@
       "description": "Compact manifest label.",
       "html": "<span class=\"ds-tag\">Node</span>",
       "css": ".ds-tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:5px;background:var(--glass,rgba(255,255,255,.035));color:var(--text-2,#c9cfdb);font:500 11px var(--mono,monospace)}"
+    },
+    {
+      "name": "Shared Project Table",
+      "kind": "custom",
+      "refersTo": "project-table",
+      "description": "One divided table with common six-column alignment; static rows stack below 1000px.",
+      "html": "<section class=\"ds-table\"><header class=\"ds-head\"><span>Project</span><span>Branch</span><span>Agents</span><span>Services</span><span>Links</span><span></span></header><div class=\"ds-row\"><strong>Project</strong><span>main</span><span>\u2014</span><span>\u2014</span><span>\u2014</span><button aria-label=\"Project actions\">\u22ef</button></div></section>",
+      "css": ".ds-table{border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:14px;overflow:hidden;background:#0c0f16;color:var(--text,#f2f4f8);font:12px/1.5 var(--sans,Geist,sans-serif)}.ds-head,.ds-row{display:grid;grid-template-columns:minmax(0,22fr) minmax(0,12fr) minmax(0,26fr) minmax(0,18fr) minmax(0,16fr) minmax(44px,6fr);align-items:center}.ds-head{padding:12px 20px;background:#10141c;color:var(--muted,#929eb2)}.ds-row{padding:22px 20px;min-height:96px;border-top:1px solid var(--stroke,rgba(255,255,255,.075))}.ds-row>*{min-width:0;overflow-wrap:anywhere}.ds-row strong{font-size:15px}.ds-row button{justify-self:end;min-width:34px;min-height:34px;background:transparent;color:inherit;border:0}.ds-row button:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}@media(max-width:999px){.ds-head{display:none}.ds-row{grid-template-columns:minmax(0,1fr) 44px;gap:12px 8px;padding:18px 20px}.ds-row>*{grid-column:1/-1}.ds-row strong{grid-column:1;grid-row:1}.ds-row button{grid-column:2;grid-row:1;min-width:44px;min-height:44px}}"
+    },
+    {
+      "name": "Agent Circle",
+      "kind": "custom",
+      "refersTo": "agent-circle",
+      "description": "Individual 38px sourced vendor mark; detected-process uptime sits beneath it. Initials are a fallback.",
+      "html": "<span class=\"ds-agent\"><span class=\"ds-mark\" aria-label=\"Agent initials fallback\">A</span><span class=\"ds-duration\">12m</span></span>",
+      "css": ".ds-agent{display:inline-flex;flex-direction:column;align-items:center;gap:5px;width:38px}.ds-mark{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;background:#161b25;border:1px solid var(--stroke,rgba(255,255,255,.075));color:var(--text,#f2f4f8);font:12px var(--sans,Geist,sans-serif)}.ds-duration{font:10px var(--mono,monospace);color:var(--muted,#929eb2);white-space:nowrap}"
+    },
+    {
+      "name": "Details Panel",
+      "kind": "custom",
+      "refersTo": "details-panel",
+      "description": "Native modal side panel on desktop, fullscreen below 1000px; labeled records wrap complete values at every width.",
+      "html": "<section class=\"ds-details\"><header><h2>Project</h2><button>Close</button></header><dl><div><dt>Path</dt><dd>/workspace/project</dd></div><div><dt>Status</dt><dd>Unknown</dd></div></dl></section>",
+      "css": ".ds-details{box-sizing:border-box;margin-left:auto;width:min(900px,90vw);padding:24px;background:#0c0f16;color:var(--text,#f2f4f8);border-left:1px solid var(--stroke-2,rgba(255,255,255,.13));font:14px/1.5 var(--sans,Geist,sans-serif)}.ds-details header{display:flex;justify-content:space-between;gap:16px;margin-bottom:20px}.ds-details h2{margin:0;font-size:22px}.ds-details button{background:var(--glass-2,rgba(255,255,255,.06));color:inherit;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;padding:0 12px;min-height:34px}.ds-details button:focus-visible{outline:2px solid var(--accent,#86aaff);outline-offset:3px}.ds-details dl{margin:0}.ds-details dl>div{display:grid;grid-template-columns:minmax(90px,25%) minmax(0,1fr);gap:16px;padding:6px 16px}.ds-details dt{color:var(--muted,#929eb2);font-size:12px}.ds-details dd{margin:0;min-width:0;overflow-wrap:anywhere;font-family:var(--mono,monospace)}@media(max-width:999px){.ds-details{width:100%;border-left:0;padding:20px}}@media(max-width:760px){.ds-details{padding:16px}.ds-details button{min-height:44px}}"
     }
   ],
   "narrative": {
     "northStar": "Signal",
-    "overview": "Signal places clear project, runtime and URL observations on near-black glass. Soft violet and green ambient light, fine white borders, restrained inset highlights and a fading grid give the workspace depth without competing with its content. The user-pinned Signal HTML/CSS reference is the visual authority; the shipped React components and ordinary CSS define the implemented system.\n\nGeist provides compact interface text; Geist Mono distinguishes paths, ports, branches, times and counts. Explicit labels and inline SVG symbols describe observed state. The interface must preserve Rootlane’s trustworthy mapping and ownership boundaries rather than infer agent activity or service readiness.",
+    "overview": "Signal places trustworthy project, runtime and URL observations in one shared table on a restrained near-black canvas. Fine borders, quiet blue links and a faint fading grid support scanning. The user's approved replacement interface supersedes the earlier Signal HTML/image references; those files remain historical evidence. The shipped React components and ordinary CSS define the implemented system.\n\nGeist provides compact interface text; Geist Mono distinguishes paths, ports, branches, times and counts. Rows remain static. Project actions open Details in a side panel, keeping the shared table concise and the full observations accessible.",
     "keyCharacteristics": [
-      "Near-black glass with subtle atmospheric light and fine borders.",
+      "One rounded shared observation table with static divided rows.",
       "Geist interface typography paired with Geist Mono technical metadata.",
-      "Full-width project cards with aligned summary panels and inline detail tabs.",
-      "Semantic state chips with explicit text and inline SVG symbols."
+      "Individual 38px agent circles with actual detected-process uptime.",
+      "Desktop Details side panel and fullscreen Details at 999px and below."
     ],
     "rules": [
       {
         "name": "The Evidence Rule",
-        "body": "Registered and Detected describe agent evidence; Listening describes a socket; Published describes a route. None is a claim of activity, completion or verified availability.",
+        "body": "Registered and Detected describe agent evidence; Listening describes a socket; Published describes a route. None establishes activity, completion or verified availability. Green links require HTTPS verification.",
         "section": "colors"
       },
       {
@@ -599,23 +603,24 @@
         "section": "typography"
       },
       {
-        "name": "The Glass Rule",
-        "body": "Use translucent gradients, thin borders and inset highlights together; keep ambient shadows soft and attached to glass surfaces.",
+        "name": "The Surface Rule",
+        "body": "Use shared alignment, fine borders and restrained opaque tonal surfaces for hierarchy; keep depth attached to controls and overlays.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do pair state color with an explicit label and an inline SVG symbol.",
-      "Do preserve the three, two and one panel layouts at the shipped breakpoints.",
-      "Do use locally hosted Geist and Geist Mono and preserve visible keyboard focus.",
-      "Do keep details inline, technical tables horizontally scrollable and long values able to wrap.",
-      "Do show stale observations and action failures beside the affected content."
+      "Do retain one shared table and static project rows.",
+      "Do show individual real agent marks and actual detected-process uptime.",
+      "Do show concise real links and require verification for green link state.",
+      "Do retain the 999px stacked-row/fullscreen-Details breakpoint.",
+      "Do wrap full technical values in labeled Details records.",
+      "Do preserve local fonts, accessible state labels, keyboard focus and action failures."
     ],
     "donts": [
-      "Don't infer activity from an agent registration, readiness from a listening port or HTTPS verification from a published route.",
-      "Don't restore gray status dots or replace explicit state labels with color alone.",
-      "Don't add account chrome, system-stat cards or editable Settings to this approved workspace.",
-      "Don't introduce a UI dependency or fabricated vendor logo to reproduce the shipped patterns."
+      "Don't infer activity from registration, readiness from a socket or HTTPS verification from publication.",
+      "Don't restore separate project cards, inline row expansion or always-visible lifecycle controls.",
+      "Don't use the historical Signal reference as authority over the approved replacement.",
+      "Don't add account chrome, system-stat cards, editable Settings, dependencies or fabricated vendor logos."
     ]
   }
 }

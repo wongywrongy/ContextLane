@@ -103,7 +103,7 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
       const state = serviceState(environment, unit, listening);
       return {
         key: `${checkout.id}:${port}`,
-        name: listener?.process?.name ?? service?.name ?? '—',
+        name: listener?.process?.name ?? service?.name ?? 'Listener',
         port,
         checkout,
         unit: unit?.unit || '—',
@@ -252,4 +252,12 @@ export function serviceState(environment: Environment | undefined, unit: Environ
   if (listening) return 'Listening';
   if (unit && ['inactive', 'absent', 'not recorded'].includes(unit.state)) return 'Stopped';
   return 'Unknown';
+}
+
+export const shortPath = (path: string) => path.split('/').filter(Boolean).slice(-2).join('/') || '/';
+export function elapsed(value?: string | null, now = Date.now()) {
+  const start = value ? Date.parse(value) : NaN;
+  if (!Number.isFinite(start) || start > now) return null;
+  const seconds = Math.floor((now - start) / 1000);
+  return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : seconds < 86400 ? `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m` : `${Math.floor(seconds / 86400)}d ${Math.floor(seconds % 86400 / 3600)}h`;
 }

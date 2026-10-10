@@ -1,0 +1,195 @@
+{
+  "origin": "https://root.avlis.dev",
+  "observedAt": "2026-10-10T07:57:53.802Z",
+  "metrics": [
+    {
+      "width": 360,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true
+    },
+    {
+      "width": 390,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true
+    },
+    {
+      "width": 768,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true
+    },
+    {
+      "width": 1280,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true
+    },
+    {
+      "width": 1440,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true
+    }
+  ],
+  "exceptions": [],
+  "network": [
+    {
+      "url": "https://root.avlis.dev/",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/index-B9tDj-IT.css",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/index-dQh4axGK.js",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/Geist-DPGgOCY9.woff2",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/session",
+      "status": 401
+    },
+    {
+      "url": "https://root.avlis.dev/favicon.ico",
+      "status": 404
+    },
+    {
+      "url": "https://root.avlis.dev/api/login",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/index-B9tDj-IT.css",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/index-dQh4axGK.js",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/Geist-DPGgOCY9.woff2",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/session",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/assets/GeistMono-Vc9u_qg9.woff2",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_project",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_project",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_project",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    }
+  ]
+}
