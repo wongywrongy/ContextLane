@@ -88,10 +88,12 @@ export class LinuxHost implements Host {
     if (!current || current.marker !== unit.marker || current.state !== 'active' || !current.cgroup) return false;
     const listeners = await this.listeners();
     const owned = listeners.filter(l => l.cgroup === current.cgroup || l.cgroup?.startsWith(`${current.cgroup}/`));
-    if (!owned.some(l => l.port === unit.port && l.address === '127.0.0.1')) return false;
-    if (owned.some(l => l.port !== unit.port || l.address !== '127.0.0.1')) throw new Problem('UNEXPECTED_BINDING', `${unit.serviceId} must bind only 127.0.0.1:${unit.port}`);
+    if (owned.some(l => ['0.0.0.0','::','*'].includes(l.address))) throw new Problem('PUBLIC_BINDING', 'bind the dev server to 127.0.0.1 (e.g. --host 127.0.0.1)');
+    if (!owned.some(l => l.port === unit.port && ['127.0.0.1','::1'].includes(l.address))) return false;
+    if (new Set(owned.map(l => l.pid)).size !== 1) return false;
+    if (owned.some(l => l.port !== unit.port || !['127.0.0.1','::1'].includes(l.address))) throw new Problem('UNEXPECTED_BINDING', `${unit.serviceId} must bind only 127.0.0.1:${unit.port}`);
     try {
-      const response = await fetch(`http://127.0.0.1:${unit.port}${unit.readiness.path}`, { redirect: 'error', signal: AbortSignal.timeout(1500) });
+      const response = await fetch(`http://${owned.some(l => l.address === '127.0.0.1') ? '127.0.0.1' : '[::1]'}:${unit.port}${unit.readiness.path}`, { redirect: 'error', signal: AbortSignal.timeout(1500) });
       if (response.status !== unit.readiness.status) { await response.body?.cancel(); return false; }
       return (await boundedText(response, 16384)).includes(unit.readiness.bodyIncludes);
     } catch { return false; }
@@ -110,10 +112,13 @@ export class LinuxHost implements Host {
     const selected = entries.slice(-limit);
     return { lines: selected.map(e => typeof e.MESSAGE === 'string' ? e.MESSAGE.slice(0, 2048) : '[non-text journal entry]'), nextCursor: selected.at(-1)?.__CURSOR ?? null, truncated: entries.length > limit || selected.some(e => typeof e.MESSAGE === 'string' && e.MESSAGE.length > 2048) };
   }
+  private connectionCache: {expires:number; value:{status:'connected'|'unavailable';hostname:string|null}} | null = null;
   async connection(): Promise<{ status: 'connected' | 'unavailable'; hostname: string | null }> {
+    if (this.connectionCache && this.connectionCache.expires > Date.now()) return this.connectionCache.value;
     try {
       const status = JSON.parse(await command('tailscale', ['status', '--json'])) as { BackendState?: string; Self?: { DNSName?: string } };
-      return { status: status.BackendState === 'Running' ? 'connected' : 'unavailable', hostname: status.Self?.DNSName?.replace(/\.$/, '') ?? null };
+      const value = { status: status.BackendState === 'Running' ? 'connected' as const : 'unavailable' as const, hostname: status.Self?.DNSName?.replace(/\.$/, '') ?? null };
+      this.connectionCache = {expires:Date.now()+10000,value}; return value;
     } catch { return { status: 'unavailable', hostname: null }; }
   }
 }

@@ -107,3 +107,16 @@ test('recorded preview checkouts remain discoverable after approval is removed',
   const catalog=new Catalog(config,host,store);const projects=await catalog.list({limit:50});const project=projects.projects.find(p=>p.path===projectPath)!;
   const details=await catalog.get(project.id);assert.equal(details.approvedTargetIds.length,0);assert.equal(details.previews[0].previewId,result.previewId);assert.equal(details.checkoutIds.length,2);
 });
+
+test('a single IPv6 or dual-loopback process publishes; wildcard binds return PUBLIC_BINDING', async t => {
+  const {host,root,publications:p,store} = await fixture(t);
+  for (const addresses of [['::1'],['127.0.0.1','::1']]) {
+    host.listeners = async()=>addresses.map(address=>({address,port:19482,pid:123,cwd:root,cgroup:null}));
+    const accepted = await p.accept('publish',publish()); await p.drain();
+    assert.equal(store.previewOperation(accepted.operation.id).status,'succeeded');
+    const route = JSON.parse(store.preview(accepted.previewId)!.route); assert.equal(route.upstream,addresses.length===1?'http://[::1]:19482':'http://127.0.0.1:19482');
+    await p.accept('unpublish',{previewId:accepted.previewId,requestId:randomUUID()}); await p.drain();
+  }
+  host.listeners=async()=>[{address:'::',port:19482,pid:123,cwd:root,cgroup:null}];
+  await assert.rejects(p.accept('publish',publish()),(e:unknown)=>e instanceof Problem && e.code==='PUBLIC_BINDING' && e.message.includes('--host 127.0.0.1'));
+});

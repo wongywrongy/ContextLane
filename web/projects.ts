@@ -3,10 +3,10 @@ export type ProjectGroup = { id: string; primary: Project; checkouts: Project[];
 export const agentKey = (agent: Project['agents'][number]) => agent.source === 'detected process' ? agent.id : agent.source + ':' + agent.name;
 export const agentLabel = (agent: Project['agents'][number]) => agent.source === 'detected process' ? 'Detected process' : 'Registered';
 export const groupAgents = (group: ProjectGroup) => [...new Map(group.checkouts.flatMap(p => p.agents).map(a => [agentKey(a), a])).values()];
-export async function loadCatalog(fetchPage: (cursor: number) => Promise<unknown>) {
+export async function loadCatalog(fetchPage: (cursor: number, snapshot?: string) => Promise<unknown>) {
   let cursor = 0; const projects: Project[] = []; const warnings = new Set<string>(); let observedAt = '';
   while (projects.length < 1000) {
-    const page = catalogOutput.parse(await fetchPage(cursor));
+    const page = catalogOutput.parse(await fetchPage(cursor, observedAt || undefined));
     if (observedAt && page.observedAt !== observedAt) throw new Error('Catalog changed during refresh. Retry refresh.');
     observedAt = page.observedAt; page.warnings.forEach(w => warnings.add(w)); projects.push(...page.projects);
     if (page.nextCursor === null) return { projects, warnings: [...warnings], observedAt };

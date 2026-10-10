@@ -51,3 +51,17 @@ test('time and process-entry budgets report incomplete scans', async t => {
   t.mock.method(Date, 'now', () => 0);
   const result = await observeAgents(root); assert.equal(result.agents.length, 0); assert(result.warnings.some(w => w.includes('limited')));
 });
+
+test('npm agents are attributed once through wrappers with observed process start time', async t => {
+  const root = await mkdtemp(join(tmpdir(),'rootlane-npm-proc-')); t.after(()=>rm(root,{recursive:true,force:true}));
+  await writeFile(join(root,'stat'),'btime 1700000000\n');
+  for (const [pid,ppid,exe,entry] of [[10,0,'node','/npm/@openai/codex/bin/codex.js'],[11,10,'codex',''],[12,0,'bun','/npm/@anthropic-ai/claude-code/cli.js']] as const) {
+    const path = join(root,String(pid)); await mkdir(path);
+    await writeFile(join(path,'stat'),`${pid} (agent) S ${ppid} ${Array(17).fill('0').join(' ')} 100`);
+    await symlink('/usr/bin/'+exe,join(path,'exe')); await symlink('/approved/app',join(path,'cwd'));
+    await writeFile(join(path,'cmdline'),[exe,entry,'--secret=SHOULD_NOT_ESCAPE'].join('\0'));
+  }
+  const result = await observeAgents(root); assert.equal(result.agents.length,2);
+  assert.equal(result.agents.find(a=>a.name==='Codex')?.pid,10); assert.match(result.agents[0].startedAt!,/^2023-/);
+  assert(!JSON.stringify(result).includes('SHOULD_NOT_ESCAPE'));
+});

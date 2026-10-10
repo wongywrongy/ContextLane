@@ -29,7 +29,7 @@ test('real bounded discovery groups Git worktrees, includes non-Git projects and
 test('agents attach to the deepest approved checkout; unknown directories stay unassigned', async t => {
   const { root, config, host } = await setup(t); const profile = config.profiles[0]; config.profiles = [];
   const projects = join(root, 'projects'); const app = join(projects, 'app'); const sibling = join(projects, 'app-other');
-  await mkdir(join(app, 'web'), { recursive: true }); await mkdir(sibling); await mkdir(join(app, 'fixture'));
+  await mkdir(join(app, 'web'), { recursive: true }); await writeFile(join(app,'package.json'),'{}'); await mkdir(sibling); await mkdir(join(app, 'fixture'));
   config.projectRoots = [projects]; config.observationRoots = [projects];
   config.projects = [{ path: app, links: [], agents: [{ name: 'Owner agent' }] }];
   // Reviewed paths are existing catalog seeds, not directories discovered from processes.
@@ -79,4 +79,24 @@ test('Signal payload attributes agents and listeners to a checkout and exposes d
   assert.equal(main.worktrees?.length,2); assert.deepEqual(main.worktrees?.find(w => w.path === tree)?.ports,[3000]);
   assert(result.projects.every(p => !p.runtime.ports.includes(4000)));
   const { catalogOutput } = await import('../src/shared/contracts.js'); assert.doesNotThrow(() => catalogOutput.parse(result));
+});
+
+test('nested repositories stop descent, skip generated directories and paginate an immutable snapshot', async t => {
+  const {root,config,host} = await setup(t); config.profiles = []; config.projectRoots = [root];
+  const repo = join(root,'team','nested','app'); await mkdir(repo,{recursive:true}); await writeFile(join(repo,'package.json'),'{}');
+  await mkdir(join(repo,'child')); await writeFile(join(repo,'child','package.json'),'{}');
+  await mkdir(join(root,'node_modules','fake'),{recursive:true}); await writeFile(join(root,'node_modules','fake','package.json'),'{}');
+  const catalog = new Catalog(config,host); const first = await catalog.list({limit:1});
+  assert.equal(first.projects[0].path,repo);
+  const now = Date.now(); t.mock.method(Date,'now',()=>now+6000);
+  const next = await catalog.list({}); assert.notEqual(first.observedAt,next.observedAt);
+  assert.deepEqual((await catalog.list({snapshot:first.observedAt})).projects,first.projects);
+  t.mock.method(Date,'now',()=>now+31000);
+  await assert.rejects(catalog.list({snapshot:first.observedAt}),/snapshot expired/);
+});
+
+test('observed Serve loopback normalization never accepts wildcard, paths or credentials', async () => {
+  const {loopbackPort} = await import('../src/catalog/discovery.js');
+  for (const address of ['http://localhost:3000','http://127.0.0.1:3000/','http://[::1]:3000/']) assert.equal(loopbackPort(address),3000);
+  for (const address of ['http://0.0.0.0:3000/','http://127.0.0.1:3000/private','http://user@localhost:3000/']) assert.equal(loopbackPort(address),null);
 });

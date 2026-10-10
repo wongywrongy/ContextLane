@@ -63,7 +63,7 @@ function App() {
           if (signal.aborted) return;
           setConnection('Connected'); setTailscale(status.tailscale.status === 'connected' ? 'Connected' : 'Unavailable'); setTailnetHostname(status.tailscale.hostname); setLifecycleAvailable(status.lifecycleAvailable); setUnavailableReason(status.reconciling ? status.lastError?.message ?? 'reconciling ownership' : ''); setConfigError(status.configError ? status.configError.code + ' · ' + status.configError.message : ''); setRoots(status.projectRoots ?? []); setObservationRoots(status.observationRoots ?? []);
         }).catch(e => { if (!signal.aborted) { failed(e); setConnection('Disconnected'); setTailscale('Unknown'); setLifecycleAvailable(false); } }),
-        loadCatalog(cursor => json('/api/tools/list_projects', { cursor, limit: 50 }, csrf, signal)).then(data => {
+        loadCatalog((cursor, snapshot) => json('/api/tools/list_projects', { cursor, limit: 50, ...(snapshot ? {snapshot} : {}) }, csrf, signal)).then(data => {
           if (signal.aborted) return;
           catalogRef.current = data; setCatalog(data); setCatalogError('');
           if (selectedRef.current && !data.projects.some(p => p.id === selectedRef.current)) selectProject(null);
@@ -71,8 +71,10 @@ function App() {
       ]);
       if (signal.aborted) return;
       const snapshot = catalogRef.current;
-      const environmentIds = [...new Set(snapshot?.projects.flatMap(p => p.environmentIds) ?? [])];
-      const previewIds = [...new Set(snapshot?.projects.flatMap(p => p.previewIds ?? []) ?? [])];
+      const expanded = snapshot?.projects.find(p => p.id === selectedRef.current);
+      const checkouts = expanded ? snapshot?.projects.filter(p => p.id === expanded.id || expanded.gitCommonDir && p.gitCommonDir === expanded.gitCommonDir) ?? [] : [];
+      const environmentIds = [...new Set(checkouts.flatMap(p => p.environmentIds))];
+      const previewIds = [...new Set(checkouts.flatMap(p => p.previewIds ?? []))];
       const observations = [
         ...environmentIds.map(environmentId => async () => {
           try { const env = environmentOutput.parse(await json('/api/tools/get_environment', { environmentId }, csrf, signal)); if (!signal.aborted) { setEnvironments(prev => ({ ...prev, [environmentId]: env })); setEnvironmentErrors(prev => ({ ...prev, [environmentId]: '' })); } }

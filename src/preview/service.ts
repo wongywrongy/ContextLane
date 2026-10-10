@@ -25,9 +25,11 @@ export class Publications {
     if (checkout !== target.checkoutPath || !this.config.observationRoots.some(root => inside(checkout, root))) throw new Problem('TARGET_PATH_CHANGED', 'Approved checkout changed or left observation roots');
     const observed = await this.host.listeners();
     const listeners = observed.filter(l => l.port === target.port);
-    if (listeners.length !== 1 || listeners[0].address !== '127.0.0.1' || !listeners[0].pid || !listeners[0].cwd) throw new Problem('LOCAL_TARGET_REQUIRED', 'Start the approved service separately, bound only to its fixed 127.0.0.1 port with attributable process metadata');
-    const listener = listeners[0];
-    if (observed.some(l => l.pid === listener.pid && (l.port !== target.port || l.address !== '127.0.0.1'))) throw new Problem('UNEXPECTED_BINDING', 'Approved service must listen only on its fixed loopback port');
+    if (listeners.some(l => ['0.0.0.0','::','*'].includes(l.address))) throw new Problem('PUBLIC_BINDING', 'bind the dev server to 127.0.0.1 (e.g. --host 127.0.0.1)');
+    if (!listeners.length || new Set(listeners.map(l => l.pid)).size !== 1 || listeners.some(l => !['127.0.0.1','::1'].includes(l.address)) || !listeners[0].pid || !listeners[0].cwd) throw new Problem('LOCAL_TARGET_REQUIRED', 'Start the approved service separately, bound only to its fixed 127.0.0.1 port with attributable process metadata');
+    const listener = listeners.find(l => l.address === '127.0.0.1') ?? listeners[0];
+    if (observed.some(l => l.pid === listener.pid && ['0.0.0.0','::','*'].includes(l.address))) throw new Problem('PUBLIC_BINDING', 'bind the dev server to 127.0.0.1 (e.g. --host 127.0.0.1)');
+    if (observed.some(l => l.pid === listener.pid && (l.port !== target.port || !['127.0.0.1','::1'].includes(l.address)))) throw new Problem('UNEXPECTED_BINDING', 'Approved service must listen only on its fixed loopback port');
     const cwd = await realpath(listener.cwd!);
     if (!inside(cwd, checkout)) throw new Problem('TARGET_ASSOCIATION_UNKNOWN', 'Listener is outside the approved checkout');
     return listener;
@@ -49,7 +51,7 @@ export class Publications {
         const connection = await this.host.connection();
         if (connection.status !== 'connected' || connection.hostname !== this.config.tailnetHostname) throw new Problem('MISSING_CAPABILITY', 'Connect the configured Tailscale node before publication');
         if (!await this.host.guardedRoutes()) throw new Problem('GUARDED_WRITES_UNAVAILABLE', 'Daemon must support ETag guarded writes');
-        route = { hostname: this.config.tailnetHostname, port: target.httpsPort, upstream: `http://127.0.0.1:${target.port}`, label: target.serviceName };
+        route = { hostname: this.config.tailnetHostname, port: target.httpsPort, upstream: `http://${(await this.listener(target)).address === '::1' ? '[::1]' : '127.0.0.1'}:${target.port}`, label: target.serviceName };
         const existing = this.store.previews().find(p => p.targetId === identity && !p.removed);
         if (existing && existing.revision !== revision(target)) throw new Problem('NEEDS_UNPUBLISH', 'Target changed; remove recorded preview before replacing it');
         const state = this.host.routeState(await this.host.routes(), route);
@@ -79,7 +81,7 @@ export class Publications {
       if (row.revision !== revision(target)) throw new Problem('TARGET_CHANGED', 'Approved target changed before publication');
       await routeLock(this.host, async () => {
         const before = await this.listener(target);
-        if (!await this.host.probe(`http://127.0.0.1:${target.port}/`, target.readiness)) throw new Problem('UPSTREAM_UNREADY', 'Approved upstream failed readiness; application remains independently owned');
+        if (!await this.host.probe((JSON.parse(row.route) as Preview).upstream, target.readiness)) throw new Problem('UPSTREAM_UNREADY', 'Approved upstream failed readiness; application remains independently owned');
         const after = await this.listener(target);
         if (before.pid !== after.pid || before.cwd !== after.cwd) throw new Problem('TARGET_CHANGED', 'Listener changed during readiness verification');
         const route = JSON.parse(row.route) as Preview;

@@ -97,6 +97,9 @@ export class Lifecycle {
       await this.routeLock(async () => {
         for (const row of this.store.resources(id).filter(r => r.kind === 'route')) {
           const route = JSON.parse(row.data) as Preview;
+          const port = Number(new URL(route.upstream).port);
+          const listener = (await this.host.listeners()).filter(l => l.port === port);
+          if (listener.length && listener.every(l => l.address === '::1')) { route.upstream = `http://[::1]:${port}`; this.store.updateData(row.id,route); }
           if (this.host.routeState(await this.host.routes(), route) !== 'absent') throw new Problem('ROUTE_CONFLICT', `HTTPS port ${route.port} changed before publication`);
           this.store.attempted(row.id);
           try { await this.host.addRoute(route); }
@@ -164,7 +167,7 @@ export class Lifecycle {
         const verifiedKey = `verified:${row.id}`;
         if (row.attempted && state === 'matching') {
           result.links.push({ label: route.label, url });
-          const service = observation.services.find(s => route.upstream === `http://127.0.0.1:${s.port}`);
+          const service = observation.services.find(s => Number(new URL(route.upstream).port) === s.port);
           if (service && result.application === 'ready') {
             https = await this.host.probe(url, service.readiness) ? 'verified' : 'failed';
             if (https === 'verified') this.store.setMeta(verifiedKey, result.observedAt);

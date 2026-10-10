@@ -92,7 +92,7 @@ export class Store {
     }).immediate();
   }
   attempted(id: string, value = 1) { this.db.prepare('UPDATE resources SET attempted=? WHERE id=?').run(value, id); }
-  updateData(id: string, data: Unit) { this.db.prepare('UPDATE resources SET data=? WHERE id=?').run(JSON.stringify(data), id); }
+  updateData(id: string, data: Unit | Preview) { this.db.prepare('UPDATE resources SET data=? WHERE id=?').run(JSON.stringify(data), id); }
   release(id: string) { this.db.transaction(() => { this.db.prepare('DELETE FROM reservations WHERE resource=?').run(id); this.db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(id); })(); }
   saveLogs(id: string, lines: string[]) { this.db.prepare('INSERT INTO failure_logs VALUES (?, ?) ON CONFLICT(resource) DO UPDATE SET lines=excluded.lines').run(id, JSON.stringify(lines.slice(-100).map(l => l.slice(0, 2048)))); }
   savedLogs(id: string): string[] { const row = this.db.prepare('SELECT lines FROM failure_logs WHERE resource=?').get(id) as { lines: string } | undefined; return row ? JSON.parse(row.lines) : []; }
