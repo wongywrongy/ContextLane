@@ -11,6 +11,7 @@ export class Catalog {
   private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
   private scan: Promise<NonNullable<Catalog['cached']>> | null = null;
   constructor(readonly config: Config, readonly host: Host, readonly store?: Store) {}
+  invalidate() { this.cached = null; }
   async list(input: unknown) {
     const { cursor, limit } = page.parse(input);
     if (!this.cached || this.cached.expires < Date.now()) {
@@ -69,6 +70,7 @@ export class Catalog {
     }
     let listeners: Listener[] = []; let observed = false;
     try { listeners = await this.host.listeners(); observed = true; } catch { warnings.push('Listener observation unavailable; runtime associations are unknown'); }
+    for (const listener of listeners) if (listener.cwd) { try { listener.cwd = await realpath(listener.cwd); } catch { warnings.push(`${listener.cwd} not visible to Rootlane`); listener.cwd = null; } }
     let routes: unknown = null;
     try { routes = await this.host.routes(); } catch { warnings.push('Tailscale routes could not be observed'); }
     let agents: AgentObservation[] = [];
@@ -109,7 +111,7 @@ export class Catalog {
     const closestFirst = [...projects].sort((a, b) => b.path.length - a.path.length);
     for (const agent of agents) {
       let cwd: string | null = null;
-      try { cwd = await safe(agent.cwd); } catch { /* Exited processes and unmounted paths have unknown associations. */ }
+      try { cwd = await safe(agent.cwd); } catch { warnings.push(`${agent.cwd} not visible to Rootlane`); }
       const project = cwd ? closestFirst.find(p => inside(cwd!, p.path)) : undefined;
       if (project) project.agents.push({ id: agent.id, name: agent.name, source: 'detected process', cwd: cwd!, worktreePath: project.path, ...(agent.pid ? { pid: agent.pid } : {}) });
       else unassigned++;

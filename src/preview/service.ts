@@ -10,6 +10,7 @@ export class Publications {
   private tasks = new Set<Promise<void>>();
   private reconciled = false;
   constructor(readonly lifecycle: Lifecycle) {}
+  get available() { return this.reconciled; }
   get config() { return this.lifecycle.config; }
   get host() { return this.lifecycle.host; }
   get store() { return this.lifecycle.store; }
@@ -40,7 +41,7 @@ export class Publications {
     const identity = 'targetId' in parsed ? parsed.targetId : parsed.previewId;
     const payload = JSON.stringify(action === 'publish' ? { targetId: identity, action } : { previewId: identity, action });
     const prior = this.store.retryPreview(payload, parsed.requestId); if (prior) return this.response(prior);
-    if (!this.reconciled || !this.lifecycle.available) throw new Problem('RECONCILING', 'Restart Rootlane after resolving host reconciliation blockers');
+    if (!this.reconciled || !this.lifecycle.available) throw new Problem('RECONCILING', 'Host reconciliation unavailable; retrying');
     const result = await routeLock(this.host, async () => {
       let target: PreviewTarget | undefined; let route: Preview | undefined;
       if (action === 'publish') {

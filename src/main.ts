@@ -8,6 +8,7 @@ import { instanceLock } from './host/lock.js';
 import { Lifecycle } from './lifecycle/service.js';
 import { Catalog } from './catalog/discovery.js';
 import { Rootlane } from './service.js';
+import { reloadConfig, reconcileWithRetry } from './runtime.js';
 import { createServer } from './http/server.js';
 process.umask(0o077);
 const configPath = process.env.ROOTLANE_CONFIG;
@@ -25,14 +26,24 @@ for (const credentialPath of [ownerPath, agentPath]) {
 const unlock = await instanceLock(join(statePath, 'instance.lock'));
 const store = new Store(join(statePath, 'rootlane.sqlite'));
 const host = new LinuxHost(); const lifecycle = new Lifecycle(config, store, host);
-try { await lifecycle.reconcile(); } catch { console.error('Host reconciliation unavailable; catalog remains available and lifecycle mutations are blocked until a successful restart.'); }
 const service = new Rootlane(new Catalog(config, host, store), lifecycle);
-try { await service.publications.reconcile(); } catch { console.error('Preview reconciliation unavailable; publication is blocked until restart.'); }
+const reconciliation = reconcileWithRetry(service);
+await reconciliation.run();
+let configMtime = (await stat(configPath)).mtimeMs; let reloading = false;
+async function reload() {
+  if (reloading || closing) return; reloading = true;
+  try {
+    await reloadConfig(configPath!, config, service, [configPath!, ownerPath!, agentPath!, statePath]);
+    if (!service.configError) configMtime = (await stat(configPath!)).mtimeMs;
+  } finally { reloading = false; }
+}
 const app = await createServer(config, service, { owner: (await privateFile(ownerPath)).trim(), agent: (await privateFile(agentPath)).trim() }, join(dirname(fileURLToPath(import.meta.url)), 'web'));
 await app.listen({ host: '127.0.0.1', port: config.port });
 let closing = false;
+const reloadTimer = setInterval(() => { void stat(configPath!).then(info => { if (info.mtimeMs !== configMtime) void reload(); }).catch(() => { service.configError = { code: 'CONFIG_UNAVAILABLE', message: 'Configuration file is unavailable; retaining previous configuration' }; }); }, 10000);
+process.on('SIGHUP', () => { void reload(); });
 async function shutdown() {
-  if (closing) return; closing = true;
+  if (closing) return; closing = true; clearInterval(reloadTimer); reconciliation.stop();
   await app.close(); await lifecycle.drain(); await service.publications.drain(); store.close(); unlock();
 }
 process.on('SIGTERM', () => { void shutdown(); }); process.on('SIGINT', () => { void shutdown(); });

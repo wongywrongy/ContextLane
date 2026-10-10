@@ -61,7 +61,7 @@ export async function createServer(config: Config, service: Rootlane, credential
     return { csrf };
   });
   app.get('/api/session', async request => ({ csrf: session(request.headers.cookie)?.csrf ?? null }));
-  app.get('/api/status', async () => ({ connected: true, projectRoots: service.catalog.config.projectRoots, observationRoots: service.catalog.config.observationRoots, lifecycleAvailable: service.lifecycle.available, tailscale: await service.lifecycle.host.connection(), observedAt: new Date().toISOString() }));
+  app.get('/api/status', async () => ({ connected: true, projectRoots: service.catalog.config.projectRoots, observationRoots: service.catalog.config.observationRoots, lifecycleAvailable: !service.reconciling, reconciling: service.reconciling, lastError: service.lastError, configError: service.configError, tailscale: await service.lifecycle.host.connection(), observedAt: new Date().toISOString() }));
   for (const name of Object.keys(toolContracts) as ToolName[]) app.post(`/api/tools/${name}`, async request => service.call(name, request.body));
   if (webRoot) {
     const index = await readFile(join(webRoot, 'index.html'));

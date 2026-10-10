@@ -67,7 +67,7 @@ test('Signal payload attributes agents and listeners to a checkout and exposes d
   host.agentObservations.agents = [{id:'a'.repeat(24),name:'Codex',cwd:join(tree,'web')}];
   host.listeners = async () => [{address:'127.0.0.1',port:3000,pid:1,cwd:tree,cgroup:null},{address:'127.0.0.1',port:4000,pid:null,cwd:null,cgroup:null}];
   config.projects=[{path:repo,links:[{label:'Homepage',url:'https://example.invalid/'}],agents:[]}];
-  host.routes=async()=>({TCP:{'8443':{HTTPS:true}},Web:{[config.tailnetHostname+':8443']:{Handlers:{'/':{Proxy:'http://127.0.0.1:3000'}}}}});
+  (host as import('../src/host/types.js').Host).routes=async()=>({TCP:{'8443':{HTTPS:true}},Web:{[config.tailnetHostname+':8443']:{Handlers:{'/':{Proxy:'http://127.0.0.1:3000'}}}}});
   const result = await new Catalog(config, host).list({limit:50});
   const main = result.projects.find(p => p.path === repo)!; const checkout = result.projects.find(p => p.path === tree)!;
   assert.match(checkout.detachedSha!, /^[a-f0-9]+$/);

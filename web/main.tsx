@@ -11,7 +11,7 @@ type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
 async function json(path: string, body?: unknown, csrf?: string, signal?: AbortSignal) {
   const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'content-type': 'application/json', 'x-rootlane-csrf': csrf ?? '' }, body: body === undefined ? undefined : JSON.stringify(body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
   const value = await response.json();
-  if (!response.ok) throw new Error(`${response.status === 401 ? 'Unlock required. ' : ''}${value.message ?? 'Request failed'}`);
+  if (!response.ok) throw new Error(`${response.status === 401 ? 'Unlock required. ' : ''}${value.code ? value.code + ' · ' : ''}${value.message ?? 'Request failed'}`);
   return value;
 }
 function App() {
@@ -42,6 +42,9 @@ function App() {
     void refreshController.current?.refresh();
   };
   const [tailnetHostname, setTailnetHostname] = useState<string | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState(''); const [configError, setConfigError] = useState('');
+  const activeRef = useRef(false); const lastPoll = useRef(0);
+  const [pendingAction, setPendingAction] = useState<{ tool: string; body: Record<string,string> } | null>(null);
   const [lifecycleAvailable, setLifecycleAvailable] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   useEffect(() => { const focusSearch = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setView('projects'); searchInput.current?.focus(); } }; window.addEventListener('keydown', focusSearch); return () => window.removeEventListener('keydown', focusSearch); }, []);
@@ -58,7 +61,7 @@ function App() {
       await Promise.allSettled([
         json('/api/status', undefined, undefined, signal).then(status => {
           if (signal.aborted) return;
-          setConnection('Connected'); setTailscale(status.tailscale.status === 'connected' ? 'Connected' : 'Unavailable'); setTailnetHostname(status.tailscale.hostname); setLifecycleAvailable(status.lifecycleAvailable); setRoots(status.projectRoots ?? []); setObservationRoots(status.observationRoots ?? []);
+          setConnection('Connected'); setTailscale(status.tailscale.status === 'connected' ? 'Connected' : 'Unavailable'); setTailnetHostname(status.tailscale.hostname); setLifecycleAvailable(status.lifecycleAvailable); setUnavailableReason(status.reconciling ? status.lastError?.message ?? 'reconciling ownership' : ''); setConfigError(status.configError ? status.configError.code + ' · ' + status.configError.message : ''); setRoots(status.projectRoots ?? []); setObservationRoots(status.observationRoots ?? []);
         }).catch(e => { if (!signal.aborted) { failed(e); setConnection('Disconnected'); setTailscale('Unknown'); setLifecycleAvailable(false); } }),
         loadCatalog(cursor => json('/api/tools/list_projects', { cursor, limit: 50 }, csrf, signal)).then(data => {
           if (signal.aborted) return;
@@ -93,7 +96,7 @@ function App() {
     });
     refreshController.current = controller;
     void controller.refresh();
-    const timer = window.setInterval(() => { void controller.refresh(); }, 5000);
+    const timer = window.setInterval(() => { if (Date.now()-lastPoll.current >= (activeRef.current ? 1000 : 5000)) { lastPoll.current = Date.now(); void controller.refresh(); } }, 1000);
     const visible = () => { if (!document.hidden) void controller.refresh(); }; document.addEventListener('visibilitychange', visible);
     return () => { controller.stop(); detailAbort.current.abort(); logAbort.current.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
   }, [csrf]);
@@ -109,11 +112,19 @@ function App() {
     try { const data = logsOutput.parse(await json('/api/tools/get_logs', { environmentId: id, serviceId, limit: 50 }, csrf!, signal)); if (!signal.aborted && selectedRef.current === projectId) setLogs({ title: `${id} / ${serviceId}`, lines: data.lines, truncated: data.truncated }); }
     catch (e) { if (!signal.aborted && selectedRef.current === projectId) setLogsError(String(e)); }
   }
-  async function action(environmentId: string, action: 'start' | 'stop') {
-    setWorking(environmentId); setError('');
-    try { await json('/api/tools/' + action + '_environment', { environmentId, requestId: crypto.randomUUID() }, csrf!); }
-    catch (e) { setError(String(e)); } finally { await refreshController.current?.refresh(); setWorking(null); }
+  async function perform(tool: string, body: Record<string,string>) {
+    const identity = body.environmentId ?? body.targetId ?? body.previewId;
+    setWorking(identity); activeRef.current = true; setError(''); setPendingAction({tool, body});
+    try { const result = await json('/api/tools/' + tool, body, csrf!);
+      if (result.operation.environmentId) setEnvironments(prev => prev[result.operation.environmentId] ? ({...prev, [result.operation.environmentId]: {...prev[result.operation.environmentId], latestOperation: result.operation}}) : prev);
+      setPendingAction(null);
+    } catch (e) { setError(String(e)); } finally { await refreshController.current?.refresh(); setWorking(null); }
   }
+  function action(identity: string, action: 'start' | 'stop' | 'publish' | 'unpublish') {
+    if ((action === 'stop' || action === 'unpublish') && !window.confirm(action === 'stop' ? 'Stop this Rootlane environment? Running work will terminate.' : 'Unpublish this preview? Its application will keep running.')) return;
+    void perform(action + (action === 'start' || action === 'stop' ? '_environment' : '_preview'), { [action === 'publish' ? 'targetId' : action === 'unpublish' ? 'previewId' : 'environmentId']: identity, requestId: crypto.randomUUID() });
+  }
+  activeRef.current = !!working || [...Object.values(environments), ...Object.values(previews)].some(e => ['accepted','running'].includes(e.latestOperation?.status ?? ''));
   const allGroups = groupProjects(catalog?.projects ?? []);
   const filtered = allGroups.filter(group => matchesProject(group, query) && matchesFilter(group, filter, environments));
   if (sort === 'status') filtered.sort((a,b) => projectStatus(a, environments).localeCompare(projectStatus(b, environments)) || a.primary.name.localeCompare(b.primary.name));
@@ -124,14 +135,15 @@ function App() {
   return <div className="rl app-shell">
     <header className="topbar"><div className="brand"><Logo/><strong>Rootlane</strong></div><nav className="seg main-nav" aria-label="Main navigation"><button className={view === 'projects' ? 'on' : ''} onClick={() => setView('projects')} aria-current={view === 'projects' ? 'page' : undefined}><Icon name="folder"/>Projects</button><button className={view === 'settings' ? 'on' : ''} onClick={() => setView('settings')} aria-current={view === 'settings' ? 'page' : undefined}><Icon name="settings"/>Settings</button></nav><div className="cmd"><Icon name="search"/><input ref={searchInput} aria-label="Search projects" placeholder="Search name, branch, port…" value={query} onChange={e => { setQuery(e.target.value); setCursor(0); setView('projects'); }}/><kbd className="kbd"><span>⌘</span><span>K</span></kbd></div><div className={`conn ${connection !== 'Connected' || tailscale !== 'Connected' ? 'unavailable' : ''}`} aria-live="polite"><Icon name="link"/><span>{connection === 'Connected' && tailscale === 'Connected' ? 'Connected' : connection === 'Connected' ? 'Tailnet unavailable' : connection}</span>{tailnetHostname && <><span className="sep"/><span className="tn">{tailnetHostname.split('.')[0]}</span></>}</div></header>
     <main className="wrap">
-      {error && <div role="alert" className="notice bad"><span>{error}</span><button className="btn" onClick={() => { setError(''); void refreshController.current?.refresh(); }}>Refresh</button></div>}
+      {unavailableReason && <p className="notice" role="status">Lifecycle unavailable — {unavailableReason}; retrying</p>}{configError && <p className="notice bad" role="alert">{configError}</p>}
+      {error && <div role="alert" className="notice bad"><span>{error}</span>{pendingAction && <button className="btn" onClick={() => void perform(pendingAction.tool, pendingAction.body)}>Retry action</button>}<button className="btn" onClick={() => { setError(''); void refreshController.current?.refresh(); }}>Refresh</button></div>}
       {view === 'settings' ? <section className="settings-page"><h1 className="h1">Settings</h1><p className="sub">Connection, access and coding tools.</p><nav className="seg settings-nav" aria-label="Settings pages"><button className={settingsPage === 'connection' ? 'on' : ''} aria-current={settingsPage === 'connection' ? 'page' : undefined} onClick={() => setSettingsPage('connection')}>Connection &amp; access</button><button className={settingsPage === 'mcp' ? 'on' : ''} aria-current={settingsPage === 'mcp' ? 'page' : undefined} onClick={() => setSettingsPage('mcp')}>MCP setup</button></nav>{settingsPage === 'mcp' ? <McpSetup/> : <><div className="grid-2 settings-boxes"><section className="box glass"><h4><Icon name="link"/>Tailscale <Chip state={tailscale}/></h4><dl className="kv"><dt>Host</dt><dd className="mono">{tailnetHostname ?? '—'}</dd><dt>Rootlane</dt><dd>{connection}</dd><dt>Operator address</dt><dd className="mono">{location.origin}</dd><dt>Observed</dt><dd className="mono">{time(catalog?.observedAt)}</dd></dl></section><section className="box glass"><h4><Icon name="folder"/>Workspace</h4><dl className="kv"><dt>Project roots</dt><dd className="mono">{roots.join(', ') || '—'}</dd><dt>Observation roots</dt><dd className="mono">{observationRoots.join(', ') || '—'}</dd><dt>Projects</dt><dd>{catalog ? allGroups.length : '—'}</dd></dl></section><section className="box glass"><h4>Ownership</h4><dl className="kv"><dt>Discovery</dt><dd>Observe-only</dd><dt>Managed</dt><dd>Owner-reviewed environments only</dd><dt>Lifecycle</dt><dd>{connection === 'Connected' ? lifecycleAvailable ? 'Available' : 'Unavailable' : 'Unknown'}</dd></dl></section><section className="box glass"><h4>Credentials</h4><dl className="kv"><dt>Browser</dt><dd>Installation owner session</dd><dt>Agents</dt><dd>Separate private agent credential</dd><dt>Values</dt><dd>Never displayed</dd></dl></section></div><p className="pv-note">Configuration is owner-controlled on the host. Settings is read-only.</p></>}</section> : <>
         <h1 className="h1">Projects</h1><p className="sub">{allGroups.length} {allGroups.length === 1 ? 'project' : 'projects'} in <span>{roots.join(', ') || '—'}</span></p>
         <div className="toolbar"><div className="filters">{(['All','Running','With agents','Managed'] as ProjectFilter[]).map(value => <button key={value} className={`fchip ${filter === value ? 'on' : ''}`} aria-pressed={filter === value} onClick={() => { setFilter(value); setCursor(0); }}>{value}<b>{allGroups.filter(g => matchesFilter(g, value, environments)).length}</b></button>)}</div><div className="toolbar-actions"><span className="observed mono muted">observed {time(catalog?.observedAt)}</span><button className="icon-btn" aria-label="Refresh projects" onClick={() => void refreshController.current?.refresh()}><Icon name="refresh"/></button><label className="select">Sort<select aria-label="Sort projects" value={sort} onChange={e => { setSort(e.target.value); setCursor(0); }}><option value="name">Name</option><option value="status">Status</option><option value="worktrees">Worktrees</option></select></label></div></div>
         {catalogError && <div role="alert" className="notice bad">Catalog: {catalogError}{catalog && ' · Showing the last successful observation.'}</div>}
         {!!catalog?.warnings.length && <details className="notice catalog-notice"><summary>Discovery notices ({catalog.warnings.length})</summary>{catalog.warnings.map(w => <p key={w}>{w}</p>)}</details>}
         {!catalog && <p className="empty-state">Reading project directories…</p>}{catalog && !filtered.length && <p className="empty-state">{query || filter !== 'All' ? 'No projects match your filters.' : 'No projects found in the configured roots.'}</p>}
-        <div className="project-list">{filtered.slice(pageStart, pageStart+25).map(group => <ProjectCard key={group.id} group={group} open={selected === group.primary.id} tab={tab} onOpen={next => { if (next) { setTab(next); if (selected !== group.primary.id) selectProject(group.primary.id); } else { setTab('Worktrees'); selectProject(selected === group.primary.id ? null : group.primary.id); } }} environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={selected === group.primary.id ? details : null} projectError={selected === group.primary.id ? projectError : ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working} onAction={(id, actionName) => { void action(id, actionName); }} onLogs={(id,service) => { void showLogs(id,service); }} logs={selected === group.primary.id ? logs : null} logsError={selected === group.primary.id ? logsError : ''}/>)}</div>
+        <div className="project-list">{filtered.slice(pageStart, pageStart+25).map(group => <ProjectCard key={group.id} group={group} open={selected === group.primary.id} tab={tab} onOpen={next => { if (next) { setTab(next); if (selected !== group.primary.id) selectProject(group.primary.id); } else { setTab('Worktrees'); selectProject(selected === group.primary.id ? null : group.primary.id); } }} environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={selected === group.primary.id ? details : null} projectError={selected === group.primary.id ? projectError : ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working} onAction={action} onLogs={(id,service) => { void showLogs(id,service); }} logs={selected === group.primary.id ? logs : null} logsError={selected === group.primary.id ? logsError : ''}/>)}</div>
         {filtered.length > 25 && <nav className="pagination" aria-label="Project pages">{pageStart > 0 && <button className="btn" onClick={() => setCursor(Math.max(0,pageStart-25))}>Previous</button>}<span className="mono muted">{pageStart+1}–{Math.min(pageStart+25,filtered.length)} of {filtered.length}</span>{pageStart+25 < filtered.length && <button className="btn" onClick={() => setCursor(pageStart+25)}>Next</button>}</nav>}
       </>}
     </main>
