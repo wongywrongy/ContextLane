@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-10T02:33:30.898Z",
+  "checks": [
+    "HTTP start/idempotency",
+    "reviewed Ready",
+    "HTTPS Available",
+    "bounded logs",
+    "locate real vite listener",
+    "non-approving preview and profile proposals",
+    "invalid/valid SIGHUP reload",
+    "10-second config mtime reload",
+    "reviewed target publish Available",
+    "locate managed and independent preview URLs",
+    "unpublish preserves application",
+    "HTTP stop",
+    "ports released",
+    "Serve snapshot restored",
+    "operation history"
+  ],
+  "ownerChecksOpen": [
+    "second-device preview and HMR",
+    "reboot",
+    "SSH disconnect"
+  ]
+}

@@ -1,4 +1,4 @@
-import React, { type CSSProperties } from 'react';
+import React from 'react';
 const paths = {
   folder: 'M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
   search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
@@ -15,7 +15,7 @@ const paths = {
   refresh: 'M20 7a9 9 0 1 0 1 7M20 3v5h-5',
   moon: 'M21 13A9 9 0 0 1 11 3a9 9 0 1 0 10 10'
 };
-export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSProperties }) {
+export function Icon({ name }: { name: keyof typeof paths }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="icon"><path d={paths[name]}/></svg>;
 }
 export function Logo() {

@@ -6,3 +6,4 @@ dist/
 .agents/
 .aws/
 .codex/
+compose.override.yaml

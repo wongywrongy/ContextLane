@@ -49,13 +49,13 @@ The fixture's Vite configuration reads the owner's Rootlane configuration for it
 
 ## MCP and HTTP contracts
 
-Both adapters expose the ten tools listed in the README. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; commands, paths, unit names and URLs are not accepted from callers.
+Both adapters expose the fourteen tools listed in the README. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; mutation commands, unit names and URLs are not accepted from callers. Read-only locate accepts a bounded absolute cwd; proposals accept a catalog checkout ID and optional port and cannot grant approval.
 
 Retry a timed-out mutation with the same request ID and payload. Reuse with a different payload fails. Start/stop return a durable operation handle; poll `get_environment` for completion. An accepted start is not application readiness or preview availability.
 
 Lists and journals are bounded and paginated. Logs come only from recorded owned invocations; avoid secrets in application output. MCP uses a separate bearer credential over loopback and permits absent Origin while rejecting invalid supplied Origin. Standard tool annotations and client approval settings do not replace backend ownership checks.
 
-[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example and tool policy](../deploy/claude-mcp.example.md) use an explicitly replaceable Docker adapter path. Allow only the ten documented tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
+[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example and tool policy](../deploy/claude-mcp.example.md) use an explicitly replaceable Docker adapter path. Allow only the fourteen documented tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
 
 ## Failure and recovery
 
@@ -103,10 +103,19 @@ Publication approves an existing service, independently of `profiles`. Example o
 }]
 ```
 
-Paths resolve within observation roots. Operator ports, application ports and profile route reservations cannot overlap target HTTPS ports. Publication requires a live attributable listener within the approved checkout, bound strictly to `127.0.0.1`. The application port is deliberately neither reserved nor adopted by Rootlane. Start the disposable API/frontend separately before publishing. Never approve infrastructure, databases or arbitrary discovered services.
+Paths resolve within observation roots. Operator ports, application ports and profile route reservations cannot overlap target HTTPS ports. Publication requires a live attributable listener within the approved checkout, bound only to `127.0.0.1` and/or `::1` by one attributable process. The application port is deliberately neither reserved nor adopted by Rootlane. Start the disposable API/frontend separately before publishing. Never approve infrastructure, databases or arbitrary discovered services.
 
 `get_capabilities {}` distinguishes observed support from unverified write/lifecycle permissions. `get_project {projectId}` returns checkout associations, known services, agent sources, links, approved targets and recorded previews. `publish_preview {targetId, requestId}` records durable intent and reserves HTTPS before changing the host; inspect `get_preview {previewId}` for the latest operation, actual routing, upstream readiness and verified HTTPS. `unpublish_preview {previewId, requestId}` removes only the recorded matching route and leaves the upstream running. Neither mutation accepts caller-provided ports, paths or URLs.
 
 Request IDs share collision protection with lifecycle actions. Repeated publication returns the recorded preview and operation. Changed target configuration requires explicit unpublication first. Removed approval blocks new publication but recorded route removal remains available. Interrupted publication never recreates a route. Interrupted removal resumes only against recorded ownership; uncertain removal retains its reservation. Missing and conflicting routes are observations, never automatic repairs.
 
 The guarded Serve API follows [Tailscale's official local client](https://raw.githubusercontent.com/tailscale/tailscale/main/client/local/serve.go), which documents ETag conditional writes and labels this API unstable. Missing guards block changes. Foreground routes and unrelated Serve configuration are preserved.
+
+
+## Config reload and observational drafts
+
+Edit private config on the host and run `deploy/rootlane-reload` from the installation; SIGHUP or the ten-second mtime check validates through loadConfig. Validation errors keep the previous config and appear in status/capabilities. Existing recorded resources are preserved; changed profile revisions still require Stop before Start. Backend port, origin/aliases, tailnet hostname and state-directory changes need restart. Rerun setup and recreate the container to change mount paths. `deploy/preflight-docker` checks capabilities in the container rather than assuming host path visibility.
+
+`previewPortRange` defaults to `[20000,20999]` (at most 1000 ports). Drafts choose a currently unused route/listener/reservation port; this is observation, not a reservation. Review and replace `<CHANGE ME>` and approve explicitly. Profile drafts recognize only literal supported dev commands; unfamiliar commands require manual review. Config and application data are never written by proposal tools.
+
+`editorUrlTemplate` accepts vscode, vscode-insiders, cursor, zed and jetbrains schemes and `{host}` / `{path}` placeholders. Without it paths render as plain text with Copy. Agents should call locate with their working directory first; the result includes attributable service names and both managed and independently recorded preview URLs. No argv or environment values are returned. list_operations returns at most twenty recent operations with their backend error codes.

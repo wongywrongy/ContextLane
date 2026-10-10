@@ -114,9 +114,23 @@ test('a single IPv6 or dual-loopback process publishes; wildcard binds return PU
     host.listeners = async()=>addresses.map(address=>({address,port:19482,pid:123,cwd:root,cgroup:null}));
     const accepted = await p.accept('publish',publish()); await p.drain();
     assert.equal(store.previewOperation(accepted.operation.id).status,'succeeded');
-    const route = JSON.parse(store.preview(accepted.previewId)!.route); assert.equal(route.upstream,addresses.length===1?'http://[::1]:19482':'http://127.0.0.1:19482');
+    const route = JSON.parse(store.preview(accepted.previewId)!.route); assert.equal(route.upstream,addresses.length===1?'http://[::1]:19482':'http://127.0.0.1:19482'); assert.equal((await p.get({previewId:accepted.previewId})).target,route.upstream);
     await p.accept('unpublish',{previewId:accepted.previewId,requestId:randomUUID()}); await p.drain();
   }
   host.listeners=async()=>[{address:'::',port:19482,pid:123,cwd:root,cgroup:null}];
   await assert.rejects(p.accept('publish',publish()),(e:unknown)=>e instanceof Problem && e.code==='PUBLIC_BINDING' && e.message.includes('--host 127.0.0.1'));
+});
+
+test('unpublished preview history remains in project details and list_operations returns its error codes',async t=>{
+  const {publications:p,config,host,store,lifecycle}=await fixture(t);
+  const {Catalog}=await import('../src/catalog/discovery.js');const {Rootlane}=await import('../src/service.js');
+  host.probe=async()=>false;
+  const published=await p.accept('publish',publish());await p.drain();
+  await p.accept('unpublish',{previewId:published.previewId,requestId:randomUUID()});await p.drain();
+  const service=new Rootlane(new Catalog(config,host,store),lifecycle);
+  const catalog=await service.catalog.list({limit:50});const project=catalog.projects.find(p=>p.path===config.projectRoots[0])!;
+  assert((await service.catalog.get(project.id)).previews.some(p=>p.previewId===published.previewId));
+  const {operationsOutput}=await import('../src/shared/contracts.js');
+  const history=operationsOutput.parse(await service.call('list_operations',{previewId:published.previewId,limit:2}));
+  assert.equal(history.operations[0].action,'unpublish');assert.equal(history.operations[1].error?.code,'UPSTREAM_UNREADY');
 });

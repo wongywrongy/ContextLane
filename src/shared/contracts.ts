@@ -24,7 +24,7 @@ export const unpublishInput = previewInput.extend({ requestId: z.uuid() });
 export const previewOperation = operation.omit({ environmentId: true, action: true }).extend({ previewId: z.uuid(), action: z.enum(['publish', 'unpublish']) });
 export const previewOutput = z.strictObject({
   id: z.uuid(), targetId: id, projectPath: z.string(), checkoutPath: z.string(), serviceId: id, serviceName: z.string(), port: z.number().int(), httpsPort: z.number().int(),
-  ownership: z.literal('rootlane route only'), approved: z.boolean(), removed: z.boolean(), url: z.url(),
+  target:z.string().optional(), ownership: z.literal('rootlane route only'), approved: z.boolean(), removed: z.boolean(), url: z.url(),
   route: z.enum(['matching', 'absent', 'conflict', 'unknown']), actualConfiguration: z.unknown(), upstream: z.enum(['ready', 'unready', 'unknown']),
   https: z.enum(['verified', 'unverified', 'failed']), errors: z.array(failure), observedAt: z.string(), verifiedAt: z.string().optional(), latestOperation: previewOperation.nullable()
 });

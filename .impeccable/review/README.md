@@ -14,3 +14,6 @@ The browser check covers initially collapsed details, panel breakpoints, long pa
 Older subdirectories and `desktop-reference.png` retain historical review evidence and are not Signal screenshots.
 
 After deployment, [live Signal captures](live-signal/README.md) separately verified the actual hosted backend at https://root.avlis.dev. The images in this directory remain deterministic regression fixtures.
+
+
+2026-10-10, 0.3.0: root screenshots were refreshed from the production build with deterministic API fixtures. Proposal desktop/mobile captures show the unapproved warning, Copy, JSON and host steps; editor-fallback-mobile covers text/Copy and clipboard recovery. Browser checks additionally confirm original UUID reuse on retry and no readiness probes while collapsed. host-acceptance-results.json records real HTTP/systemd/Tailscale acceptance using isolated config/state and only the disposable fixture; it is separate from screenshot fixture data. live-signal captures were refreshed after the explicitly approved 0.3.0 deployment and show the actual hosted catalog and Settings, separately from fixture evidence.

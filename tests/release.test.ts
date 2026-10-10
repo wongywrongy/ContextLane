@@ -5,7 +5,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { preflightPorts } from '../src/host/preflight-ports.js';
+import type { Config } from '../src/config.js';
 const run = promisify(execFile);
+test('installed preflight exempts operator ports and still checks application ports', () => {
+  const config = { port: 9480, origin: 'https://host.example:19483', profiles: [{ services: [{ port: 3100 }], previews: [{ httpsPort: 18443 }] }] } as Pick<Config, 'port' | 'origin' | 'profiles'>;
+  assert.deepEqual(preflightPorts(config, false), [9480, 19483, 3100, 18443]);
+  assert.deepEqual(preflightPorts(config, true), [3100, 18443]);
+  assert.deepEqual(preflightPorts({ ...config, origin: 'https://host.example', profiles: [] }, false), [9480, 443]);
+});
 test('release setup creates private owner files, preserves credentials and rejects a changed root', async () => {
   const temp = await mkdtemp(join(tmpdir(), 'rootlane-release-'));
   try {
@@ -50,4 +58,8 @@ test('disposable Vite configuration uses the reviewed host rather than a built-i
     await writeFile(config, JSON.stringify({ tailnetHostname: '*' }));
     await assert.rejects(run(process.execPath, ['--input-type=module', '-e', "await import('./fixtures/disposable/vite.config.mjs')"], { env: { ...process.env, ROOTLANE_CONFIG: config } }), /owner-configured/);
   } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test('host acceptance refuses to touch the host without its explicit opt-in gate',async()=>{
+  await assert.rejects(run(process.execPath,['tests/host-acceptance.mjs'],{env:{...process.env,ROOTLANE_HOST_ACCEPTANCE:'0'}}),/Host acceptance is opt-in/);
 });

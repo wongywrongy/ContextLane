@@ -1,6 +1,6 @@
 {
   "name": "rootlane",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,8 @@
     "check": "npm run typecheck && npm run build && npm test",
     "start": "node dist/main.js",
     "mcp": "node dist/mcp/main.js",
-    "backup": "node dist/state/backup.js"
+    "backup": "node dist/state/backup.js",
+    "host:acceptance": "npm run build && node tests/host-acceptance.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

@@ -217,3 +217,24 @@ SQLite backup: `/home/kyle/.local/state/rootlane/pre-signal-20261010-014745.sqli
 The build gate passed typecheck, production build and all 66 tests. Deterministic UI regression evidence remains in `.impeccable/review`; live deployment captures are separately identified under `.impeccable/review/live-signal`. Lifecycle actions, second-device acceptance, and host reboot were not repeated during this UI deployment.
 
 Live Chromium smoke testing subsequently passed HTTPS owner login, the actual project catalog, collapsed summary panels, local Geist/Geist Mono, 1440/1000/390 viewport overflow checks, expanded details, Settings/MCP, an inaccessible HttpOnly cookie and zero JavaScript exceptions. Captures and provenance: `.impeccable/review/live-signal/`.
+
+
+## Rootlane 0.3.0 six-phase verification — 2026-10-10
+
+The Signal baseline was recorded separately, then each implementation phase received its own commit and a passing `npm run check`: phase 1 (68 tests), phase 2 (72), phase 3 (77), phase 4 (78), phase 5 (79). Phase 6 passes the full check with 82 tests and adds the gated host harness and regression coverage. No runtime dependency was added. Package and MCP version is 0.3.0.
+
+The opt-in `ROOTLANE_HOST_ACCEPTANCE=1 npm run host:acceptance` passed against the real HTTP API on neo with isolated temporary private config/state. It used only the owner-reviewed disposable API/Vite fixture, not existing applications or installed approval/config files. Checks passed:
+
+- Idempotent Start, reviewed Ready and independently verified HTTPS Available.
+- Invocation-scoped bounded logs and HTTP Stop; fixture ports released.
+- locate returned the real Vite listener and both managed and independently recorded preview URLs.
+- Both proposal tools returned unapproved JSON with the literal readiness placeholder, without changing config or routes.
+- The harness reviewed its disposable target, reloaded its own isolated config, published Available and unpublished while preserving the application.
+- Invalid SIGHUP reload kept the running config; valid SIGHUP reload and automatic ten-second mtime reload applied validated changes.
+- list_operations returned durable lifecycle/publication history; Serve config matched the exact pre-run snapshot after cleanup.
+
+Evidence: `.impeccable/review/host-acceptance-results.json`. Synthetic proc tests cover npm-installed agent entrypoints, wrapper collapse, start time and same-user restrictions. Real-host service acceptance verifies Vite; uvicorn naming is covered by the derived-name tests. No real coding agent was launched to manufacture detection evidence.
+
+Chromium checks pass at 1440, 1000 and 390 pixels: collapsed summaries, expanded tabs, services/HTTP, proposals and Copy recovery, configured and absent editor templates, Stop confirmation, UUID-preserving retries and verbatim backend codes, coalesced refresh, stale observations, keyboard focus, Settings/MCP, Unlock, reduced motion and CSP. Readiness probes do not run for collapsed projects. Refreshed screenshots and fixture request evidence are under `.impeccable/review`; mock data is explicitly fixture evidence. Impeccable finish review returned ship after disclosure, selection isolation, proposal capture and clipboard-recovery fixes.
+
+Owner-only acceptance remains open and unclaimed for this update: second-device preview and HMR, reboot, and SSH disconnect. Historical entries above are historical evidence; this phase does not claim those checks were repeated. After explicit owner approval, the checked 0.3.0 image was deployed to the existing `/opt/stacks/rootlane` stack at https://root.avlis.dev. Container health, authenticated capabilities/catalog/locate, and live HTTPS login passed. Refreshed live screenshots at 1440/1000/390 show five real project cards, three summary panels each, no horizontal overflow, local fonts and no browser exceptions. The Docker preflight now exempts the already-running operator ports while continuing to check profile ports; a regression test covers both startup and installed modes. Config and both credential hashes and the complete Serve configuration remained identical across deployment. Pre-upgrade SQLite backup: `/home/kyle/.local/state/rootlane/pre-030-2026-10-10T02-41-36-365Z.sqlite`; installed release backup: `/opt/stacks/rootlane/pre-030-2026-10-10T02-41-36-365Z.tar.gz`. The previous `rootlane:0.2.0-signal-20261010` image remains available for rollback. No installed application was started or stopped during deployment.
