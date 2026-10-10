@@ -50,6 +50,11 @@ export class Store {
   recent(id: string): Operation[] {
     return (this.db.prepare('SELECT id FROM operations WHERE environmentId=? ORDER BY rowid DESC LIMIT 10').all(id) as { id: string }[]).map(row => this.getOperation(row.id));
   }
+  listOperations(environmentId: string | undefined, previewId: string | undefined, limit: number) {
+    const lifecycle = previewId ? [] : (this.db.prepare(`SELECT id FROM operations ${environmentId ? 'WHERE environmentId=?' : ''} ORDER BY rowid DESC LIMIT ?`).all(...(environmentId ? [environmentId,limit] : [limit])) as {id:string}[]).map(r=>this.getOperation(r.id));
+    const previews = environmentId ? [] : (this.db.prepare(`SELECT id FROM preview_operations ${previewId ? 'WHERE previewId=?' : ''} ORDER BY rowid DESC LIMIT ?`).all(...(previewId ? [previewId,limit] : [limit])) as {id:string}[]).map(r=>this.previewOperation(r.id));
+    return [...lifecycle,...previews].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,limit);
+  }
   retry(environmentId: string, action: 'start' | 'stop', requestId: string) {
     const prior = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; operation: string } | undefined;
     if (!prior) return null;

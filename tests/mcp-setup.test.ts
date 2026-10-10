@@ -22,7 +22,7 @@ test('MCP guide teaches installed local adapters and verification without creden
   assert(html.includes('Never print or copy credentials.'));
   assert(html.includes('Do not install another backend'));
   assert(html.includes('report the blocker rather than replacing it'));
-  assert(html.includes('read-only list_projects call'));
+  assert(html.includes('read-only locate call'));
   assert(html.includes('list_mcp_resources is not a connection test'));
   assert(html.includes('do not claim setup succeeded'));
   assert(html.includes('payment callbacks'));

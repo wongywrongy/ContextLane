@@ -1,6 +1,7 @@
 import { opendir, realpath, lstat, access, stat } from 'node:fs/promises';
 import { join, basename, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { worktreeState, devCommand } from './git.js';
 import { procText } from '../host/process.js';
 import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
@@ -13,7 +14,7 @@ export class Catalog {
   private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
   private snapshots = new Map<string, NonNullable<Catalog['cached']>>();
   private slowPaths: {expires:number; paths:string[]; warnings:string[]} | null = null;
-  private metadata = new Map<string, {expires:number; stamp:string; value: Pick<Project,'gitCommonDir'|'branch'|'detached'|'detachedSha'|'manifests'>}>();
+  private metadata = new Map<string, {expires:number; stamp:string; value: Pick<Project,'gitCommonDir'|'branch'|'detached'|'detachedSha'|'manifests'|'git'|'devCommand'>}>();
   private scan: Promise<NonNullable<Catalog['cached']>> | null = null;
   constructor(readonly config: Config, readonly host: Host, readonly store?: Store) {}
   invalidate() { this.cached = null; this.slowPaths = null; this.metadata.clear(); }
@@ -39,11 +40,38 @@ export class Catalog {
     const services: ProjectDetails['services'] = checkouts.flatMap(p => p.runtime.ports.map(port => {
       const target = targets.find(t => t.checkoutPath === p.path && t.port === port);
       const service = this.config.profiles.find(e => e.projectPath === p.path)?.services.find(s => s.port === port);
-      return { checkoutId: p.id, serviceId: target?.serviceId ?? service?.id ?? null, name: target?.serviceName ?? service?.id ?? `Port ${port}`, port, source: target || service ? 'owner reviewed' as const : 'listener observation' as const, readiness: 'unverified' as const };
+      return { checkoutId: p.id, serviceId: target?.serviceId ?? service?.id ?? null, name: target?.serviceName ?? service?.id ?? p.runtime.listeners?.find(l=>l.port===port)?.process?.name ?? '—', port, source: target || service ? 'owner reviewed' as const : 'listener observation' as const, readiness: 'unverified' as const };
     }));
     const previews = (this.store?.previews() ?? []).filter(row => !row.removed).flatMap(row => { const target = JSON.parse(row.target) as import('../config.js').PreviewTarget; const checkout = checkouts.find(p => p.path === target.checkoutPath); return checkout ? [{ previewId: row.id, checkoutId: checkout.id, serviceId: target.serviceId }] : []; });
     const logServices = checkouts.flatMap(p => p.environmentIds.flatMap(environmentId => (this.store?.resources(environmentId, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))));
-    return { project, checkoutIds: checkouts.map(p => p.id), services, approvedTargetIds: targets.map(t => t.id), previews, logServices: [...new Map(logServices.map(s => [s.environmentId + '/' + s.serviceId, s])).values()] };
+    const http = await this.probeListeners(checkouts);
+    return { http, project, checkoutIds: checkouts.map(p => p.id), services, approvedTargetIds: targets.map(t => t.id), previews, logServices: [...new Map(logServices.map(s => [s.environmentId + '/' + s.serviceId, s])).values()] };
+  }
+  async projects() { await this.list({limit:1}); return this.cached!.projects; }
+  private httpCache = new Map<string, {expires:number; pending:Promise<{status:number;checkedAt:string} | null>}>();
+  private async probeListeners(checkouts: Project[]): Promise<NonNullable<ProjectDetails['http']>> {
+    const listeners = await this.host.listeners(); const output: NonNullable<ProjectDetails['http']> = [];
+    for (const checkout of checkouts) for (const port of checkout.runtime.ports.slice(0,32)) {
+      const observed = listeners.filter(l=>l.port===port);
+      if (!observed.length || observed.some(l=>!['127.0.0.1','::1'].includes(l.address) || !l.cwd || !inside(l.cwd,checkout.path)) || new Set(observed.map(l=>l.pid)).size!==1) continue;
+      const key = `${checkout.id}:${port}:${observed[0].pid}`;
+      let cached = this.httpCache.get(key);
+      if (!cached || cached.expires < Date.now()) {
+        for (const [key,value] of this.httpCache) if (value.expires < Date.now()) this.httpCache.delete(key);
+        const address = observed.some(l=>l.address==='127.0.0.1') ? '127.0.0.1' : '[::1]';
+        const pending = (async () => {
+          try {
+            const signal = AbortSignal.timeout(1000); const url = `http://${address}:${port}/`;
+            let response = await fetch(url,{method:'HEAD',redirect:'manual',signal});
+            if (response.status===405) {await response.body?.cancel();response=await fetch(url,{method:'GET',redirect:'manual',signal});}
+            const status=response.status; await response.body?.cancel(); return {status,checkedAt:new Date().toISOString()};
+          } catch {return null;}
+        })();
+        cached={expires:Date.now()+30000,pending}; this.httpCache.set(key,cached);
+      }
+      const http = await cached.pending; if (http) output.push({checkoutId:checkout.id,port,http});
+    }
+    return output;
   }
   private async gitStamp(path: string, common: string | null) {
     let git = join(path,'.git');
@@ -127,10 +155,11 @@ export class Catalog {
       } catch { /* Absence of Git metadata is not an application error. */ }
       const found: string[] = [];
       for (const manifest of manifests) try { const target = await safe(join(path, manifest)); if (target && inside(target, path)) { await access(target); found.push(manifest); } } catch { /* Known manifest is optional. */ }
-        meta = {gitCommonDir,branch,detached, ...(detachedSha ? {detachedSha} : {}),manifests:found};
+        const git = gitCommonDir && metadataAllowed ? await worktreeState(path) : {dirty:null,ahead:null,behind:null,lastCommit:null}; const dev = await devCommand(path);
+        meta = {git, ...(dev ? {devCommand:dev} : {}),gitCommonDir,branch,detached, ...(detachedSha ? {detachedSha} : {}),manifests:found};
         this.metadata.set(path,{value:meta,expires:Date.now()+60000,stamp:await this.gitStamp(path,gitCommonDir)});
       }
-      const {gitCommonDir,branch,detached,detachedSha,manifests:found} = meta!;
+      const {gitCommonDir,branch,detached,detachedSha,manifests:found,git,devCommand:dev} = meta!;
       const settings = this.config.projects.find(p => p.path === path);
       const ownListeners = listeners.filter(l => l.cwd && inside(l.cwd, path) && ![...paths].some(other => other !== path && inside(other, path) && inside(l.cwd!, other)));
       const links = [...(settings?.links ?? [])]; const observedPreviews: Project['links'] = [];
@@ -145,7 +174,7 @@ export class Catalog {
           const preview = { label: 'Observed preview', url: `${transport.HTTPS ? 'https' : 'http'}://${origin}/` }; links.push(preview); observedPreviews.push(preview);
         }
       }
-      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, ...(detachedSha ? { detachedSha } : {}), manifests: found, observedPreviews, previewIds: (this.store?.previews() ?? []).filter(r => !r.removed && (JSON.parse(r.target) as import('../config.js').PreviewTarget).checkoutPath === path).map(r => r.id), links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], logServices: recorded.filter(e => e.path === path).flatMap(e => (this.store?.resources(e.id, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId: e.id, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))), runtime: { services: [...new Map([...this.config.profiles.filter(p => p.projectPath === path).flatMap(p => p.services.map(s => ({ id: s.id, name: s.id, port: s.port }))), ...this.config.previewTargets.filter(t => t.checkoutPath === path).map(t => ({ id: t.serviceId, name: t.serviceName, port: t.port }))].map(s => [s.port, s])).values()], status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), listeners: ownListeners.map(l => ({ port: l.port, worktreePath: path })), ownership: 'observe-only' } });
+      projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, git, ...(dev ? {devCommand:dev} : {}), ...(detachedSha ? { detachedSha } : {}), manifests: found, observedPreviews, previewIds: (this.store?.previews() ?? []).filter(r => !r.removed && (JSON.parse(r.target) as import('../config.js').PreviewTarget).checkoutPath === path).map(r => r.id), links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], logServices: recorded.filter(e => e.path === path).flatMap(e => (this.store?.resources(e.id, true) ?? []).filter(r => r.kind === 'unit').map(r => ({ environmentId: e.id, serviceId: (JSON.parse(r.data) as import('../host/types.js').Unit).serviceId }))), runtime: { services: [...new Map([...this.config.profiles.filter(p => p.projectPath === path).flatMap(p => p.services.map(s => ({ id: s.id, name: s.id, port: s.port }))), ...this.config.previewTargets.filter(t => t.checkoutPath === path).map(t => ({ id: t.serviceId, name: t.serviceName, port: t.port }))].map(s => [s.port, s])).values()], status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), listeners: ownListeners.map(l => ({ port: l.port, worktreePath: path, checkoutId:createHash('sha256').update(path).digest('hex').slice(0,24), ...(l.process ? {process:l.process} : {}) })), ownership: 'observe-only' } });
     }
     let unassigned = 0;
     const closestFirst = [...projects].sort((a, b) => b.path.length - a.path.length);
@@ -156,7 +185,7 @@ export class Catalog {
       if (project) project.agents.push({ id: agent.id, name: agent.name, source: 'detected process', cwd: cwd!, worktreePath: project.path, checkoutId: project.id, ...(agent.startedAt ? {startedAt:agent.startedAt} : {}), ...(agent.pid ? { pid: agent.pid } : {}) });
       else unassigned++;
     }
-    for (const project of projects) project.worktrees = projects.filter(p => p.path === project.path || (project.gitCommonDir !== null && p.gitCommonDir === project.gitCommonDir)).map(p => ({ name: p.name, path: p.path, branch: p.branch, ...(p.detachedSha ? { detachedSha: p.detachedSha } : {}), ports: p.runtime.ports }));
+    for (const project of projects) project.worktrees = projects.filter(p => p.path === project.path || (project.gitCommonDir !== null && p.gitCommonDir === project.gitCommonDir)).map(p => ({ name: p.name, path: p.path, branch: p.branch, git:p.git, ...(p.detachedSha ? { detachedSha: p.detachedSha } : {}), ports: p.runtime.ports }));
     if (unassigned) warnings.push(`${unassigned} detected agent process${unassigned === 1 ? '' : 'es'} unassigned to a known project`);
     if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
     return { projects, warnings: warnings.slice(0, 50), observedAt: new Date(Math.max(Date.now(), this.cached ? Date.parse(this.cached.observedAt)+1 : 0)).toISOString(), expires: Date.now() + 5000 };

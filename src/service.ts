@@ -1,6 +1,7 @@
 import { Catalog } from './catalog/discovery.js';
 import { Lifecycle } from './lifecycle/service.js';
 import { Publications } from './preview/service.js';
+import { locate, propose } from './proposals.js';
 import { toolContracts, problem, type ToolName } from './shared/contracts.js';
 export class Rootlane {
   readonly publications: Publications;
@@ -21,7 +22,10 @@ export class Rootlane {
   }
   async call(name: ToolName, raw: unknown) {
     const contract = toolContracts[name]; const input = contract.input.parse(raw);
-    const output = name === 'list_projects' ? await this.catalog.list(input)
+    const output = name === 'locate' ? await locate(this,input)
+      : name === 'propose_preview_target' || name === 'propose_profile' ? await propose(this,name==='propose_profile'?'profile':'target',input)
+      : name === 'list_operations' ? {operations:this.lifecycle.store.listOperations((input as {environmentId?:string}).environmentId,(input as {previewId?:string}).previewId,(input as {limit:number}).limit)}
+      : name === 'list_projects' ? await this.catalog.list(input)
       : name === 'get_project' ? await this.catalog.get((input as { projectId: string }).projectId)
       : name === 'get_capabilities' ? await this.capabilities()
       : name === 'get_preview' ? await this.publications.get(input)

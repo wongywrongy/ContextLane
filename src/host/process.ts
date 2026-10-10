@@ -20,3 +20,15 @@ export async function processClock(procRoot = '/proc') {
   } catch { return null; }
 }
 export const startedAt = (ticks: number, clock: {hz:number;boot:number} | null) => clock ? new Date((clock.boot + ticks/clock.hz)*1000).toISOString() : undefined;
+
+export function serviceName(comm: string, argv: string[]): string {
+  const entry = argv.slice(0,3).join(' ');
+  for (const [pattern,name] of [
+    [/\b(?:vite)(?:\/|\b)/,'vite'],[/\bnext(?:\/|\b)/,'next'],[/\bnuxt(?:\/|\b)/,'nuxt'],[/\bastro(?:\/|\b)/,'astro'],[/webpack-dev-server/,'webpack-dev-server'],
+    [/\buvicorn\b/,'uvicorn'],[/\bgunicorn\b/,'gunicorn'],[/\bflask\b/,'flask'],[/\b(?:django|manage\.py)\b.*\brunserver\b/,'django runserver'],[/\brails\b/,'rails'],[/\bcargo\b.*\brun\b/,'cargo run'],[/\bgo\b.*\brun\b/,'go run']
+  ] as const) if (pattern.test(entry)) return name;
+  const executable = argv[0]?.split('/').at(-1);
+  if (/^python(?:\d(?:\.\d+)?)?$/.test(executable ?? '') && argv[1] === '-m' && /^[a-zA-Z_][\w.]{0,80}$/.test(argv[2] ?? '')) return `python -m ${argv[2]}`;
+  if (executable === 'node' && /\.(?:[cm]?js|ts)$/.test(argv[1] ?? '')) return `node ${argv[1]!.split('/').at(-1)!.replace(/[^\w.-]/g,'').slice(0,80)}`;
+  return comm.trim().replace(/[^\w .-]/g,'').slice(0,100) || '—';
+}

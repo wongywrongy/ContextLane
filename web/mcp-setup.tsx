@@ -25,7 +25,7 @@ docker compose --project-directory /opt/stacks/rootlane ps`}</Command>
       <p>In <code>~/.codex/config.toml</code>, merge these settings into the existing <code>[mcp_servers.rootlane]</code> entry. Keep a single entry; retain your other configuration.</p>
       <Command title="Codex tool policy">{`[mcp_servers.rootlane]
 command = "/opt/stacks/rootlane/deploy/rootlane-mcp-docker"
-enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview"]
+enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview", "locate", "propose_preview_target", "propose_profile", "list_operations"]
 startup_timeout_sec = 10
 tool_timeout_sec = 15
 default_tools_approval_mode = "prompt"`}</Command>
@@ -40,11 +40,11 @@ default_tools_approval_mode = "prompt"`}</Command>
     </section>
     </div><section><h3>Prefer agent-assisted setup?</h3>
       <p>Paste this optional prompt into Codex or Claude Code running on the Rootlane host. It asks the agent to use the same registration commands above. Client permissions or a fresh session may still be required.</p>
-      <details><summary>Show setup prompt</summary><Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview and unpublish_preview.
+      <details><summary>Show setup prompt</summary><Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview, unpublish_preview, locate, propose_preview_target, propose_profile and list_operations.
 
 Never print or copy credentials. Do not install another backend, upgrade software, change routes, or launch environments. If the installation is missing or inaccessible, report the blocker rather than replacing it.
 
-Verify Rootlane with tools/list and a read-only list_projects call. A list_mcp_resources result is not a tool-discovery check: Rootlane exposes tools, not resource entries. If this session has no Rootlane tools, report that limitation and give fresh-session or reconnect steps; do not claim setup succeeded from a saved registration or launcher text. Rootlane catalogs project links and reviewed local environments; it does not provide GitHub/Render API access or change public URLs or payment callbacks. Report exactly what changed.`}</Command></details>
+Verify Rootlane with tools/list and a read-only locate call with your working directory. A list_mcp_resources result is not a tool-discovery check: Rootlane exposes tools, not resource entries. If this session has no Rootlane tools, report that limitation and give fresh-session or reconnect steps; do not claim setup succeeded from a saved registration or launcher text. Rootlane catalogs project links and reviewed local environments; it does not provide GitHub/Render API access or change public URLs or payment callbacks. Report exactly what changed.`}</Command></details>
     </section>
     <section><h3>3. Verify a real tool call</h3>
       <p>In a new coding session, ask:</p>

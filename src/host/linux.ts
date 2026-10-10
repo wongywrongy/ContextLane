@@ -1,4 +1,4 @@
-import { readFile, readlink, access } from 'node:fs/promises';
+import { readFile, readlink, access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { command } from './command.js';
 import type { Host, Unit, Preview, Listener } from './types.js';
@@ -6,6 +6,7 @@ import type { Service } from '../config.js';
 import { Problem } from '../shared/contracts.js';
 import { ServeRoutes, routeState } from './routes.js';
 export { routeState } from './routes.js';
+import { procText, processStat, processClock, startedAt, serviceName } from './process.js';
 import { observeAgents } from './agents.js';
 
 export async function boundedText(response: Response, limit: number): Promise<string> {
@@ -44,17 +45,25 @@ export class LinuxHost implements Host {
     await this.routes(); await this.listeners();
   }
   async listeners(): Promise<Listener[]> {
-    const output = await command('ss', ['-H', '-ltnp']);
-    return Promise.all(output.trim().split('\n').filter(Boolean).map(async line => {
+    const output = await command('ss', ['-H', '-ltnp'],{timeout:2000}); const clock = await processClock(); const deadline = Date.now()+2000;
+    return Promise.all(output.trim().split('\n').filter(Boolean).slice(0,1024).map(async line => {
       const local = line.trim().split(/\s+/)[3];
       const match = local?.match(/^(.*):(\d+)$/);
       if (!match) throw new Problem('LISTENER_FORMAT', 'Cannot interpret listener metadata');
       const pidMatch = line.match(/pid=(\d+)/); const pid = pidMatch ? Number(pidMatch[1]) : null;
-      let cwd: string | null = null; let cgroup: string | null = null;
-      if (pid) {
-        try { cwd = await readlink(`/proc/${pid}/cwd`); cgroup = (await readFile(`/proc/${pid}/cgroup`, 'utf8')).split('\n').find(s => s.startsWith('0::'))?.slice(3) ?? null; } catch { /* Processes may exit or be owned by another user. */ }
+      let cwd: string | null = null; let cgroup: string | null = null; let processInfo: Listener['process'];
+      if (pid && Date.now() < deadline) {
+        try {
+          if ((await stat(`/proc/${pid}`)).uid !== process.getuid!()) throw new Error('Other user');
+          const before = processStat(await procText(`/proc/${pid}/stat`));
+          cwd = await readlink(`/proc/${pid}/cwd`); cgroup = (await procText(`/proc/${pid}/cgroup`)).split('\n').find(s => s.startsWith('0::'))?.slice(3) ?? null;
+          const comm = await procText(`/proc/${pid}/comm`,256); const argv = (await procText(`/proc/${pid}/cmdline`,16384)).split('\0');
+          const after = processStat(await procText(`/proc/${pid}/stat`));
+          if (!before || before.ticks !== after?.ticks || (await stat(`/proc/${pid}`)).uid !== process.getuid!()) throw new Error('Process changed');
+          processInfo = {name:serviceName(comm,argv),pid,...(startedAt(before.ticks,clock) ? {startedAt:startedAt(before.ticks,clock)} : {})};
+        } catch { cwd = null; cgroup = null; processInfo = undefined; }
       }
-      return { address: match[1].replace(/^\[|\]$/g, ''), port: Number(match[2]), pid, cwd, cgroup };
+      return { address: match[1].replace(/^\[|\]$/g, ''), port: Number(match[2]), pid, cwd, cgroup, ...(processInfo ? {process:processInfo} : {}) };
     }));
   }
   async inspectUnit(name: string) {
@@ -107,7 +116,7 @@ export class LinuxHost implements Host {
     const args = ['--user', '--no-pager', '--output=json', '--output-fields=MESSAGE,__CURSOR', `--unit=${unit.name}`, `_SYSTEMD_INVOCATION_ID=${unit.invocation}`, `--lines=${limit + 1}`];
     if (cursor) args.push(`--after-cursor=${cursor}`);
     const output = await command('journalctl', args, { maxBuffer: 512 * 1024 });
-    const entries = output.trim().split('\n').filter(Boolean).map(s => JSON.parse(s) as { MESSAGE?: unknown; __CURSOR?: string });
+    const entries = output.trim().split('\n').filter(Boolean).slice(0,1024).map(s => JSON.parse(s) as { MESSAGE?: unknown; __CURSOR?: string });
     // Journal tails are bounded; callers get a cursor for subsequent output, not historical replay.
     const selected = entries.slice(-limit);
     return { lines: selected.map(e => typeof e.MESSAGE === 'string' ? e.MESSAGE.slice(0, 2048) : '[non-text journal entry]'), nextCursor: selected.at(-1)?.__CURSOR ?? null, truncated: entries.length > limit || selected.some(e => typeof e.MESSAGE === 'string' && e.MESSAGE.length > 2048) };

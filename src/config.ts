@@ -26,6 +26,8 @@ export const configSchema = z.strictObject({
   origin, additionalOrigins: z.array(origin).max(4).optional(),
   tailnetHostname: z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/),
   previewTargets: z.array(previewTargetSchema).max(50).default([]),
+  editorUrlTemplate: z.string().max(4096).refine(value => { try { const url = new URL(value.replaceAll('{host}','host').replaceAll('{path}','/path')); return ['vscode:','vscode-insiders:','cursor:','zed:','jetbrains:'].includes(url.protocol) && !/[\r\n\0]/.test(value) && !/\{(?!host\}|path\})/.test(value); } catch { return false; } }, 'Use an approved editor scheme and {host}/{path} placeholders').optional(),
+  previewPortRange: z.tuple([port,port]).default([20000,20999]).refine(([min,max]) => min <= max && max-min < 1000),
   profiles: z.array(profileSchema).max(50).default([]),
   projects: z.array(z.strictObject({ path: absolute, links: z.array(link).max(20).default([]), agents: z.array(z.strictObject({ name: z.string().min(1).max(100) })).max(20).default([]) })).max(200).default([])
 });
