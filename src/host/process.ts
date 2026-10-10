@@ -22,7 +22,7 @@ export async function processClock(procRoot = '/proc') {
 export const startedAt = (ticks: number, clock: {hz:number;boot:number} | null) => clock ? new Date((clock.boot + ticks/clock.hz)*1000).toISOString() : undefined;
 
 export function serviceName(comm: string, argv: string[]): string {
-  const entry = argv.slice(0,3).join(' ');
+  const entry = argv.slice(0,4).join(' ');
   for (const [pattern,name] of [
     [/\b(?:vite)(?:\/|\b)/,'vite'],[/\bnext(?:\/|\b)/,'next'],[/\bnuxt(?:\/|\b)/,'nuxt'],[/\bastro(?:\/|\b)/,'astro'],[/webpack-dev-server/,'webpack-dev-server'],
     [/\buvicorn\b/,'uvicorn'],[/\bgunicorn\b/,'gunicorn'],[/\bflask\b/,'flask'],[/\b(?:django|manage\.py)\b.*\brunserver\b/,'django runserver'],[/\brails\b/,'rails'],[/\bcargo\b.*\brun\b/,'cargo run'],[/\bgo\b.*\brun\b/,'go run']

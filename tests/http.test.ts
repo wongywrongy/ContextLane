@@ -20,6 +20,7 @@ test('owner-selected short credentials work while empty owner and weak/shared ag
   const headers = { host: new URL(config.origin).host, origin: config.origin };
   assert.equal((await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: '' } })).statusCode, 400);
   assert.equal((await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: 'wrong' } })).statusCode, 401);
+  t.mock.timers.enable({apis:['Date'],now:Date.now()+1000});
   const login = await app.inject({ method: 'POST', url: '/api/login', headers, payload: { credential: 'chosen' } });
   assert.equal(login.statusCode, 200);
   assert.match(String(login.headers['set-cookie']), /Secure; HttpOnly; SameSite=Strict/);
@@ -76,7 +77,7 @@ test('login limit is shared across aliases and spoofed IPs, survives restart, an
   let address = 0;
   const login = (credential = 'wrong'.repeat(10), alias = false, url = '/api/login') => app.inject({ method: 'POST', url, headers: { host: alias ? 'root.avlis.dev' : new URL(config.origin).host, origin: alias ? config.additionalOrigins![0] : config.origin, 'x-forwarded-for': `198.51.100.${++address}` }, payload: { credential } });
   const failures = await Promise.all(Array.from({ length: 10 }, (_, i) => login(undefined, i % 2 === 0)));
-  assert(failures.every(response => response.statusCode === 401));
+  assert(failures.every(response => [401,429].includes(response.statusCode)));
   const blocked = await login(credentials.owner, true, '/api/login?retry=1');
   assert.equal(blocked.statusCode, 429); assert.equal(blocked.headers['retry-after'], '60');
   assert.equal(blocked.headers['set-cookie'], undefined);
@@ -107,7 +108,7 @@ test('malformed and oversized login bodies consume the same bounded login budget
   assert.equal((await login('{')).statusCode, 400);
   assert.equal((await login(JSON.stringify({ credential: 'x'.repeat(20000) }))).statusCode, 413);
   assert.equal((await login(JSON.stringify({ credential: 'x'.repeat(40), extra: true }))).statusCode, 400);
-  for (let i = 0; i < 7; i++) assert.equal((await login(JSON.stringify({ credential: 'x'.repeat(40) }))).statusCode, 401);
+  for (let i = 0; i < 7; i++) assert([401,429].includes((await login(JSON.stringify({ credential: 'x'.repeat(40) }))).statusCode));
   assert.equal((await login('{')).statusCode, 429);
 });
 
@@ -124,4 +125,24 @@ test('built font assets have the right MIME type and arbitrary files remain inac
   assert.equal(font.statusCode, 200); assert.equal(font.headers['content-type'], 'font/woff2');
   assert.equal((await app.inject({ url: '/assets/private.env', headers })).statusCode, 404);
   assert.equal((await app.inject({ url: '/assets/../private.env', headers })).statusCode, 404);
+});
+
+test('login failure backoff doubles, persists, and valid-session reauthentication bypasses both throttles',async t=>{
+  const {root,config,lifecycle,host,store}=await setup(t);
+  const credentials={owner:'o'.repeat(40),agent:'a'.repeat(40)};
+  const app=await createServer(config,new Rootlane(new Catalog(config,host),lifecycle),credentials);t.after(()=>app.close());
+  const headers={host:new URL(config.origin).host,origin:config.origin};
+  const login=(credential:string,cookie?:string)=>app.inject({method:'POST',url:'/api/login',headers:{...headers,...(cookie?{cookie}:{})},payload:{credential}});
+  const valid=await login(credentials.owner); const cookie=String(valid.headers['set-cookie']).split(';')[0];
+  const now=Date.now();t.mock.timers.enable({apis:['Date'],now});
+  assert.equal((await login('wrong')).statusCode,401);
+  assert.equal((await login(credentials.owner)).headers['retry-after'],'1');
+  t.mock.timers.setTime(now+1000);assert.equal((await login('wrong')).statusCode,401);
+  assert.equal((await login(credentials.owner)).headers['retry-after'],'2');
+  const reopened=new Store(join(root,'state.sqlite'));t.after(()=>reopened.close());assert.equal(reopened.loginBackoff(),2);
+  assert.equal((await login(credentials.owner,cookie)).statusCode,200);
+  assert.equal(store.loginBackoff(),2,'reauthentication cannot reset the global failure delay');
+  t.mock.timers.setTime(now+3000);assert.equal((await login(credentials.owner)).statusCode,200);assert.equal(store.loginBackoff(),0);
+  for(let i=0;i<10;i++)store.consumeLoginAttempt();assert.equal((await login(credentials.owner)).statusCode,429);assert.equal((await login(credentials.owner,cookie)).statusCode,200);
+  assert(!JSON.stringify(store.meta('loginFailure')).includes(credentials.owner));
 });

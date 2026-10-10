@@ -30,7 +30,9 @@ export async function createServer(config: Config, service: Rootlane, credential
     if (path === '/api/login') {
       if (request.method !== 'POST') return;
       if (!browserOrigin(request.headers.host, request.headers.origin)) return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Use the configured HTTPS origin' });
-      const retryAfter = service.lifecycle.store.consumeLoginAttempt();
+      if (session(request.headers.cookie)) return;
+      const budget = service.lifecycle.store.consumeLoginAttempt();
+      const retryAfter = Math.max(budget,service.lifecycle.store.loginBackoff());
       if (retryAfter) return reply.header('Retry-After', retryAfter).code(429).send({ code: 'RATE_LIMIT', message: 'Too many login attempts; wait before trying again' });
       return;
     }
@@ -52,7 +54,8 @@ export async function createServer(config: Config, service: Rootlane, credential
   });
   app.post('/api/login', async (request, reply) => {
     const { credential } = loginSchema.parse(request.body);
-    if (!equal(credential, credentials.owner)) return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Invalid owner credential' });
+    if (!equal(credential, credentials.owner)) { if (!session(request.headers.cookie)) service.lifecycle.store.loginFailed(); return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Invalid owner credential' }); }
+    if (!session(request.headers.cookie)) service.lifecycle.store.loginSucceeded();
     for (const [key, value] of sessions) if (value.expires <= Date.now()) sessions.delete(key);
     if (sessions.size >= 8) sessions.delete(sessions.keys().next().value!);
     const token = randomBytes(32).toString('base64url'); const csrf = randomBytes(32).toString('base64url');

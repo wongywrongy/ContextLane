@@ -50,14 +50,15 @@ export class Catalog {
   async projects() { await this.list({limit:1}); return this.cached!.projects; }
   private httpCache = new Map<string, {expires:number; pending:Promise<{status:number;checkedAt:string} | null>}>();
   private async probeListeners(checkouts: Project[]): Promise<NonNullable<ProjectDetails['http']>> {
-    const listeners = await this.host.listeners(); const output: NonNullable<ProjectDetails['http']> = [];
+    const listeners = await this.host.listeners(); const deadline=Date.now()+2000; let newProbes=0; const output: NonNullable<ProjectDetails['http']> = [];
     for (const checkout of checkouts) for (const port of checkout.runtime.ports.slice(0,32)) {
       const observed = listeners.filter(l=>l.port===port);
-      if (!observed.length || observed.some(l=>!['127.0.0.1','::1'].includes(l.address) || !l.cwd || !inside(l.cwd,checkout.path)) || new Set(observed.map(l=>l.pid)).size!==1) continue;
+      if (Date.now()>=deadline || !observed.length || observed.some(l=>!['127.0.0.1','::1'].includes(l.address) || !l.cwd || !inside(l.cwd,checkout.path)) || new Set(observed.map(l=>l.pid)).size!==1) continue;
       const key = `${checkout.id}:${port}:${observed[0].pid}`;
       let cached = this.httpCache.get(key);
       if (!cached || cached.expires < Date.now()) {
         for (const [key,value] of this.httpCache) if (value.expires < Date.now()) this.httpCache.delete(key);
+        if (++newProbes > 8 || this.httpCache.size>=1024) continue;
         const address = observed.some(l=>l.address==='127.0.0.1') ? '127.0.0.1' : '[::1]';
         const pending = (async () => {
           try {
@@ -149,6 +150,7 @@ export class Catalog {
         await lstat(join(path, '.git'));
         const common = (await command('git', ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { timeout: 1000 })).trim();
         gitCommonDir = await safe(common);
+        if (!gitCommonDir) throw new Error('Git metadata outside observation roots');
         const head = (await command('git', ['-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 1000 })).trim();
         detached = head === 'HEAD'; branch = detached ? null : head;
         if (detached) detachedSha = (await command('git', ['-C', path, 'rev-parse', '--short', 'HEAD'], { timeout: 1000 })).trim();

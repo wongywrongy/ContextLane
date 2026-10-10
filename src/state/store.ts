@@ -33,6 +33,16 @@ export class Store {
     this.setMeta('loginAttempts', JSON.stringify([...active, now]));
     return 0;
   }
+  loginBackoff(now = Date.now()) {
+    const state = JSON.parse(this.meta('loginFailure') ?? '{"count":0,"nextAt":0}');
+    return Math.max(0, Math.ceil((state.nextAt-now)/1000));
+  }
+  loginFailed(now = Date.now()) {
+    const state = JSON.parse(this.meta('loginFailure') ?? '{"count":0,"nextAt":0}');
+    const count = state.nextAt < now-15*60000 ? 1 : Math.min(10,state.count+1);
+    this.setMeta('loginFailure',JSON.stringify({count,nextAt:now+Math.min(60000,1000*2**(count-1))}));
+  }
+  loginSucceeded() { this.setMeta('loginFailure','{"count":0,"nextAt":0}'); }
   environment(id: string) { return this.db.prepare('SELECT * FROM environments WHERE id=?').get(id) as EnvironmentRow | undefined; }
   environments() { return this.db.prepare('SELECT * FROM environments ORDER BY id').all() as EnvironmentRow[]; }
   ensure(profile: Profile) {
