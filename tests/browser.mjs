@@ -61,6 +61,10 @@ try {
   await page('Input.dispatchMouseEvent',{type:'mousePressed',x:5,y:5,button:'left',clickCount:1});await page('Input.dispatchMouseEvent',{type:'mouseReleased',x:5,y:5,button:'left',clickCount:1});await wait('!document.querySelector(":popover-open")');
   captures.push({width,...bounds,escape:true,outside:true});
  }
+ await evaluate(`document.getElementById('actions-p0').click()`);
+ const searchCoordinates=await evaluate(`(()=>{const input=document.querySelector('.search input');input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();return {x:r.x+20,y:r.y+20}})()`);
+ await page('Input.dispatchMouseEvent',{type:'mousePressed',...searchCoordinates,button:'left',clickCount:1});await page('Input.dispatchMouseEvent',{type:'mouseReleased',...searchCoordinates,button:'left',clickCount:1});await pause(100);
+ assert(await evaluate(`document.activeElement===document.querySelector('.search input') && !document.querySelector(':popover-open')`),'Outside click preserves focus on the clicked control');
  const select=async id=>{await evaluate(`document.getElementById('actions-${id}').click()`);await evaluate(`document.querySelector('#menu-${id} button').click()`);};
  await select('p0');await wait('document.querySelector(".environment")');
  await evaluate(`document.querySelector('.worktree > button').click()`);await wait('document.querySelector(".log-panel pre").textContent.includes("bounded")');
