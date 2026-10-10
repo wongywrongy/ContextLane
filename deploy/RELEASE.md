@@ -4,7 +4,7 @@ This release contains compiled JavaScript/static UI, a prebuilt Linux amd64 Dock
 
 Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running user-systemd manager, and the existing Tailscale installation at `/usr/bin/tailscale`. The included image is tested on one Linux amd64 host. Other hosts must review socket, journal and project mount paths before running it. Run these commands as the installation owner, not root:
 
-For the checked-out 0.4.0 source:
+For the checked-out 0.5.0 source:
 
 ```sh
 npm ci
@@ -15,7 +15,7 @@ deploy/preflight-docker
 docker compose exec -T rootlane node deploy/serve.mjs
 ```
 
-A versioned archive can be used only after that version is published; this source update does not claim a published 0.4.0 archive.
+The GitHub 0.5.0 release archive includes `rootlane-image.tar.gz`. Load it with `docker load -i rootlane-image.tar.gz`, run owner setup, then use `docker compose up -d --no-build --wait` instead of building the source.
 
 Setup creates distinct random mode-0600 credentials and a private configuration under `~/.config/rootlane`, plus private state under `~/.local/state/rootlane`. It preserves existing files and refuses incompatible existing roots/state. `.env` contains paths/UIDs only. Keep configuration outside observed checkout roots. The initial configuration has no launch profiles: projects appear as observe-only. Existing owner-reviewed profiles remain owner configuration, not executable authority supplied by a download.
 
@@ -40,3 +40,5 @@ Owner-reviewed secondary operator addresses can be added with `additionalOrigins
 Login adds persisted exponential failure backoff (1 second, doubling to 60 seconds) and exempts reauthentication from valid sessions. It accepts at most ten anonymous attempts in any sliding minute across all operator origins and clients. The bounded attempt timestamps persist in SQLite across Rootlane restarts; no submitted credential is recorded. `429` responses provide `Retry-After`. Malformed/oversized bodies consume the same budget before parsing. A sustained attempt flood can temporarily deny new logins; already authenticated sessions remain usable. Setup generates owner credentials with 256 bits of randomness. An owner may intentionally replace theirs with a nonempty credential up to 256 characters; agent credentials must remain distinct and at least 32 characters. Short or predictable credentials have less resistance to guessing. Keep credentials private. This does not protect against credential theft, an owner-user compromise or network-level denial of service.
 
 0.4.0 adds SQLite migration 003 for recipe approvals and per-checkout instances. Back up state before upgrade. An older image cannot open this migrated database; rollback requires restoring the matching pre-upgrade SQLite backup. Setup preserves owner files and adds read-only toolchain, venv and owner-home mounts for recipe execution and private envFile access. See [recipes](../docs/RECIPES.md).
+
+0.5.0 shows all project links with independent states and a responsive Links table. It retains Tailscale Serve URLs. Private env files are passed to systemd as `EnvironmentFile=` rather than secret-bearing argv; stop and start an existing environment to recreate its units with this protection. Existing units retain their previous environment properties until recreated. No database migration is added in 0.5.0.

@@ -1,6 +1,6 @@
 # Project recipes
 
-Commit `.rootlane.json` at each checkout root. Version 1 is strict: unknown fields, secret-like env keys, shell/env wrappers, escaping cwd paths, unknown placeholders and dependency cycles are rejected. Paths and commands are owner-reviewed code, not discovery permission. Rootlane passes the executable and argument array directly to `systemd-run`, with one `--setenv` argument per variable; it never invokes a shell or `/usr/bin/env`. `setup` is displayed and never executed.
+Commit `.rootlane.json` at each checkout root. Version 1 is strict: unknown fields, secret-like env keys, shell/env wrappers, escaping cwd paths, unknown placeholders and dependency cycles are rejected. Paths and commands are owner-reviewed code, not discovery permission. Rootlane passes the executable and argument array directly to `systemd-run`, with one `--setenv` argument per non-secret literal; it never invokes a shell or `/usr/bin/env`. `setup` is displayed and never executed.
 
 ```json
 {
@@ -18,7 +18,7 @@ Owner config supplies `toolchains: { "node":"/absolute/node", "python":"/absolut
 
 Rootlane resolves `{port:id}`, `{preview:id}`, `{state}`, `{node}`, `{python}`, `{venv}` and an initial `~` to the owner's home. It reserves both service and HTTPS ports in the same pool. Every service receives `ROOTLANE_PORT`, `ROOTLANE_PREVIEW_ORIGIN` and `ROOTLANE_PREVIEW_PORT`; preview variables are empty for services without their own preview. Private per-instance state survives Stop; Stop releases actual listeners and routes, while allocations remain reserved for a stable restart. Rootlane does not create databases or execute setup steps.
 
-`env` contains non-secret literals only. Keys matching `SECRET|TOKEN|KEY|PASSWORD` must be in `envFile`. Environment values from the file override neither recipe literals nor Rootlane's reserved variables. Env files must be regular, owner-owned, exactly 0600 and outside observation roots; they are read at start and revalidated. In Docker, use a path in the owner's read-only home mount outside observation roots. Tool/UI output shows only variable names. Journal messages are redacted before truncation, including retained failure output. Redaction material is encrypted in private SQLite so restart logs remain redacted; an owner with the database and key can decrypt it. Rootlane's API is not a security boundary against the host owner or their application processes.
+`env` contains non-secret literals only. Keys matching `SECRET|TOKEN|KEY|PASSWORD` must be in `envFile`. Avoid defining the same variable in both places: systemd gives the file precedence. Rootlane's reserved variables are forbidden in env files. Env files must be regular, owner-owned, exactly 0600 and outside observation roots; they are read at start and revalidated. In Docker, use a path in the owner's read-only home mount outside observation roots. Tool/UI output shows only variable names. Journal messages are redacted before truncation, including retained failure output. Redaction material is encrypted in private SQLite so restart logs remain redacted; an owner with the database and key can decrypt it. Rootlane's API is not a security boundary against the host owner or their application processes.
 
 For Vite, configure once:
 
@@ -50,3 +50,13 @@ Approval binds the Git common directory, recipe SHA256 and used toolchain revisi
 `get_capabilities` emits `IMPLICIT_ENV_WRAPPER` for legacy shell/env profiles. Rootlane does not rewrite the ShuttleWorks repository or private configuration as part of this migration.
 
 Migration 003 preserves existing requests, resource reservations and ownership. Back up SQLite before installing 0.4.0; downgrading to a build that supports only migration 002 requires restoring that backup, not opening the migrated database with the old image.
+
+Services load private `envFile` values through systemd's `EnvironmentFile=`
+property. Rootlane validates ownership, mode 0600 and location outside observation
+roots, reads values at launch for redaction, and passes only the absolute file path
+to systemd. `--setenv` carries non-secret literals and Rootlane's preview settings.
+`systemctl --user show -p Environment` therefore shows only those literals;
+`EnvironmentFiles` shows the file path. Use the same simple `NAME=value` syntax
+supported by Node's env-file parser and systemd (no shell expansion). Do not define
+the same variable in both `env` and `envFile`: systemd gives the file precedence.
+Keep `ROOTLANE_` names out of envFile.

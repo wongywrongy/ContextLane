@@ -67,6 +67,7 @@ test('Signal payload attributes agents and listeners to a checkout and exposes d
   host.agentObservations.agents = [{id:'a'.repeat(24),name:'Codex',cwd:join(tree,'web')}];
   host.listeners = async () => [{address:'127.0.0.1',port:3000,pid:1,cwd:tree,cgroup:null},{address:'127.0.0.1',port:4000,pid:null,cwd:null,cgroup:null}];
   config.projects=[{path:repo,links:[{label:'Homepage',url:'https://example.invalid/'}],agents:[]}];
+  host.routeState = (await import('../src/host/routes.js')).routeState;
   (host as import('../src/host/types.js').Host).routes=async()=>({TCP:{'8443':{HTTPS:true}},Web:{[config.tailnetHostname+':8443']:{Handlers:{'/':{Proxy:'http://127.0.0.1:3000'}}}}});
   const result = await new Catalog(config, host).list({limit:50});
   const main = result.projects.find(p => p.path === repo)!; const checkout = result.projects.find(p => p.path === tree)!;
@@ -75,6 +76,10 @@ test('Signal payload attributes agents and listeners to a checkout and exposes d
   assert.equal(checkout.agents[0].source,'detected process');
   if (checkout.agents[0].source === 'detected process') { assert.equal(checkout.agents[0].cwd,join(tree,'web')); assert.equal(checkout.agents[0].worktreePath,tree); }
   assert.deepEqual(main.observedPreviews,[]); assert.equal(main.links[0].label,'Homepage');
+  assert.equal(checkout.routeSummaries?.[0].upstreamPort,3000);
+  assert.equal(checkout.routeSummaries?.[0].route,'matching');
+  assert.equal(checkout.observedPreviews?.[0].label,':3000');
+  assert.equal(checkout.links.length,0);
   assert.equal(checkout.observedPreviews?.[0].url,`https://${config.tailnetHostname}:8443/`);
   assert.equal(main.worktrees?.length,2); assert.deepEqual(main.worktrees?.find(w => w.path === tree)?.ports,[3000]);
   assert(result.projects.every(p => !p.runtime.ports.includes(4000)));

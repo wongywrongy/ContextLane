@@ -80,3 +80,49 @@ test('editor URLs require an approved template; host and paths are safely encode
   assert.equal(editorHref('/code/app','javascript:alert(1)'),null);
   assert.equal(editorHref('/code/app','vscode://{host}{path}'),null);
 });
+
+test('links dedupe by source, retain independent states and branch labels, sort, and fail closed when stale', async t => {
+  const { groupLinks } = await import('../web/projects.js');
+  const { environmentOutput, previewOutput } = await import('../src/shared/contracts.js');
+  const main = project('/code/app', { gitCommonDir: '/code/app/.git', branch: 'main', environmentIds: ['one'],
+    links: [{ label: 'Docs', url: 'https://docs.test/' }, { label: 'Duplicate', url: 'https://one.test/' }],
+    routeSummaries: [{ url: 'https://one.test/', upstreamPort: 3000, target: 'http://127.0.0.1:3000', route: 'matching' },
+      { url: 'https://observed.test/', upstreamPort: 5000, target: 'http://127.0.0.1:5000', route: 'matching' }],
+    runtime: { services: [{ id: 'web', name: 'Console', port: 3000 }], status: 'listeners observed', ports: [3000], ownership: 'observe-only' } });
+  const tree = project('/code/tree', { gitCommonDir: main.gitCommonDir, branch: 'feature', environmentIds: ['two'] });
+  const group = groupProjects([main, tree])[0];
+  const env = (id: string, url: string, ready: boolean) => environmentOutput.parse({ id, profileRevision: 'rev', effects: 'fixture',
+    dataRequirements: 'none', startAllowed: true, ownership: 'rootlane', desiredState: 'running', application: ready ? 'ready' : 'unhealthy',
+    preview: ready ? 'available' : 'unavailable', links: [], services: [], observedAt: 'now', latestOperation: null, observationError: null,
+    previews: [{ serviceId: 'web', label: 'Console', port: 443, url }],
+    previewRoutes: [{ url, target: 'http://127.0.0.1:3000', upstream: ready ? 'ready' : 'unready', route: 'matching', https: ready ? 'verified' : 'failed' }] });
+  const envs = { one: env('one', 'https://one.test/', true), two: env('two', 'https://two.test/', false) };
+  const publication = previewOutput.parse({ id: '12345678-1234-4234-8234-123456789abc', targetId: 'gone', projectPath: main.path,
+    checkoutPath: main.path, serviceId: 'gone', serviceName: 'Gone', port: 6000, httpsPort: 443, ownership: 'rootlane route only',
+    approved: true, removed: true, url: 'https://gone.test/', route: 'absent', upstream: 'unknown', https: 'unverified',
+    actualConfiguration: null, errors: [], observedAt: 'now', latestOperation: null });
+  const links = groupLinks(group, envs, { [publication.id]: publication }, null);
+  assert.deepEqual(links.map(l => l.state), ['Available', 'Published', 'Attention', 'Link', 'Not exposed']);
+  assert.equal(links.find(l => l.url === 'https://one.test/')!.label, 'Console · main');
+  assert.equal(links.find(l => l.url === 'https://two.test/')!.label, 'Console · feature');
+  assert.equal(links.find(l => l.source === 'Observed route')!.label, ':5000');
+  assert.equal(links.filter(l => l.url === 'https://one.test/').length, 1);
+  assert.equal(links.find(l => l.label === 'Docs')!.state, 'Link');
+  main.runtime.status = 'unknown';
+  assert(groupLinks(group, envs, { [publication.id]: publication }, null).every(l => l.state === 'Unknown'));
+  main.runtime.status = 'listeners observed';
+  const duplicate = { ...publication, removed: false, url: 'https://one.test/', serviceName: 'Publication label',
+    route: 'matching' as const, https: 'verified' as const, upstream: 'ready' as const };
+  assert.equal(groupLinks(group, envs, { [duplicate.id]: duplicate }, null).find(l => l.url === duplicate.url)!.source, 'Publication');
+});
+
+
+test('recipe presentation distinguishes invalid, pending, stale and approved review states', async () => {
+  const { recipePresentation } = await import('../web/projects.js');
+  const recipe = { found: true, valid: true, errors: [], approval: 'none' as const };
+  assert.deepEqual(recipePresentation(recipe), { state: 'Detected', text: 'Needs approval' });
+  assert.deepEqual(recipePresentation({ ...recipe, valid: false }), { state: 'Attention', text: 'Invalid' });
+  assert.equal(recipePresentation({ ...recipe, approval: 'pending' }).text, 'Pending approval');
+  assert.equal(recipePresentation({ ...recipe, approval: 'approved' }).state, 'Ready');
+  assert.equal(recipePresentation({ ...recipe, approval: 'stale' }).state, 'Attention');
+});
