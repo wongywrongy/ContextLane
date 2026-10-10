@@ -9,7 +9,7 @@ Signal redesign evidence, 2026-10-10. Captured from the production Vite build in
 - `unlock.png`, `unlock-mobile.png`: password entry with no shell chrome.
 - `browser-results.json`: viewport/menu bounds, API requests, and browser exceptions (none).
 
-The browser check covers initially collapsed details, panel breakpoints, long paths, search/⌘K, tabs, logs, stale/error responses, hidden unavailable lifecycle actions, refresh coalescing, connection loss/recovery, native popover Escape/focus restoration, visible keyboard focus and reduced motion. Fonts and the Claude mark are local assets. Codex retains CX initials as documented in `web/marks/README.md`.
+The browser check covers initially collapsed details, panel breakpoints, long paths, search/⌘K, tabs, logs, stale/error responses, hidden unavailable lifecycle actions, refresh coalescing, connection loss/recovery, native popover Escape/focus restoration, visible keyboard focus and reduced motion. Fonts and both official agent marks are local assets, with provenance documented in `web/marks/README.md`.
 
 Older subdirectories and `desktop-reference.png` retain historical review evidence and are not Signal screenshots.
 

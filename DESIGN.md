@@ -226,7 +226,7 @@ Card border and shadow changes use 160ms ease-out; reduced-motion preference rem
 
 Project cards and unlock panels use the largest rounded token. Technical boxes, search and table containers use the default radius; setup sections use the large radius. Buttons and URL pills use the control radius; filter and status chips are fully rounded. Tags and keycaps have compact 5px corners, agent marks use 6px corners, and popovers use 12px corners. Thin borders and divided panels preserve alignment within these soft outer silhouettes.
 
-Icons are inline SVG linework, ordinarily 16px with round caps and joins; chip symbols use 12px linework. Vendor mark slots are 22px tiles. Claude uses the sourced official Anthropic Spark; Codex uses the documented CX fallback until an official standalone asset is available. Initials are a fallback, not a new logo system.
+Icons are inline SVG linework, ordinarily 16px with round caps and joins; chip symbols use 12px linework. Vendor mark slots are 22px tiles. Claude uses the sourced official Anthropic Spark; Codex uses the sourced official symbol from OpenAI's Codex IDE extension. Initials are a fallback, not a new logo system.
 
 ## Components
 

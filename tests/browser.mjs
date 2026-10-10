@@ -58,6 +58,7 @@ try {
  await wait('document.querySelector(".proj-head").textContent.includes("Stop")');
  assert.equal(await evaluate('document.querySelectorAll(".project-details").length'),0); assert(!requests.some(r=>r.path.endsWith('get_environment')||r.path.endsWith('get_preview')),'Collapsed projects do not trigger readiness probes');
  assert(await evaluate('document.querySelector("#project-p1 .pv").textContent.includes("Not exposed") && !document.querySelector("#project-p1 .pv a")'),'Known URL is not a published preview');
+ assert(await evaluate('document.querySelector(".mark.codex svg") !== null && document.querySelector(".mark.claude svg") !== null'),'Both vendor marks render in collapsed agent rows');
  const captures=[];
  const capture=async name=>{await evaluate('document.fonts.ready');await page('Page.captureScreenshot').then(({data})=>writeFile(`${evidence}/${name}.png`,Buffer.from(data,'base64')));};
  for(const [width,name] of [[1440,'desktop'],[1000,'tablet'],[390,'mobile']]) {
@@ -81,7 +82,7 @@ try {
  await evaluate(`(()=>{const input=document.querySelector('.cmd input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);await wait('document.querySelectorAll(".project").length===12');
  const openTab=async tab=>{await evaluate(`document.querySelector('#project-p0 .dbar').click()`);await evaluate(`document.getElementById('tab-p0-${tab}').click()`);};
  await openTab('Worktrees');await wait('document.querySelector(".project-details table")');await wait('document.querySelector(".proj-head").textContent.includes("Stop")');await capture('expanded');
- for(const tab of ['Agents','Services','Preview','Environment','Activity']) {await evaluate(`document.getElementById('tab-p0-${tab}').click()`);await wait(`document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')==='tab-p0-${tab}'`);await capture('tab-'+tab.toLowerCase());}
+ for(const tab of ['Agents','Services','Preview','Environment','Activity']) {await evaluate(`document.getElementById('tab-p0-${tab}').click()`);await wait(`document.querySelector('[role=tabpanel]').getAttribute('aria-labelledby')==='tab-p0-${tab}'`);if(tab==='Agents')assert(await evaluate('document.querySelector(".project-details .mark.codex svg") !== null'),'Codex mark renders in Agents details');await capture('tab-'+tab.toLowerCase());}
  await evaluate(`document.getElementById('tab-p0-Services').click()`);
  await wait('document.querySelector(".project-details .tbl button")'); await evaluate('document.querySelector(".project-details .tbl button").click()');
  await wait('document.querySelector(".proposal pre")?.textContent.includes("CHANGE ME")');await evaluate('document.querySelector(".proposal .btn").click()'); await wait('document.querySelector(".copy-notice")?.textContent.includes("Draft copied")');

@@ -3,6 +3,7 @@ import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, Pr
 import { agentKey, branchLabel, chipTone, editorHref, groupAgents, groupServices, label, projectStatus, type ProjectGroup } from './projects';
 import { Icon } from './icons';
 import { ClaudeMark } from './marks/claude';
+import { CodexMark } from './marks/codex';
 export type DetailTab = 'Worktrees' | 'Agents' | 'Services' | 'Preview' | 'Environment' | 'Activity';
 export const time = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleTimeString('en-GB', { hour12: false }) : '—';
 const date = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '—';
@@ -13,8 +14,7 @@ export function Chip({ state, children }: { state: string; children?: React.Reac
 }
 function Mark({ name }: { name: string }) {
   const vendor = name === 'Codex' ? 'codex' : name === 'Claude Code' ? 'claude' : 'other';
-  // shortcut: unavailable official marks use initials, replace only with a sourced vendor SVG.
-  return <span className={`mark ${vendor}`} aria-hidden="true">{vendor === 'claude' ? <ClaudeMark/> : name === 'Claude Code' ? 'CC' : name === 'Codex' ? 'CX' : name.slice(0, 2).toUpperCase()}</span>;
+  return <span className={`mark ${vendor}`} aria-hidden="true">{vendor === 'claude' ? <ClaudeMark/> : vendor === 'codex' ? <CodexMark/> : name.slice(0, 2).toUpperCase()}</span>;
 }
 export function PathLink({ path, template, host }: {path:string;template?:string|null;host?:string|null}) {
   const href=editorHref(path,template,host); const [notice,setNotice]=useState('');
