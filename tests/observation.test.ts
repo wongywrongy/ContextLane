@@ -18,7 +18,7 @@ test('derived service names recognize dev tools without disclosing command argum
   assert.equal(serviceName('custom-server',['custom-server','--password=secret']),'custom-server');
 });
 
-test('worktree state, service and agent detail, locate and proposals follow strict observational contracts',async t=>{
+test('worktree state, service and agent detail, locate follow strict observational contracts',async t=>{
   const {root,config,host,lifecycle,store}=await setup(t); const repo=join(root,'repo'); await mkdir(repo); config.profiles=[];
   await command('git',['init',repo]); await command('git',['-C',repo,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-m','Fixture subject']);
   await writeFile(join(repo,'package.json'),JSON.stringify({scripts:{dev:'vite'}}));
@@ -31,10 +31,6 @@ test('worktree state, service and agent detail, locate and proposals follow stri
   const agent=project.agents[0]; if(agent.source!=='detected process')throw Error('wrong source');assert.equal(agent.checkoutId,project.id);assert.equal(agent.startedAt,'2026-10-10T14:02:00.000Z');
   const located=toolContracts.locate.output.parse(await service.call('locate',{path:repo}));assert.equal(located.checkout.id,project.id);assert.deepEqual(located.ports,[{port:19482,name:'vite'}]);
   await assert.rejects(service.call('locate',{path:'/etc'}),/outside observation roots/);
-  host.busyPorts=[20000];host.routesMap.set(20001,'unrelated');
-  const originalListeners=host.listeners;host.listeners=async()=>[...await originalListeners(),{address:'127.0.0.1',port:20000,pid:null,cwd:null,cgroup:null}];
-  const target=toolContracts.propose_preview_target.output.parse(await service.call('propose_preview_target',{checkoutId:project.id,port:19482}));assert.equal(target.draft.httpsPort,20002);assert.equal(target.draft.approved,false);assert.equal(target.draft.readiness.bodyIncludes,'<CHANGE ME>');assert.equal(target.draft.checkoutPath,repo);
-  const profile=toolContracts.propose_profile.output.parse(await service.call('propose_profile',{checkoutId:project.id}));assert.equal(profile.draft.approved,false);assert(profile.draft.services[0].args.includes('127.0.0.1'));assert.equal(host.starts,0);
   assert.equal(store.previews().length,0); assert.equal(config.previewTargets.length,0);
   assert.throws(()=>toolContracts.locate.input.parse({path:repo,extra:true}));assert.throws(()=>toolContracts.list_operations.input.parse({limit:21}));
 });
@@ -55,10 +51,10 @@ test('operation history combines lifecycle and preview errors newest first and b
   const result=toolContracts.list_operations.output.parse(await service.call('list_operations',{environmentId:'fixture',limit:2}));assert.equal(result.operations.length,2);assert.equal(result.operations[0].action,'stop');
 });
 
-test('editor templates and preview range validate at the config boundary; process reads are bounded',async t=>{
+test('editor templates and instance range validate at the config boundary; process reads are bounded',async t=>{
   const {config,root}=await setup(t);
   assert(configSchema.parse({...config,editorUrlTemplate:'vscode://vscode-remote/ssh-remote+{host}{path}'}));
   for(const editorUrlTemplate of ['javascript:alert(1)','https://evil.test/{path}','vscode://{secret}/'])assert.throws(()=>configSchema.parse({...config,editorUrlTemplate}));
-  assert.throws(()=>configSchema.parse({...config,previewPortRange:[21000,20000]}));
+  assert.throws(()=>configSchema.parse({...config,instancePorts:[21000,20000]}));
   const path=join(root,'oversized');await writeFile(path,'x'.repeat(257));await assert.rejects(procText(path,256),/metadata limit/);
 });

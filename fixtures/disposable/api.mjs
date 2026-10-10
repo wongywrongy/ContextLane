@@ -7,4 +7,5 @@ const server = createServer((req, res) => {
   else { res.statusCode = 404; res.end(JSON.stringify({ error: 'Not found' })); }
 });
 server.on('error', error => { console.error(error.message); process.exitCode = 1; });
-server.listen(19481, '127.0.0.1', () => console.info('rootlane-disposable-api ready on 127.0.0.1:19481'));
+const port=Number(process.env.ROOTLANE_PORT??19481);
+server.listen(port, '127.0.0.1', () => console.info(`rootlane-disposable-api ready on 127.0.0.1:${port}`));

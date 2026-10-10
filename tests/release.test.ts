@@ -34,11 +34,11 @@ test('release setup creates private owner files, preserves credentials and rejec
     assert.equal(await readFile(join(directory, 'owner.credential'), 'utf8'), credential);
     await assert.rejects(run(process.execPath, [join(temp, 'deploy/setup.mjs'), join(temp, 'other')], { env }), /different state\/roots/);
     const executable = join(temp, 'bin/node'); await writeFile(executable, '', {mode:0o700});
-    config.observationRoots.push(join(temp, 'other')); config.profiles = [{ services: [{executable}] }];
+    config.toolchains={node:executable,python:executable,venvs:{fixture:join(temp,'venv')}};await mkdir(join(temp,'venv'));config.observationRoots.push(join(temp, 'other')); config.profiles = [{ services: [{executable}] }];
     await writeFile(join(directory, 'config.json'), JSON.stringify(config));
     await run(process.execPath, [join(temp, 'deploy/setup.mjs'), join(temp, 'projects')], { env });
     const override = JSON.parse(await readFile(join(temp, 'compose.override.yaml'), 'utf8'));
-    assert.deepEqual(override.services.rootlane.volumes.map((v: {source:string;read_only:boolean}) => [v.source,v.read_only]), [[join(temp,'other'),true],[join(temp,'bin'),true]]);
+    assert.deepEqual(override.services.rootlane.volumes.map((v: {source:string;read_only:boolean}) => [v.source,v.read_only]), [[temp,true],[join(temp,'other'),true],[join(temp,'venv'),true],[join(temp,'bin'),true]]);
     config.observationRoots.push('/etc'); await writeFile(join(directory,'config.json'),JSON.stringify(config));
     await assert.rejects(run(process.execPath,[join(temp,'deploy/setup.mjs'),join(temp,'projects')],{env}), /Refusing sensitive bind/);
 

@@ -5,7 +5,7 @@ A private, self-hosted workspace for your projects, worktrees, development envir
 - Discover nested projects to depth three and Git worktrees, stopping at repositories and manifests.
 - See observed services, detected Codex/Claude processes, registered agents and known preview links in one place.
 - Publish approved running loopback services through the browser or MCP without owning their processes.
-- Start and stop owner-reviewed environments with logs, proposals and operation history.
+- Start and stop owner-reviewed environments with logs, recipe approval and operation history.
 
 Existing projects are **observe-only**. Rootlane controls only resources it owns.
 
@@ -13,7 +13,7 @@ Existing projects are **observe-only**. Rootlane controls only resources it owns
 
 Requires Linux amd64, Docker Compose 2.15+, Node 24 for setup, a running user-systemd manager and connected Tailscale. Review the host mounts and permissions in the [installation guide](deploy/RELEASE.md) first.
 
-Build the checked-out 0.3.0 source and image as the installation owner:
+Build the checked-out 0.4.0 source and image as the installation owner:
 
 ```sh
 npm ci
@@ -50,23 +50,37 @@ Agent detection uses bounded same-user native and npm Node/Bun process metadata,
 
 ## Preview workflow
 
-The fourteen MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`, `locate`, `propose_preview_target`, `propose_profile`, `list_operations`.
+The thirteen MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`, `locate`, `request_environment`, `list_operations`.
 
 Call `locate {path}` with your absolute working directory first. Check `get_capabilities {}`, list projects, then call `get_project {projectId}` for approved target IDs. Start the approved application separately. Call `publish_preview {targetId, requestId}` with a new UUID; poll `get_preview {previewId}` until its HTTPS forwarding is verified. Remove it with `unpublish_preview {previewId, requestId}`. Retry a timed-out action with its original request ID and payload. Publication changes only the reserved route; unpublishing leaves the application running. Missing or changed routes are reported after restart and never recreated automatically.
 
 The owner approves `previewTargets` independently of launch profiles in private host configuration. See [configuration](docs/ADMINISTRATION.md#independent-preview-targets). Discovery and an observed listener grant no approval. The dashboard loads checkout, service, route and agent details inline through the three-dot button, one project at a time.
 
-## Review proposals and reload
+## Recipes and owner approval
 
-Open a project's Services tab or actions menu to propose a preview target or profile. Copy the unapproved JSON, edit `~/.config/rootlane/config.json` on the host, review its effects and ports, replace every `<CHANGE ME>` value, and set `approved: true` only after review. Rootlane never writes configuration.
+Commit `.rootlane.json` at a Git checkout root. An agent calls `locate` with its cwd, then `request_environment {path, requestId}`. Rootlane returns a resolved review and `approvalUrl`. The owner opens that URL, reviews commands, working directories, environment **names**, ports, readiness and setup hints, and confirms Approve. The agent polls `locate`, starts the returned instance ID and polls `get_environment` until Ready and Available. Agents never approve or edit Rootlane configuration. Approval itself does not launch anything.
+
+Each worktree gets its own deterministic instance ID, service ports, HTTPS ports and private state directory. Approval binds the project's Git common directory, recipe SHA256 and the configured/resolved toolchain paths used by that recipe. Recipe or used-toolchain changes require a new review. Stop and recorded logs remain available after a recipe becomes stale. Existing config-file profiles and independent approved preview targets remain supported.
+
+See [recipe format, secrets and migration](docs/RECIPES.md), including the disposable recipe in `fixtures/disposable/.rootlane.json`.
+
+## Host setup and reload
+
+The owner sets `toolchains` (absolute Node/Python executables and per-project venv directories) and `instancePorts`, for example `[20000,20999]`, in private `config.json`. Missing toolchains return `TOOLCHAIN_MISSING`; repository recipes cannot change this map.
 
 ```sh
-/opt/stacks/rootlane/deploy/rootlane-reload
+node /opt/stacks/rootlane/deploy/setup.mjs /home/OWNER/code
+cd /opt/stacks/rootlane
+docker compose up -d --build --wait
+deploy/preflight-docker
+deploy/rootlane-reload
 ```
 
-Use your installation's absolute path. Reload sends SIGHUP to the container or native user service. Config is also checked every ten seconds; validation failure retains the last valid config and shows its error. Origin, tailnet hostname, state-directory and backend-port changes require a restart. Recorded resources keep their ownership and revision guards.
+Use your installation's absolute paths. Setup preserves existing config and credentials. It generates read-only binds for observation roots, profile executable directories, toolchain executable directories, full venv directories, and the owner's home (so private `~/…` env files can be read). Configuration and state retain their existing dedicated mounts. Paths under `/etc`, `/root`, `/proc`, `/sys` and `/` are refused. Files outside these mounts are unavailable in Docker; keep recipe env files in the owner's home outside observation roots. When mounts or toolchains change, rerun setup and recreate the container before reload.
 
-Setup generates read-only binds in `compose.override.yaml` for observation roots and profile executable directories, refusing `/etc`, `/root`, `/proc`, `/sys` and `/`. If those paths change, rerun setup and `docker compose up -d --build --wait` to apply mounts, then run `deploy/preflight-docker`. Keep the override private. Set `previewPortRange: [20000,20999]` to choose the proposal pool. To enable editor links, set `editorUrlTemplate`, for example `vscode://vscode-remote/ssh-remote+{host}{path}`; without it paths have Copy.
+Reload sends SIGHUP to the container or native user service. Config is also checked every ten seconds; invalid config retains the last valid config and exposes an error. Origin, tailnet hostname, state-directory and backend-port changes require a restart. Rootlane never writes owner config. Settings remains read-only; recipe approval/rejection is the owner review action in Projects.
+
+Set `editorUrlTemplate`, for example `vscode://vscode-remote/ssh-remote+{host}{path}`, to enable editor links; otherwise paths have Copy.
 
 ## Development
 
@@ -83,7 +97,7 @@ Host acceptance is explicitly opt-in and controls only the disposable fixture us
 ROOTLANE_HOST_ACCEPTANCE=1 npm run host:acceptance
 ```
 
-It checks real HTTP start/readiness/HTTPS/logs/stop, locate, proposals, config reload, independent publication and exact Serve restoration. It refuses occupied fixture ports. Second-device preview/HMR, reboot and SSH-disconnect acceptance still require the owner.
+It checks recipe request, owner cookie/CSRF approval (and agent rejection), real HTTP start/readiness/HTTPS/HMR/logs/stop, locate, config reload and exact Serve restoration. Allocation skips occupied ports. Second-device preview/HMR, reboot and SSH-disconnect acceptance still require the owner.
 
 The gate runs TypeScript checks, builds the UI/backend and tests lifecycle, discovery, authentication and MCP behavior. SQLite uses `better-sqlite3`; source builds may require Python, make and a C++ compiler.
 

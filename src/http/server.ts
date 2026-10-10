@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { Rootlane } from '../service.js';
-import { toolContracts, problem, Problem, type ToolName } from '../shared/contracts.js';
+import { approvalsOutput, toolContracts, problem, Problem, type ToolName } from '../shared/contracts.js';
 const equal = (a: string, b: string) => Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const loginSchema = z.strictObject({ credential: z.string().min(1).max(256) });
 export async function createServer(config: Config, service: Rootlane, credentials: { owner: string; agent: string }, webRoot?: string) {
@@ -39,6 +39,7 @@ export async function createServer(config: Config, service: Rootlane, credential
     if (!path?.startsWith('/api/')) return;
     const auth = request.headers.authorization;
     if (auth !== undefined) {
+      if(path.startsWith('/api/approvals'))return reply.code(403).send({code:'OWNER_SESSION_REQUIRED',message:'Approvals require an owner cookie session and CSRF'});
       if (request.ip !== '127.0.0.1' || !equal(auth, `Bearer ${credentials.agent}`)) return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Valid loopback agent credential required' });
       return;
     }
@@ -65,6 +66,8 @@ export async function createServer(config: Config, service: Rootlane, credential
   });
   app.get('/api/session', async request => ({ csrf: session(request.headers.cookie)?.csrf ?? null }));
   app.get('/api/status', async () => ({ connected: true, editorUrlTemplate: config.editorUrlTemplate ?? null, projectRoots: service.catalog.config.projectRoots, observationRoots: service.catalog.config.observationRoots, lifecycleAvailable: !service.reconciling, reconciling: service.reconciling, lastError: service.lastError, configError: service.configError, tailscale: await service.lifecycle.host.connection(), observedAt: new Date().toISOString() }));
+  app.get('/api/approvals',async()=>approvalsOutput.parse({approvals:await service.recipes.listApprovals()}));
+  for(const action of ['approve','reject'] as const)app.post(`/api/approvals/:id/${action}`,async request=>{const approvalId=z.strictObject({id:z.uuid()}).parse(request.params).id;z.strictObject({}).parse(request.body);return service.recipes.decide(approvalId,action==='approve');});
   for (const name of Object.keys(toolContracts) as ToolName[]) app.post(`/api/tools/${name}`, async request => service.call(name, request.body));
   if (webRoot) {
     const index = await readFile(join(webRoot, 'index.html'));

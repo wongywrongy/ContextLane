@@ -76,7 +76,7 @@ export class LinuxHost implements Host {
   async startUnit(unit: Unit, service: Service) {
     await access(service.executable, constants.X_OK);
     if (await this.inspectUnit(unit.name)) throw new Problem('OWNERSHIP_CONFLICT', `Unit ${unit.name} already exists`);
-    await command('systemd-run', ['--user', '--no-ask-password', '--quiet', `--unit=${unit.name}`, `--description=${unit.marker}`, '--service-type=exec', '--expand-environment=no', `--working-directory=${service.cwd.replaceAll('%', '%%')}`, '--property=KillMode=control-group', '--property=TimeoutStopSec=10s', '--property=Restart=no', '--property=StandardOutput=journal', '--property=StandardError=journal', '--', service.executable, ...service.args]);
+    await command('systemd-run', ['--user', '--no-ask-password', '--quiet', `--unit=${unit.name}`, `--description=${unit.marker}`, '--service-type=exec', '--expand-environment=no', `--working-directory=${service.cwd.replaceAll('%', '%%')}`, '--property=KillMode=control-group', '--property=TimeoutStopSec=10s', '--property=Restart=no', '--property=StandardOutput=journal', '--property=StandardError=journal', ...Object.entries(service.env ?? {}).map(([key,value])=>`--setenv=${key}=${value}`), '--', service.executable, ...service.args]);
   }
   async stopUnit(unit: Unit) {
     const current = await this.inspectUnit(unit.name); if (!current) return;
@@ -111,7 +111,7 @@ export class LinuxHost implements Host {
   routeState = routeState;
   addRoute(route: Preview) { return this.serve.change(route, false); }
   removeRoute(route: Preview) { return this.serve.change(route, true); }
-  async logs(unit: Unit, cursor: string | undefined, limit: number) {
+  async logs(unit: Unit, cursor: string | undefined, limit: number, redact=(value:string)=>value) {
     if (!unit.invocation) return { lines: [], nextCursor: null, truncated: false };
     const args = ['--user', '--no-pager', '--output=json', '--output-fields=MESSAGE,__CURSOR', `--unit=${unit.name}`, `_SYSTEMD_INVOCATION_ID=${unit.invocation}`, `--lines=${limit + 1}`];
     if (cursor) args.push(`--after-cursor=${cursor}`);
@@ -119,7 +119,7 @@ export class LinuxHost implements Host {
     const entries = output.trim().split('\n').filter(Boolean).slice(0,1024).map(s => JSON.parse(s) as { MESSAGE?: unknown; __CURSOR?: string });
     // Journal tails are bounded; callers get a cursor for subsequent output, not historical replay.
     const selected = entries.slice(-limit);
-    return { lines: selected.map(e => typeof e.MESSAGE === 'string' ? e.MESSAGE.slice(0, 2048) : '[non-text journal entry]'), nextCursor: selected.at(-1)?.__CURSOR ?? null, truncated: entries.length > limit || selected.some(e => typeof e.MESSAGE === 'string' && e.MESSAGE.length > 2048) };
+    return { lines: selected.map(e => typeof e.MESSAGE === 'string' ? redact(e.MESSAGE).slice(0, 2048) : '[non-text journal entry]'), nextCursor: selected.at(-1)?.__CURSOR ?? null, truncated: entries.length > limit || selected.some(e => typeof e.MESSAGE === 'string' && e.MESSAGE.length > 2048) };
   }
   private connectionCache: {expires:number; value:{status:'connected'|'unavailable';hostname:string|null}} | null = null;
   async connection(): Promise<{ status: 'connected' | 'unavailable'; hostname: string | null }> {

@@ -11,6 +11,7 @@ import type { Host, Listener, AgentObservation } from '../host/types.js';
 export function loopbackPort(proxy?: string) { try { const url = new URL(proxy ?? ''); return url.protocol === 'http:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname) && url.pathname === '/' && !url.search && !url.hash && !url.username && !url.password ? Number(url.port || 80) : null; } catch { return null; } }
 const manifests = ['package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'go.mod', 'web/package.json', 'frontend/package.json', 'apps/api/pyproject.toml'];
 export class Catalog {
+  enrich:((project:Project)=>Promise<void>)|undefined;
   private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
   private snapshots = new Map<string, NonNullable<Catalog['cached']>>();
   private slowPaths: {expires:number; paths:string[]; warnings:string[]} | null = null;
@@ -191,6 +192,7 @@ export class Catalog {
     for (const project of projects) project.worktrees = projects.filter(p => p.path === project.path || (project.gitCommonDir !== null && p.gitCommonDir === project.gitCommonDir)).map(p => ({ name: p.name, path: p.path, branch: p.branch, git:p.git, ...(p.detachedSha ? { detachedSha: p.detachedSha } : {}), ports: p.runtime.ports }));
     if (unassigned) warnings.push(`${unassigned} detected agent process${unassigned === 1 ? '' : 'es'} unassigned to a known project`);
     if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
+    if(this.enrich)for(let offset=0;offset<projects.length;offset+=4)await Promise.all(projects.slice(offset,offset+4).map(p=>this.enrich!(p)));
     return { projects, warnings: warnings.slice(0, 50), observedAt: new Date(Math.max(Date.now(), this.cached ? Date.parse(this.cached.observedAt)+1 : 0)).toISOString(), expires: Date.now() + 5000 };
   }
 }

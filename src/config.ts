@@ -12,7 +12,8 @@ export type PreviewTarget = z.infer<typeof previewTargetSchema>;
 const service = z.strictObject({
   id, cwd: absolute, executable: absolute, args: z.array(z.string().max(4096).refine(v => !v.includes('\0'))).max(100),
   port, dependencies: z.array(id).max(16).default([]),
-  readiness
+  readiness,
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(16384).refine(v => !v.includes("\0"))).optional()
 });
 export const profileSchema = z.strictObject({
   id, projectPath: absolute, approved: z.literal(true), effects: z.string().min(1).max(1000),
@@ -26,8 +27,11 @@ export const configSchema = z.strictObject({
   origin, additionalOrigins: z.array(origin).max(4).optional(),
   tailnetHostname: z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/),
   previewTargets: z.array(previewTargetSchema).max(50).default([]),
-  editorUrlTemplate: z.string().max(4096).refine(value => { try { const url = new URL(value.replaceAll('{host}','host').replaceAll('{path}','/path')); return ['vscode:','vscode-insiders:','cursor:','zed:','jetbrains:'].includes(url.protocol) && !/[\r\n\0]/.test(value) && !/\{(?!host\}|path\})/.test(value); } catch { return false; } }, 'Use an approved editor scheme and {host}/{path} placeholders').optional(),
+  toolchains: z.strictObject({ node: absolute.optional(), python: absolute.optional(), venvs: z.record(z.string().max(4096), absolute).default({}) }).default({venvs:{}}),
+  instancePorts: z.tuple([port,port]).default([20000,20999]).refine(([min,max]) => min <= max && max-min < 1000),
+  // Accepted for older owner configs; recipes allocate from instancePorts.
   previewPortRange: z.tuple([port,port]).default([20000,20999]).refine(([min,max]) => min <= max && max-min < 1000),
+  editorUrlTemplate: z.string().max(4096).refine(value => { try { const url = new URL(value.replaceAll('{host}','host').replaceAll('{path}','/path')); return ['vscode:','vscode-insiders:','cursor:','zed:','jetbrains:'].includes(url.protocol) && !/[\r\n\0]/.test(value) && !/\{(?!host\}|path\})/.test(value); } catch { return false; } }, 'Use an approved editor scheme and {host}/{path} placeholders').optional(),
   profiles: z.array(profileSchema).max(50).default([]),
   projects: z.array(z.strictObject({ path: absolute, links: z.array(link).max(20).default([]), agents: z.array(z.strictObject({ name: z.string().min(1).max(100) })).max(20).default([]) })).max(200).default([])
 });

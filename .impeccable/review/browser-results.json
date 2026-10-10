@@ -267,6 +267,30 @@
       "smallControls": []
     },
     {
+      "surface": "Approval",
+      "width": 320,
+      "overflow": false,
+      "tableOverflow": false,
+      "unlabeledCells": 0,
+      "smallControls": []
+    },
+    {
+      "surface": "Approval",
+      "width": 390,
+      "overflow": false,
+      "tableOverflow": false,
+      "unlabeledCells": 0,
+      "smallControls": []
+    },
+    {
+      "surface": "Approval",
+      "width": 430,
+      "overflow": false,
+      "tableOverflow": false,
+      "unlabeledCells": 0,
+      "smallControls": []
+    },
+    {
       "surface": "Settings",
       "width": 320,
       "overflow": false,
@@ -360,12 +384,17 @@
     {
       "path": "/api/session",
       "payload": {},
-      "at": 1791603965625
+      "at": 1791608906188
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608906193
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603965629
+      "at": 1791608906194
     },
     {
       "path": "/api/tools/list_projects",
@@ -373,12 +402,17 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603965629
+      "at": 1791608906194
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608907194
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603966638
+      "at": 1791608907195
     },
     {
       "path": "/api/tools/list_projects",
@@ -386,12 +420,17 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603966638
+      "at": 1791608907195
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608908234
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603967829
+      "at": 1791608908234
     },
     {
       "path": "/api/tools/list_projects",
@@ -399,28 +438,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603967829
+      "at": 1791608908234
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603967967
+      "at": 1791608908249
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603967968
+      "at": 1791608908250
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603967975
+      "at": 1791608908366
     },
     {
       "path": "/api/tools/list_operations",
@@ -428,7 +467,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603967978
+      "at": 1791608908374
     },
     {
       "path": "/api/tools/list_operations",
@@ -436,20 +475,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603967978
+      "at": 1791608908374
     },
     {
-      "path": "/api/tools/propose_preview_target",
-      "payload": {
-        "checkoutId": "p0",
-        "port": 3000
-      },
-      "at": 1791603972562
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608912194
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603972708
+      "at": 1791608912194
     },
     {
       "path": "/api/tools/list_projects",
@@ -457,28 +493,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603972709
+      "at": 1791608912194
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603972716
+      "at": 1791608912305
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603972717
+      "at": 1791608912305
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603972720
+      "at": 1791608912310
     },
     {
       "path": "/api/tools/list_operations",
@@ -486,7 +522,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603972723
+      "at": 1791608912313
     },
     {
       "path": "/api/tools/list_operations",
@@ -494,7 +530,240 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603972723
+      "at": 1791608912313
+    },
+    {
+      "path": "/api/tools/request_environment",
+      "payload": {
+        "path": "/code/long-checkout-path/0",
+        "requestId": "beaeff57-59be-454b-b6a8-7144168ab151"
+      },
+      "at": 1791608912901
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608912917
+    },
+    {
+      "path": "/api/status",
+      "payload": {},
+      "at": 1791608912917
+    },
+    {
+      "path": "/api/tools/list_projects",
+      "payload": {
+        "cursor": 0,
+        "limit": 50
+      },
+      "at": 1791608912917
+    },
+    {
+      "path": "/api/tools/get_environment",
+      "payload": {
+        "environmentId": "env"
+      },
+      "at": 1791608912932
+    },
+    {
+      "path": "/api/tools/get_preview",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc"
+      },
+      "at": 1791608912933
+    },
+    {
+      "path": "/api/tools/get_project",
+      "payload": {
+        "projectId": "p0"
+      },
+      "at": 1791608912938
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "environmentId": "env",
+        "limit": 20
+      },
+      "at": 1791608912950
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc",
+        "limit": 20
+      },
+      "at": 1791608912950
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608914057
+    },
+    {
+      "path": "/api/status",
+      "payload": {},
+      "at": 1791608914058
+    },
+    {
+      "path": "/api/tools/list_projects",
+      "payload": {
+        "cursor": 0,
+        "limit": 50
+      },
+      "at": 1791608914058
+    },
+    {
+      "path": "/api/tools/get_environment",
+      "payload": {
+        "environmentId": "env"
+      },
+      "at": 1791608914064
+    },
+    {
+      "path": "/api/tools/get_preview",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc"
+      },
+      "at": 1791608914064
+    },
+    {
+      "path": "/api/tools/get_project",
+      "payload": {
+        "projectId": "p0"
+      },
+      "at": 1791608914067
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "environmentId": "env",
+        "limit": 20
+      },
+      "at": 1791608914075
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc",
+        "limit": 20
+      },
+      "at": 1791608914075
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608914172
+    },
+    {
+      "path": "/api/status",
+      "payload": {},
+      "at": 1791608914172
+    },
+    {
+      "path": "/api/tools/list_projects",
+      "payload": {
+        "cursor": 0,
+        "limit": 50
+      },
+      "at": 1791608914173
+    },
+    {
+      "path": "/api/tools/get_environment",
+      "payload": {
+        "environmentId": "env"
+      },
+      "at": 1791608914179
+    },
+    {
+      "path": "/api/tools/get_preview",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc"
+      },
+      "at": 1791608914179
+    },
+    {
+      "path": "/api/tools/get_project",
+      "payload": {
+        "projectId": "p0"
+      },
+      "at": 1791608914182
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "environmentId": "env",
+        "limit": 20
+      },
+      "at": 1791608914190
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc",
+        "limit": 20
+      },
+      "at": 1791608914190
+    },
+    {
+      "path": "/api/approvals/12345678-1234-4234-8234-123456789abc/approve",
+      "payload": {},
+      "at": 1791608914230
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608914311
+    },
+    {
+      "path": "/api/status",
+      "payload": {},
+      "at": 1791608914311
+    },
+    {
+      "path": "/api/tools/list_projects",
+      "payload": {
+        "cursor": 0,
+        "limit": 50
+      },
+      "at": 1791608914311
+    },
+    {
+      "path": "/api/tools/get_environment",
+      "payload": {
+        "environmentId": "env"
+      },
+      "at": 1791608914318
+    },
+    {
+      "path": "/api/tools/get_preview",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc"
+      },
+      "at": 1791608914318
+    },
+    {
+      "path": "/api/tools/get_project",
+      "payload": {
+        "projectId": "p0"
+      },
+      "at": 1791608914426
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "environmentId": "env",
+        "limit": 20
+      },
+      "at": 1791608914436
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc",
+        "limit": 20
+      },
+      "at": 1791608914436
     },
     {
       "path": "/api/tools/get_logs",
@@ -503,7 +772,7 @@
         "serviceId": "web",
         "limit": 50
       },
-      "at": 1791603973346
+      "at": 1791608914480
     },
     {
       "path": "/api/tools/get_logs",
@@ -512,20 +781,25 @@
         "serviceId": "web",
         "limit": 50
       },
-      "at": 1791603973564
+      "at": 1791608914942
     },
     {
       "path": "/api/tools/stop_environment",
       "payload": {
         "environmentId": "env",
-        "requestId": "6abf7e31-d79c-40d9-b637-bcc80235c1fe"
+        "requestId": "4ad273a7-cc77-4706-8ab1-3641b9f901db"
       },
-      "at": 1791603973622
+      "at": 1791608914999
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915006
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603973628
+      "at": 1791608915006
     },
     {
       "path": "/api/tools/list_projects",
@@ -533,36 +807,91 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603973628
+      "at": 1791608915006
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603973631
+      "at": 1791608915012
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603973631
+      "at": 1791608915012
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603973711
+      "at": 1791608915022
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "environmentId": "env",
+        "limit": 20
+      },
+      "at": 1791608915027
+    },
+    {
+      "path": "/api/tools/list_operations",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc",
+        "limit": 20
+      },
+      "at": 1791608915027
     },
     {
       "path": "/api/tools/stop_environment",
       "payload": {
         "environmentId": "env",
-        "requestId": "6abf7e31-d79c-40d9-b637-bcc80235c1fe"
+        "requestId": "4ad273a7-cc77-4706-8ab1-3641b9f901db"
       },
-      "at": 1791603973715
+      "at": 1791608915101
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915225
+    },
+    {
+      "path": "/api/status",
+      "payload": {},
+      "at": 1791608915226
+    },
+    {
+      "path": "/api/tools/list_projects",
+      "payload": {
+        "cursor": 0,
+        "limit": 50
+      },
+      "at": 1791608915226
+    },
+    {
+      "path": "/api/tools/get_environment",
+      "payload": {
+        "environmentId": "env"
+      },
+      "at": 1791608915231
+    },
+    {
+      "path": "/api/tools/get_preview",
+      "payload": {
+        "previewId": "12345678-1234-4234-8234-123456789abc"
+      },
+      "at": 1791608915231
+    },
+    {
+      "path": "/api/tools/get_project",
+      "payload": {
+        "projectId": "p0"
+      },
+      "at": 1791608915242
     },
     {
       "path": "/api/tools/list_operations",
@@ -570,7 +899,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603973720
+      "at": 1791608915246
     },
     {
       "path": "/api/tools/list_operations",
@@ -578,12 +907,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603973720
+      "at": 1791608915246
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915250
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603973731
+      "at": 1791608915250
     },
     {
       "path": "/api/tools/list_projects",
@@ -591,28 +925,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603973732
+      "at": 1791608915250
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603973736
+      "at": 1791608915254
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603973736
+      "at": 1791608915254
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603973739
+      "at": 1791608915257
     },
     {
       "path": "/api/tools/list_operations",
@@ -620,7 +954,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603973839
+      "at": 1791608915259
     },
     {
       "path": "/api/tools/list_operations",
@@ -628,12 +962,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603973841
+      "at": 1791608915260
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915275
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603973843
+      "at": 1791608915275
     },
     {
       "path": "/api/tools/list_projects",
@@ -641,33 +980,38 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603973844
+      "at": 1791608915275
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603973848
+      "at": 1791608915281
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603973848
+      "at": 1791608915281
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603973850
+      "at": 1791608915284
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915358
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603973897
+      "at": 1791608915359
     },
     {
       "path": "/api/tools/list_projects",
@@ -675,28 +1019,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603973898
+      "at": 1791608915359
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603973905
+      "at": 1791608915363
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603973905
+      "at": 1791608915363
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603973909
+      "at": 1791608915365
     },
     {
       "path": "/api/tools/list_operations",
@@ -704,7 +1048,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603973921
+      "at": 1791608915368
     },
     {
       "path": "/api/tools/list_operations",
@@ -712,12 +1056,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603973921
+      "at": 1791608915368
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915514
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603974042
+      "at": 1791608915514
     },
     {
       "path": "/api/tools/list_projects",
@@ -725,28 +1074,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603974043
+      "at": 1791608915514
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603974049
+      "at": 1791608915522
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603974049
+      "at": 1791608915522
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603974052
+      "at": 1791608915524
     },
     {
       "path": "/api/tools/list_operations",
@@ -754,7 +1103,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603974174
+      "at": 1791608915529
     },
     {
       "path": "/api/tools/list_operations",
@@ -762,12 +1111,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603974174
+      "at": 1791608915529
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608915718
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603974325
+      "at": 1791608915718
     },
     {
       "path": "/api/tools/list_projects",
@@ -775,28 +1129,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603974325
+      "at": 1791608915718
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603974727
+      "at": 1791608916123
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603974728
+      "at": 1791608916123
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603974730
+      "at": 1791608916127
     },
     {
       "path": "/api/tools/list_operations",
@@ -804,7 +1158,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603974733
+      "at": 1791608916130
     },
     {
       "path": "/api/tools/list_operations",
@@ -812,12 +1166,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603974733
+      "at": 1791608916130
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608916134
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603974736
+      "at": 1791608916134
     },
     {
       "path": "/api/tools/list_projects",
@@ -825,28 +1184,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603974737
+      "at": 1791608916134
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603975139
+      "at": 1791608916538
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603975139
+      "at": 1791608916539
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603975141
+      "at": 1791608916543
     },
     {
       "path": "/api/tools/list_operations",
@@ -854,7 +1213,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603975143
+      "at": 1791608916547
     },
     {
       "path": "/api/tools/list_operations",
@@ -862,12 +1221,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603975143
+      "at": 1791608916547
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608917321
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603975928
+      "at": 1791608917322
     },
     {
       "path": "/api/tools/list_projects",
@@ -875,28 +1239,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603975928
+      "at": 1791608917322
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603975934
+      "at": 1791608917330
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603975934
+      "at": 1791608917330
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603975948
+      "at": 1791608917341
     },
     {
       "path": "/api/tools/list_operations",
@@ -904,7 +1268,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603975951
+      "at": 1791608917345
     },
     {
       "path": "/api/tools/list_operations",
@@ -912,12 +1276,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603975951
+      "at": 1791608917345
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608917374
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603975981
+      "at": 1791608917375
     },
     {
       "path": "/api/tools/list_projects",
@@ -925,33 +1294,38 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603975981
+      "at": 1791608917375
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603975982
+      "at": 1791608917376
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603975982
+      "at": 1791608917376
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603975984
+      "at": 1791608917380
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608917477
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603976034
+      "at": 1791608917477
     },
     {
       "path": "/api/tools/list_projects",
@@ -959,28 +1333,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603976034
+      "at": 1791608917477
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603976037
+      "at": 1791608917485
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603976037
+      "at": 1791608917485
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603976043
+      "at": 1791608917497
     },
     {
       "path": "/api/tools/list_operations",
@@ -988,7 +1362,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603976048
+      "at": 1791608917500
     },
     {
       "path": "/api/tools/list_operations",
@@ -996,12 +1370,17 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603976048
+      "at": 1791608917501
+    },
+    {
+      "path": "/api/approvals",
+      "payload": {},
+      "at": 1791608919053
     },
     {
       "path": "/api/status",
       "payload": {},
-      "at": 1791603977523
+      "at": 1791608919053
     },
     {
       "path": "/api/tools/list_projects",
@@ -1009,28 +1388,28 @@
         "cursor": 0,
         "limit": 50
       },
-      "at": 1791603977523
+      "at": 1791608919053
     },
     {
       "path": "/api/tools/get_environment",
       "payload": {
         "environmentId": "env"
       },
-      "at": 1791603977536
+      "at": 1791608919059
     },
     {
       "path": "/api/tools/get_preview",
       "payload": {
         "previewId": "12345678-1234-4234-8234-123456789abc"
       },
-      "at": 1791603977536
+      "at": 1791608919059
     },
     {
       "path": "/api/tools/get_project",
       "payload": {
         "projectId": "p0"
       },
-      "at": 1791603977541
+      "at": 1791608919062
     },
     {
       "path": "/api/tools/list_operations",
@@ -1038,7 +1417,7 @@
         "environmentId": "env",
         "limit": 20
       },
-      "at": 1791603977552
+      "at": 1791608919065
     },
     {
       "path": "/api/tools/list_operations",
@@ -1046,12 +1425,12 @@
         "previewId": "12345678-1234-4234-8234-123456789abc",
         "limit": 20
       },
-      "at": 1791603977552
+      "at": 1791608919065
     },
     {
       "path": "/api/session",
       "payload": {},
-      "at": 1791603977751
+      "at": 1791608919383
     }
   ],
   "consoleErrors": []

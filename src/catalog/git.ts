@@ -16,7 +16,7 @@ export async function devCommand(path: string): Promise<Project['devCommand']> {
   try {
     const value = JSON.parse(await procText(join(path,'package.json'),65536));
     const command = value.scripts?.dev;
-    // Only a small, literal allowlist becomes a proposal; package scripts are never executed.
+    // Recognize only literal dev commands; discovery never executes package scripts.
     const match = typeof command === 'string' ? command.match(/^(vite|next dev|nuxt dev|astro dev|webpack serve)(?: --host 127\.0\.0\.1)?$/) : null;
     return match ? match[1] as Project['devCommand'] : undefined;
   } catch { return undefined; }

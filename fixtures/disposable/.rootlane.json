@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "services": [
+    {"id":"api","cwd":".","command":["{node}","api.mjs"],"readiness":{"path":"/health","status":200,"bodyIncludes":"rootlane-disposable-api"}},
+    {"id":"web","cwd":".","command":["{node}","node_modules/vite/bin/vite.js","--config","vite.config.mjs"],"dependencies":["api"],"env":{"API_URL":"http://127.0.0.1:{port:api}"},"readiness":{"path":"/","status":200,"bodyIncludes":"rootlane-disposable-frontend"}}
+  ],
+  "previews":[{"serviceId":"web","label":"Disposable acceptance preview"}],
+  "setup":["Install Node dependencies before requesting the environment."]
+}

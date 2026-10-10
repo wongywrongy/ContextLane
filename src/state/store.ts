@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import type { Profile, PreviewTarget } from '../config.js';
 import { revision } from '../config.js';
 import { Problem, type Operation, type PreviewOperation } from '../shared/contracts.js';
@@ -10,7 +10,7 @@ export interface EnvironmentRow { id: string; revision: string; observation: str
 export interface Resource { id: string; environment: string; operation: string; kind: 'unit' | 'route'; data: string; attempted: number; removed: number; ordinal: number }
 export type Observation = { projectPath: string; effects: string; dataRequirements: string; services: { id: string; port: number; readiness: Profile['services'][number]['readiness'] }[]; previews: Profile['previews'] };
 export interface PreviewRow { id: string; targetId: string; revision: string; target: string; route: string; attempted: number; removed: number; desired: 'published' | 'removed' }
-const migrations = ['001_initial.sql', '002_previews.sql'];
+const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql'];
 export class Store {
   readonly db: Database.Database;
   readonly installation: string;
@@ -66,6 +66,7 @@ export class Store {
     return [...lifecycle,...previews].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,limit);
   }
   retry(environmentId: string, action: 'start' | 'stop', requestId: string) {
+    if(this.db.prepare('SELECT id FROM recipe_requests WHERE id=?').get(requestId))throw new Problem('REQUEST_ID_REUSED','requestId belongs to an environment request');
     const prior = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; operation: string } | undefined;
     if (!prior) return null;
     if (prior.payload !== JSON.stringify({ environmentId, action })) throw new Problem('REQUEST_ID_REUSED', 'requestId already belongs to another action');
@@ -99,16 +100,16 @@ export class Store {
         const id = randomUUID();
         this.db.prepare('INSERT INTO resources (id, environment, operation, kind, data, ordinal) VALUES (?, ?, ?, ?, ?, ?)').run(id, profile.id, opId, item.kind, JSON.stringify(item.data), ordinal);
         for (const key of item.keys) {
-          const conflict = this.db.prepare('SELECT COALESCE(r.environment,p.targetId) AS environment FROM reservations v LEFT JOIN resources r ON r.id=v.resource LEFT JOIN previews p ON p.id=v.preview WHERE v.key=?').get(key) as { environment: string } | undefined;
-          if (conflict) throw new Problem('RESOURCE_CONFLICT', `${key} is reserved by ${conflict.environment}`);
-          this.db.prepare('INSERT INTO reservations (key,resource) VALUES (?, ?)').run(key, id);
+          const conflict = this.db.prepare('SELECT COALESCE(r.environment,p.targetId,v.instance) AS environment,v.instance FROM reservations v LEFT JOIN resources r ON r.id=v.resource LEFT JOIN previews p ON p.id=v.preview WHERE v.key=?').get(key) as { environment: string;instance:string|null } | undefined;
+          if (conflict && conflict.instance !== profile.id) throw new Problem('RESOURCE_CONFLICT', `${key} is reserved by ${conflict.environment}`);
+          this.db.prepare('INSERT INTO reservations (key,resource) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET resource=excluded.resource,instance=NULL').run(key, id);
         }
       });
     }).immediate();
   }
   attempted(id: string, value = 1) { this.db.prepare('UPDATE resources SET attempted=? WHERE id=?').run(value, id); }
   updateData(id: string, data: Unit | Preview) { this.db.prepare('UPDATE resources SET data=? WHERE id=?').run(JSON.stringify(data), id); }
-  release(id: string) { this.db.transaction(() => { this.db.prepare('DELETE FROM reservations WHERE resource=?').run(id); this.db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(id); })(); }
+  release(id: string) { this.db.transaction(() => { const row=this.db.prepare('SELECT environment FROM resources WHERE id=?').get(id) as {environment:string}; if(this.db.prepare('SELECT id FROM instances WHERE id=?').get(row.environment)) this.db.prepare("UPDATE reservations SET instance=?,resource=NULL WHERE resource=? AND key LIKE 'tcp:%'").run(row.environment,id); this.db.prepare('DELETE FROM reservations WHERE resource=?').run(id); this.db.prepare('UPDATE resources SET removed=1 WHERE id=?').run(id); })(); }
   saveLogs(id: string, lines: string[]) { this.db.prepare('INSERT INTO failure_logs VALUES (?, ?) ON CONFLICT(resource) DO UPDATE SET lines=excluded.lines').run(id, JSON.stringify(lines.slice(-100).map(l => l.slice(0, 2048)))); }
   savedLogs(id: string): string[] { const row = this.db.prepare('SELECT lines FROM failure_logs WHERE resource=?').get(id) as { lines: string } | undefined; return row ? JSON.parse(row.lines) : []; }
   previews() { return this.db.prepare('SELECT * FROM previews ORDER BY rowid').all() as PreviewRow[]; }
@@ -122,6 +123,7 @@ export class Store {
     return row ? this.previewOperation(row.id) : null;
   }
   retryPreview(payload: string, requestId: string) {
+    if(this.db.prepare('SELECT id FROM recipe_requests WHERE id=?').get(requestId))throw new Problem('REQUEST_ID_REUSED','requestId belongs to an environment request');
     const row = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; previewOperation: string | null } | undefined;
     if (!row) return null;
     if (row.payload !== payload || !row.previewOperation) throw new Problem('REQUEST_ID_REUSED', 'requestId already belongs to another action');
@@ -158,5 +160,26 @@ export class Store {
   releasePreview(id: string) {
     this.db.transaction(() => { this.db.prepare('DELETE FROM reservations WHERE preview=?').run(id); this.db.prepare('UPDATE previews SET removed=1 WHERE id=?').run(id); })();
   }
+  saveRedactions(environment: string, values: string[]) {
+    // Encrypt restart-safe journal redaction material separately from approval previews.
+    let key=this.meta('redactionKey'); if(!key){key=randomBytes(32).toString('hex');this.setMeta('redactionKey',key);}
+    const history=JSON.stringify([...new Set([...this.redactionValues(environment),...values])]);
+    if(Buffer.byteLength(history)>2*1024*1024)throw new Problem('ENV_HISTORY_LIMIT','Environment redaction history is full; owner inspection required');
+    const nonce=randomBytes(12),cipher=createCipheriv('aes-256-gcm',Buffer.from(key,'hex'),nonce);
+    const data=Buffer.concat([cipher.update(history,'utf8'),cipher.final()]);
+    this.setMeta(`redactions:${environment}`,JSON.stringify([nonce.toString('hex'),cipher.getAuthTag().toString('hex'),data.toString('hex')]));
+  }
+  private redactionValues(environment:string):string[] {
+    const stored=this.meta(`redactions:${environment}`);if(!stored)return [];
+    const [nonce,tag,data]=JSON.parse(stored) as string[];
+    const cipher=createDecipheriv('aes-256-gcm',Buffer.from(this.meta('redactionKey')!,'hex'),Buffer.from(nonce!,'hex'));cipher.setAuthTag(Buffer.from(tag!,'hex'));
+    const values=JSON.parse(Buffer.concat([cipher.update(Buffer.from(data!,'hex')),cipher.final()]).toString('utf8')) as string[];
+    return values;
+  }
+  redactor(environment:string) {
+    const values=this.redactionValues(environment).filter(Boolean).sort((a,b)=>b.length-a.length);
+    return (line:string)=>values.reduce((value,secret)=>value.replaceAll(secret,'[redacted]'),line);
+  }
+  redact(environment:string,lines:string[]) {return lines.map(this.redactor(environment));}
   close() { this.db.close(); }
 }

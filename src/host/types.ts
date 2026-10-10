@@ -20,6 +20,6 @@ export interface Host {
   routeState(config: unknown, route: Preview): 'absent' | 'matching' | 'conflict';
   addRoute(route: Preview): Promise<void>;
   removeRoute(route: Preview): Promise<void>;
-  logs(unit: Unit, cursor: string | undefined, limit: number): Promise<LogPage>;
+  logs(unit: Unit, cursor: string | undefined, limit: number, redact?: (value:string)=>string): Promise<LogPage>;
   connection(): Promise<{ status: 'connected' | 'unavailable'; hostname: string | null }>;
 }

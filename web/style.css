@@ -279,13 +279,9 @@ h1,h2,h3,h4,p{overflow-wrap:anywhere}
 .copy-path { border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; padding: 2px 5px; }
 .dbar > .icon { margin-left: auto; }
 .is-open > .dbar > .icon { transform: rotate(180deg); }
-.proposal { margin-bottom: 20px; }
-.proposal li { margin: 8px 0; }
 
 .operation-status { margin: 0; padding: 8px 24px; color: var(--text-2); border-top: 1px solid var(--stroke); }
 
-.proposal { scroll-margin-top: 100px; }
-@media (max-width:760px) { .proposal { scroll-margin-top: 192px; } }
 
 /* Phone layouts preserve the observation fields without sideways reading. */
 .agent-label{display:contents}
@@ -312,8 +308,8 @@ h1,h2,h3,h4,p{overflow-wrap:anywhere}
  .kv,.settings-boxes .kv{gap:6px;margin-bottom:0}.kv dd{margin-bottom:12px;line-height:1.6}.kv dd:last-child{margin-bottom:0}.box{padding:16px}.box h4{flex-wrap:wrap;gap:8px}.settings-boxes .box{padding:16px}.settings-nav{margin:20px 0}.grid-2{gap:12px}
  .term{font-size:11px;padding:12px;overflow-wrap:anywhere;max-height:320px}.logs h4,.environment h3{overflow-wrap:anywhere}.environment-actions{gap:8px}.environment-actions>.btn{flex:1 1 140px}.environment-actions>span{min-width:0;overflow-wrap:anywhere}
  .ev{grid-template-columns:72px minmax(0,1fr);gap:6px 10px;padding:12px 0;border-bottom:1px solid var(--stroke)}.ev>.chip,.ev>.icon{justify-self:start}.ev>div{grid-column:1/-1;overflow-wrap:anywhere;line-height:1.6}.ev:last-child{border-bottom:0}
- .notice,.operation-status{overflow-wrap:anywhere;line-height:1.6}.operation-status{padding:12px 16px}.notice summary{min-height:44px;padding-block:10px}.notice ul,.proposal ol,.mcp-troubleshooting ul{padding-left:20px}.pagination{gap:12px;flex-wrap:wrap}
- .proposal{scroll-margin-top:200px}.proposal h3{margin-top:0}.proposal .term{margin-top:12px}.mcp-setup>section,.mcp-clients>section{padding:16px}.setup-command .toolbar{align-items:center}.setup-command .toolbar button{min-height:44px;flex-shrink:0}.setup-command pre{font-size:11px;padding:12px}.mcp-setup p{font-size:14px}.mcp-tools td:first-child{white-space:normal}.mcp-troubleshooting summary{min-height:44px;line-height:1.6}.mcp-setup a{display:inline-block;padding-block:6px;overflow-wrap:anywhere}
+ .notice,.operation-status{overflow-wrap:anywhere;line-height:1.6}.operation-status{padding:12px 16px}.notice summary{min-height:44px;padding-block:10px}.notice ul,.mcp-troubleshooting ul{padding-left:20px}.pagination{gap:12px;flex-wrap:wrap}
+ .mcp-setup>section,.mcp-clients>section{padding:16px}.setup-command .toolbar{align-items:center}.setup-command .toolbar button{min-height:44px;flex-shrink:0}.setup-command pre{font-size:11px;padding:12px}.mcp-setup p{font-size:14px}.mcp-tools td:first-child{white-space:normal}.mcp-troubleshooting summary{min-height:44px;line-height:1.6}.mcp-setup a{display:inline-block;padding-block:6px;overflow-wrap:anywhere}
  .unlock-page{min-height:100svh;padding:20px}.unlock{padding:24px}.unlock h1{font-size:28px}.unlock .btn{min-height:48px}
 }
 
@@ -322,3 +318,8 @@ h1,h2,h3,h4,p{overflow-wrap:anywhere}
 @media(pointer:coarse){
  .rl button,.rl select{min-height:44px;min-width:44px}.rl .icon-btn{width:44px;height:44px}.cmd{height:46px}.cmd input,.unlock input{font-size:16px;min-height:44px}
 }
+.approval-notice,.approval-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.approval-review{margin:16px 0 24px;scroll-margin-top:100px}.approval-heading h2{margin:0}.approval-review .kv{margin-block:20px}.approval-review dd,.approval-review li{overflow-wrap:anywhere}.approval-review select{max-width:100%;min-height:44px}.approval-service{margin-top:16px}.approval-service h3{margin-top:0}.approval-preview{display:flex;gap:12px;flex-wrap:wrap}.approval-preview .mono{overflow-wrap:anywhere}.approval-review .term{max-height:320px}
+@media(max-width:760px){.approval-review{padding:16px;scroll-margin-top:200px}.approval-review .kv{grid-template-columns:1fr;gap:6px}.approval-review dd{margin-bottom:12px}.approval-service{padding:12px}.approval-heading h2{font-size:20px}.approval-review .term{font-size:11px}.approval-review .environment-actions .btn{min-height:44px}}
+
+.instance-id{display:block;font-size:11px;overflow-wrap:anywhere;margin-top:6px}.environment summary{cursor:pointer;min-height:44px;display:flex;align-items:center;overflow-wrap:anywhere}.environment .grid-2{margin-top:12px}.tbl .environment-actions{margin:0}.head-actions .btn,.tbl .btn{white-space:normal;overflow-wrap:anywhere}

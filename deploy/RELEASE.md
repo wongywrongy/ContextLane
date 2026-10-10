@@ -4,7 +4,7 @@ This release contains compiled JavaScript/static UI, a prebuilt Linux amd64 Dock
 
 Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running user-systemd manager, and the existing Tailscale installation at `/usr/bin/tailscale`. The included image is tested on one Linux amd64 host. Other hosts must review socket, journal and project mount paths before running it. Run these commands as the installation owner, not root:
 
-For the checked-out 0.3.0 source:
+For the checked-out 0.4.0 source:
 
 ```sh
 npm ci
@@ -15,7 +15,7 @@ deploy/preflight-docker
 docker compose exec -T rootlane node deploy/serve.mjs
 ```
 
-A versioned archive can be used only after that version is published; this source update does not claim a published 0.3.0 archive.
+A versioned archive can be used only after that version is published; this source update does not claim a published 0.4.0 archive.
 
 Setup creates distinct random mode-0600 credentials and a private configuration under `~/.config/rootlane`, plus private state under `~/.local/state/rootlane`. It preserves existing files and refuses incompatible existing roots/state. `.env` contains paths/UIDs only. Keep configuration outside observed checkout roots. The initial configuration has no launch profiles: projects appear as observe-only. Existing owner-reviewed profiles remain owner configuration, not executable authority supplied by a download.
 
@@ -25,7 +25,7 @@ For managed profiles, review the [configuration example](config.example.json) an
 
 The project-root mount already includes its existing checkout and installed Vite. Downloading this release does not install dependencies in any observed project or authorize another launch profile. Reload owner configuration with `deploy/rootlane-reload` (SIGHUP), or allow the ten-second mtime check. Invalid config keeps the running config. Changes to state, backend port, tailnet hostname or operator origins require restart. New mount paths require rerunning setup and recreating only Rootlane.
 
-For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the fourteen Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
+For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the thirteen Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
 
 Check `docker compose ps`, `docker compose logs --tail=100`, and the authenticated UI status. Container health establishes that HTTP serves requests; managed readiness is a separate systemd/listener/application check. `docker compose restart` preserves managed host services, which Rootlane reconciles. `docker compose down` removes the backend container, not its SQLite state or managed host services. Stop managed environments through Rootlane before decommissioning; inspect and remove only the matching dedicated Rootlane Serve route separately.
 
@@ -38,3 +38,5 @@ Back up SQLite through its backup API; stop Rootlane before restoring; preserve 
 Owner-reviewed secondary operator addresses can be added with `additionalOrigins`, for example `["https://rootlane.example.com"]`. They must be canonical HTTPS origins. Rootlane validates both the allowed Host and its matching supplied Origin; original Tailscale access remains available. Configure the corresponding route in the existing proxy manager separately, without exposing the loopback backend directly.
 
 Login adds persisted exponential failure backoff (1 second, doubling to 60 seconds) and exempts reauthentication from valid sessions. It accepts at most ten anonymous attempts in any sliding minute across all operator origins and clients. The bounded attempt timestamps persist in SQLite across Rootlane restarts; no submitted credential is recorded. `429` responses provide `Retry-After`. Malformed/oversized bodies consume the same budget before parsing. A sustained attempt flood can temporarily deny new logins; already authenticated sessions remain usable. Setup generates owner credentials with 256 bits of randomness. An owner may intentionally replace theirs with a nonempty credential up to 256 characters; agent credentials must remain distinct and at least 32 characters. Short or predictable credentials have less resistance to guessing. Keep credentials private. This does not protect against credential theft, an owner-user compromise or network-level denial of service.
+
+0.4.0 adds SQLite migration 003 for recipe approvals and per-checkout instances. Back up state before upgrade. An older image cannot open this migrated database; rollback requires restoring the matching pre-upgrade SQLite backup. Setup preserves owner files and adds read-only toolchain, venv and owner-home mounts for recipe execution and private envFile access. See [recipes](../docs/RECIPES.md).

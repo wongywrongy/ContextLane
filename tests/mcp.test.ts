@@ -49,7 +49,7 @@ test('native wrapper resolves a relocated release and configured port, keeps std
   const transport = new StdioClientTransport({ command: '/bin/sh', args: [join(release, 'deploy/rootlane-mcp')], env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ROOTLANE_CONFIG: settings, ROOTLANE_AGENT_CREDENTIAL_FILE: credential }, stderr: 'pipe' });
   const client = new Client({ name: 'native-wrapper-test', version: '1.0.0' }); t.after(() => client.close());
   await client.connect(transport);
-  assert.equal((await client.listTools()).tools.length, 14);
+  assert.equal((await client.listTools()).tools.length, 13);
   assert(!(await client.callTool({ name: 'list_projects', arguments: { limit: 1 } })).isError);
   await app.close();
   const unavailable = await client.callTool({ name: 'list_projects', arguments: { limit: 1 } });

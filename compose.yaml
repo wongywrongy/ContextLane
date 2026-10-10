@@ -1,6 +1,6 @@
 services:
   rootlane:
-    image: rootlane:0.3.0
+    image: rootlane:0.4.0
     build: .
     user: "${ROOTLANE_UID:?Run node deploy/setup.mjs}:${ROOTLANE_GID:?Run node deploy/setup.mjs}"
     group_add: ["${ROOTLANE_JOURNAL_GID:?Run node deploy/setup.mjs}"]
@@ -21,6 +21,7 @@ services:
     tmpfs: [/tmp]
     environment:
       HOME: /tmp
+      ROOTLANE_OWNER_HOME: ${ROOTLANE_OWNER_HOME:?Run node deploy/setup.mjs}
       XDG_RUNTIME_DIR: /run/user/${ROOTLANE_UID}
       DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${ROOTLANE_UID}/bus
       ROOTLANE_CONFIG: /config/config.json

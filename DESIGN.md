@@ -252,7 +252,7 @@ Segmented navigation sits inside a recessed rounded frame. Selected destinations
 
 ### Details, Actions and Technical Commands
 
-The native actions popover offers Copy path, Open in editor when an owner-configured template is present, read-only proposals, and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
+The native actions popover offers Copy path, Open in editor when an owner-configured template is present, Request environment when a valid recipe is observed, and Show/Hide details. Its near-opaque glass surface stays inside viewport limits, uses CSS anchor positioning when available and supports native Escape/outside dismissal with focus restoration. Technical tables and preformatted commands share inset or glass frames and monospace values. Copy commands expose success or failure text. Settings remains read-only and MCP setup stays within the same typography, boxes and semantic access chips.
 
 
 
@@ -277,4 +277,9 @@ Path links use the private host’s approved editorUrlTemplate. Without it, path
 - Don't add account chrome, system-stat cards or editable Settings to this approved workspace.
 - Don't introduce a UI dependency or fabricated vendor logo to reproduce the shipped patterns.
 
-Phone refinement: agent metadata sits under the name in the shared grid; service names/worktrees and preview URLs wrap. Paths reserve space for Copy/editor actions, and success announcements stay accessible without duplicating visible text. Details metadata wraps on its own row; activity stacks its event text below time/status. Settings, MCP tool records, proposals, logs and Unlock use the same mobile spacing and control rules.
+Phone refinement: agent metadata sits under the name in the shared grid; service names/worktrees and preview URLs wrap. Paths reserve space for Copy/editor actions, and success announcements stay accessible without duplicating visible text. Details metadata wraps on its own row; activity stacks its event text below time/status. Settings, MCP tool records, approval reviews, logs and Unlock use the same mobile spacing and control rules.
+
+
+Recipe approval follows Signal's Operate mode. Cards show a glyph-and-label Recipe chip: Approved, Pending approval, Stale, Invalid, or Needs approval before the first request. This describes authorization, never activity or readiness. A toolbar notice counts pending environment reviews. Deep links open an inline glass review with the checkout, SHA256, toolchain revision, argument arrays, cwd, env names, allocated ports, reviewed readiness, planned previews and informational setup hints. Values and secrets are absent. Approve requires a confirmation; Reject does not launch or terminate services. Stale reviews offer Reject and ask for a new request. Settings remains read-only; approval/rejection is the owner review write, alongside existing lifecycle and route controls.
+
+Environment details show each checkout instance with its ports, allocated preview URLs, application/route verification, Start/Stop and recorded logs. Planned URLs do not imply availability. The review heading receives keyboard focus; controls meet phone target sizing and hashes/path/env names wrap at 760px. Desktop/tablet/phone evidence is `approval-desktop.png`, `approval-tablet.png`, `approval-mobile.png` under `.impeccable/review`.

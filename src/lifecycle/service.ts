@@ -7,6 +7,7 @@ import { Problem, problem, mutation, environmentInput, logsInput, type Environme
 import type { Host, Preview, Unit } from '../host/types.js';
 
 export class Lifecycle {
+  recipeProfiles = new Map<string,Profile>();
   private tasks = new Map<string, Promise<void>>();
   private reconciling = true;
   constructor(readonly config: Config, readonly store: Store, readonly host: Host) { for (const p of config.profiles) store.ensure(p); }
@@ -14,7 +15,7 @@ export class Lifecycle {
     return routeLock(this.host, work);
   }
   private profile(id: string): Profile {
-    const profile = this.config.profiles.find(p => p.id === id);
+    const profile = this.config.profiles.find(p => p.id === id) ?? this.recipeProfiles.get(id);
     if (!profile) throw new Problem('PROFILE_NOT_APPROVED', `No approved profile for ${id}`);
     return profile;
   }
@@ -113,7 +114,7 @@ export class Lifecycle {
     try {
       const current = await this.host.inspectUnit(unit.name);
       if (current?.marker === unit.marker && current.invocation) { unit.invocation = current.invocation; this.store.updateData(row.id, unit); }
-      const page = await this.host.logs(unit, undefined, 100); if (page.lines.length) this.store.saveLogs(row.id, page.lines);
+      const page = await this.host.logs(unit, undefined, 100,this.store.redactor(row.environment)); if (page.lines.length) this.store.saveLogs(row.id, this.store.redact(row.environment,page.lines));
     } catch { /* Preserve any previous failure snapshot if the journal is unavailable. */ }
   }
   private async cleanup(id: string, onlyOperation?: string): Promise<string[]> {
@@ -147,7 +148,7 @@ export class Lifecycle {
     const { environmentId: id } = environmentInput.parse(input); this.exists(id);
     const env = this.store.environment(id)!; const rows = this.store.resources(id);
     const observation = JSON.parse(env.observation) as Observation;
-    const result: Environment = { id, profileRevision: env.revision, effects: observation.effects, dataRequirements: observation.dataRequirements, startAllowed: this.config.profiles.some(p => p.id === id), ownership: 'rootlane', desiredState: env.desired, application: 'unknown', preview: 'unknown', links: [], services: [], observedAt: new Date().toISOString(), latestOperation: this.store.latest(id), recentOperations: this.store.recent(id), previewRoutes: [], observationError: null };
+    const result: Environment = { ports:Object.fromEntries(observation.services.map(s=>[s.id,s.port])),previews:observation.previews.map(p=>({serviceId:p.serviceId,port:p.httpsPort,url:`https://${this.config.tailnetHostname}:${p.httpsPort}/`})),id, profileRevision: env.revision, effects: observation.effects, dataRequirements: observation.dataRequirements, startAllowed: this.config.profiles.some(p => p.id === id) || this.recipeProfiles.has(id), ownership: 'rootlane', desiredState: env.desired, application: 'unknown', preview: 'unknown', links: [], services: [], observedAt: new Date().toISOString(), latestOperation: this.store.latest(id), recentOperations: this.store.recent(id), previewRoutes: [], observationError: null };
     try {
       let healthy = 0; let absent = 0;
       for (const row of rows.filter(r => r.kind === 'unit')) {
@@ -190,7 +191,7 @@ export class Lifecycle {
     try {
       const current = await this.host.inspectUnit(unit.name);
       if (current && current.marker !== unit.marker && !row.removed) throw new Problem('OWNERSHIP_CONFLICT', 'Current unit is not the recorded owner');
-      const page = await this.host.logs(unit, cursor, limit); if (page.lines.length || cursor) return page;
+      const page = await this.host.logs(unit, cursor, limit,this.store.redactor(environmentId)); if (page.lines.length || cursor) return {...page,lines:this.store.redact(environmentId,page.lines)};
     } catch (error) { if (error instanceof Problem && error.code === 'OWNERSHIP_CONFLICT') throw error; unavailable = true; }
     const saved = this.store.savedLogs(row.id);
     if (unavailable && !saved.length) throw new Problem('LOGS_UNAVAILABLE', 'Journal access failed and no failure snapshot was retained');
