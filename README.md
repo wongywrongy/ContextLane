@@ -3,7 +3,7 @@
 A private, self-hosted workspace for your projects, worktrees, development environments, coding agents and useful links.
 
 - Discover projects and Git worktrees without recursively indexing internal folders.
-- See observed services, registered agents and known preview links in one place.
+- See observed services, detected Codex/Claude processes, registered agents and known preview links in one place.
 - Start and stop owner-reviewed environments through the browser, Codex or Claude Code.
 
 Existing projects are **observe-only**. Rootlane controls only resources it owns.
@@ -17,10 +17,10 @@ Download the compiled release and prebuilt Docker image. This repository is priv
 ```sh
 mkdir -p ~/stacks/rootlane
 cd ~/stacks/rootlane
-gh release download v0.1.8 --repo wongywrongy/rootlane \
-  --pattern 'rootlane-0.1.8-linux-amd64.tar.gz' --pattern SHA256SUMS
+gh release download v0.1.9 --repo wongywrongy/rootlane \
+  --pattern 'rootlane-0.1.9-linux-amd64.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf rootlane-0.1.8-linux-amd64.tar.gz --strip-components=1
+tar -xzf rootlane-0.1.9-linux-amd64.tar.gz --strip-components=1
 docker load -i rootlane-image.tar
 node deploy/setup.mjs "$HOME/code"
 docker compose up -d --no-build --wait
@@ -48,6 +48,8 @@ For another directory, such as `/opt/stacks/rootlane`, substitute its absolute a
 > Use Rootlane's list_projects tool to list my projects. Do not start or stop anything.
 
 The adapter reads its private agent credential inside the running container. Keep normal tool approvals; never put credential values in client configuration. **Settings → MCP setup** covers tool permissions, troubleshooting and an optional agent setup prompt. Rootlane currently supports local stdio, not a remote `/mcp` endpoint.
+
+Agent detection uses same-user native process metadata and project working directories. “Detected process” does not establish a task or active session. Node wrappers and remote agents are not detected; unassigned processes appear in discovery notices.
 
 ## Development
 

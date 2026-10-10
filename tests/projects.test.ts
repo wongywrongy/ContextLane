@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupProjects, loadCatalog, projectStatus } from '../web/projects.js';
+import { groupProjects, loadCatalog, projectStatus, groupAgents, agentLabel } from '../web/projects.js';
 import type { Project } from '../src/shared/contracts.js';
 const project = (path: string, overrides: Partial<Project> = {}): Project => ({ id:path,name:path.split('/').at(-1)!,path,gitCommonDir:null,branch:null,detached:false,manifests:[],links:[],agents:[],environmentIds:[],runtime:{status:'no associated listener',ports:[],ownership:'observe-only'},...overrides });
 test('primary projects group detached/external worktrees and nested environments, while container folders disappear', () => {
@@ -34,3 +34,10 @@ test('listeners are not readiness and missing observation is not stopped',()=>{
  const unknown=groupProjects([project('/code/unknown',{runtime:{status:'unknown',ports:[],ownership:'observe-only'}})])[0];
  assert.equal(projectStatus(unknown,{}),'Unknown');
 });
+
+ test('grouped agents preserve same-name processes and label registration separately', () => {
+ const main = project('/code/app', {gitCommonDir:'/code/app/.git', agents:[{name:'Codex',source:'owner registration'},{name:'Codex',source:'detected process',id:'a'.repeat(24)}]});
+ const tree = project('/allowed/tree', {gitCommonDir:main.gitCommonDir, agents:[{name:'Codex',source:'detected process',id:'b'.repeat(24)}]});
+ const agents = groupAgents(groupProjects([main,tree])[0]);
+ assert.equal(agents.length,3); assert.deepEqual(agents.map(agentLabel).sort(),['Detected process','Detected process','Registered']);
+ });

@@ -217,3 +217,5 @@ Hover feedback on cards transitions over 160ms ease-out. Reduced-motion preferen
 - Don't enable folder, preview, or logs controls without the corresponding capability.
 - Don't add system-stat cards, account chrome, or editable Settings to this approved surface.
 - Don't add a UI dependency to reproduce patterns already expressed in ordinary CSS.
+
+Agent rows preserve the compact card layout. Owner registrations show Registered; native process observations show Detected process with no activity or completion claim. Extra observations expand into existing project details, and unassigned counts stay in discovery notices.

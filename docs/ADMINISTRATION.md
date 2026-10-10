@@ -81,3 +81,9 @@ docker compose exec -T rootlane node dist/state/backup.js \
 ```
 
 Use paths within the mounted state directory. The destination must not exist. Stop Rootlane before restoring into private state, preserve installation identity and never run two instances from copies of the same state. Validate restore and reconciliation on your installation. See [verification](../VERIFICATION.md) for historical host checks and remaining acceptance work.
+
+## Agent observations
+
+Rootlane scans same-user native Codex and Claude process metadata when the catalog refreshes. It reads executable identity, process start time and working directory, not command arguments, environments, prompts or transcripts. Working directories must resolve inside observation roots and a known project or Git worktree. Rootlane does not infer project associations from a parent project-root directory.
+
+Detected process rows are separate from owner registrations. Each scan has a two-second budget, an 8,192-process entry limit and a 128-observation limit. Permission failures and limits appear in discovery notices; unknown associations contribute an unassigned count without exposing their directories. These observations are not persisted and disappear after an expired catalog refresh when the process exits. Native helper processes can be included; process counts are not session counts or evidence of active work. Generic Node wrappers and remote agents are unsupported.

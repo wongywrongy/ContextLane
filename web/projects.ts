@@ -1,5 +1,8 @@
 import { catalogOutput, type Project, type Environment } from '../src/shared/contracts.js';
 export type ProjectGroup = { id: string; primary: Project; checkouts: Project[]; environmentIds: string[]; worktreeCount: number };
+export const agentKey = (agent: Project['agents'][number]) => agent.source === 'detected process' ? agent.id : agent.source + ':' + agent.name;
+export const agentLabel = (agent: Project['agents'][number]) => agent.source === 'detected process' ? 'Detected process' : 'Registered';
+export const groupAgents = (group: ProjectGroup) => [...new Map(group.checkouts.flatMap(p => p.agents).map(a => [agentKey(a), a])).values()];
 export async function loadCatalog(fetchPage: (cursor: number) => Promise<unknown>) {
   let cursor = 0; const projects: Project[] = []; const warnings = new Set<string>(); let observedAt = '';
   while (projects.length < 1000) {

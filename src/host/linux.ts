@@ -4,6 +4,7 @@ import { command } from './command.js';
 import type { Host, Unit, Preview, Listener } from './types.js';
 import type { Service } from '../config.js';
 import { Problem } from '../shared/contracts.js';
+import { observeAgents } from './agents.js';
 
 export async function boundedText(response: Response, limit: number): Promise<string> {
   const reader = response.body?.getReader(); if (!reader) return '';
@@ -30,6 +31,7 @@ export function routeState(raw: unknown, route: Preview): 'absent' | 'matching' 
   return web.length === 1 && httpsOnly && !config.AllowFunnel?.[key] && handlers && Object.keys(handlers).length === 1 && handlers['/']?.Proxy === route.upstream && Object.keys(handlers['/']).length === 1 ? 'matching' : 'conflict';
 }
 export class LinuxHost implements Host {
+  agents = observeAgents;
   bootId() { return readFile('/proc/sys/kernel/random/boot_id', 'utf8').then(s => s.trim()); }
   async capabilities(services: Service[]) {
     for (const service of services) {

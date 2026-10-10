@@ -9,6 +9,8 @@ import { Lifecycle } from '../src/lifecycle/service.js';
 import { Problem } from '../src/shared/contracts.js';
 import type { Host, Unit, UnitState, Preview, Listener } from '../src/host/types.js';
 export class FakeHost implements Host {
+  agentObservations: { agents: import('../src/host/types.js').AgentObservation[]; warnings: string[] } = { agents: [], warnings: [] };
+  async agents() { return this.agentObservations; }
   units = new Map<string, UnitState>(); routesMap = new Map<number, string>(); busyPorts: number[] = [];
   starts = 0; stops: string[] = []; failService = ''; unready = ''; failPreview = false; failStop = false; missing = false; boot = 'boot-1';
   async bootId() { return this.boot; }

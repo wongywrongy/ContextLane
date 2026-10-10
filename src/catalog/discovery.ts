@@ -5,7 +5,7 @@ import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
 import { page, type Project } from '../shared/contracts.js';
 import type { Store, Observation } from '../state/store.js';
-import type { Host, Listener } from '../host/types.js';
+import type { Host, Listener, AgentObservation } from '../host/types.js';
 const manifests = ['package.json', 'pyproject.toml', 'requirements.txt', 'Cargo.toml', 'go.mod', 'web/package.json', 'frontend/package.json', 'apps/api/pyproject.toml'];
 export class Catalog {
   private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
@@ -50,6 +50,9 @@ export class Catalog {
     try { listeners = await this.host.listeners(); observed = true; } catch { warnings.push('Listener observation unavailable; runtime associations are unknown'); }
     let routes: unknown = null;
     try { routes = await this.host.routes(); } catch { warnings.push('Tailscale routes could not be observed'); }
+    let agents: AgentObservation[] = [];
+    try { const result = await this.host.agents(); agents = result.agents; warnings.push(...result.warnings); }
+    catch { warnings.push('Agent detection unavailable'); }
     const projects: Project[] = [];
     for (const path of [...paths].sort()) {
       const metadataAllowed = Date.now() <= deadline;
@@ -78,6 +81,16 @@ export class Catalog {
       }
       projects.push({ id: createHash('sha256').update(path).digest('hex').slice(0, 24), name: basename(path), path, gitCommonDir, branch, detached, manifests: found, links: links.slice(0, 20), agents: (settings?.agents ?? []).map(a => ({ name: a.name, source: 'owner registration' as const })), environmentIds: [...new Set([...recorded.filter(e => e.path === path).map(e => e.id), ...this.config.profiles.filter(p => p.projectPath === path && !recorded.some(e => e.id === p.id)).map(p => p.id)])], runtime: { status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown', ports: [...new Set(ownListeners.map(l => l.port))].slice(0, 32), ownership: 'observe-only' } });
     }
+    let unassigned = 0;
+    const closestFirst = [...projects].sort((a, b) => b.path.length - a.path.length);
+    for (const agent of agents) {
+      let cwd: string | null = null;
+      try { cwd = await safe(agent.cwd); } catch { /* Exited processes and unmounted paths have unknown associations. */ }
+      const project = cwd ? closestFirst.find(p => inside(cwd!, p.path)) : undefined;
+      if (project) project.agents.push({ id: agent.id, name: agent.name, source: 'detected process' });
+      else unassigned++;
+    }
+    if (unassigned) warnings.push(`${unassigned} detected agent process${unassigned === 1 ? '' : 'es'} unassigned to a known project`);
     if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
     return { projects, warnings: warnings.slice(0, 50), observedAt: new Date().toISOString(), expires: Date.now() + 5000 };
   }
