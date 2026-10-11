@@ -13,7 +13,7 @@ Existing projects are **observe-only**. Rootlane controls only resources it owns
 
 Requires Linux amd64, Docker Compose 2.15+, Node 24 for setup, a running user-systemd manager and connected Tailscale. Review the host mounts and permissions in the [installation guide](deploy/RELEASE.md) first.
 
-Build the checked-out 0.6.0 source and image as the installation owner:
+Build the checked-out 0.7.0 source and image as the installation owner:
 
 ```sh
 npm ci
@@ -50,7 +50,7 @@ Agent detection uses bounded same-user native and npm Node/Bun process metadata,
 
 ## MCP workflows
 
-The thirteen MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`, `locate`, `request_environment`, `list_operations`.
+The fifteen MCP tools share the same authenticated backend: `list_projects`, `get_project`, `get_capabilities`, `get_environment`, `start_environment`, `stop_environment`, `get_logs`, `publish_preview`, `get_preview`, `unpublish_preview`, `locate`, `request_environment`, `list_operations`, `list_checks`, `list_events`.
 
 | Intent | Workflow |
 |---|---|

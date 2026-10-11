@@ -1,3 +1,4 @@
+import { catalogEvents, publicFunnelRoutes, wildcardBind } from './events.js';
 import { opendir, realpath, lstat, access, stat } from 'node:fs/promises';
 import { join, basename, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -47,6 +48,7 @@ export class Catalog {
       value: Pick<Project, 'gitCommonDir' | 'branch' | 'detached' | 'detachedSha' | 'manifests' | 'git' | 'devCommand'>;
     }
   >();
+  private previous: Project[] = [];
   private scan: Promise<NonNullable<Catalog['cached']>> | null = null;
   constructor(
     readonly config: Config,
@@ -84,6 +86,12 @@ export class Catalog {
       warnings: this.cached.warnings,
       observedAt: this.cached.observedAt,
     };
+  }
+  async checkouts(projectId: string) {
+    const projects = await this.projects();
+    const project = projects.find(p => p.id === projectId);
+    if (!project) throw new Problem('NOT_FOUND', 'Project is no longer in the observed catalog');
+    return projects.filter(p => p.id === projectId || (project.gitCommonDir && p.gitCommonDir === project.gitCommonDir) || inside(p.path, project.path));
   }
   async get(projectId: string): Promise<ProjectDetails> {
     await this.list({ limit: 1 });
@@ -170,8 +178,11 @@ export class Catalog {
               }
               const status = response.status;
               await response.body?.cancel();
-              return { status, checkedAt: new Date().toISOString() };
+              const checkedAt = new Date().toISOString();
+              this.store?.recordCheck(checkout.path, `${checkout.id}:${port}`, 'http-probe', status >= 200 && status < 400, `HTTP ${status}`, checkedAt);
+              return { status, checkedAt };
             } catch {
+              this.store?.recordCheck(checkout.path, `${checkout.id}:${port}`, 'http-probe', false, 'No HTTP response');
               return null;
             }
           })();
@@ -362,10 +373,12 @@ export class Catalog {
     } catch {
       warnings.push('Tailscale routes could not be observed');
     }
+    let agentsObserved = false;
     let agents: AgentObservation[] = [];
     try {
       const result = await this.host.agents();
       agents = result.agents;
+      agentsObserved = true;
       warnings.push(...result.warnings);
     } catch {
       warnings.push('Agent detection unavailable');
@@ -424,6 +437,7 @@ export class Catalog {
       const ownListeners = listeners.filter(
         (l) => l.cwd && inside(l.cwd, path) && ![...paths].some((other) => other !== path && inside(other, path) && inside(l.cwd!, other)),
       );
+      for (const listener of ownListeners) if (wildcardBind(listener.address)) warnings.push(`${listener.process?.name ?? basename(path)} :${listener.port} reachable on the network`);
       const links = [...(settings?.links ?? [])];
       const observedPreviews: Project['links'] = [];
       const observedRoutes: NonNullable<Project['routeSummaries']> = [];
@@ -468,7 +482,12 @@ export class Catalog {
         route: routes ? this.host.routeState(routes, route) : 'unknown',
       }));
       routeSummaries.push(...observedRoutes.filter((route) => !routeSummaries.some((recorded) => recorded.url === route.url)));
+      for (const route of routeSummaries) if (route.route !== 'unknown')
+        this.store?.recordCheck(path, route.url, 'route', route.route === 'matching', route.route);
+      if (routes !== null) for (const listener of ownListeners.filter(l => l.owner !== 'agent'))
+        this.store?.recordCheck(path, `${this.store.checkoutId(path)}:${listener.port}:route`, 'route', routeSummaries.some(r => r.upstreamPort === listener.port && r.route === 'matching'), routeSummaries.some(r => r.upstreamPort === listener.port && r.route === 'matching') ? 'present' : 'absent');
       projects.push({
+        funnel: routes === null ? null : publicFunnelRoutes(routes as import('../host/routes.js').ServeConfig),
         routeSummaries,
         controls: [
           ...new Set([
@@ -530,6 +549,8 @@ export class Catalog {
           ports: [...new Set(ownListeners.filter(l => l.owner !== 'agent').map((l) => l.port))].slice(0, 32),
           listeners: ownListeners.map((l) => ({
             port: l.port,
+            bind: l.address,
+            wildcard: wildcardBind(l.address),
             ...(l.owner ? { owner: l.owner } : {}),
             ...(l.startedBy ? { startedBy: l.startedBy } : {}),
             worktreePath: path,
@@ -584,6 +605,10 @@ export class Catalog {
     if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
     if (this.enrich)
       for (let offset = 0; offset < projects.length; offset += 4) await Promise.all(projects.slice(offset, offset + 4).map((p) => this.enrich!(p)));
+    const at = new Date().toISOString();
+    for (const event of catalogEvents(this.previous, projects, { listeners: observed, routes: routes !== null, agents: agentsObserved }, at)) this.store?.recordEvent(event);
+    // Failed reads preserve the baseline; recovery must not manufacture disappearance events.
+    this.previous = projects.map(p => { const old = this.previous.find(o => o.id === p.id); return { ...p, agents: agentsObserved ? p.agents : old?.agents ?? [], routeSummaries: routes !== null ? p.routeSummaries : old?.routeSummaries, runtime: observed ? p.runtime : old?.runtime ?? p.runtime }; });
     return {
       projects,
       warnings: warnings.slice(0, 50),

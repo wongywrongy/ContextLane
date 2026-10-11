@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-10T11:19:39.872572+00:00",
-  "title": "Design System: Rootlane 0.6.0",
+  "generatedAt": "2026-10-11",
+  "title": "Design System: Rootlane 0.7.0",
   "extensions": {
     "colorMeta": {
       "bg": {
@@ -446,7 +446,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Project row names (15px); Details titles use 22px."
+        "purpose": "Project row names (15px); panel titles use 19px."
       },
       "body": {
         "displayName": "Body",
@@ -473,7 +473,7 @@
       {
         "name": "glass",
         "value": "inset 0 1px 0 rgba(255,255,255,.07),0 20px 40px -24px rgba(0,0,0,.8)",
-        "purpose": "Quiet glass controls and shared surfaces; inline detail rows are recessed."
+        "purpose": "Quiet glass controls and shared surfaces; detail evidence cards retain an inset highlight."
       },
       {
         "name": "primary-action",
@@ -484,18 +484,23 @@
         "name": "row-menu",
         "value": "0 8px 28px #0008",
         "purpose": "Viewport-contained row actions menu."
+      },
+      {
+        "name": "details-panel",
+        "value": "-30px 0 60px -20px rgba(0,0,0,.8)",
+        "purpose": "Desktop non-modal detail panel over the right of the project table; its dark surface uses 24px blur and 150% saturation."
       }
     ],
     "motion": [
       {
         "name": "subtle-feedback",
         "value": ".16s ease-out",
-        "purpose": "Surface/disclosure feedback; disabled under prefers-reduced-motion."
+        "purpose": "Surface and selection feedback; disabled under prefers-reduced-motion."
       }
     ],
     "breakpoints": [
       {
-        "name": "stacked-rows-and-detail-records",
+        "name": "stacked-rows-and-fullscreen-detail",
         "value": "1099px"
       },
       {
@@ -541,7 +546,7 @@
       "name": "Segmented Navigation",
       "kind": "nav",
       "refersTo": "nav-item",
-      "description": "Recessed segmented frame shared by navigation, density and detail tabs.",
+      "description": "Recessed segmented frame shared by navigation, density and horizontally scrolling detail tabs.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><button aria-current=\"page\">Projects</button><button>Settings</button></nav>",
       "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--inset,rgba(0,0,0,.28))}.ds-nav button{min-height:32px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:var(--muted,#8e96a8);font:500 13px var(--sans,Geist,sans-serif);cursor:pointer}.ds-nav button[aria-current]{background:var(--glass-3,rgba(255,255,255,.09));color:var(--text,#f2f4f8);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 0 0 1px var(--stroke,rgba(255,255,255,.075))}.ds-nav button:hover{color:var(--text,#f2f4f8)}.ds-nav button:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}@media(prefers-reduced-motion:reduce){button,a,input{transition:none;animation:none}}"
     },
@@ -578,22 +583,22 @@
       "css": ".ds-pill{display:inline-flex;align-items:center;gap:7px;width:100%;max-width:230px;height:26px;padding:0 10px;border:1px solid;border-radius:999px;font:500 12.5px/1 var(--sans,Geist,sans-serif);white-space:nowrap}.ds-pill i{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}.ds-pill b{margin-left:auto;font:400 12px var(--mono,monospace)}.ds-pill{color:var(--bad,#ff8a8a);background:var(--bad-bg,rgba(255,120,120,.1));border-color:var(--bad-stroke,rgba(255,120,120,.3))}@media(prefers-reduced-motion:reduce){button,a,input{transition:none;animation:none}}"
     },
     {
-      "name": "Inline Details",
+      "name": "Project Details Panel",
       "kind": "custom",
-      "refersTo": "details-inline",
-      "description": "Recessed content beneath a project row, with divided records.",
-      "html": "<section class=\"ds-details\" aria-label=\"Project details\"><dl><div><dt>Path</dt><dd>\u2014</dd></div><div><dt>State</dt><dd>\u2014</dd></div></dl></section>",
-      "css": ".ds-details{padding:14px 20px 18px 52px;border-top:1px solid var(--stroke,rgba(255,255,255,.075));background:rgba(0,0,0,.22);color:var(--text,#f2f4f8);font:13px/1.5 var(--sans,Geist,sans-serif)}.ds-details dl{margin:0;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;overflow:hidden}.ds-details dl>div{display:grid;grid-template-columns:110px minmax(0,1fr)}.ds-details dl>div+div{border-top:1px solid var(--stroke,rgba(255,255,255,.075))}.ds-details dt,.ds-details dd{margin:0;padding:10px 14px}.ds-details dt{color:var(--muted,#8e96a8)}.ds-details dd{border-left:1px solid var(--stroke,rgba(255,255,255,.075));font-family:var(--mono,monospace);overflow-wrap:anywhere}@media(max-width:1099px){.ds-details{padding:16px}}@media(prefers-reduced-motion:reduce){button,a,input{transition:none;animation:none}}"
+      "refersTo": "details-panel",
+      "description": "Signal v5 evidence panel: 660px desktop aside, locally remembered 1080px wide mode; below 1100px a full-screen dialog. Preview shows unknown observations.",
+      "html": "<aside class=\"ds-panel\" aria-label=\"Project details\"><header class=\"ds-panel-head\"><div class=\"ds-panel-title\">Project details</div><button aria-label=\"Widen project details\">Widen</button><button aria-label=\"Close project details\">Close</button><nav class=\"ds-panel-tabs\" aria-label=\"Project detail sections\"><button aria-current=\"page\">Overview</button><button>Agents</button><button>Worktrees</button></nav></header><div class=\"ds-panel-body\"><section class=\"ds-panel-card\"><h3>Runtime map</h3><div class=\"ds-runtime\"><div>Process <span>\u2014</span></div><div class=\"ds-bind\">\u2014</div><div class=\"ds-arrow\" aria-hidden=\"true\">\u2192</div><div class=\"ds-destination\">\u2014</div></div></section><section class=\"ds-panel-card\"><h3>Checks</h3><div class=\"ds-check\"><span>Reviewed readiness</span><span class=\"ds-strip\" aria-label=\"Three retained checks: not run\"><i class=\"ds-not-run\"></i><i class=\"ds-not-run\"></i><i class=\"ds-not-run\"></i></span><span>\u2014</span></div></section><section class=\"ds-panel-card\"><h3>Exposure</h3><p>Serve or listener observation unavailable \u00b7 \u2014</p></section></div></aside>",
+      "css": ".ds-panel{display:flex;flex-direction:column;width:min(660px,100%);background:rgba(10,12,18,.92);border-left:1px solid rgba(255,255,255,.12);box-shadow:-30px 0 60px -20px rgba(0,0,0,.8);backdrop-filter:blur(24px) saturate(150%);color:var(--text,#f2f4f8);font:14px/1.5 var(--sans,Geist,sans-serif)}.ds-panel-head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;padding:16px 20px 12px;border-bottom:1px solid var(--stroke,rgba(255,255,255,.075))}.ds-panel-title{flex:1;font-size:19px;font-weight:600;letter-spacing:-.02em}.ds-panel button{min-height:34px;padding:0 12px;border:1px solid var(--stroke-2,rgba(255,255,255,.13));border-radius:8px;background:var(--glass-2,rgba(255,255,255,.06));color:var(--text,#f2f4f8);font:500 12.5px var(--sans,Geist,sans-serif);cursor:pointer}.ds-panel button:hover{background:var(--glass-3,rgba(255,255,255,.09))}.ds-panel button:focus-visible{outline:2px solid var(--accent,#8b97ff);outline-offset:3px}.ds-panel-tabs{display:flex;gap:2px;width:100%;overflow-x:auto;margin-top:14px;padding:3px;border:1px solid var(--stroke,rgba(255,255,255,.075));border-radius:10px;background:var(--inset,rgba(0,0,0,.28))}.ds-panel-tabs button{flex-shrink:0;border:0;border-radius:7px;background:transparent;color:var(--muted,#8e96a8)}.ds-panel-tabs button[aria-current]{background:var(--glass-3,rgba(255,255,255,.09));color:var(--text,#f2f4f8)}.ds-panel-body{display:grid;gap:16px;padding:16px 20px 24px;overflow:auto;min-height:0}.ds-panel-card{border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.02);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);overflow:hidden}.ds-panel-card h3{margin:0;padding:10px 14px;border-bottom:1px solid var(--stroke,rgba(255,255,255,.075));font-size:13px;font-weight:600}.ds-runtime{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr) 22px minmax(0,1.4fr);align-items:center}.ds-runtime>div{min-width:0;padding:10px 12px}.ds-runtime>div+div{border-left:1px solid var(--stroke,rgba(255,255,255,.075))}.ds-runtime span{display:block;font:11px var(--mono,Geist Mono,monospace);color:var(--muted,#8e96a8)}.ds-bind,.ds-destination{font:12px var(--mono,Geist Mono,monospace);overflow-wrap:anywhere}.ds-runtime>.ds-arrow{padding:0;text-align:center;color:var(--faint,#646c7e)}.ds-check{display:flex;align-items:center;gap:12px;padding:10px 14px;font-size:12px}.ds-strip{display:flex;gap:2px;align-items:flex-end;height:18px;margin-left:auto}.ds-strip i{display:block;width:5px;height:14px;border-radius:2px;background:rgba(63,224,160,.65)}.ds-strip i.ds-fail{height:18px;background:var(--bad,#ff8a8a)}.ds-strip i.ds-not-run{background:rgba(255,255,255,.1)}.ds-panel-card p{margin:0;padding:10px 14px;font-size:12.5px;color:var(--text-2,#c9cfdb)}@media(max-width:1099px){.ds-panel{width:100%;background:#07080d;border-left:0;box-shadow:none}.ds-panel-head{padding:8px 12px 12px}.ds-panel button{min-height:44px}.ds-panel-body{padding:12px;gap:12px}.ds-runtime{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);padding:12px;gap:6px}.ds-runtime>div{padding:0;border:0!important}.ds-runtime>div:first-child{grid-column:1/-1}}@media(prefers-reduced-motion:reduce){.ds-panel,.ds-panel button{animation:none;transition:none}}"
     }
   ],
   "narrative": {
     "northStar": "Signal",
-    "overview": "Signal v3 keeps real project, runtime and URL observations in one divided table on a near-black canvas. Compact chrome, quiet glass, local Geist typography and restrained semantic color make a dense private workspace easy to scan. A fading grid and soft ambient violet light sit behind the content.\n\nProjects expand inline. Density changes the summary, while segmented detail tabs expose complete observations in place. The six supplied artboards in `Rootlane UI.html` and `rootlane-v3.css` establish the visual direction; `web/style.css` and React bindings implement it. This v3 specification supersedes earlier static-row and modal-Details guidance. Artboard project names, counts, uptime, states, URLs and setup values are examples, never evidence about the host.",
+    "overview": "Signal v5 keeps real project, runtime and URL observations in one divided table on a near-black canvas. Compact chrome, quiet glass, local Geist typography and restrained semantic color make a dense private workspace easy to scan. A fading grid and soft ambient violet light sit behind the content.\n\nThe pinned Signal v5 artboards and CSS remain the visual authority. Rootlane 0.7.0 extends that world with a focused detail panel: project summaries stay in the shared table, while runtime evidence opens beside them on desktop and in a full-screen dialog on mobile. Artboard and review-fixture names, counts, uptime, states and URLs are examples, never host evidence.",
     "keyCharacteristics": [
       "One rounded shared table with continuous column and row dividers.",
       "Compact two-row page header and segmented navigation, density and detail tabs.",
       "Evidence-based service and link pills with explicit text and dot shapes.",
-      "Inline details, 38px expanded agent marks and 26px overlapping compact marks."
+      "Detail panel, 38px expanded agent marks and 26px overlapping compact marks."
     ],
     "rules": [
       {
@@ -613,7 +618,7 @@
       }
     ],
     "dos": [
-      "Do retain one shared table, inline expansion and continuous cell dividers.",
+      "Do retain the shared table, continuous dividers and selected-row highlight beside the desktop panel.",
       "Do use evidence-based pill states and \u201c\u2014\u201d for unknown observations.",
       "Do preserve real vendor marks, actual process uptime and full technical values.",
       "Do stack below 1100px and maintain reachable controls on phones.",
@@ -621,7 +626,7 @@
     ],
     "donts": [
       "Don't infer readiness from listening or HTTPS availability from publication.",
-      "Don't restore static rows, a modal Details layout or separate project cards.",
+      "Don't restore inline expansion, desktop disclosure chevrons, Expand all, a separate project page or separate project cards.",
       "Don't assert artboard values as actual host data.",
       "Don't add external fonts, inline styles, data URLs, fabricated vendor logos or transcript-derived activity."
     ]

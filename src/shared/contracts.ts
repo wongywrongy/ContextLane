@@ -118,6 +118,7 @@ export const requestEnvironmentInput = z.strictObject({
 });
 export const requestEnvironmentOutput = z.strictObject({ status: z.enum(['approved', 'pending']), approvalUrl: z.url(), resolvedPreview });
 export const project = z.strictObject({
+  funnel: z.array(z.string().max(200)).max(100).nullable().optional(),
   recipe: recipeStatus.optional(),
   routeSummaries: z
     .array(
@@ -176,6 +177,8 @@ export const project = z.strictObject({
       .array(
         z.strictObject({
           port: z.number().int(),
+          bind: z.string().max(128),
+          wildcard: z.boolean(),
           owner: z.literal('agent').optional(),
           startedBy: z.strictObject({ name: z.string(), pid: z.number().int().positive() }).optional(),
           worktreePath: z.string().optional(),
@@ -208,7 +211,7 @@ export const environmentOutput = z.strictObject({
   application: z.enum(['ready', 'stopped', 'unhealthy', 'unknown']),
   preview: z.enum(['available', 'unavailable', 'unknown']),
   links: z.array(link),
-  services: z.array(z.strictObject({ id, port: z.number().int().optional(), unit: z.string(), state: z.string() })),
+  services: z.array(z.strictObject({ id, port: z.number().int().optional(), unit: z.string(), state: z.string(), ready: z.boolean().optional() })),
   observedAt: z.string(),
   latestOperation: operation.nullable(),
   recentOperations: z.array(operation).max(10).optional(),
@@ -234,6 +237,13 @@ export const logsOutput = z.strictObject({
 });
 export const emptyInput = z.strictObject({});
 export const projectInput = z.strictObject({ projectId: id.describe('Project ID from locate.project.id or list_projects.projects[].id; not a checkout or environment ID.') });
+export const checkResult = z.strictObject({ ok: z.boolean().nullable(), status: z.string().max(120).nullable(), at: z.string().datetime() });
+export const checksOutput = z.strictObject({ checks: z.array(z.strictObject({ subject: z.string().max(512), kind: z.enum(['readiness', 'preview-https', 'route', 'http-probe']), checkoutId: id, results: z.array(checkResult).max(30) })).max(512) });
+export const observedEvent = z.strictObject({ at: z.string().datetime(), projectId: id, checkoutId: id.nullable(), kind: z.enum(['listener-opened', 'listener-closed', 'route-added', 'route-removed', 'route-changed', 'agent-appeared', 'agent-left', 'check-changed']), text: z.string().max(1024), ref: z.string().max(512).nullable() });
+export const eventsInput = projectInput.extend({ limit: z.number().int().min(1).max(50).default(50).describe('Maximum observed events, up to 50; newest first.') });
+export const eventsOutput = z.strictObject({ events: z.array(observedEvent).max(50) });
+export type CheckHistory = z.infer<typeof checksOutput>['checks'][number];
+export type ObservedEvent = z.infer<typeof observedEvent>;
 export const publishInput = z.strictObject({ targetId: id.describe('Owner-approved publication target ID from locate.approvedTargetIds, get_project.approvedTargetIds or get_capabilities.approvalScope.previewTargetIds. Identifies the configured checkout and endpoint.'), requestId });
 export const previewInput = z.strictObject({ previewId });
 export const unpublishInput = previewInput.extend({ requestId });
@@ -344,6 +354,8 @@ export const locateOutput = z.strictObject({
   previews: z.array(z.strictObject({ id: z.uuid(), url: z.url() })),
 });
 export const toolContracts = {
+  list_checks: { input: projectInput, output: checksOutput, description: 'Read the last 30 existing check results per subject, grouped by kind, for a project and its checkouts. Does not run probes.', read: true },
+  list_events: { input: eventsInput, output: eventsOutput, description: 'Read up to 50 recorded listener, route, agent and check-change observations for a project, newest first. These are observations, not inferred activity.', read: true },
   request_environment: {
     input: requestEnvironmentInput,
     output: requestEnvironmentOutput,

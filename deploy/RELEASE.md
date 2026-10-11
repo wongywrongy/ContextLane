@@ -4,7 +4,7 @@ This release contains compiled JavaScript/static UI, a prebuilt Linux amd64 Dock
 
 Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running user-systemd manager, and the existing Tailscale installation at `/usr/bin/tailscale`. The included image is tested on one Linux amd64 host. Other hosts must review socket, journal and project mount paths before running it. Run these commands as the installation owner, not root:
 
-For the checked-out 0.6.0 source:
+For the checked-out 0.7.0 source:
 
 ```sh
 npm ci
@@ -25,7 +25,7 @@ For managed profiles, review the [configuration example](config.example.json) an
 
 The project-root mount already includes its existing checkout and installed Vite. Downloading this release does not install dependencies in any observed project or authorize another launch profile. Reload owner configuration with `deploy/rootlane-reload` (SIGHUP), or allow the ten-second mtime check. Invalid config keeps the running config. Changes to state, backend port, tailnet hostname or operator origins require restart. New mount paths require rerunning setup and recreating only Rootlane.
 
-For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the thirteen Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
+For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the fifteen Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
 
 Check `docker compose ps`, `docker compose logs --tail=100`, and the authenticated UI status. Container health establishes that HTTP serves requests; managed readiness is a separate systemd/listener/application check. `docker compose restart` preserves managed host services, which Rootlane reconciles. `docker compose down` removes the backend container, not its SQLite state or managed host services. Stop managed environments through Rootlane before decommissioning; inspect and remove only the matching dedicated Rootlane Serve route separately.
 
@@ -47,3 +47,5 @@ Login adds persisted exponential failure backoff (1 second, doubling to 60 secon
 0.5.1 completes the observation table, mobile rows and accessible project menus/details, and separates MCP observation, independent publication and managed startup guidance. Adapter timeout and invalid-response errors are distinguished from connection failures. The same thirteen tools, permissions and ownership checks remain; no database migration is added. See the [MCP workflows](../README.md#mcp-workflows).
 
 0.6.0 uses the unified v3 table, inline details, remembered density and explicit verified/unverified pills. Agent-owned listeners are excluded from services; descendants remain attributed services. No database migration or dependency is added.
+
+0.7.0 replaces inline expansion with a desktop detail panel and mobile full-screen detail, and adds bind/exposure evidence, retained checks and observed events. Migration 004 adds checks (30 per subject) and events (500 total). list_checks reads grouped histories without probes; list_events reads up to 50 scoped observations. The UI merges these events with list_operations. Back up SQLite before upgrading: older releases cannot open migration 004, so rollback requires the matching pre-upgrade database. No new runtime dependency or host process control is added.

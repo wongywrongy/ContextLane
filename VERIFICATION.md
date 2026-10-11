@@ -315,3 +315,27 @@ Evidence: `.impeccable/review/browser-results.json`, `managed-060-results.json`,
 SQLite backup: `/home/kyle/.local/state/rootlane/pre-060-2026-10-10T11-22-11.sqlite`. Previous-release backup: `/opt/stacks/rootlane/pre-060-2026-10-10T11-22-11.tar.gz`. The previous 0.5.1 image remains available. This release adds no migration; rolling back the application does not require restoring an older database.
 
 Not checked in this iteration: physical phones, Safari/Firefox, a second device's preview/HMR, reboot or SSH-disconnect survival. No existing application was started/stopped to validate or deploy this release. The installed launch-port preflight was not repeated; its historical port-8600 conflict is not claimed as resolved.
+
+
+## Detail panel and runtime-map evidence — 0.7.0, 2026-10-11
+
+Replaced inline expansion with a non-modal desktop detail aside (660px, persisted 1080px Widen) and full-screen mobile dialog below 1100px. Selection/tab state is in the URL; keyboard navigation, history/reload and focus restoration are covered. Overview maps actual listeners and backend routes, records check strips, lists exposure and shows recent observations. Managed logs use invocation-scoped journals, real journal timestamps, cursor paging and visible-tab Follow. No runtime dependency, system-stat card, restart, console or unmanaged process control was added.
+
+Migration 004 adds existing-result check histories (last 30 per subject, grouped by kind) and observed events (500 total). New read tools list_checks and list_events expose scoped evidence without creating probes. Catalog scan diffs record listener/route/agent observations once per change; check events record pass↔fail transitions. Root and foreground AllowFunnel entries both feed exposure. The panel merges observed events with lifecycle and preview operations rather than inferring activity.
+
+Checks actually run:
+
+- `npm run check`: TypeScript checks, production build and **107 passing tests**. Added coverage for retention/grouping, pass/fail transitions, all catalog diff kinds, unchanged/unavailable scans, wildcard addresses, foreground Funnel evidence, catalog notices, bounded event reads, managed Logs visibility and journal cursor paging/timestamps. Existing lifecycle, ownership, authorization, migration and route guards pass.
+- `node tests/browser.mjs`: **390, 768, 1100, 1440 and 1920px**, row/actions panel opening, arrow and j/k navigation, Escape/focus restoration, URL reload/back/forward, persisted Widen, unloaded count suppression, unmanaged Logs hiding, Logs cursor Follow and stopping polls when hidden, mobile Activity named region/back control, no horizontal overflow, action retry UUIDs, disconnect/recovery, MCP setup and strict CSP. Zero browser runtime exceptions. Fixture captures are v070-projects-*, v070-details-* and v070-activity-390; the finish reviewer returned ship after inspecting the final Activity fix.
+- Installed stdio MCP discovery reports **0.7.0 and 15 tools**; actual list_checks and list_events calls pass. Authenticated catalog, project, environment, check-history and event reads pass on neo.
+- Live authenticated Chromium at **all five widths** through the configured tailnet HTTPS origin passes runtime map and exposure assertions, real recorded recent observations, no document/panel overflow and zero runtime exceptions or HTTP 5xx. HTTPS HTML and referenced JS/CSS assets match the production build byte-for-byte.
+
+Real host evidence: ShuttleWorks vite listens on **127.0.0.1:5173**, maps to the verified console HTTPS **:20173**, and is Working from reviewed readiness. Uvicorn **127.0.0.1:8600** is Working and internal. Vite **0.0.0.0:5960** remains exposed and appears with its observed checkout and loopback/preview fix; its actual cwd is currently ShuttleWorks/apps/console, so no billing-1 worktree activity is inferred. Activity contains real recorded listener/agent/check observations. The custom alias **https://rootlane.avlis.dev** currently returns upstream **502 Bad Gateway**; it is not claimed available. The verified UI is **https://neo.taile1abc7.ts.net:19483**.
+
+Deployed rootlane:0.7.0 to the existing /opt/stacks/rootlane service, recreating only Rootlane. Health passes. The previous container's stale mounted Tailscale socket refused connections; recreation restored Serve observation. Owner config, credential hashes, full Serve configuration and every durable resource row match their pre-upgrade snapshots; no application was started or stopped.
+
+SQLite backup: /home/kyle/.local/state/rootlane/pre-070-2026-10-11T05-15-41Z.sqlite. Previous release archive: /opt/stacks/rootlane/pre-070-2026-10-11T05-15-41Z.tar.gz. The 0.6.0 image remains available. **Rollback to a release before migration 004 requires restoring the matching pre-upgrade database while Rootlane is stopped.**
+
+Evidence: .impeccable/review/v070-browser-results.json, live-070-results.json, deployment-070-results.json and v070-live-details-* screenshots. Fixture evidence is separate from the actual-host captures.
+
+Not run for this release: physical phone, Safari/Firefox, second-device preview/HMR, reboot/SSH-disconnect survival or another host lifecycle acceptance/start-stop run. The custom-alias reverse proxy was not modified. Earlier verification entries describe their historical versions and are not new 0.7.0 claims.

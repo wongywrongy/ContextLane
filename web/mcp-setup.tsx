@@ -63,7 +63,7 @@ docker compose --project-directory /opt/stacks/rootlane ps`}</Command>
           </p>
           <Command title="Codex tool policy">{`[mcp_servers.rootlane]
 command = "/opt/stacks/rootlane/deploy/rootlane-mcp-docker"
-enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview", "locate", "request_environment", "list_operations"]
+enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview", "locate", "request_environment", "list_operations", "list_checks", "list_events"]
 startup_timeout_sec = 10
 tool_timeout_sec = 15
 default_tools_approval_mode = "prompt"`}</Command>
@@ -97,7 +97,7 @@ default_tools_approval_mode = "prompt"`}</Command>
         </p>
         <details>
           <summary>Show setup prompt</summary>
-          <Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview, unpublish_preview, locate, request_environment and list_operations.
+          <Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview, unpublish_preview, locate, request_environment list_operations, list_checks and list_events.
 
 Never print or copy credentials. Do not install another backend, upgrade software, change routes, or launch environments. If the installation is missing or inaccessible, report the blocker rather than replacing it.
 

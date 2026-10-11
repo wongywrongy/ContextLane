@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import Database from 'better-sqlite3';
-import { randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import { createHash, randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import type { Profile, PreviewTarget } from '../config.js';
 import { revision } from '../config.js';
-import { Problem, type Operation, type PreviewOperation } from '../shared/contracts.js';
+import { Problem, type Operation, type PreviewOperation, type CheckHistory, type ObservedEvent } from '../shared/contracts.js';
 import type { Unit, Preview } from '../host/types.js';
 
 export interface EnvironmentRow {
@@ -39,7 +39,7 @@ export interface PreviewRow {
   removed: number;
   desired: 'published' | 'removed';
 }
-const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql'];
+const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql', '004_observations.sql'];
 export class Store {
   readonly db: Database.Database;
   readonly installation: string;
@@ -335,6 +335,34 @@ export class Store {
   }
   redact(environment: string, lines: string[]) {
     return lines.map(this.redactor(environment));
+  }
+  checkoutId(path: string) { return createHash('sha256').update(path).digest('hex').slice(0, 24); }
+  recordCheck(path: string, subject: string, kind: CheckHistory['kind'], ok: boolean | null, status: string | null, at = new Date().toISOString()) {
+    const checkoutId = this.checkoutId(path);
+    this.db.transaction(() => {
+      const previous = this.db.prepare('SELECT ok FROM checks WHERE subject=? AND kind=? AND ok IS NOT NULL ORDER BY rowid DESC LIMIT 1').get(subject, kind) as { ok: number } | undefined;
+      this.db.prepare('INSERT INTO checks VALUES (?,?,?,?,?,?)').run(subject, kind, ok === null ? null : Number(ok), status?.slice(0,120) ?? null, at, checkoutId);
+      this.db.prepare('DELETE FROM checks WHERE subject=? AND rowid NOT IN (SELECT rowid FROM checks WHERE subject=? ORDER BY rowid DESC LIMIT 30)').run(subject, subject);
+      if (ok !== null && previous && !!previous.ok !== ok)
+        this.recordEvent({ at, projectId: checkoutId, checkoutId, kind: 'check-changed', text: `${kind} ${subject} changed to ${ok ? 'pass' : 'fail'}`, ref: subject });
+    })();
+  }
+  listChecks(checkoutIds: string[]): CheckHistory[] {
+    const rows = this.db.prepare(`SELECT * FROM checks WHERE checkoutId IN (${checkoutIds.map(() => '?').join(',') || 'NULL'}) ORDER BY rowid`).all(...checkoutIds) as (CheckHistory['results'][number] & { ok: number | null; subject: string; kind: CheckHistory['kind']; checkoutId: string })[];
+    const groups = new Map<string, CheckHistory>();
+    for (const row of rows) {
+      const key = row.subject + ':' + row.kind;
+      if (!groups.has(key)) groups.set(key, { subject: row.subject, kind: row.kind, checkoutId: row.checkoutId, results: [] });
+      groups.get(key)!.results.push({ ok: row.ok === null ? null : !!row.ok, status: row.status, at: row.at });
+    }
+    return [...groups.values()].slice(-512);
+  }
+  recordEvent(event: ObservedEvent) {
+    this.db.prepare('INSERT INTO events VALUES (?,?,?,?,?,?)').run(event.at, event.projectId, event.checkoutId, event.kind, event.text.slice(0,1024), event.ref?.slice(0,512) ?? null);
+    this.db.prepare('DELETE FROM events WHERE rowid NOT IN (SELECT rowid FROM events ORDER BY rowid DESC LIMIT 500)').run();
+  }
+  listEvents(checkoutIds: string[], limit: number): ObservedEvent[] {
+    return this.db.prepare(`SELECT * FROM events WHERE projectId IN (${checkoutIds.map(() => '?').join(',') || 'NULL'}) ORDER BY rowid DESC LIMIT ?`).all(...checkoutIds, limit) as ObservedEvent[];
   }
   close() {
     this.db.close();

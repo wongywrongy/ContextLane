@@ -95,7 +95,7 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
     return ports.map((port) => {
       const listener = checkout.runtime.listeners?.find((l) => l.port === port);
       const service = configured.find((s) => s.port === port);
-      const environment = group.environmentIds
+      const environment = checkout.environmentIds
         .map((id) => environments[id])
         .find((e) => e?.services.some((s) => s.id === service?.id && s.port === port));
       const unit = environment?.services.find((s) => s.id === service?.id && s.port === port);
@@ -110,6 +110,8 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
         process: listener?.process,
         startedBy: listener?.startedBy,
         managed: !!environment,
+        serviceId: unit?.id ?? service?.id,
+        binds: checkout.runtime.listeners?.filter(l => l.port === port) ?? [],
         state,
       };
     });
@@ -176,7 +178,7 @@ export function groupLinks(
       url: p.url,
       source: 'Publication',
       state: linkState({ ...p, stale }),
-      target: p.target ?? undefined,
+      target: p.route === 'matching' ? p.target ?? undefined : undefined,
       https: p.https,
       verifiedAt: p.verifiedAt,
       operation: p.latestOperation,
@@ -201,7 +203,7 @@ export function groupLinks(
         url: preview.url,
         source: 'Environment',
         state: linkState({ ...route, upstream: route?.upstream ?? (env.application === 'ready' ? 'ready' : 'unknown'), stale }),
-        target: route?.target,
+        target: route?.route === 'matching' ? route.target : undefined,
         https: route?.https,
         verifiedAt: route?.verifiedAt,
         checkout,
@@ -220,7 +222,7 @@ export function groupLinks(
         url: route.url,
         source: 'Observed route',
         state: linkState({ ...route, stale }),
-        target: route.target,
+        target: route.route === 'matching' ? route.target : undefined,
         https: 'unverified',
         checkout,
       });
@@ -249,6 +251,7 @@ export function recipePresentation(recipe: NonNullable<Project['recipe']>) {
 
 export function serviceState(environment: Environment | undefined, unit: Environment['services'][number] | undefined, listening: boolean) {
   if (environment?.observationError || environment?.application === 'unknown') return 'Unknown';
+  if (unit?.ready === true && unit.state === 'active') return 'Ready';
   if (unit?.state === 'failed' || environment?.application === 'unhealthy') return 'Down';
   if (environment?.application === 'ready' && unit?.state === 'active') return 'Ready';
   if (listening) return 'Listening';
@@ -277,4 +280,5 @@ export function readDensity(storage: Pick<Storage, 'getItem'>): Density {
 export function saveDensity(storage: Pick<Storage, 'setItem'>, density: Density) {
   try { storage.setItem('rootlane-density', density); } catch { /* Storage may be disabled. */ }
 }
-export const expandAll = (ids: string[], expanded: string[]) => ids.every(id => expanded.includes(id)) ? [] : ids;
+
+export const detailTabs = (managed: boolean, mobile: boolean) => mobile ? ['Overview', ...(managed ? ['Logs'] : []), 'Links', 'Agents', 'Worktrees'] as const : ['Overview', ...(managed ? ['Logs'] : []), 'Services', 'Agents', 'Worktrees', 'Activity'] as const;

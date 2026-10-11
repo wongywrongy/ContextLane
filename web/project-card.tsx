@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, PreviewOperation } from '../src/shared/contracts';
+import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, PreviewOperation, CheckHistory, ObservedEvent } from '../src/shared/contracts';
 import {
+  detailTabs, shortPath, elapsed, projectStatus,
   agentKey,
   branchLabel,
   chipTone,
@@ -17,7 +18,8 @@ import {
 import { Icon } from './icons';
 import { ClaudeMark } from './marks/claude';
 import { CodexMark } from './marks/codex';
-export type DetailTab = 'Worktrees' | 'Agents' | 'Services' | 'Links' | 'Environment' | 'Activity';
+export type DetailTab = 'Overview' | 'Logs' | 'Worktrees' | 'Agents' | 'Services' | 'Links' | 'Activity';
+import { LogsTab } from './project-logs';
 export const time = (value?: string | null) =>
   value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleTimeString('en-GB', { hour12: false }) : '—';
 const date = (value?: string | null) => (value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '—');
@@ -97,201 +99,86 @@ function Table({ headings, children }: { headings: string[]; children: React.Rea
     </div>
   );
 }
-export function ProjectDetailsPanel({
-  group,
-  tab,
-  onOpen,
-  environments,
-  environmentErrors,
-  previews,
-  previewErrors,
-  details,
-  projectError,
-  stale,
-  lifecycleAvailable,
-  observedAt,
-  working,
-  onAction,
-  onLogs,
-  logs,
-  logsError,
-  editorTemplate,
-  editorHost,
-  activity,
-  activityError,
-  onRequest,
-  onClose,
-}: {
-  editorTemplate: string | null;
-  editorHost: string | null;
-  activity: (Operation | PreviewOperation)[];
-  activityError: string;
-  onRequest: (path: string) => void;
-  onClose: () => void;
-  group: ProjectGroup;
-  tab: DetailTab;
-  onOpen: (tab?: DetailTab) => void;
-  environments: Record<string, Environment>;
-  environmentErrors: Record<string, string>;
-  previews: Record<string, PreviewStatus>;
-  previewErrors: Record<string, string>;
-  details: ProjectDetails | null;
-  projectError: string;
-  stale: boolean;
-  lifecycleAvailable: boolean;
-  observedAt: string | undefined;
-  working: string | null;
+export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPrevious, hasNext, environments, environmentErrors, previews, previewErrors, details, projectError, stale, lifecycleAvailable, working, editorTemplate, editorHost, activity, activityError, checks, events, onRequest, onAction, loadLogs }: {
+  group: ProjectGroup; tab: DetailTab; onOpen: (tab: DetailTab) => void; onClose: () => void;
+  onMove: (direction: number) => void; hasPrevious: boolean; hasNext: boolean;
+  environments: Record<string, Environment>; environmentErrors: Record<string,string>;
+  previews: Record<string,PreviewStatus>; previewErrors: Record<string,string>;
+  details: ProjectDetails | null; projectError: string; stale: boolean; lifecycleAvailable: boolean; working: string | null;
+  editorTemplate: string | null; editorHost: string | null; activity: (Operation | PreviewOperation)[]; activityError: string;
+  checks?: CheckHistory[]; events?: ObservedEvent[]; onRequest: (path: string) => void;
   onAction: (id: string, action: 'start' | 'stop' | 'publish' | 'unpublish') => void;
-  onLogs: (id: string, service: string) => void;
-  logs: { title: string; lines: string[]; truncated: boolean } | null;
-  logsError: string;
+  loadLogs: (environmentId: string, serviceId: string, cursor: string | undefined, signal: AbortSignal) => Promise<{ lines: string[]; nextCursor: string | null; truncated: boolean }>;
 }) {
-  const project = group.primary;
-  const agents = groupAgents(group);
-  const services = groupServices(group, environments);
-  const managed = group.environmentIds.length > 0;
-  const envs = group.environmentIds.flatMap((id) => (environments[id] ? [environments[id]] : []));
-  const publications = Object.values(previews).filter((p) => group.checkouts.some((c) => c.path === p.checkoutPath));
-  const previewStale =
-    stale || !!projectError || group.environmentIds.some((id) => environmentErrors[id]) || publications.some((p) => previewErrors[p.id]);
-  const links = groupLinks(group, environments, previews, details);
-  if (previewStale) for (const link of links) link.state = 'Unknown';
-  const operations = activity;
-
-  const conflict =
-    !!working ||
-    group.checkouts.flatMap((p) => p.controls ?? []).some((e) => ['accepted', 'running'].includes(e.latestOperation?.status ?? '')) ||
-    envs.some((e) => ['accepted', 'running'].includes(e.latestOperation?.status ?? '')) ||
-    publications.some((p) => ['accepted', 'running'].includes(p.latestOperation?.status ?? ''));
-  const activeOperation = (env: { latestOperation: Operation | null }) => ['accepted', 'running'].includes(env.latestOperation?.status ?? '');
-  const controls = (env: {
-    id: string;
-    desiredState: string;
-    application?: string;
-    hasResources?: boolean;
-    startAllowed: boolean;
-    latestOperation: Operation | null;
-  }) =>
-    !stale &&
-    !environmentErrors[env.id] &&
-    lifecycleAvailable &&
-    !conflict &&
-    !activeOperation(env) &&
-    (env.desiredState === 'running' || env.hasResources || (env.application && env.application !== 'stopped') ? (
-      <button className="btn" onClick={() => onAction(env.id, 'stop')}>
-        Stop{envs.length > 1 ? ` ${label(env.id)}` : ''}
-      </button>
-    ) : env.startAllowed ? (
-      <button className="btn" onClick={() => onAction(env.id, 'start')}>
-        Start{envs.length > 1 ? ` ${label(env.id)}` : ''}
-      </button>
-    ) : null);
-  const logServices = group.checkouts.flatMap((p) => p.logServices);
-  const tabs: DetailTab[] = ['Worktrees', 'Agents', 'Services', 'Links', 'Activity', ...(managed ? ['Environment' as const] : [])];
-  const activeTab = tabs.includes(tab) ? tab : 'Worktrees';
+  const project = group.primary, managed = group.environmentIds.length > 0;
+  const [mobile, setMobile] = useState(() => matchMedia('(max-width:1099px)').matches);
+  const [wide, setWide] = useState(() => { try { return localStorage.getItem('rootlane.panelWide') === 'true'; } catch { return false; } });
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => { const media = matchMedia('(max-width:1099px)'); const change = () => setMobile(media.matches); media.addEventListener('change',change); return () => media.removeEventListener('change',change); }, []);
+  useEffect(() => { panel.current?.focus(); }, []);
   useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !(event.target as HTMLElement).closest('[popover]')) onClose(); };
-    window.addEventListener('keydown', escape);
-    return () => window.removeEventListener('keydown', escape);
-  }, [onClose]);
-  const agentCheckout = (a: Project['agents'][number]) =>
-    group.checkouts.find((p) =>
-      a.source === 'detected process' && a.worktreePath ? p.path === a.worktreePath : p.agents.some((other) => agentKey(other) === agentKey(a)),
-    );
-  const count = (t: DetailTab) =>
-    t === 'Worktrees' ? group.checkouts.length : t === 'Agents' ? agents.length : t === 'Services' ? services.length : t === 'Links' ? links.length : t === 'Activity' ? operations.length : envs.length;
-  const recipeCheckout = group.checkouts.find((p) => p.recipe?.found);
-  const recipe = recipeCheckout?.recipe;
-  const http = (checkoutId: string, port: number) => details?.http?.find((h) => h.checkoutId === checkoutId && h.port === port)?.http;
-  return (
-    <section className="details-drawer dpanel" aria-label={`${project.name} details`}>
-      <header className="drawer-header">
-        <div><h2 id={`details-title-${project.id}`}>{project.name}</h2><span className="mono muted">{project.path}</span></div>
-        <button className="btn" onClick={onClose}>Close</button>
-      </header>
-      {recipe?.found && <div className="drawer-recipe"><Chip state={recipePresentation(recipe).state}>Recipe · {recipePresentation(recipe).text}</Chip>{recipe.valid && recipe.approval !== 'approved' && !stale && !working && <button className="btn" onClick={() => onRequest(recipeCheckout!.path)}>Request environment…</button>}</div>}
-      <div className="details project-details" id={`details-${project.id}`}>
-          <div
-            className="tabs dtabs seg"
-            role="tablist"
-            aria-label={`${project.name} details`}
-            onKeyDown={(event) => {
-              if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
-              event.preventDefault();
-              const index = tabs.indexOf(activeTab);
-              const next =
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? tabs.length - 1
-                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-              onOpen(tabs[next]);
-              document.getElementById(`tab-${project.id}-${tabs[next]}`)?.focus();
-            }}
-          >
-            {tabs.map((t) => (
-              <button
-                className={`tab ${t === activeTab ? 'on' : ''}`}
-                role="tab"
-                aria-selected={t === activeTab}
-                tabIndex={t === activeTab ? 0 : -1}
-                id={`tab-${project.id}-${t}`}
-                aria-controls={`panel-${project.id}`}
-                key={t}
-                onClick={() => onOpen(t)}
-              >
-                {t}
-                {count(t) !== null && <b>{count(t)}</b>}
-              </button>
-            ))}
-          </div>
-          <div className="panel dbody" role="tabpanel" id={`panel-${project.id}`} aria-labelledby={`tab-${project.id}-${activeTab}`} tabIndex={0}>
-            {recipe?.errors.map((e) => (
-              <p className="notice bad" role="alert" key={e.code}>
-                {e.code} · {e.message}
-              </p>
-            ))}
-            {projectError && (
-              <p className="notice bad" role="alert">
-                {projectError} · Details observation stale
-              </p>
-            )}
-            {group.checkouts.filter(p => p.runtime.status === 'unknown').map(p => <p className="notice bad" role="alert" key={p.id}>Listener observation unavailable · {p.path}</p>)}
-            {stale && <p className="notice">Showing the last successful observation.</p>}
-            {activeTab === 'Worktrees' && <WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost} />}
-            {activeTab === 'Agents' && <AgentsTab agents={agents} agentCheckout={agentCheckout} />}
-            {activeTab === 'Services' && <ServicesTab services={services} stale={stale} environmentErrors={environmentErrors} http={http} />}
-            {activeTab === 'Links' && (
-              <LinksTab
-                links={links}
-                publications={publications}
-                details={details}
-                enabled={!previewStale && lifecycleAvailable && !conflict}
-                onAction={onAction}
-                previewErrors={previewErrors}
-              />
-            )}
-            {activeTab === 'Environment' && (
-              <EnvironmentTab
-                group={group}
-                environments={environments}
-                stale={stale}
-                environmentErrors={environmentErrors}
-                controls={controls}
-                logServices={logServices}
-                onLogs={onLogs}
-                activeOperation={activeOperation}
-                logs={logs}
-                logsError={logsError}
-              />
-            )}
-            {activeTab === 'Activity' && (
-              <ActivityTab activityError={activityError} operations={operations} envs={envs} observedAt={observedAt} services={services} />
-            )}
-          </div>
-        </div>
-    </section>
-  );
+    if (!mobile) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [mobile]);
+  const tabs = detailTabs(managed,mobile) as readonly DetailTab[];
+  const activeTab = tabs.includes(tab) || (mobile && tab === 'Activity') ? tab : 'Overview';
+  const selectedTab = mobile && activeTab === 'Activity' ? 'Overview' : activeTab;
+  const evidenceStale = stale || !!projectError;
+  const services = groupServices(group,environments,evidenceStale);
+  for (const service of services) if (service.checkout.environmentIds.some(id => environmentErrors[id])) service.state = 'Unknown';
+  const agents = groupAgents(group), links = groupLinks(group,environments,previews,details);
+  for (const link of links) if (evidenceStale || link.checkout.environmentIds.some(id => environmentErrors[id]) || previewErrors[link.key]) link.state = 'Unknown';
+  const publications = Object.values(previews).filter(p => group.checkouts.some(c => c.path === p.checkoutPath));
+  const conflict = group.checkouts.flatMap(p => p.controls ?? []).some(c => ['accepted','running'].includes(c.latestOperation?.status ?? '')) || group.environmentIds.some(id => ['accepted','running'].includes(environments[id]?.latestOperation?.status ?? '')) || publications.some(p => ['accepted','running'].includes(p.latestOperation?.status ?? ''));
+  const controls = group.checkouts.flatMap(p => p.controls ?? []);
+  const feed = [...(events ?? []).map((e,i) => ({ key: `event-${e.at}-${i}`, at: e.at, text: e.text })), ...activity.map(op => ({ key: op.id, at: op.createdAt, text: `${label(op.action)} · ${'environmentId' in op ? op.environmentId : op.previewId} · ${op.status}${op.error ? ` · ${op.error.code}: ${op.error.message}` : ''}` }))].sort((a,b) => b.at.localeCompare(a.at)).slice(0,50);
+  const count = (t: DetailTab) => !details ? null : t === 'Agents' ? agents.length : t === 'Worktrees' ? group.checkouts.length : t === 'Services' ? services.length : t === 'Links' ? links.length : t === 'Logs' ? details.logServices.length : t === 'Activity' && events ? feed.length : null;
+  const beyondLoopback = group.checkouts.flatMap(checkout => (checkout.runtime.listeners ?? []).filter(l => !['127.0.0.1','::1'].includes(l.bind)).map(l => ({...l,checkout})));
+  const funnels = [...new Set(group.checkouts.flatMap(c => c.funnel ?? []))];
+  const exposureKnown = !evidenceStale && group.checkouts.every(c => c.runtime.status !== 'unknown' && c.funnel !== null && c.funnel !== undefined);
+  const exposure = <section className="card"><h3 className="card-h">Exposure</h3>{evidenceStale ? <p className="okline">—</p> : <>{beyondLoopback.map(l => <div className="warnline" key={`${l.checkout.id}:${l.bind}:${l.port}`}><div><strong>{l.process?.name ?? l.checkout.name} {l.bind}:{l.port}</strong><div className="mono muted">{shortPath(l.checkout.path)}</div><p>bind to 127.0.0.1 and share through a preview link</p></div></div>)}{funnels.map(origin => <p className="warnline" key={origin}>Public (Funnel) route: {origin}</p>)}<p className="okline">{!exposureKnown ? 'Serve or listener observation unavailable · —' : !funnels.length ? 'no public (Funnel) routes' : `${funnels.length} public (Funnel) routes observed`}</p>{exposureKnown && !beyondLoopback.length && !funnels.length && <p className="okline">Loopback only</p>}</>}</section>;
+  const changes = <section className="card"><h3 className="card-h">Recent changes<button className="btn ghost" onClick={() => onOpen('Activity')}>All activity</button></h3>{activityError && <p role="alert">{activityError}</p>}{feed.slice(0,3).map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p className="okline">{events ? 'No recorded changes.' : 'Reading changes…'}</p>}</section>;
+  return <aside ref={panel} id="project-detail" className={mobile ? 'mdetail' : `drawer ${wide ? 'wide' : ''}`} tabIndex={-1} role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-labelledby="detail-title" onKeyDown={event => {
+    const input = (event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]');
+    if (event.key === 'Escape' && !document.querySelector('[popover]:popover-open')) { event.preventDefault(); onClose(); }
+    if (!input && ['ArrowUp','ArrowDown','j','k'].includes(event.key)) { event.preventDefault(); onMove(event.key === 'ArrowUp' || event.key === 'k' ? -1 : 1); }
+    if (mobile && event.key === 'Tab') {
+      const items = [...panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input,select,[tabindex="0"]')].filter(e => e.getClientRects().length);
+      if (event.shiftKey && (document.activeElement === items[0] || document.activeElement === panel.current)) { event.preventDefault(); items.at(-1)?.focus(); }
+      if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0]?.focus(); }
+    }
+  }}>
+    <header className="dr-head">
+      {mobile && <button className="mback" onClick={onClose}>‹ Projects</button>}
+      <div className="dr-top"><div className="dr-title"><h2 id="detail-title">{project.name}</h2><div className="dr-sub">{shortPath(project.path)} · {branchLabel(project)}</div>{managed && <small>Managed · {evidenceStale ? '—' : projectStatus(group,environments).replace('Unknown','—')}</small>}</div>
+      <div className="dr-actions">{controls.map(c => { const env = environments[c.id]; const canStop = c.desiredState === 'running' || c.hasResources || (env && env.application !== 'stopped'); return canStop && <button className="btn" key={c.id} disabled={evidenceStale || !!environmentErrors[c.id] || !lifecycleAvailable || !!working || conflict || !!env?.observationError} onClick={() => onAction(c.id,'stop')}>Stop{controls.length > 1 ? ` ${label(c.id)}` : ''}</button>; })}<button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button>{!mobile && <><button className="btn" aria-pressed={wide} onClick={() => { setWide(!wide); try { localStorage.setItem('rootlane.panelWide',String(!wide)); } catch {} }}>Widen</button><button className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="disclosure"/></button></>}</div></div>
+      {!mobile && <p className="kbdhint">↑ ↓ / j k to move · Esc to close</p>}
+      <div className={mobile ? 'mtabs' : 'dr-tabs dtabs seg'} role="tablist" aria-label={`${project.name} details`} onKeyDown={event => { if (!['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) return; event.preventDefault(); const i = tabs.indexOf(selectedTab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; onOpen(tabs[next]); document.getElementById(`tab-${tabs[next]}`)?.focus(); }}>
+        {tabs.map(t => <button key={t} id={`tab-${t}`} role="tab" aria-selected={t === selectedTab} aria-controls="detail-body" tabIndex={t === selectedTab ? 0 : -1} className={selectedTab === t ? 'on' : ''} onClick={() => onOpen(t)}>{t}{count(t) !== null && <b>{count(t)}</b>}</button>)}
+      </div>
+    </header>
+    <div id="detail-body" role={mobile && activeTab === 'Activity' ? 'region' : 'tabpanel'} aria-labelledby={mobile && activeTab === 'Activity' ? 'activity-title' : `tab-${activeTab}`} tabIndex={0} className={mobile ? 'mbody' : 'dr-body'}>
+      {projectError && <p className="notice bad" role="alert">{projectError} · Details observation stale</p>}
+      {stale && <p className="notice">Showing retained observations · current state —</p>}
+      {activeTab === 'Overview' && <>
+        <section className="card"><h3 className="card-h">Runtime map</h3><div className="rmap h"><span>Process</span><span>Listening on</span><span/><span>Reached at</span><span>State</span></div>
+          {services.map(s => { const destinations = evidenceStale ? [] : links.filter(l => l.checkout.id === s.checkout.id && l.target && Number(new URL(l.target).port) === s.port); return <div className="rmap" key={s.key}><div><strong>{s.name}</strong><small className="mono muted runtime-meta">{shortPath(s.checkout.path)} · pid {evidenceStale ? '—' : s.process?.pid ?? '—'}</small></div><div>{s.binds.length ? s.binds.map(l => <span key={l.bind} className={`bind ${l.wildcard ? 'wide' : ''}`}>{evidenceStale ? '—' : `${l.bind.includes(':') ? `[${l.bind}]` : l.bind}:${s.port}`}</span>) : <span className="none">—</span>}</div><span className="arrow">→</span><div>{destinations.length ? destinations.map(l => <a className="runtime-url mono" key={l.key} href={l.url} target="_blank" rel="noreferrer">{l.label} {l.url}</a>) : <span className="none">{evidenceStale || s.checkout.funnel == null ? '—' : s.managed ? 'internal' : 'no route'}</span>}</div><Chip state={s.state}>{s.state === 'Ready' ? 'Working' : s.state === 'Unknown' ? '—' : s.state}</Chip></div>; })}{!services.length && <p className="okline">{details ? 'No services observed.' : 'Reading services…'}</p>}
+        </section>
+        {!mobile && <section className="card"><h3 className="card-h">Checks</h3><p className="check-note">{managed ? 'Reviewed readiness checks · preview HTTPS verification' : 'every 30s while this panel is open · not readiness'}</p>{checks?.filter(c => managed ? ['readiness','preview-https'].includes(c.kind) : ['route','http-probe'].includes(c.kind)).map(c => { const last = c.results.at(-1), expired = evidenceStale || !last || Date.now() - Date.parse(last.at) > (c.kind === 'http-probe' ? 45000 : 15000); return <div className="chk" key={`${c.subject}:${c.kind}`}><div><strong>{c.kind === 'readiness' ? 'Reviewed readiness' : c.kind === 'preview-https' ? 'Preview HTTPS verification' : c.kind === 'route' ? 'Route presence' : 'HTTP probe'}</strong><small className="mono muted runtime-meta">{c.subject}</small></div><div className="strip" role="img" aria-label={`Last ${c.results.length} results: ${c.results.map(r => r.ok === null ? 'not run' : r.ok ? 'pass' : 'fail').join(', ')}`}>{Array.from({length:30},(_,i) => c.results[i - (30 - c.results.length)]).map((r,i) => <i key={i} className={!r || r.ok === null ? 'n' : r.ok ? '' : 'f'} title={r ? `${r.at}: ${r.status ?? 'not run'}` : 'not run'}/>)}</div><Chip state={expired || last?.ok === null ? 'Unknown' : last?.ok ? 'Ready' : 'Failed'}>{expired || last?.ok === null ? '—' : last?.ok ? 'Pass' : 'Fail'}</Chip></div>; })}{checks && !checks.length && <p className="okline">No checks recorded yet.</p>}{!checks && <p className="okline">Reading check history…</p>}</section>}
+        {exposure}{changes}
+        {group.checkouts.some(c => c.recipe?.found && c.recipe.valid && c.recipe.approval !== 'approved') && <button className="btn" disabled={stale || !!working} onClick={() => onRequest(group.checkouts.find(c => c.recipe?.found)!.path)}>Request environment…</button>}
+        <LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/>
+      </>}
+      {activeTab === 'Logs' && managed && <LogsTab services={details?.logServices ?? []} load={loadLogs}/>}
+      {activeTab === 'Services' && <ServicesTab services={services} stale={evidenceStale} environmentErrors={environmentErrors}/>}
+      {activeTab === 'Agents' && <AgentsTab agents={agents} services={services} stale={evidenceStale} now={Date.now()}/>}
+      {activeTab === 'Worktrees' && <WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost}/>}
+      {activeTab === 'Links' && <LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/>}
+      {(activeTab === 'Activity' || (mobile && tab === 'Activity')) && <>{mobile && <div className="card-h"><h3 id="activity-title">Activity</h3><button className="btn" onClick={() => onOpen('Overview')}>Back to Overview</button></div>}<p className="pv-note">Recorded listener, route, agent and check-change observations, plus Rootlane operations. No transcripts or inferred activity.</p>{activityError && <p role="alert">{activityError}</p>}{feed.map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p>No recorded events.</p>}</>}
+    </div>
+  </aside>;
 }
 
 function LinksTab({
@@ -397,279 +284,13 @@ function WorktreesTab({
   );
 }
 
-function AgentsTab({
-  agents,
-  agentCheckout,
-}: {
-  agents: ReturnType<typeof groupAgents>;
-  agentCheckout: (agent: Project['agents'][number]) => Project | undefined;
-}) {
-  return (
-    <>
-      <Table headings={['Agent', 'Source', 'Checkout', 'Working directory', 'Process started', 'Process id', 'Ports']}>
-        {agents.map((a) => (
-          <tr key={agentKey(a)}>
-            <td>
-              <span className="agent-name">
-                <Mark name={a.name} />
-                {a.name}
-              </span>
-            </td>
-            <td>{a.source === 'detected process' ? 'Detected process' : 'Owner registration'}</td>
-            <td className="mono">{agentCheckout(a)?.path ?? '—'}</td>
-            <td className="mono">{a.source === 'detected process' ? a.cwd ?? '—' : '—'}</td>
-            <td className="mono">{a.source === 'detected process' ? date(a.startedAt) : '—'}</td>
-            <td className="mono">{a.source === 'detected process' ? (a.pid ?? '—') : '—'}</td>
-            <td className="mono">{a.source === 'detected process' ? a.ports?.map(port => ':' + port).join(', ') || '—' : '—'}</td>
-          </tr>
-        ))}
-      </Table>
-      {!agents.length && <p className="empty">No agents attached.</p>}
-      <p className="pv-note">Rootlane doesn't read transcripts or infer activity.</p>
-    </>
-  );
+function AgentsTab({ agents, services, stale, now }: { agents: ReturnType<typeof groupAgents>; services: ReturnType<typeof groupServices>; stale: boolean; now: number }) {
+  return <><Table headings={['Agent','Working in','Running for','PID','Own ports','Started']}>
+    {agents.map(a => <tr key={agentKey(a)}><td><span className="agent-name"><Mark name={a.name}/>{a.name}</span><small>{a.source === 'detected process' ? 'Detected' : 'Registered'}</small></td><td className="mono">{a.source === 'detected process' ? a.worktreePath ?? a.cwd ?? '—' : '—'}</td><td className="mono">{!stale && a.source === 'detected process' ? elapsed(a.startedAt,now) ?? '—' : '—'}</td><td>{a.source === 'detected process' ? a.pid ?? '—' : '—'}</td><td>{!stale && a.source === 'detected process' ? a.ports?.map(p => ':'+p).join(', ') || '—' : '—'}</td><td>{!stale && a.source === 'detected process' ? services.filter(s => s.startedBy?.pid === a.pid).map(s => `${s.name} :${s.port}`).join(', ') || '—' : '—'}</td></tr>)}
+  </Table>{!agents.length && <p>No agents observed.</p>}<p className="pv-note">Detected processes do not establish activity. Rootlane does not read transcripts.</p></>;
 }
-
-function ServicesTab({
-  services,
-  stale,
-  environmentErrors,
-  http,
-}: {
-  services: ReturnType<typeof groupServices>;
-  stale: CardProps['stale'];
-  environmentErrors: CardProps['environmentErrors'];
-  http: (checkoutId: string, port: number) => NonNullable<ProjectDetails['http']>[number]['http'] | undefined;
-}) {
-  return (
-    <>
-      <Table headings={['Name', 'Endpoint', 'Process', 'Started', 'Checkout', 'Unit', 'Ownership', 'Started by', 'State', 'HTTP']}>
-        {services.map((s) => (
-          <tr key={s.key}>
-            <td>{s.name}</td>
-            <td className="mono">{s.checkout.runtime.listeners?.find(l => l.port === s.port)?.loopback ? `localhost:${s.port}` : `:${s.port} · bind address unknown`}</td>
-            <td className="mono">{s.process?.pid ?? '—'}</td>
-            <td className="mono">{date(s.process?.startedAt)}</td>
-            <td className="mono">{s.checkout.path}</td>
-            <td className="mono">{s.unit}</td>
-            <td>{s.managed ? 'Rootlane' : 'Observe-only'}</td>
-            <td>{s.startedBy ? `${s.startedBy.name} · PID ${s.startedBy.pid}` : '—'}</td>
-            <td>
-              <Chip state={stale || s.checkout.environmentIds.some((id) => environmentErrors[id]) ? 'Unknown' : s.state} />
-            </td>
-            <td className="mono">{http(s.checkout.id, s.port) ? `HTTP ${http(s.checkout.id, s.port)!.status}` : '—'}</td>
-          </tr>
-        ))}
-      </Table>
-      {!services.length && <p className="empty">No services observed.</p>}
-    </>
-  );
-}
-
-function EnvironmentTab({
-  group,
-  environments,
-  stale,
-  environmentErrors,
-  controls,
-  logServices,
-  onLogs,
-  activeOperation,
-  logs,
-  logsError,
-}: {
-  group: CardProps['group'];
-  environments: CardProps['environments'];
-  stale: CardProps['stale'];
-  environmentErrors: CardProps['environmentErrors'];
-  controls: (env: Environment | NonNullable<Project['controls']>[number]) => React.ReactNode;
-  logServices: Project['logServices'];
-  onLogs: CardProps['onLogs'];
-  activeOperation: (env: { latestOperation: Operation | null }) => boolean;
-  logs: CardProps['logs'];
-  logsError: CardProps['logsError'];
-}) {
-  return (
-    <>
-      <Table headings={['Checkout / instance', 'Ports', 'Previews', 'Application', 'Actions']}>
-        {group.environmentIds.map((id) => {
-          const env = environments[id],
-            checkout = group.checkouts.find((p) => p.environmentIds.includes(id));
-          return (
-            <tr key={id}>
-              <td>
-                <strong>{checkout?.branch ?? checkout?.name ?? '—'}</strong>
-                <span className="instance-id mono">{id}</span>
-              </td>
-              <td className="mono">
-                {env
-                  ? Object.entries(env.ports ?? {}).map(([name, port]) => (
-                      <div key={name}>
-                        {name} :{port}
-                      </div>
-                    ))
-                  : '—'}
-              </td>
-              <td>
-                {env?.previews?.length
-                  ? env.previews.map((p) => (
-                      <a className="pv-url" href={p.url} key={p.serviceId} target="_blank" rel="noreferrer">
-                        {p.url}
-                        <Icon name="external" />
-                      </a>
-                    ))
-                  : '—'}
-              </td>
-              <td>
-                {env ? <Chip state={stale || environmentErrors[id] || env.observationError ? 'Unknown' : label(env.application)} /> : '—'}
-                {environmentErrors[id] && (
-                  <p className="notice bad" role="alert">
-                    {environmentErrors[id]} · Observation stale
-                  </p>
-                )}
-                {env?.latestOperation?.error && (
-                  <p className="notice bad" role="alert">
-                    {env.latestOperation.error.code} · {env.latestOperation.error.message}
-                  </p>
-                )}
-              </td>
-              <td>
-                <div className="environment-actions">
-                  {env && controls(env)}
-                  {logServices
-                    .filter((s) => s.environmentId === id)
-                    .map((s) => (
-                      <button className="btn" key={s.serviceId} onClick={() => onLogs(id, s.serviceId)}>
-                        <Icon name="logs" />
-                        {label(s.serviceId)} logs
-                      </button>
-                    ))}
-                  {env && activeOperation(env) && <Chip state="Working" />}
-                </div>
-              </td>
-            </tr>
-          );
-        })}
-      </Table>
-      <p className="pv-note">Preview URLs are allocated addresses. Availability is verified separately in Links.</p>
-      {group.environmentIds.map((id) => {
-        const env = environments[id];
-        return (
-          env && (
-            <details className="environment" key={id}>
-              <summary>{label(id)} · profile and latest operation</summary>
-              <div className="grid-2">
-                <div className="box">
-                  <h4>Environment</h4>
-                  <dl className="kv">
-                    <dt>Checkout</dt>
-                    <dd className="mono">{group.checkouts.find((p) => p.environmentIds.includes(id))?.path ?? '—'}</dd>
-                    <dt>Profile</dt>
-                    <dd className="mono">{env.id}</dd>
-                    <dt>Revision</dt>
-                    <dd className="mono">{env.profileRevision}</dd>
-                    <dt>Desired state</dt>
-                    <dd>{env.desiredState}</dd>
-                    <dt>Application</dt>
-                    <dd>{env.application}</dd>
-                    <dt>Effects</dt>
-                    <dd>{env.effects}</dd>
-                    <dt>Data requirements</dt>
-                    <dd>{env.dataRequirements}</dd>
-                  </dl>
-                </div>
-                <div className="box">
-                  <h4>Latest operation</h4>
-                  <dl className="kv">
-                    <dt>Action</dt>
-                    <dd>{env.latestOperation?.action ?? '—'}</dd>
-                    <dt>Status</dt>
-                    <dd>{env.latestOperation ? <Chip state={label(env.latestOperation.status)} /> : '—'}</dd>
-                    <dt>Requested</dt>
-                    <dd>{date(env.latestOperation?.createdAt)}</dd>
-                    <dt>Finished</dt>
-                    <dd>{date(env.latestOperation?.finishedAt)}</dd>
-                    <dt>Operation id</dt>
-                    <dd className="mono">{env.latestOperation?.id.slice(0, 8) ?? '—'}</dd>
-                  </dl>
-                </div>
-              </div>
-              {env.observationError && (
-                <p className="notice bad" role="alert">
-                  {env.observationError.message}
-                </p>
-              )}
-            </details>
-          )
-        );
-      })}
-      {logs && (
-        <section className="logs">
-          <h4>{logs.title}</h4>
-          {logsError && (
-            <p className="notice bad" role="alert">
-              {logsError}
-              {logs.lines.length > 0 ? ' · Showing retained log output.' : ''}
-            </p>
-          )}
-          {logs.truncated && <p className="pv-note">Latest 50 entries, up to 2 KiB each.</p>}
-          <pre className="term">{logs.lines.join('\n') || 'No recorded output available.'}</pre>
-        </section>
-      )}
-    </>
-  );
-}
-
-function ActivityTab({
-  activityError,
-  operations,
-  envs,
-  observedAt,
-  services,
-}: {
-  activityError: CardProps['activityError'];
-  operations: (Operation | PreviewOperation)[];
-  envs: Environment[];
-  observedAt: CardProps['observedAt'];
-  services: ReturnType<typeof groupServices>;
-}) {
-  return (
-    <div className="timeline">
-      {activityError && (
-        <p className="notice bad" role="alert">
-          {activityError}
-        </p>
-      )}
-      {!operations.length && !activityError && <p className="empty">No recorded operations.</p>}
-      {operations.map((op) => (
-        <div className="ev" key={op.id}>
-          <time title={date(op.createdAt)}>{time(op.createdAt)}</time>
-          <Chip state={label(op.status)} />
-          <div>
-            {label(op.action)} · {label('environmentId' in op ? op.environmentId : op.previewId)}
-            <span className="mono muted"> · {op.id.slice(0, 8)}</span>
-            {op.error && (
-              <p>
-                {op.error.code} · {op.error.message}
-              </p>
-            )}
-          </div>
-        </div>
-      ))}
-      {envs.map((e) => (
-        <div className="ev" key={e.id}>
-          <time title={date(e.observedAt)}>{time(e.observedAt)}</time>
-          <Icon name="refresh" />
-          <div>
-            Observed {label(e.id)} · {e.application} · preview {e.preview}
-          </div>
-        </div>
-      ))}
-      <div className="ev">
-        <time>{time(observedAt)}</time>
-        <Icon name="refresh" />
-        <div>Current catalog observation · {services.filter((s) => s.state === 'Listening').length} listeners</div>
-      </div>
-    </div>
-  );
+function ServicesTab({ services, stale, environmentErrors }: { services: ReturnType<typeof groupServices>; stale: boolean; environmentErrors: Record<string,string> }) {
+  return <><Table headings={['Process','Port','Bound to','PID','Started','Owner','State']}>
+    {services.map(s => <tr key={s.key}><td>{s.name}<small className="mono runtime-meta">{shortPath(s.checkout.path)}</small></td><td className="mono">:{s.port}</td><td className="mono">{stale ? '—' : s.binds.map(l => l.bind).join(', ') || '—'}</td><td>{s.process?.pid ?? '—'}</td><td>{stale ? '—' : date(s.process?.startedAt)}</td><td>{s.managed ? `Rootlane · ${s.serviceId}` : s.startedBy ? `Started by ${s.startedBy.name}` : 'Observed'}</td><td><Chip state={stale || s.checkout.environmentIds.some(id => environmentErrors[id]) ? 'Unknown' : s.state}/></td></tr>)}
+  </Table>{!services.length && <p>No services observed.</p>}</>;
 }

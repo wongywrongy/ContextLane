@@ -37,3 +37,14 @@ test('direct systemd argv uses setenv without a shell and journal redaction prec
  await host.startUnit(unit,service);const {readFile}=await import('node:fs/promises');const args=JSON.parse(await readFile(captured,'utf8')) as string[];assert(args.includes(`--property=EnvironmentFile=${envFile}`));assert(!args.some(arg=>arg.includes(secret)));assert(args.includes('--setenv=LITERAL=literal $HOME ; value'));assert(args.includes('--expand-environment=no'));assert.equal(args[args.indexOf('--')+1],service.executable);assert(!args.includes('/usr/bin/env'));
  await writeFile(join(bin,'journalctl'),`#!${process.execPath}\nconsole.log(JSON.stringify({MESSAGE:${JSON.stringify('x'.repeat(2020)+secret)},__CURSOR:'cursor'}))`,{mode:0o700});store.saveRedactions('fixture',[secret]);const page=await host.logs(unit,undefined,10,store.redactor('fixture'));assert(page.lines[0].endsWith('[redacted]'));assert(!page.lines[0].includes('private-secret'));assert(page.truncated);assert(!store.meta('redactions:fixture')!.includes(secret));
 });
+
+test('journal cursor pages advance without skipping entries and preserve real timestamps', async t => {
+  const {root}=await setup(t);const {mkdir,writeFile}=await import('node:fs/promises');const bin=join(root,'journal-bin');await mkdir(bin);
+  const previous=process.env.PATH;process.env.PATH=`${bin}:${previous}`;t.after(()=>{process.env.PATH=previous;});
+  const captured=join(root,'journal-args.json');
+  await writeFile(join(bin,'journalctl'),`#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(captured)},JSON.stringify(process.argv.slice(2)));for(let i=1;i<=3;i++) console.log(JSON.stringify({MESSAGE:'line '+i,__CURSOR:'cursor'+i,__REALTIME_TIMESTAMP:'1700000000000000'}));`,{mode:0o700});
+  const {LinuxHost}=await import('../src/host/linux.js');const host=new LinuxHost();const unit={name:'fixture.service',marker:'rootlane:fixture',serviceId:'api',port:19481,readiness:{path:'/',status:200,bodyIncludes:'',timeoutMs:100},invocation:'a'.repeat(32)};
+  const first=await host.logs(unit,undefined,2);assert(first.lines[0].includes('line 2'));assert.equal(first.nextCursor,'cursor3');assert.match(first.lines[0],/^2023-11-14T22:13:20.000Z /);
+  const page=await host.logs(unit,'cursor0',2);assert(page.lines[0].includes('line 1'));assert(page.lines[1].includes('line 2'));assert.equal(page.nextCursor,'cursor2');assert(page.truncated);
+  const args=JSON.parse(await (await import('node:fs/promises')).readFile(captured,'utf8'));assert(args.includes('--lines=+3'));assert(args.includes('--after-cursor=cursor0'));assert(args.includes('_SYSTEMD_INVOCATION_ID='+unit.invocation));
+});

@@ -278,7 +278,10 @@ export class Lifecycle {
         if (current && current.marker !== unit.marker) throw new Problem('OWNERSHIP_CONFLICT', `${unit.name} no longer matches recorded ownership`);
         result.services.push({ id: unit.serviceId, port: unit.port, unit: unit.name, state: current?.state ?? 'absent' });
         if (!current || current.state === 'inactive' || current.state === 'failed') absent++;
-        if (await this.host.ready(unit)) healthy++;
+        const ready = await this.host.ready(unit);
+        result.services.at(-1)!.ready = ready;
+        this.store.recordCheck(observation.projectPath, `${id}/${unit.serviceId}`, 'readiness', ready, ready ? 'pass' : 'fail');
+        if (ready) healthy++;
       }
       const unitCount = rows.filter((r) => r.kind === 'unit').length;
       result.application = unitCount === 0 || absent === unitCount ? 'stopped' : healthy === observation.services.length ? 'ready' : 'unhealthy';
@@ -288,6 +291,7 @@ export class Lifecycle {
         const route = JSON.parse(row.data) as Preview;
         const url = `https://${route.hostname}:${route.port}/`;
         const state = this.host.routeState(config, route);
+        this.store.recordCheck(observation.projectPath, url, 'route', state === 'matching', state);
         let https: 'verified' | 'unverified' | 'failed' = 'unverified';
         const verifiedKey = `verified:${row.id}`;
         if (row.attempted && state === 'matching') {
@@ -295,6 +299,7 @@ export class Lifecycle {
           const service = observation.services.find((s) => Number(new URL(route.upstream).port) === s.port);
           if (service && result.application === 'ready') {
             https = (await this.host.probe(url, service.readiness)) ? 'verified' : 'failed';
+            this.store.recordCheck(observation.projectPath, `managed-preview:${row.id}`, 'preview-https', https === 'verified', https);
             if (https === 'verified') this.store.setMeta(verifiedKey, result.observedAt);
           }
         }

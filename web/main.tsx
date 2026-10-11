@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  checksOutput, eventsOutput, type CheckHistory, type ObservedEvent,
   approvalsOutput,
   requestEnvironmentOutput,
   type ApprovalReview,
@@ -16,7 +17,7 @@ import {
   type PreviewOperation,
 } from '../src/shared/contracts';
 import './style.css';
-import { groupProjects, loadCatalog, projectStatus, matchesProject, matchesFilter, elapsed, readDensity, saveDensity, expandAll, type Density, type ProjectFilter } from './projects';
+import { groupProjects, loadCatalog, projectStatus, matchesProject, matchesFilter, elapsed, readDensity, saveDensity, type Density, type ProjectFilter } from './projects';
 import { Icon, Logo } from './icons';
 import { polling } from './polling';
 import { McpSetup } from './mcp-setup';
@@ -51,36 +52,49 @@ function App() {
   const [settingsPage, setSettingsPage] = useState<'connection' | 'mcp'>('connection');
   const [filter, setFilter] = useState<ProjectFilter>('All');
   const [tabs, setTabs] = useState<Record<string, DetailTab>>({});
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const expandedRef = useRef(expanded); expandedRef.current = expanded;
+
   const [noticesOpen, setNoticesOpen] = useState(false);
   const [density, setDensity] = useState<Density>(() => { try { return readDensity(localStorage); } catch { return 'Expanded'; } });
-  const [projectObservations, setProjectObservations] = useState<Record<string, { details: ProjectDetails | null; error: string; activity: (Operation | PreviewOperation)[]; activityError: string }>>({});
+  const [projectObservations, setProjectObservations] = useState<Record<string, { details: ProjectDetails | null; error: string; activity: (Operation | PreviewOperation)[]; activityError: string; checks?: CheckHistory[]; events?: ObservedEvent[] }>>({});
   const [roots, setRoots] = useState<string[]>([]);
   const [observationRoots, setObservationRoots] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
-  const [selected, setSelected] = useState<string | null>(null);
-  const selectedRef = useRef<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get('project'));
+  const selectedRef = useRef<string | null>(selected);
+  const originRow = useRef<string | null>(selected);
   const detailAbort = useRef(new AbortController());
   const logAbort = useRef(new AbortController());
   const [catalogError, setCatalogError] = useState('');
   const [environmentErrors, setEnvironmentErrors] = useState<Record<string, string>>({});
   const [previews, setPreviews] = useState<Record<string, PreviewStatus>>({});
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
-  const [logsError, setLogsError] = useState('');
   const refreshController = useRef<ReturnType<typeof polling> | null>(null);
-  const selectProject = (id: string | null) => {
+  const selectProject = (id: string | null, tab: DetailTab = 'Overview', restore = false) => {
+    if (id && !selectedRef.current) originRow.current = id;
+    if (id) setTabs(prev => ({ ...prev, [id]: tab }));
+    if (!restore) {
+      const url = new URL(location.href);
+      if (id) { url.searchParams.set('project', id); url.searchParams.set('tab', tab); }
+      else { url.searchParams.delete('project'); url.searchParams.delete('tab'); }
+      history.pushState(null, '', url);
+    }
+    if (!id) { const row = originRow.current; requestAnimationFrame(() => document.querySelector<HTMLElement>(`#project-${row} .project-open`)?.focus()); }
+
     detailAbort.current.abort();
     detailAbort.current = new AbortController();
     logAbort.current.abort();
     logAbort.current = new AbortController();
     selectedRef.current = id;
     setSelected(id);
-    setLogs(null);
-    setLogsError('');
     void refreshController.current?.refresh();
   };
+  useEffect(() => {
+    const restore = () => { const url = new URLSearchParams(location.search); selectProject(url.get('project'), (url.get('tab') || 'Overview') as DetailTab, true); };
+    restore();
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
   const [tailnetHostname, setTailnetHostname] = useState<string | null>(null);
   const [editorTemplate, setEditorTemplate] = useState<string | null>(null);
   const [approvals, setApprovals] = useState<ApprovalReview[]>([]);
@@ -114,7 +128,6 @@ function App() {
   const [connection, setConnection] = useState('Connecting');
   const [tailscale, setTailscale] = useState('Unknown');
   const [working, setWorking] = useState<string | null>(null);
-  const [logs, setLogs] = useState<{ title: string; lines: string[]; truncated: boolean } | null>(null);
   useEffect(() => {
     const abort = new AbortController();
     json('/api/session', undefined, undefined, abort.signal)
@@ -231,23 +244,27 @@ function App() {
       ];
       for (let i = 0; i < observations.length && !signal.aborted; i += 4)
         await Promise.allSettled(observations.slice(i, i + 4).map((observe) => observe()));
-      for (const projectId of expandedRef.current) {
+      for (const projectId of selectedRef.current ? [selectedRef.current] : []) {
         if (signal.aborted) return;
-        const current = () => !signal.aborted && expandedRef.current.includes(projectId);
+        const current = () => !signal.aborted && selectedRef.current === projectId;
         try {
           const data = projectOutput.parse(await json('/api/tools/get_project', { projectId }, csrf, signal));
           if (!current()) continue;
-          setProjectObservations(prev => ({ ...prev, [projectId]: { details: data, error: '', activity: prev[projectId]?.activity ?? [], activityError: '' } }));
+          setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], details: data, error: '', activity: prev[projectId]?.activity ?? [], activityError: '' } }));
           try {
             const groupEnvironmentIds = groupProjects(snapshot?.projects ?? []).find(group => group.primary.id === projectId)?.environmentIds ?? [];
             const scopes = [...groupEnvironmentIds.map(environmentId => ({ environmentId })), ...data.previews.map(p => ({ previewId: p.previewId }))];
+            const [checks, events] = await Promise.all([
+              json('/api/tools/list_checks', { projectId }, csrf, signal).then(value => checksOutput.parse(value).checks),
+              json('/api/tools/list_events', { projectId, limit: 50 }, csrf, signal).then(value => eventsOutput.parse(value).events),
+            ]);
             const operations = await Promise.all(scopes.map(scope => json('/api/tools/list_operations', { ...scope, limit: 20 }, csrf, signal).then(value => operationsOutput.parse(value).operations)));
-            if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], activity: [...new Map(operations.flat().map(op => [op.id, op])).values()].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,20), activityError: '' } }));
+            if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], activity: [...new Map(operations.flat().map(op => [op.id, op])).values()].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,20), activityError: '', checks, events } }));
           } catch (e) {
             if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], activityError: failed(e) } }));
           }
         } catch (e) {
-          if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { details: prev[projectId]?.details ?? null, activity: prev[projectId]?.activity ?? [], activityError: prev[projectId]?.activityError ?? '', error: failed(e) } }));
+          if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], details: prev[projectId]?.details ?? null, activity: prev[projectId]?.activity ?? [], activityError: prev[projectId]?.activityError ?? '', error: failed(e) } }));
         }
       }
     });
@@ -283,21 +300,6 @@ function App() {
       setError(String(e));
     } finally {
       setWorking(null);
-    }
-  }
-  async function showLogs(id: string, serviceId: string) {
-    logAbort.current.abort();
-    logAbort.current = new AbortController();
-    const signal = logAbort.current.signal;
-    const projectId = selectedRef.current;
-    setLogsError('');
-    setLogs((previous) => (previous?.title === `${id} / ${serviceId}` ? previous : { title: `${id} / ${serviceId}`, lines: [], truncated: false }));
-    try {
-      const data = logsOutput.parse(await json('/api/tools/get_logs', { environmentId: id, serviceId, limit: 50 }, csrf!, signal));
-      if (!signal.aborted && selectedRef.current === projectId)
-        setLogs({ title: `${id} / ${serviceId}`, lines: data.lines, truncated: data.truncated });
-    } catch (e) {
-      if (!signal.aborted && selectedRef.current === projectId) setLogsError(String(e));
     }
   }
   async function perform(tool: string, body: Record<string, string>) {
@@ -610,7 +612,6 @@ function App() {
                 <button className="icon-btn" aria-label="Refresh projects" onClick={() => void refreshController.current?.refresh()}><Icon name="refresh"/></button>
                 <label className="select">Sort <select aria-label="Sort projects" value={sort} onChange={e => { setSort(e.target.value); setCursor(0); }}><option value="name">Name</option><option value="status">Status</option><option value="worktrees">Worktrees</option></select></label>
                 <div className="seg density" aria-label="Row density">{(['Compact', 'Expanded'] as const).map(value => <button key={value} className={density === value ? 'on' : ''} aria-pressed={density === value} onClick={() => { setDensity(value); try { saveDensity(localStorage, value); } catch {} }}>{value}</button>)}</div>
-                <button className="xall" onClick={() => { const ids = filtered.slice(pageStart, pageStart + 25).map(g => g.primary.id); const next = expandAll(ids, expanded); expandedRef.current = next; setExpanded(next); void refreshController.current?.refresh(); }}>{filtered.slice(pageStart, pageStart + 25).every(g => expanded.includes(g.primary.id)) && filtered.length ? 'Collapse all' : 'Expand all'}</button>
               </div>
             </div>
             <div className="toolbar">
@@ -662,20 +663,21 @@ function App() {
             <div className={`project-table ptbl ${density === 'Compact' ? 'dense' : ''}`} role="table" aria-label="Projects">
               <div className="project-table-head prow head" role="row">{['Project','Branch','Agents','Services','Links','⋯'].map(name => <span role="columnheader" key={name}>{name}</span>)}</div>
               <div role="rowgroup">{filtered.slice(pageStart, pageStart + 25).map(group => {
-                const id = group.primary.id, open = expanded.includes(id), observation = projectObservations[id];
-                const toggle = (section?: DetailTab) => {
-                  if (section || !expandedRef.current.includes(id)) setTabs(prev => ({ ...prev, [id]: section ?? 'Worktrees' }));
-                  const next = section ? [...new Set([...expandedRef.current, id])] : expandedRef.current.includes(id) ? expandedRef.current.filter(value => value !== id) : [...expandedRef.current, id];
-                  expandedRef.current = next; setExpanded(next); selectProject(next.includes(id) ? id : null);
-                };
+                const id = group.primary.id, observation = projectObservations[id];
                 const rowStale = stale || !!observation?.error || group.environmentIds.some(value => !!environmentErrors[value]) || group.checkouts.some(p => p.previewIds?.some(value => !!previewErrors[value]));
-                return <React.Fragment key={group.id}><ProjectRow group={group} environments={environments} previews={previews} stale={rowStale} now={now} expanded={open} density={density} editorTemplate={editorTemplate} editorHost={tailnetHostname} lifecycleAvailable={lifecycleAvailable} working={!!working || activeRef.current} onAction={action} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})}
-                  onDetails={toggle} onLogs={(environmentId, service) => { toggle('Environment'); void showLogs(environmentId, service); }}/>
-                  {open && <div className="detail-row" role="row"><div role="cell" aria-colspan={6}><ProjectDetailsPanel group={group} tab={tabs[id] ?? 'Worktrees'} onOpen={next => { if (next) setTabs(prev => ({...prev,[id]:next})); }} onClose={() => toggle()}
-                    environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={observation?.details ?? null} projectError={observation?.error ?? ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working ?? (activeRef.current ? 'operation' : null)} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={observation?.activity ?? []} activityError={observation?.activityError ?? ''} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})} onAction={action} onLogs={(environmentId, service) => { selectProject(id); void showLogs(environmentId,service); }} logs={selected === id ? logs : null} logsError={selected === id ? logsError : ''}/></div></div>}
-                </React.Fragment>;
+                return <ProjectRow key={group.id} group={group} environments={environments} previews={previews} stale={rowStale} now={now} expanded={selected === id} density={density} editorTemplate={editorTemplate} editorHost={tailnetHostname} lifecycleAvailable={lifecycleAvailable} working={!!working || activeRef.current} onAction={action} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})}
+                  onDetails={tab => selectProject(id, tab ?? 'Overview')} onLogs={() => selectProject(id, 'Logs')}/>;
               })}</div>
             </div>
+            {selected && (() => {
+              const group = allGroups.find(g => g.primary.id === selected);
+              if (!group) return null;
+              const observation = projectObservations[selected], index = filtered.findIndex(g => g.primary.id === selected);
+              return <ProjectDetailsPanel key={selected} group={group} tab={tabs[selected] ?? 'Overview'} onOpen={tab => selectProject(selected, tab)} onClose={() => selectProject(null)}
+                onMove={direction => { const next = filtered[index + direction]; if (next) { setCursor(Math.floor((index + direction) / 25) * 25); selectProject(next.primary.id, tabs[selected] ?? 'Overview'); } }} hasPrevious={index > 0} hasNext={index >= 0 && index < filtered.length - 1}
+                environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={observation?.details ?? null} projectError={observation?.error ?? ''} stale={stale} lifecycleAvailable={lifecycleAvailable} working={working ?? (activeRef.current ? 'operation' : null)} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={observation?.activity ?? []} activityError={observation?.activityError ?? ''} checks={observation?.checks} events={observation?.events} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})} onAction={action}
+                loadLogs={(environmentId, serviceId, cursor, signal) => json('/api/tools/get_logs', {environmentId,serviceId,limit:100,...(cursor ? {cursor} : {})},csrf!,signal).then(value => logsOutput.parse(value))}/>;
+            })()}
             {filtered.length > 25 && (
               <nav className="pagination" aria-label="Project pages">
                 {pageStart > 0 && (

@@ -219,23 +219,27 @@ export class LinuxHost implements Host {
       '--user',
       '--no-pager',
       '--output=json',
-      '--output-fields=MESSAGE,__CURSOR',
+      '--output-fields=MESSAGE,__CURSOR,__REALTIME_TIMESTAMP',
       `--unit=${unit.name}`,
       `_SYSTEMD_INVOCATION_ID=${unit.invocation}`,
       `--lines=${limit + 1}`,
     ];
-    if (cursor) args.push(`--after-cursor=${cursor}`);
+    if (cursor) { args[args.length - 1] = `--lines=+${limit + 1}`; args.push(`--after-cursor=${cursor}`); }
     const output = await command('journalctl', args, { maxBuffer: 512 * 1024 });
     const entries = output
       .trim()
       .split('\n')
       .filter(Boolean)
       .slice(0, 1024)
-      .map((s) => JSON.parse(s) as { MESSAGE?: unknown; __CURSOR?: string });
+      .map((s) => JSON.parse(s) as { MESSAGE?: unknown; __CURSOR?: string; __REALTIME_TIMESTAMP?: string });
     // Journal tails are bounded; callers get a cursor for subsequent output, not historical replay.
-    const selected = entries.slice(-limit);
+    const selected = cursor ? entries.slice(0,limit) : entries.slice(-limit);
     return {
-      lines: selected.map((e) => (typeof e.MESSAGE === 'string' ? redact(e.MESSAGE).slice(0, 2048) : '[non-text journal entry]')),
+      lines: selected.map((e) => {
+        const millis = Number(e.__REALTIME_TIMESTAMP) / 1000;
+        const stamp = e.__REALTIME_TIMESTAMP && Number.isFinite(millis) && millis > 0 && millis < 8640000000000000 ? new Date(millis).toISOString() + ' ' : '';
+        return (stamp + (typeof e.MESSAGE === 'string' ? redact(e.MESSAGE) : '[non-text journal entry]')).slice(0,2048);
+      }),
       nextCursor: selected.at(-1)?.__CURSOR ?? null,
       truncated: entries.length > limit || selected.some((e) => typeof e.MESSAGE === 'string' && e.MESSAGE.length > 2048),
     };

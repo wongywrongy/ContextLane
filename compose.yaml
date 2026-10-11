@@ -1,6 +1,6 @@
 services:
   rootlane:
-    image: rootlane:0.6.0
+    image: rootlane:0.7.0
     build: .
     user: "${ROOTLANE_UID:?Run node deploy/setup.mjs}:${ROOTLANE_GID:?Run node deploy/setup.mjs}"
     group_add: ["${ROOTLANE_JOURNAL_GID:?Run node deploy/setup.mjs}"]

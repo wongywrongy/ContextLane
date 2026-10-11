@@ -114,6 +114,11 @@ test('links dedupe by source, retain independent states and branch labels, sort,
   const duplicate = { ...publication, removed: false, url: 'https://one.test/', serviceName: 'Publication label',
     route: 'matching' as const, https: 'verified' as const, upstream: 'ready' as const };
   assert.equal(groupLinks(group, envs, { [duplicate.id]: duplicate }, null).find(l => l.url === duplicate.url)!.source, 'Publication');
+  envs.one.previewRoutes![0].route = 'conflict';
+  main.routeSummaries![1].route = 'unknown';
+  const unverified = groupLinks(group, envs, { [duplicate.id]: { ...duplicate, route: 'conflict', target: 'http://127.0.0.1:3000' } }, null);
+  assert.equal(unverified.find(l => l.url === duplicate.url)!.target, undefined);
+  assert.equal(unverified.find(l => l.url === 'https://observed.test/')!.target, undefined);
 });
 
 
@@ -158,19 +163,18 @@ test('pill vocabulary covers every service and link source without promoting obs
   assert.equal(serviceState(undefined,{...env.services[0],state:'inactive'},false),'Stopped');
   assert.equal(serviceState(undefined,{...env.services[0],state:'failed'},true),'Down');
   assert.equal(serviceState(undefined,undefined,false),'Unknown');
-  const group=groupProjects([project('/app',{runtime:{status:'listeners observed',ports:[3000,4000],services:[],ownership:'observe-only',listeners:[{port:3000,owner:'agent'},{port:4000,startedBy:{name:'Codex',pid:10}}]}})])[0];
+  const group=groupProjects([project('/app',{runtime:{status:'listeners observed',ports:[3000,4000],services:[],ownership:'observe-only',listeners:[{port:3000,bind:'127.0.0.1',wildcard:false,owner:'agent'},{port:4000,bind:'127.0.0.1',wildcard:false,startedBy:{name:'Codex',pid:10}}]}})])[0];
   assert.deepEqual(groupServices(group,{}).map(s=>s.port),[4000]);
   assert.equal(groupServices(group,{})[0].startedBy?.name,'Codex');
   assert.equal(groupServices(group,{},true)[0].state,'Unknown');
   group.primary.runtime.status='unknown'; assert.equal(groupServices(group,{})[0].state,'Unknown');
 });
 
-test('density persists, tolerates disabled storage, and Expand all toggles the current rows', async () => {
-  const { readDensity, saveDensity, expandAll } = await import('../web/projects.js');
+test('row density persists and tolerates disabled storage', async () => {
+  const { readDensity, saveDensity } = await import('../web/projects.js');
   const values=new Map<string,string>();const storage={getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>{values.set(key,value);}};
   assert.equal(readDensity(storage),'Expanded');saveDensity(storage,'Compact');assert.equal(readDensity(storage),'Compact');
   values.set('rootlane-density','bogus');assert.equal(readDensity(storage),'Expanded');
   const denied={getItem:()=>{throw Error('disabled')},setItem:()=>{throw Error('disabled')}};
   assert.equal(readDensity(denied),'Expanded');assert.doesNotThrow(()=>saveDensity(denied,'Compact'));
-  assert.deepEqual(expandAll(['one','two'],['one']),['one','two']);assert.deepEqual(expandAll(['one','two'],['one','two']),[]);
 });

@@ -186,6 +186,7 @@ export class Publications {
       const config = await this.host.routes();
       status.route = this.host.routeState(config, route);
       status.actualConfiguration = config;
+      this.store.recordCheck(target.checkoutPath, status.url, 'route', status.route === 'matching', status.route);
       if (!row.removed && status.route !== 'matching')
         status.errors.push({ code: 'ROUTE_DRIFT', message: `Recorded route is ${status.route}; no automatic replacement is performed` });
     } catch (error) {
@@ -199,6 +200,7 @@ export class Publications {
     }
     if (!row.removed && row.attempted && status.route === 'matching' && status.upstream === 'ready') {
       status.https = (await this.host.probe(status.url, target.readiness)) ? 'verified' : 'failed';
+      this.store.recordCheck(target.checkoutPath, row.id, 'preview-https', status.https === 'verified', status.https);
       if (status.https === 'verified') this.store.setMeta(`verified-preview:${row.id}`, status.observedAt);
       if (status.https === 'failed')
         status.errors.push({ code: 'HTTPS_FAILED', message: 'Route matches but HTTPS readiness failed; check tailnet connectivity and forwarding' });
