@@ -50,7 +50,8 @@ export function groupProjects(projects: Project[]): ProjectGroup[] {
     })
     .sort((a, b) => a.primary.name.localeCompare(b.primary.name));
 }
-export function projectStatus(group: ProjectGroup, environments: Record<string, Environment>) {
+export function projectStatus(group: ProjectGroup, environments: Record<string, Environment>, errors: Record<string, string> = {}) {
+  if (group.environmentIds.some(id => errors[id])) return 'Unknown';
   const values = group.environmentIds.map((id) => environments[id]);
   if (values.some((e) => e && (e.application === 'unhealthy' || e.observationError || e.latestOperation?.status === 'failed'))) return 'Attention';
   if (values.some((e) => e?.latestOperation && ['accepted', 'running'].includes(e.latestOperation.status))) return 'Working';
@@ -100,23 +101,26 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
         .find((e) => e?.services.some((s) => s.id === service?.id && s.port === port));
       const unit = environment?.services.find((s) => s.id === service?.id && s.port === port);
       const listening = checkout.runtime.ports.includes(port);
-      const state = stale || checkout.runtime.status === 'unknown' ? 'Unknown' : serviceState(environment, unit, listening);
+      const binds = checkout.runtime.listeners?.filter(l => l.port === port) ?? [];
+      const managed = !!unit?.unit && (!listening || (binds.length > 0 && binds.every(l => l.managedBy?.environmentId === environment?.id && l.managedBy?.serviceId === unit.id)));
+      const state = stale || checkout.runtime.status === 'unknown' ? 'Unknown' : serviceState(managed ? environment : undefined, managed ? unit : undefined, listening);
       return {
         key: `${checkout.id}:${port}`,
         name: listener?.process?.name ?? service?.name ?? 'Listener',
         port,
         checkout,
-        unit: unit?.unit || '—',
+        unit: managed ? unit!.unit : '—',
         process: listener?.process,
         startedBy: listener?.startedBy,
-        managed: !!environment,
+        managed,
         serviceId: unit?.id ?? service?.id,
-        binds: checkout.runtime.listeners?.filter(l => l.port === port) ?? [],
+        binds,
         state,
       };
     });
   });
 }
+export const isBeyondLoopback = (bind: string) => !['127.0.0.1', '::1'].includes(bind);
 export const chipTone = (state: string) =>
   /^(Ready|Available|Connected|Succeeded)$/.test(state)
     ? 'ok'

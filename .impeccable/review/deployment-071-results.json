@@ -1,0 +1,12 @@
+{
+  "version": "0.7.1",
+  "migration": 4,
+  "backup": "/home/kyle/.local/state/rootlane/pre-071-2026-10-11T05-52-45Z.sqlite",
+  "previousRelease": "/opt/stacks/rootlane/pre-071-2026-10-11T05-52-45Z.tar.gz",
+  "preserved": [
+    "owner configuration",
+    "credentials",
+    "durable resources",
+    "Serve configuration"
+  ]
+}

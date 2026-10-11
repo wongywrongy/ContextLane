@@ -8,9 +8,10 @@ export function publicFunnelRoutes(config: ServeConfig): string[] {
     ...Object.values(config.Foreground ?? {}).flatMap(publicFunnelRoutes),
   ])].slice(0,100);
 }
-export function catalogEvents(previous: Project[], current: Project[], evidence: { listeners: boolean; routes: boolean; agents: boolean }, at: string): ObservedEvent[] {
+export function catalogEvents(previous: Project[], current: Project[], evidence: { listeners: boolean; routes: boolean; agents: boolean; projects?: boolean }, at: string): ObservedEvent[] {
   const events: ObservedEvent[] = [];
-  for (const project of current) {
+  const all = [...current, ...(evidence.projects === false ? [] : previous.filter(p => !current.some(c => c.id === p.id)).map(p => ({ ...p, agents: [], routeSummaries: [], runtime: { ...p.runtime, listeners: [], ports: [], status: 'no associated listener' as const } })))];
+  for (const project of all) {
     const before = previous.find(p => p.id === project.id);
     const emit = (kind: ObservedEvent['kind'], text: string, ref: string) => events.push({ at, projectId: project.id, checkoutId: project.id, kind, text, ref });
     if (evidence.listeners && project.runtime.status !== 'unknown') {

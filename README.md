@@ -13,7 +13,7 @@ Existing projects are **observe-only**. Rootlane controls only resources it owns
 
 Requires Linux amd64, Docker Compose 2.15+, Node 24 for setup, a running user-systemd manager and connected Tailscale. Review the host mounts and permissions in the [installation guide](deploy/RELEASE.md) first.
 
-Build the checked-out 0.7.0 source and image as the installation owner:
+Build the checked-out 0.7.1 source and image as the installation owner:
 
 ```sh
 npm ci

@@ -8,7 +8,7 @@ import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
 import { page, Problem, type Project, type ProjectDetails } from '../shared/contracts.js';
 import type { Store, Observation } from '../state/store.js';
-import type { Host, Listener, AgentObservation } from '../host/types.js';
+import type { Host, Listener, AgentObservation, Unit } from '../host/types.js';
 export function loopbackPort(proxy?: string) {
   try {
     const url = new URL(proxy ?? '');
@@ -39,7 +39,7 @@ export class Catalog {
   enrich: ((project: Project) => Promise<void>) | undefined;
   private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
   private snapshots = new Map<string, NonNullable<Catalog['cached']>>();
-  private slowPaths: { expires: number; paths: string[]; warnings: string[] } | null = null;
+  private slowPaths: { expires: number; paths: string[]; warnings: string[]; complete: boolean } | null = null;
   private metadata = new Map<
     string,
     {
@@ -49,6 +49,7 @@ export class Catalog {
     }
   >();
   private previous: Project[] = [];
+  private evidenceSeen = { listeners: false, routes: false, agents: false };
   private scan: Promise<NonNullable<Catalog['cached']>> | null = null;
   constructor(
     readonly config: Config,
@@ -227,8 +228,10 @@ export class Catalog {
     };
     const skipped = new Set(['node_modules', '.venv', 'venv', 'dist', 'build', '.next', 'target', 'vendor']);
     let entries = 0;
+    let discoveryComplete = true;
     const walk = async (directoryPath: string, depth: number): Promise<void> => {
       if (Date.now() > deadline || entries >= 1000 || paths.size >= 1000) {
+        discoveryComplete = false;
         warnings.push('Directory discovery budget exhausted');
         return;
       }
@@ -258,6 +261,7 @@ export class Catalog {
         const directory = await opendir(directoryPath);
         for await (const entry of directory) {
           if (++entries > 1000 || Date.now() > deadline) {
+            discoveryComplete = false;
             warnings.push('Directory discovery budget exhausted');
             break;
           }
@@ -269,11 +273,13 @@ export class Catalog {
               await walk(candidate, depth + 1);
             }
           } catch {
+            discoveryComplete = false;
             warnings.push(`${entry.name}: directory unavailable`);
           }
         }
         if (!children && depth) paths.add(directoryPath);
       } catch {
+        discoveryComplete = false;
         warnings.push(`${directoryPath}: discovery unavailable`);
       }
     };
@@ -290,6 +296,7 @@ export class Catalog {
     else {
       this.slowPaths!.paths.forEach((p) => paths.add(p));
       warnings.push(...this.slowPaths!.warnings);
+      discoveryComplete = this.slowPaths!.complete;
     }
     // Only reviewed profile paths are additional seeds; do not recursively traverse repositories.
     for (const profile of this.config.profiles) {
@@ -333,6 +340,7 @@ export class Catalog {
     if (refreshSlow)
       for (const path of [...paths]) {
         if (Date.now() > deadline) {
+          discoveryComplete = false;
           warnings.push('Git discovery time limit reached');
           break;
         }
@@ -343,13 +351,13 @@ export class Catalog {
             if (field.startsWith('worktree ')) {
               const candidate = await safe(field.slice(9));
               if (candidate && paths.size < 1000) paths.add(candidate);
-              else warnings.push('A worktree was outside observation roots or exceeded the catalog limit');
+              else { if (candidate) discoveryComplete = false; warnings.push('A worktree was outside observation roots or exceeded the catalog limit'); }
             }
         } catch {
           /* Non-Git and inaccessible worktrees remain valid catalog entries. */
         }
       }
-    if (refreshSlow) this.slowPaths = { expires: Date.now() + 60000, paths: [...paths], warnings: [...warnings] };
+    if (refreshSlow) this.slowPaths = { expires: Date.now() + 60000, paths: [...paths], warnings: [...warnings], complete: discoveryComplete };
     let listeners: Listener[] = [];
     let observed = false;
     try {
@@ -384,8 +392,23 @@ export class Catalog {
       warnings.push('Agent detection unavailable');
     }
     await Promise.all(listeners.map(async listener => Object.assign(listener, await listenerOwner(listener.pid, agents))));
+    if (observed) for (const environment of recorded) {
+      for (const resource of this.store?.resources(environment.id).filter(r => r.kind === 'unit') ?? []) {
+        const unit = JSON.parse(resource.data) as Unit;
+        try {
+          const current = await this.host.inspectUnit(unit.name);
+          if (!current?.cgroup || current.marker !== unit.marker || (unit.invocation && current.invocation !== unit.invocation)) continue;
+          for (const listener of listeners) if (listener.port === unit.port && listener.pid && (listener.cgroup === current.cgroup || listener.cgroup?.startsWith(current.cgroup + '/')))
+            listener.managedBy = { environmentId: environment.id, serviceId: unit.serviceId };
+        } catch { /* Missing ownership evidence leaves the listener observed. */ }
+      }
+    }
     const projects: Project[] = [];
     for (const path of [...paths].sort()) {
+      try { if (!(await safe(path))) continue; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') discoveryComplete = false;
+        continue;
+      }
       const metadataAllowed = Date.now() <= deadline;
       const old = this.metadata.get(path);
       const stamp = await this.gitStamp(path, old?.value.gitCommonDir ?? null);
@@ -484,8 +507,8 @@ export class Catalog {
       routeSummaries.push(...observedRoutes.filter((route) => !routeSummaries.some((recorded) => recorded.url === route.url)));
       for (const route of routeSummaries) if (route.route !== 'unknown')
         this.store?.recordCheck(path, route.url, 'route', route.route === 'matching', route.route);
-      if (routes !== null) for (const listener of ownListeners.filter(l => l.owner !== 'agent'))
-        this.store?.recordCheck(path, `${this.store.checkoutId(path)}:${listener.port}:route`, 'route', routeSummaries.some(r => r.upstreamPort === listener.port && r.route === 'matching'), routeSummaries.some(r => r.upstreamPort === listener.port && r.route === 'matching') ? 'present' : 'absent');
+      if (routes !== null) for (const port of new Set(ownListeners.filter(l => l.owner !== 'agent').map(l => l.port)))
+        this.store?.recordCheck(path, `${this.store.checkoutId(path)}:${port}:route`, 'route', routeSummaries.some(r => r.upstreamPort === port && r.route === 'matching'), routeSummaries.some(r => r.upstreamPort === port && r.route === 'matching') ? 'present' : 'absent');
       projects.push({
         funnel: routes === null ? null : publicFunnelRoutes(routes as import('../host/routes.js').ServeConfig),
         routeSummaries,
@@ -552,6 +575,7 @@ export class Catalog {
             bind: l.address,
             wildcard: wildcardBind(l.address),
             ...(l.owner ? { owner: l.owner } : {}),
+            ...(l.managedBy ? { managedBy: l.managedBy } : {}),
             ...(l.startedBy ? { startedBy: l.startedBy } : {}),
             worktreePath: path,
             loopback:
@@ -606,9 +630,19 @@ export class Catalog {
     if (this.enrich)
       for (let offset = 0; offset < projects.length; offset += 4) await Promise.all(projects.slice(offset, offset + 4).map((p) => this.enrich!(p)));
     const at = new Date().toISOString();
-    for (const event of catalogEvents(this.previous, projects, { listeners: observed, routes: routes !== null, agents: agentsObserved }, at)) this.store?.recordEvent(event);
+    const evidence = { listeners: observed && this.evidenceSeen.listeners, routes: routes !== null && this.evidenceSeen.routes, agents: agentsObserved && this.evidenceSeen.agents, projects: discoveryComplete };
+    for (const event of catalogEvents(this.previous, projects, evidence, at)) this.store?.recordEvent(event);
+    this.evidenceSeen = { listeners: observed || this.evidenceSeen.listeners, routes: routes !== null || this.evidenceSeen.routes, agents: agentsObserved || this.evidenceSeen.agents };
     // Failed reads preserve the baseline; recovery must not manufacture disappearance events.
-    this.previous = projects.map(p => { const old = this.previous.find(o => o.id === p.id); return { ...p, agents: agentsObserved ? p.agents : old?.agents ?? [], routeSummaries: routes !== null ? p.routeSummaries : old?.routeSummaries, runtime: observed ? p.runtime : old?.runtime ?? p.runtime }; });
+    const missing = this.previous.filter(p => !projects.some(c => c.id === p.id) && (!discoveryComplete || !observed || routes === null || !agentsObserved));
+    const baseline = [...projects, ...missing.map(p => discoveryComplete ? {
+      ...p,
+      runtime: observed ? { ...p.runtime, listeners: [], ports: [], status: 'no associated listener' as const } : p.runtime,
+      agents: agentsObserved ? [] : p.agents,
+      routeSummaries: routes !== null ? [] : p.routeSummaries,
+    } : p)];
+    this.store?.rememberCatalog(baseline);
+    this.previous = baseline.map(p => { const old = this.previous.find(o => o.id === p.id); return { ...p, agents: agentsObserved ? p.agents : old?.agents ?? [], routeSummaries: routes !== null ? p.routeSummaries : old?.routeSummaries, runtime: observed ? p.runtime : old?.runtime ?? p.runtime }; });
     return {
       projects,
       warnings: warnings.slice(0, 50),

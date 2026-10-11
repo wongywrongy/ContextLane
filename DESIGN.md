@@ -178,7 +178,7 @@ components:
     textColor: "{colors.text}"
     rounded: "12px"
 ---
-# Design System: Rootlane 0.7.0
+# Design System: Rootlane 0.7.1
 
 ## Overview
 
@@ -320,3 +320,5 @@ Review evidence lives in `.impeccable/review/`. The 0.7.0 panel captures are `v0
 - Don't restore inline expansion, desktop disclosure chevrons, Expand all, a separate project page or separate project cards.
 - Don't assert artboard values as actual host data.
 - Don't add external fonts, inline styles, data URLs, fabricated vendor logos or transcript-derived activity.
+
+The 0.7.1 evidence fixes require a matching recorded unit marker, invocation and listener control group before a process is labelled Rootlane-owned. Current check pills and the managed header clear to “—” when their source refresh fails; history strips remain visible. Mobile network summaries and Exposure use the bound address, independently of publication eligibility. Each Serve read contributes one route result per checkout and port. The first scan after a controller restart establishes a baseline, and retained events remain associated with their parent project after checkout removal.

@@ -1,0 +1,164 @@
+
+> rootlane@0.7.1 check
+> npm run typecheck && npm run build && npm test
+
+
+> rootlane@0.7.1 typecheck
+> tsc --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.tests.json --noEmit
+
+
+> rootlane@0.7.1 build
+> tsc && mkdir -p dist/state/migrations && cp src/state/migrations/*.sql dist/state/migrations/ && vite build && cp web/fonts/Geist-LICENSE.txt dist/web/Geist-LICENSE.txt
+
+vite v7.3.6 building client environment for production...
+transforming...
+node_modules/zod/v4/core/regexes.js (74:0): A comment
+
+"/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+ * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+ * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+
+in "node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+node_modules/zod/v4/core/util.js (400:0): A comment
+
+"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+
+in "node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 129 modules transformed.
+rendering chunks...
+computing gzip size...
+../dist/web/index.html                         0.37 kB │ gzip:   0.27 kB
+../dist/web/assets/Geist-DPGgOCY9.woff2       69.76 kB
+../dist/web/assets/GeistMono-Vc9u_qg9.woff2   71.60 kB
+../dist/web/assets/index-CfLbFFdh.css         50.46 kB │ gzip:  10.64 kB
+../dist/web/assets/index-4alYvzX3.js         407.36 kB │ gzip: 124.08 kB
+✓ built in 1.20s
+
+> rootlane@0.7.1 test
+> node --import tsx --test tests/*.test.ts
+
+✔ recognizes native agents including versioned Claude and deleted binaries, excluding helpers (1.42218ms)
+✔ bounded metadata observations skip exits and malformed identities without reading prompts (194.713057ms)
+✔ time and process-entry budgets report incomplete scans (1239.035177ms)
+✔ npm agents are attributed once through wrappers with observed process start time (5.364969ms)
+✔ check histories retain 30 per subject, group by checkout, and emit only pass/fail transitions (129.480733ms)
+✔ catalog diff records all observed kinds once, and suppresses absent evidence (3.028557ms)
+✔ wildcard addresses and managed tab visibility are explicit (1.052734ms)
+✔ Funnel evidence includes foreground routes and ignores disabled entries (0.208503ms)
+✔ event retention is bounded and new tools scope evidence without HTTP probes (211.984604ms)
+✔ catalog bind and Funnel evidence feeds notices, and a repeated scan records no duplicate events (97.515458ms)
+✔ one Serve read records one route result per checkout port, including dual-stack listeners (85.931239ms)
+✔ controller restart establishes a baseline and first source recovery creates no appearance events (103.264471ms)
+✔ removed checkout emits disappearance events and retains its parent history across controller restarts (104.738248ms)
+✔ removed checkout diff includes routes and suppresses disappearance on incomplete discovery (0.444688ms)
+✔ listener ownership requires the recorded unit marker, invocation and control group (115.572866ms)
+✔ removed checkout waits for missing source evidence without repeating successful disappearance observations (102.473972ms)
+✔ historical scope retains external Git worktrees without including unrelated checkouts (91.435331ms)
+✔ configuration is private, outside observation roots, and rejects duplicate or infrastructure ports (141.875941ms)
+✔ independent target paths and operator/infrastructure ports must be reviewed (91.008295ms)
+✔ real bounded discovery groups Git worktrees, includes non-Git projects and excludes unapproved paths (202.445207ms)
+✔ agents attach to the deepest approved checkout; unknown directories stay unassigned (122.941932ms)
+✔ Signal payload attributes agents and listeners to a checkout and exposes detached worktrees (169.594925ms)
+✔ nested repositories stop descent, skip generated directories and paginate an immutable snapshot (88.701369ms)
+✔ observed Serve loopback normalization never accepts wildcard, paths or credentials (0.695801ms)
+✔ configured or replaced listeners are Observed until unit ownership is corroborated (12.071347ms)
+✔ environment refresh failure clears the header and current check result, preserving history (19.295861ms)
+✔ mobile exposure counts bound addresses independently of publication eligibility (8.486091ms)
+✔ route matching refuses additional handlers, TCP forwarding, other hosts and Funnel (1.736853ms)
+✔ response bounds terminate oversized readiness or adapter output (4.575361ms)
+✔ dependency ordering rejects cycles and missing services (139.781504ms)
+✔ a lifetime file lock excludes a second backend and releases on close (105.995397ms)
+✔ direct systemd argv uses setenv without a shell and journal redaction precedes truncation (165.083394ms)
+✔ journal cursor pages advance without skipping entries and preserve real timestamps (147.934978ms)
+✔ owner-selected short credentials work while empty owner and weak/shared agent credentials fail (198.14292ms)
+✔ HTTP rejects unauthorized, host/origin, CSRF and extra fields; session and agent credentials remain separate (115.119021ms)
+✔ reviewed HTTPS alias supports owner sessions and CSRF while rejecting cross-origin Host pairs (119.894309ms)
+✔ login limit is shared across aliases and spoofed IPs, survives restart, and recovers after a sliding minute (95.954286ms)
+✔ malformed and oversized login bodies consume the same bounded login budget before parsing (92.265815ms)
+✔ built font assets have the right MIME type and arbitrary files remain inaccessible (100.304745ms)
+✔ login failure backoff doubles, persists, and valid-session reauthentication bypasses both throttles (73.523488ms)
+✔ duplicate starts are durable, readiness and preview are separate, stop preserves unrelated resources (147.340508ms)
+✔ port conflict fails before creating resources (102.07499ms)
+✔ route conflict fails before creating resources (99.37926ms)
+✔ capability conflict fails before creating resources (92.009162ms)
+✔ partial startup rolls back only created units and retains useful logs (101.024921ms)
+✔ a listener or running unit without application readiness fails startup (244.513671ms)
+✔ preview failure keeps healthy applications and reports partial success (85.052934ms)
+✔ changed route survives stop and retains reservations (90.807318ms)
+✔ changed unit is never stopped; failed stop retains its port (91.290648ms)
+✔ concurrent environments cannot reserve the same resources (91.061467ms)
+✔ restart preserves ready units, durable retries and removed-profile stop (88.379943ms)
+✔ interrupted partial startup rolls back created resources; reboot does not recreate units (99.542718ms)
+✔ backup restores operation IDs and ownership without copying a live WAL (113.232175ms)
+✔ failed systemd stop retains units and port reservations for a later explicit retry (85.152793ms)
+✔ interrupted stop resumes teardown, while ownership conflicts remain untouched (86.320903ms)
+✔ a start timeout after unit creation still rolls back that operation only (79.681382ms)
+✔ Signal environment history is bounded and previews require independent HTTPS verification (105.682408ms)
+✔ MCP guide teaches installed local adapters and verification without credential examples (16.474414ms)
+✔ stdio legacy: real SDK discovery, calls, strict contracts and harmless disconnect (705.54041ms)
+✔ stdio modern: real SDK discovery, calls, strict contracts and harmless disconnect (831.232766ms)
+✔ native wrapper resolves a relocated release and configured port, keeps stdin clean and fails without a backend (342.349995ms)
+✔ stdio adapter distinguishes safe transport, timeout, response, approval and input failures (338.843898ms)
+✔ stdio publication is independent, durable and safe across conflicts, unready upstreams and reconciliation (500.101885ms)
+✔ derived service names recognize dev tools without disclosing command arguments (6.645202ms)
+✔ worktree state, service and agent detail, locate follow strict observational contracts (168.565264ms)
+✔ expanded listener probe uses HEAD then GET only on 405, never promotes readiness, caches 30 seconds (138.145922ms)
+✔ operation history combines lifecycle and preview errors newest first and bounds output (120.714965ms)
+✔ editor templates and instance range validate at the config boundary; process reads are bounded (95.328537ms)
+✔ runner names skip interpreter flags and values, use basenames, and never use thread names (0.517175ms)
+✔ agent listener ancestry is same-user, bounded, and preserves descendant services (103.865103ms)
+✔ catalog excludes agent-owned ports and returns them on detected agents through strict contracts (90.562105ms)
+✔ polling coalesces refreshes, respects visibility and aborts on cleanup (4.127187ms)
+✔ publication owns only its HTTPS route; concurrent duplicates, shared request IDs and explicit removal (144.15715ms)
+✔ publication rejects approval before host changes (97.454864ms)
+✔ publication rejects binding before host changes (93.858427ms)
+✔ publication rejects extra-binding before host changes (97.783874ms)
+✔ publication rejects association before host changes (94.559899ms)
+✔ publication rejects unknown before host changes (85.043626ms)
+✔ publication rejects guard before host changes (78.50762ms)
+✔ publication rejects route before host changes (87.231709ms)
+✔ publication rejects port before host changes (78.807835ms)
+✔ lifecycle and independent publications share HTTPS reservations (90.869996ms)
+✔ changed targets require removal; removed approval permits removal; failed removal retains reservation (84.956642ms)
+✔ restart preserves routes, reports drift, interrupts publication and resumes matching removal (91.492038ms)
+✔ uncertain guarded write retains ownership and failed readiness never publishes (80.508259ms)
+✔ migration preserves version-one requests, reservations and installation identity (615.863064ms)
+✔ recorded preview checkouts remain discoverable after approval is removed (71.506326ms)
+✔ a single IPv6 or dual-loopback process publishes; wildcard binds return PUBLIC_BINDING (52.260891ms)
+✔ unpublished preview history remains in project details and list_operations returns its error codes (76.680276ms)
+✔ primary projects group detached/external worktrees and nested environments, while container folders disappear (8.919187ms)
+✔ all bounded pages load before grouping and incomplete snapshots are rejected (16.971401ms)
+✔ listeners are not readiness and missing observation is not stopped (0.250301ms)
+✔ grouped agents preserve same-name processes and label registration separately (0.265631ms)
+✔ Signal search includes worktree branches and configured or observed ports; filters retain evidence semantics (13.499418ms)
+✔ service readiness is never inferred from an observed listener or owner-reviewed name (3.170194ms)
+✔ same service name across environments cannot transfer readiness to another port (10.631163ms)
+✔ editor URLs require an approved template; host and paths are safely encoded (1.207575ms)
+✔ links dedupe by source, retain independent states and branch labels, sort, and fail closed when stale (5.201191ms)
+✔ recipe presentation distinguishes invalid, pending, stale and approved review states (0.994724ms)
+✔ observation rows shorten paths and only show valid process elapsed time (1.01376ms)
+✔ pill vocabulary covers every service and link source without promoting observations (1.526075ms)
+✔ row density persists and tolerates disabled storage (0.794297ms)
+✔ strict recipe schema rejects secrets, wrappers, escapes, unknown placeholders and dependency cycles (5.709088ms)
+✔ owner cookie and CSRF approve; agent cannot approve; stale recipes block Start but preserve Stop (275.482128ms)
+✔ two worktrees reserve distinct ports and previews, reuse approval, and stop independently (211.902309ms)
+✔ toolchain revision and request IDs bind reviews; env files are private and values never escape (159.835694ms)
+✔ recipe reviews keep snapshots consistent, reject stale approval and rejected starts, and survive restart (237.025791ms)
+✔ recipe requests cannot claim another action UUID or env files inside observation roots (127.497746ms)
+✔ a stopped instance reports replacement service allocations before the next launch (120.618073ms)
+✔ installed preflight exempts operator ports and still checks application ports (5.278075ms)
+✔ release setup creates private owner files, preserves credentials and rejects a changed root (287.413381ms)
+✔ disposable Vite configuration uses the reviewed host rather than a built-in hostname (237.442676ms)
+✔ host acceptance refuses to touch the host without its explicit opt-in gate (113.252673ms)
+✔ guarded Unix-socket changes preserve unrelated config, reject concurrent writes and fail closed without ETag (155.281522ms)
+✔ foreground and noncanonical routes are conflicts (0.246435ms)
+✔ reconciliation backoff doubles to 60 seconds then clears errors after recovery (120.257904ms)
+✔ config reload retains live resources, rejects invalid config and keeps revised profiles guarded (116.132149ms)
+ℹ tests 117
+ℹ suites 0
+ℹ pass 117
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3407.359842

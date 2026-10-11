@@ -21,6 +21,7 @@ export interface Preview {
 }
 export interface Listener {
   owner?: 'agent';
+  managedBy?: { environmentId: string; serviceId: string };
   startedBy?: { name: string; pid: number };
   address: string;
   port: number;

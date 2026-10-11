@@ -180,6 +180,7 @@ export const project = z.strictObject({
           bind: z.string().max(128),
           wildcard: z.boolean(),
           owner: z.literal('agent').optional(),
+          managedBy: z.strictObject({ environmentId: id, serviceId: id }).optional(),
           startedBy: z.strictObject({ name: z.string(), pid: z.number().int().positive() }).optional(),
           worktreePath: z.string().optional(),
           checkoutId: id.optional(),

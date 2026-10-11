@@ -4,7 +4,7 @@ This release contains compiled JavaScript/static UI, a prebuilt Linux amd64 Dock
 
 Use Linux with Docker Compose 2.15+, Node 24 for the one-time setup, a running user-systemd manager, and the existing Tailscale installation at `/usr/bin/tailscale`. The included image is tested on one Linux amd64 host. Other hosts must review socket, journal and project mount paths before running it. Run these commands as the installation owner, not root:
 
-For the checked-out 0.7.0 source:
+For the checked-out 0.7.1 source:
 
 ```sh
 npm ci
@@ -49,3 +49,5 @@ Login adds persisted exponential failure backoff (1 second, doubling to 60 secon
 0.6.0 uses the unified v3 table, inline details, remembered density and explicit verified/unverified pills. Agent-owned listeners are excluded from services; descendants remain attributed services. No database migration or dependency is added.
 
 0.7.0 replaces inline expansion with a desktop detail panel and mobile full-screen detail, and adds bind/exposure evidence, retained checks and observed events. Migration 004 adds checks (30 per subject) and events (500 total). list_checks reads grouped histories without probes; list_events reads up to 50 scoped observations. The UI merges these events with list_operations. Back up SQLite before upgrading: older releases cannot open migration 004, so rollback requires the matching pre-upgrade database. No new runtime dependency or host process control is added.
+
+0.7.1 corrects process ownership, failed-refresh state, mobile exposure counts and route-check sampling. The first catalog scan after a controller restart establishes an observation baseline. Removed checkouts emit disappearance observations, and their project associations remain available while their events are retained. Historical associations use the existing metadata store; the SQLite schema stays at migration 004. Existing 0.7.0 observations are preserved, including any earlier duplicate entries.

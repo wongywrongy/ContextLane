@@ -66,7 +66,7 @@ test('service readiness is never inferred from an observed listener or owner-rev
 test('same service name across environments cannot transfer readiness to another port', async () => {
   const { groupServices } = await import('../web/projects.js');
   const { environmentOutput } = await import('../src/shared/contracts.js');
-  const group = groupProjects([project('/code/app',{environmentIds:['one','two'],runtime:{services:[{id:'web',name:'Web',port:3000},{id:'web',name:'Web',port:4000}],ports:[3000],status:'listeners observed',ownership:'observe-only'}})])[0];
+  const group = groupProjects([project('/code/app',{environmentIds:['one','two'],runtime:{services:[{id:'web',name:'Web',port:3000},{id:'web',name:'Web',port:4000}],ports:[3000],listeners:[{port:3000,bind:'127.0.0.1',wildcard:false,managedBy:{environmentId:'one',serviceId:'web'}}],status:'listeners observed',ownership:'observe-only'}})])[0];
   const env = (id:string,port:number,application:'ready'|'stopped') => environmentOutput.parse({id,profileRevision:'revision',effects:'fixture',dataRequirements:'none',startAllowed:true,ownership:'rootlane',desiredState:application==='ready'?'running':'stopped',application,preview:'unavailable',links:[],services:[{id:'web',port,unit:id+'.service',state:application==='ready'?'active':'inactive'}],observedAt:'time',latestOperation:null,observationError:null});
   const services=groupServices(group,{one:env('one',3000,'ready'),two:env('two',4000,'stopped')});
   assert.deepEqual(services.map(s=>s.state),['Ready','Stopped']); assert.deepEqual(services.map(s=>s.unit),['one.service','two.service']);

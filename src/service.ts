@@ -106,7 +106,7 @@ export class Rootlane {
     if (name === 'list_checks' || name === 'list_events') {
       const scope = await this.catalog.checkouts((input as { projectId: string }).projectId);
       const ids = scope.map(p => p.id);
-      return contract.output.parse(name === 'list_checks' ? { checks: this.lifecycle.store.listChecks(ids) } : { events: this.lifecycle.store.listEvents(ids, (input as { limit: number }).limit) });
+      return contract.output.parse(name === 'list_checks' ? { checks: this.lifecycle.store.listChecks(ids) } : { events: this.lifecycle.store.listEvents(this.lifecycle.store.eventCheckoutIds(scope), (input as { limit: number }).limit) });
     }
     const output =
       name === 'request_environment'

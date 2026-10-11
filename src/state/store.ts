@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { createHash, randomUUID, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import type { Profile, PreviewTarget } from '../config.js';
 import { revision } from '../config.js';
-import { Problem, type Operation, type PreviewOperation, type CheckHistory, type ObservedEvent } from '../shared/contracts.js';
+import { Problem, type Operation, type PreviewOperation, type CheckHistory, type ObservedEvent, type Project } from '../shared/contracts.js';
 import type { Unit, Preview } from '../host/types.js';
 
 export interface EnvironmentRow {
@@ -360,6 +360,17 @@ export class Store {
   recordEvent(event: ObservedEvent) {
     this.db.prepare('INSERT INTO events VALUES (?,?,?,?,?,?)').run(event.at, event.projectId, event.checkoutId, event.kind, event.text.slice(0,1024), event.ref?.slice(0,512) ?? null);
     this.db.prepare('DELETE FROM events WHERE rowid NOT IN (SELECT rowid FROM events ORDER BY rowid DESC LIMIT 500)').run();
+  }
+  rememberCatalog(projects: Project[]) {
+    const retained = new Set((this.db.prepare('SELECT DISTINCT projectId FROM events').all() as { projectId: string }[]).map(e => e.projectId));
+    const previous = JSON.parse(this.meta('eventCheckouts') ?? '[]') as Pick<Project, 'id' | 'path' | 'gitCommonDir'>[];
+    const identities = new Map(previous.filter(p => retained.has(p.id)).map(p => [p.id, p]));
+    for (const { id, path, gitCommonDir } of projects) identities.set(id, { id, path, gitCommonDir });
+    this.setMeta('eventCheckouts', JSON.stringify([...identities.values()]));
+  }
+  eventCheckoutIds(projects: Project[]): string[] {
+    const history = JSON.parse(this.meta('eventCheckouts') ?? '[]') as Pick<Project, 'id' | 'path' | 'gitCommonDir'>[];
+    return [...new Set([...projects.map(p => p.id), ...history.filter(old => projects.some(p => old.id === p.id || old.path.startsWith(p.path + '/') || (p.gitCommonDir && old.gitCommonDir === p.gitCommonDir))).map(p => p.id)])];
   }
   listEvents(checkoutIds: string[], limit: number): ObservedEvent[] {
     return this.db.prepare(`SELECT * FROM events WHERE projectId IN (${checkoutIds.map(() => '?').join(',') || 'NULL'}) ORDER BY rowid DESC LIMIT ?`).all(...checkoutIds, limit) as ObservedEvent[];

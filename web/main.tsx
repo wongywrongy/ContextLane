@@ -384,7 +384,7 @@ function App() {
   const filtered = allGroups.filter((group) => matchesProject(group, query) && matchesFilter(group, filter, environments));
   if (sort === 'status')
     filtered.sort(
-      (a, b) => projectStatus(a, environments).localeCompare(projectStatus(b, environments)) || a.primary.name.localeCompare(b.primary.name),
+      (a, b) => projectStatus(a, environments, environmentErrors).localeCompare(projectStatus(b, environments, environmentErrors)) || a.primary.name.localeCompare(b.primary.name),
     );
   if (sort === 'worktrees') filtered.sort((a, b) => b.worktreeCount - a.worktreeCount || a.primary.name.localeCompare(b.primary.name));
   const pageStart = Math.min(cursor, Math.max(0, Math.floor((filtered.length - 1) / 25) * 25));
