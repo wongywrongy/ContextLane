@@ -1,36 +1,41 @@
 {
   "origin": "https://root.avlis.dev",
-  "observedAt": "2026-10-10T07:57:53.802Z",
+  "observedAt": "2026-10-10T11:26:52.283Z",
   "metrics": [
-    {
-      "width": 360,
-      "noOverflow": true,
-      "menuInViewport": true,
-      "detailsAndEscape": true
-    },
     {
       "width": 390,
       "noOverflow": true,
       "menuInViewport": true,
-      "detailsAndEscape": true
+      "detailsAndEscape": true,
+      "agentPortsColumn": true
     },
     {
       "width": 768,
       "noOverflow": true,
       "menuInViewport": true,
-      "detailsAndEscape": true
+      "detailsAndEscape": true,
+      "agentPortsColumn": true
     },
     {
-      "width": 1280,
+      "width": 1100,
       "noOverflow": true,
       "menuInViewport": true,
-      "detailsAndEscape": true
+      "detailsAndEscape": true,
+      "agentPortsColumn": true
     },
     {
       "width": 1440,
       "noOverflow": true,
       "menuInViewport": true,
-      "detailsAndEscape": true
+      "detailsAndEscape": true,
+      "agentPortsColumn": true
+    },
+    {
+      "width": 1920,
+      "noOverflow": true,
+      "menuInViewport": true,
+      "detailsAndEscape": true,
+      "agentPortsColumn": true
     }
   ],
   "exceptions": [],
@@ -40,11 +45,11 @@
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/assets/index-B9tDj-IT.css",
+      "url": "https://root.avlis.dev/assets/index-Gs1CNPRH.css",
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/assets/index-dQh4axGK.js",
+      "url": "https://root.avlis.dev/assets/index-DabRb5OC.js",
       "status": 200
     },
     {
@@ -68,11 +73,11 @@
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/assets/index-B9tDj-IT.css",
+      "url": "https://root.avlis.dev/assets/index-DabRb5OC.js",
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/assets/index-dQh4axGK.js",
+      "url": "https://root.avlis.dev/assets/index-Gs1CNPRH.css",
       "status": 200
     },
     {
@@ -100,7 +105,15 @@
       "status": 200
     },
     {
+      "url": "https://root.avlis.dev/api/tools/get_environment",
+      "status": 200
+    },
+    {
       "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
       "status": 200
     },
     {
@@ -108,7 +121,47 @@
       "status": 200
     },
     {
+      "url": "https://root.avlis.dev/api/tools/get_environment",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_project",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
       "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_environment",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_project",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/approvals",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/list_projects",
+      "status": 200
+    },
+    {
+      "url": "https://root.avlis.dev/api/tools/get_environment",
       "status": 200
     },
     {
@@ -128,43 +181,7 @@
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/api/tools/get_project",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/approvals",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/status",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/tools/list_projects",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/approvals",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/status",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/tools/list_projects",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/approvals",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/tools/list_projects",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/status",
+      "url": "https://root.avlis.dev/api/tools/get_environment",
       "status": 200
     },
     {
@@ -172,6 +189,10 @@
       "status": 200
     },
     {
+      "url": "https://root.avlis.dev/api/status",
+      "status": 200
+    },
+    {
       "url": "https://root.avlis.dev/api/approvals",
       "status": 200
     },
@@ -180,15 +201,7 @@
       "status": 200
     },
     {
-      "url": "https://root.avlis.dev/api/status",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/approvals",
-      "status": 200
-    },
-    {
-      "url": "https://root.avlis.dev/api/status",
+      "url": "https://root.avlis.dev/api/tools/get_environment",
       "status": 200
     }
   ]

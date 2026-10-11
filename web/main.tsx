@@ -16,7 +16,7 @@ import {
   type PreviewOperation,
 } from '../src/shared/contracts';
 import './style.css';
-import { groupProjects, loadCatalog, projectStatus, matchesProject, matchesFilter, elapsed, type ProjectFilter } from './projects';
+import { groupProjects, loadCatalog, projectStatus, matchesProject, matchesFilter, elapsed, readDensity, saveDensity, expandAll, type Density, type ProjectFilter } from './projects';
 import { Icon, Logo } from './icons';
 import { polling } from './polling';
 import { McpSetup } from './mcp-setup';
@@ -50,7 +50,12 @@ function App() {
   const [view, setView] = useState<'projects' | 'settings'>('projects');
   const [settingsPage, setSettingsPage] = useState<'connection' | 'mcp'>('connection');
   const [filter, setFilter] = useState<ProjectFilter>('All');
-  const [tab, setTab] = useState<DetailTab>('Worktrees');
+  const [tabs, setTabs] = useState<Record<string, DetailTab>>({});
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const expandedRef = useRef(expanded); expandedRef.current = expanded;
+  const [noticesOpen, setNoticesOpen] = useState(false);
+  const [density, setDensity] = useState<Density>(() => { try { return readDensity(localStorage); } catch { return 'Expanded'; } });
+  const [projectObservations, setProjectObservations] = useState<Record<string, { details: ProjectDetails | null; error: string; activity: (Operation | PreviewOperation)[]; activityError: string }>>({});
   const [roots, setRoots] = useState<string[]>([]);
   const [observationRoots, setObservationRoots] = useState<string[]>([]);
   const [query, setQuery] = useState('');
@@ -59,8 +64,6 @@ function App() {
   const selectedRef = useRef<string | null>(null);
   const detailAbort = useRef(new AbortController());
   const logAbort = useRef(new AbortController());
-  const [details, setDetails] = useState<ProjectDetails | null>(null);
-  const [projectError, setProjectError] = useState('');
   const [catalogError, setCatalogError] = useState('');
   const [environmentErrors, setEnvironmentErrors] = useState<Record<string, string>>({});
   const [previews, setPreviews] = useState<Record<string, PreviewStatus>>({});
@@ -74,22 +77,12 @@ function App() {
     logAbort.current = new AbortController();
     selectedRef.current = id;
     setSelected(id);
-    setDetails(null);
-    setEnvironments({});
-    setEnvironmentErrors({});
-    setPreviews({});
-    setPreviewErrors({});
-    setProjectError('');
     setLogs(null);
     setLogsError('');
-    setActivity([]);
-    setActivityError('');
     void refreshController.current?.refresh();
   };
   const [tailnetHostname, setTailnetHostname] = useState<string | null>(null);
   const [editorTemplate, setEditorTemplate] = useState<string | null>(null);
-  const [activity, setActivity] = useState<ReturnType<typeof operationsOutput.parse>['operations']>([]);
-  const [activityError, setActivityError] = useState('');
   const [approvals, setApprovals] = useState<ApprovalReview[]>([]);
   const [approvalsError, setApprovalsError] = useState('');
   const [reviewId, setReviewId] = useState<string | null>(() => new URLSearchParams(location.search).get('approval'));
@@ -209,63 +202,53 @@ function App() {
         }
       }
       const snapshot = catalogRef.current;
-      const id = selectedRef.current;
-      const selectionSignal = AbortSignal.any([signal, detailAbort.current.signal]);
-      const checkouts = groupProjects(snapshot?.projects ?? []).find(group => group.primary.id === id)?.checkouts ?? [];
+      const checkouts = snapshot?.projects ?? [];
       const environmentIds = [...new Set(checkouts.flatMap((p) => p.environmentIds))];
       const previewIds = [...new Set(checkouts.flatMap((p) => p.previewIds ?? []))];
       const observations = [
         ...environmentIds.map((environmentId) => async () => {
           try {
-            const env = environmentOutput.parse(await json('/api/tools/get_environment', { environmentId }, csrf, selectionSignal));
-            if (!selectionSignal.aborted) {
+            const env = environmentOutput.parse(await json('/api/tools/get_environment', { environmentId }, csrf, signal));
+            if (!signal.aborted) {
               setEnvironments((prev) => ({ ...prev, [environmentId]: env }));
               setEnvironmentErrors((prev) => ({ ...prev, [environmentId]: '' }));
             }
           } catch (e) {
-            if (!selectionSignal.aborted) setEnvironmentErrors((prev) => ({ ...prev, [environmentId]: failed(e) }));
+            if (!signal.aborted) setEnvironmentErrors((prev) => ({ ...prev, [environmentId]: failed(e) }));
           }
         }),
         ...previewIds.map((previewId) => async () => {
           try {
-            const preview = previewOutput.parse(await json('/api/tools/get_preview', { previewId }, csrf, selectionSignal));
-            if (!selectionSignal.aborted) {
+            const preview = previewOutput.parse(await json('/api/tools/get_preview', { previewId }, csrf, signal));
+            if (!signal.aborted) {
               setPreviews((prev) => ({ ...prev, [previewId]: preview }));
               setPreviewErrors((prev) => ({ ...prev, [previewId]: '' }));
             }
           } catch (e) {
-            if (!selectionSignal.aborted) setPreviewErrors((prev) => ({ ...prev, [previewId]: failed(e) }));
+            if (!signal.aborted) setPreviewErrors((prev) => ({ ...prev, [previewId]: failed(e) }));
           }
         }),
       ];
-      for (let i = 0; i < observations.length && !selectionSignal.aborted; i += 4)
+      for (let i = 0; i < observations.length && !signal.aborted; i += 4)
         await Promise.allSettled(observations.slice(i, i + 4).map((observe) => observe()));
-      if (!id || selectionSignal.aborted || selectedRef.current !== id) return;
-      const current = () => !selectionSignal.aborted && selectedRef.current === id;
-      try {
-        const data = projectOutput.parse(await json('/api/tools/get_project', { projectId: id }, csrf, selectionSignal));
-        if (!current()) return;
-        setDetails(data);
-        setProjectError('');
+      for (const projectId of expandedRef.current) {
+        if (signal.aborted) return;
+        const current = () => !signal.aborted && expandedRef.current.includes(projectId);
         try {
-          const operations = await Promise.all(
-            [...environmentIds.map((environmentId) => ({ environmentId })), ...data.previews.map((p) => ({ previewId: p.previewId }))].map((scope) =>
-              json('/api/tools/list_operations', { ...scope, limit: 20 }, csrf, selectionSignal).then(
-                (value) => operationsOutput.parse(value).operations,
-              ),
-            ),
-          );
-          if (current()) {
-            setActivity(
-              [...new Map(operations.flat().map((op) => [op.id, op])).values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20),
-            );
-            setActivityError('');
+          const data = projectOutput.parse(await json('/api/tools/get_project', { projectId }, csrf, signal));
+          if (!current()) continue;
+          setProjectObservations(prev => ({ ...prev, [projectId]: { details: data, error: '', activity: prev[projectId]?.activity ?? [], activityError: '' } }));
+          try {
+            const groupEnvironmentIds = groupProjects(snapshot?.projects ?? []).find(group => group.primary.id === projectId)?.environmentIds ?? [];
+            const scopes = [...groupEnvironmentIds.map(environmentId => ({ environmentId })), ...data.previews.map(p => ({ previewId: p.previewId }))];
+            const operations = await Promise.all(scopes.map(scope => json('/api/tools/list_operations', { ...scope, limit: 20 }, csrf, signal).then(value => operationsOutput.parse(value).operations)));
+            if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], activity: [...new Map(operations.flat().map(op => [op.id, op])).values()].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,20), activityError: '' } }));
+          } catch (e) {
+            if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], activityError: failed(e) } }));
           }
         } catch (e) {
-          if (current()) setActivityError(failed(e));
+          if (current()) setProjectObservations(prev => ({ ...prev, [projectId]: { details: prev[projectId]?.details ?? null, activity: prev[projectId]?.activity ?? [], activityError: prev[projectId]?.activityError ?? '', error: failed(e) } }));
         }
-      } catch (e) {
-        if (current()) setProjectError(failed(e));
       }
     });
     refreshController.current = controller;
@@ -396,7 +379,6 @@ function App() {
     }
   }
   const allGroups = groupProjects(catalog?.projects ?? []);
-  const selectedGroup = allGroups.find(group => group.primary.id === selected);
   const filtered = allGroups.filter((group) => matchesProject(group, query) && matchesFilter(group, filter, environments));
   if (sort === 'status')
     filtered.sort(
@@ -539,7 +521,7 @@ function App() {
         {view === 'settings' ? (
           <section className="settings-page">
             <h1 className="h1">Settings</h1>
-            <p className="sub">Connection, access and coding tools.</p>
+            <p className="sub">read-only · change on the host</p>
             <nav className="seg settings-nav" aria-label="Settings pages">
               <button
                 className={settingsPage === 'connection' ? 'on' : ''}
@@ -620,51 +602,22 @@ function App() {
           </section>
         ) : (
           <>
-            <h1 id="projects-title" tabIndex={-1} className="h1">
-              Projects
-            </h1>
-            <p className="sub">
-              {allGroups.length} {allGroups.length === 1 ? 'project' : 'projects'} · <span>{roots.join(', ') || '—'}</span>
-            </p>
-            <div className="toolbar">
-              <div className="filters">
-                {(['All', 'Running', 'With agents'] as ProjectFilter[]).map((value) => (
-                  <button
-                    key={value}
-                    className={`fchip ${filter === value ? 'on' : ''}`}
-                    aria-pressed={filter === value}
-                    onClick={() => {
-                      setFilter(value);
-                      setCursor(0);
-                    }}
-                  >
-                    {value}
-                    <b>{allGroups.filter((g) => matchesFilter(g, value, environments)).length}</b>
-                  </button>
-                ))}
-              </div>
+            <div className="page-heading">
+              <div className="page-title"><h1 id="projects-title" tabIndex={-1} className="h1">Projects</h1><span className="mono muted">{allGroups.length} projects · {roots.join(', ') || '—'}</span></div>
               <div className="toolbar-actions">
-                <span className="observed mono muted">{catalog ? `Updated ${elapsed(catalog.observedAt, now) ?? '—'} ago` : 'Updating…'}</span>
-                <button className="icon-btn" aria-label="Refresh projects" onClick={() => void refreshController.current?.refresh()}>
-                  <Icon name="refresh" />
-                </button>
-                <label className="select">
-                  Sort
-                  <select
-                    aria-label="Sort projects"
-                    value={sort}
-                    onChange={(e) => {
-                      setSort(e.target.value);
-                      setCursor(0);
-                    }}
-                  >
-                    <option value="name">Name</option>
-                    <option value="status">Status</option>
-                    <option value="worktrees">Worktrees</option>
-                  </select>
-                </label>
+                <button className={`npill ${noticesOpen ? 'on' : ''}`} aria-expanded={noticesOpen} aria-controls="discovery-notices" onClick={() => setNoticesOpen(!noticesOpen)}>{catalog?.warnings.length ?? 0} notices</button>
+                <span className="observed mono muted">{catalog ? `updated ${elapsed(catalog.observedAt, now) ?? '—'} ago` : 'Updating…'}</span>
+                <button className="icon-btn" aria-label="Refresh projects" onClick={() => void refreshController.current?.refresh()}><Icon name="refresh"/></button>
+                <label className="select">Sort <select aria-label="Sort projects" value={sort} onChange={e => { setSort(e.target.value); setCursor(0); }}><option value="name">Name</option><option value="status">Status</option><option value="worktrees">Worktrees</option></select></label>
+                <div className="seg density" aria-label="Row density">{(['Compact', 'Expanded'] as const).map(value => <button key={value} className={density === value ? 'on' : ''} aria-pressed={density === value} onClick={() => { setDensity(value); try { saveDensity(localStorage, value); } catch {} }}>{value}</button>)}</div>
+                <button className="xall" onClick={() => { const ids = filtered.slice(pageStart, pageStart + 25).map(g => g.primary.id); const next = expandAll(ids, expanded); expandedRef.current = next; setExpanded(next); void refreshController.current?.refresh(); }}>{filtered.slice(pageStart, pageStart + 25).every(g => expanded.includes(g.primary.id)) && filtered.length ? 'Collapse all' : 'Expand all'}</button>
               </div>
             </div>
+            <div className="toolbar">
+              <div className="filters">{(['All', 'Running', 'With agents', ...(allGroups.some(g => g.environmentIds.length) ? ['Managed'] : [])] as ProjectFilter[]).map(value => <button key={value} className={`fchip ${filter === value ? 'on' : ''}`} aria-pressed={filter === value} onClick={() => { setFilter(value); setCursor(0); }}>{value}<b>{allGroups.filter(g => matchesFilter(g, value, environments)).length}</b></button>)}</div>
+              <div className="legend">{[['ok','working'], ['info','unverified'], ['bad','down'], ['idle','link']].map(([tone,text]) => <span key={tone}><i className={`ldot ${tone}`} aria-hidden="true"/>{text}</span>)}</div>
+            </div>
+            {noticesOpen && <div id="discovery-notices" className="notice catalog-notice"><div>{catalog?.warnings.length ? catalog.warnings.map(w => <p key={w}>{w}</p>) : <p>No discovery notices.</p>}</div></div>}
             {approvalsError && (
               <p className="notice bad" role="alert">
                 Approvals: {approvalsError}
@@ -700,56 +653,29 @@ function App() {
                 {catalog && ' · Showing the last successful observation.'}
               </div>
             )}
-            {!!catalog?.warnings.length && (
-              <details className="notice catalog-notice">
-                <summary>Discovery notices ({catalog.warnings.length})</summary>
-                {catalog.warnings.map((w) => (
-                  <p key={w}>{w}</p>
-                ))}
-              </details>
-            )}
             {!catalog && <p className="empty-state">Reading project directories…</p>}
             {catalog && !filtered.length && (
               <p className="empty-state">
                 {query || filter !== 'All' ? 'No projects match your filters.' : 'No projects found in the configured roots.'}
               </p>
             )}
-            <div className="project-table" role="table" aria-label="Projects">
-              <div className="project-table-head" role="row">{['Project','Branch','Agents','Services','Links','Actions'].map(name => <span role="columnheader" key={name} className={name === 'Actions' ? 'sr-only' : undefined}>{name}</span>)}</div>
-              <div role="rowgroup">{filtered.slice(pageStart, pageStart + 25).map(group => <ProjectRow key={group.id} group={group} environments={selected === group.primary.id ? environments : {}} previews={selected === group.primary.id ? previews : {}} stale={stale || (selected === group.primary.id && (!!projectError || group.environmentIds.some(id => !!environmentErrors[id]) || group.checkouts.some(p => p.previewIds?.some(id => !!previewErrors[id]))))} now={now}
-                onDetails={next => { setTab(next ?? 'Worktrees'); if (selected !== group.primary.id) selectProject(group.primary.id); }}
-                onLogs={(id, service) => { setTab('Environment'); selectProject(group.primary.id); void showLogs(id, service); }} />)}</div>
+            <div className={`project-table ptbl ${density === 'Compact' ? 'dense' : ''}`} role="table" aria-label="Projects">
+              <div className="project-table-head prow head" role="row">{['Project','Branch','Agents','Services','Links','⋯'].map(name => <span role="columnheader" key={name}>{name}</span>)}</div>
+              <div role="rowgroup">{filtered.slice(pageStart, pageStart + 25).map(group => {
+                const id = group.primary.id, open = expanded.includes(id), observation = projectObservations[id];
+                const toggle = (section?: DetailTab) => {
+                  if (section || !expandedRef.current.includes(id)) setTabs(prev => ({ ...prev, [id]: section ?? 'Worktrees' }));
+                  const next = section ? [...new Set([...expandedRef.current, id])] : expandedRef.current.includes(id) ? expandedRef.current.filter(value => value !== id) : [...expandedRef.current, id];
+                  expandedRef.current = next; setExpanded(next); selectProject(next.includes(id) ? id : null);
+                };
+                const rowStale = stale || !!observation?.error || group.environmentIds.some(value => !!environmentErrors[value]) || group.checkouts.some(p => p.previewIds?.some(value => !!previewErrors[value]));
+                return <React.Fragment key={group.id}><ProjectRow group={group} environments={environments} previews={previews} stale={rowStale} now={now} expanded={open} density={density} editorTemplate={editorTemplate} editorHost={tailnetHostname} lifecycleAvailable={lifecycleAvailable} working={!!working || activeRef.current} onAction={action} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})}
+                  onDetails={toggle} onLogs={(environmentId, service) => { toggle('Environment'); void showLogs(environmentId, service); }}/>
+                  {open && <div className="detail-row" role="row"><div role="cell" aria-colspan={6}><ProjectDetailsPanel group={group} tab={tabs[id] ?? 'Worktrees'} onOpen={next => { if (next) setTabs(prev => ({...prev,[id]:next})); }} onClose={() => toggle()}
+                    environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={observation?.details ?? null} projectError={observation?.error ?? ''} stale={stale} lifecycleAvailable={lifecycleAvailable} observedAt={catalog?.observedAt} working={working ?? (activeRef.current ? 'operation' : null)} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={observation?.activity ?? []} activityError={observation?.activityError ?? ''} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})} onAction={action} onLogs={(environmentId, service) => { selectProject(id); void showLogs(environmentId,service); }} logs={selected === id ? logs : null} logsError={selected === id ? logsError : ''}/></div></div>}
+                </React.Fragment>;
+              })}</div>
             </div>
-            {selectedGroup && <ProjectDetailsPanel key={selectedGroup.primary.id} group={selectedGroup} tab={tab} onOpen={next => { if (next) setTab(next); }} onClose={() => selectProject(null)}
-                  environments={environments}
-                  environmentErrors={environmentErrors}
-                  previews={previews}
-                  previewErrors={previewErrors}
-                  details={details}
-                  projectError={projectError}
-                  stale={stale}
-                  lifecycleAvailable={lifecycleAvailable}
-                  observedAt={catalog?.observedAt}
-                  working={
-                    working ??
-                    (lastAction && ['accepted', 'running'].includes(lastAction.status)
-                      ? 'environmentId' in lastAction
-                        ? lastAction.environmentId
-                        : lastAction.previewId
-                      : null)
-                  }
-                  editorTemplate={editorTemplate}
-                  editorHost={tailnetHostname}
-                  activity={activity}
-                  activityError={activityError}
-                  onRequest={(path) => void requestEnvironment({ path, requestId: crypto.randomUUID() })}
-                  onAction={action}
-                  onLogs={(id, service) => {
-                    void showLogs(id, service);
-                  }}
-                  logs={logs}
-                  logsError={logsError}
-            />}
             {filtered.length > 25 && (
               <nav className="pagination" aria-label="Project pages">
                 {pageStart > 0 && (

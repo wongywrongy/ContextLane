@@ -1,5 +1,5 @@
 {
-  "version": "0.5.1",
+  "version": "0.6.0",
   "toolCount": 13,
   "describedInputFields": 24,
   "catalogEntries": 6,
@@ -7,5 +7,5 @@
     "IMPLICIT_ENV_WRAPPER"
   ],
   "environments": [],
-  "observedAt": "2026-10-10T08:01:48.518Z"
+  "observedAt": "2026-10-10T11:25:54.585Z"
 }

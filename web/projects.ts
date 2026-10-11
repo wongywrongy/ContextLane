@@ -71,7 +71,7 @@ export function editorHref(path: string, template?: string | null, host?: string
     return null;
   }
 }
-export const branchLabel = (project: Project) => (project.detached ? `detached @ ${project.detachedSha ?? '—'}` : (project.branch ?? '—'));
+export const branchLabel = (project: Project) => (project.detached ? `detached @ ${project.detachedSha?.slice(0, 7) ?? '—'}` : (project.branch ?? '—'));
 export function matchesProject(group: ProjectGroup, query: string) {
   const text = query.trim().toLowerCase();
   return group.checkouts.some((p) =>
@@ -88,10 +88,10 @@ export function matchesFilter(group: ProjectGroup, filter: ProjectFilter, enviro
   if (filter === 'Managed') return group.environmentIds.length > 0;
   return true;
 }
-export function groupServices(group: ProjectGroup, environments: Record<string, Environment>) {
+export function groupServices(group: ProjectGroup, environments: Record<string, Environment>, stale = false) {
   return group.checkouts.flatMap((checkout) => {
     const configured = checkout.runtime.services;
-    const ports = [...new Set([...checkout.runtime.ports, ...configured.map((s) => s.port)])];
+    const ports = [...new Set([...checkout.runtime.ports, ...configured.map((s) => s.port)])].filter(port => !checkout.runtime.listeners?.some(l => l.port === port && l.owner === 'agent'));
     return ports.map((port) => {
       const listener = checkout.runtime.listeners?.find((l) => l.port === port);
       const service = configured.find((s) => s.port === port);
@@ -100,7 +100,7 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
         .find((e) => e?.services.some((s) => s.id === service?.id && s.port === port));
       const unit = environment?.services.find((s) => s.id === service?.id && s.port === port);
       const listening = checkout.runtime.ports.includes(port);
-      const state = serviceState(environment, unit, listening);
+      const state = stale || checkout.runtime.status === 'unknown' ? 'Unknown' : serviceState(environment, unit, listening);
       return {
         key: `${checkout.id}:${port}`,
         name: listener?.process?.name ?? service?.name ?? 'Listener',
@@ -108,6 +108,7 @@ export function groupServices(group: ProjectGroup, environments: Record<string, 
         checkout,
         unit: unit?.unit || '—',
         process: listener?.process,
+        startedBy: listener?.startedBy,
         managed: !!environment,
         state,
       };
@@ -125,7 +126,7 @@ export const chipTone = (state: string) =>
           ? 'bad'
           : 'idle';
 
-export type LinkState = 'Available' | 'Published' | 'Attention' | 'Link' | 'Not exposed' | 'Unknown';
+export type LinkState = 'Available' | 'Published' | 'Down' | 'Link' | 'Unknown';
 export function linkState(value: {
   route?: string;
   https?: string;
@@ -135,11 +136,11 @@ export function linkState(value: {
   stale?: boolean;
 }): LinkState {
   if (value.stale || value.route === 'unknown') return 'Unknown';
-  if (value.removed) return 'Not exposed';
+  if (value.removed) return 'Down';
   if (value.route === 'matching' && value.https === 'verified' && value.upstream === 'ready') return 'Available';
-  if (value.errors?.length || value.route === 'conflict' || value.https === 'failed' || value.upstream === 'unready') return 'Attention';
+  if (value.errors?.length || value.route === 'conflict' || value.https === 'failed' || value.upstream === 'unready') return 'Down';
   if (value.route === 'matching') return 'Published';
-  return 'Not exposed';
+  return 'Link';
 }
 export type GroupLink = {
   key: string;
@@ -228,7 +229,7 @@ export function groupLinks(
       add({ ...link, key: `${checkout.id}:${link.url}`, source: 'Configured link', state: stale ? 'Unknown' : 'Link', checkout });
     }
   }
-  const order: LinkState[] = ['Available', 'Published', 'Attention', 'Link', 'Not exposed', 'Unknown'];
+  const order: LinkState[] = ['Available', 'Published', 'Down', 'Link', 'Unknown'];
   return [...links.values()].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || a.label.localeCompare(b.label));
 }
 
@@ -247,7 +248,8 @@ export function recipePresentation(recipe: NonNullable<Project['recipe']>) {
 }
 
 export function serviceState(environment: Environment | undefined, unit: Environment['services'][number] | undefined, listening: boolean) {
-  if (environment?.observationError || unit?.state === 'failed') return 'Attention';
+  if (environment?.observationError || environment?.application === 'unknown') return 'Unknown';
+  if (unit?.state === 'failed' || environment?.application === 'unhealthy') return 'Down';
   if (environment?.application === 'ready' && unit?.state === 'active') return 'Ready';
   if (listening) return 'Listening';
   if (unit && ['inactive', 'absent', 'not recorded'].includes(unit.state)) return 'Stopped';
@@ -261,3 +263,18 @@ export function elapsed(value?: string | null, now = Date.now()) {
   const seconds = Math.floor((now - start) / 1000);
   return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : seconds < 86400 ? `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m` : `${Math.floor(seconds / 86400)}d ${Math.floor(seconds % 86400 / 3600)}h`;
 }
+
+export function pillState(state: string): 'ok' | 'info' | 'bad' | 'idle' {
+  if (['Ready', 'Available'].includes(state)) return 'ok';
+  if (['Listening', 'Published'].includes(state)) return 'info';
+  if (['Stopped', 'Down', 'Failed', 'Unhealthy', 'Attention'].includes(state)) return 'bad';
+  return 'idle';
+}
+export type Density = 'Compact' | 'Expanded';
+export function readDensity(storage: Pick<Storage, 'getItem'>): Density {
+  try { return storage.getItem('rootlane-density') === 'Compact' ? 'Compact' : 'Expanded'; } catch { return 'Expanded'; }
+}
+export function saveDensity(storage: Pick<Storage, 'setItem'>, density: Density) {
+  try { storage.setItem('rootlane-density', density); } catch { /* Storage may be disabled. */ }
+}
+export const expandAll = (ids: string[], expanded: string[]) => ids.every(id => expanded.includes(id)) ? [] : ids;

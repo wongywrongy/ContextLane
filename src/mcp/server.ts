@@ -16,7 +16,7 @@ export function createMcpServer(base: string, credential: string, request: typeo
   )
     throw new Error('MCP requires a loopback backend origin and a private agent credential');
   const server = new McpServer(
-    { name: 'rootlane', version: '0.5.1' },
+    { name: 'rootlane', version: '0.6.0' },
     {
       instructions:
         'Observe: locate with your absolute cwd, then get_project or get_environment as needed. Observation is read-only; do not request approval or start anything. Publish a running service: locate → get_capabilities and identify an owner-approved target → publish_preview → poll get_preview. Publication owns only its recorded route, never application processes. A returned URL may be unverified. Start a managed environment: locate → request_environment and owner approval at approvalUrl when required → start_environment → poll get_environment. Never approve yourself, edit owner configuration, or bypass checks. Start, stop, publish and unpublish return durable operations; list_operations shows recent history. Keep the same requestId and payload when retrying the same action. Tools share the authenticated Rootlane backend; no MCP resources, remote application APIs or client session handoffs are provided.',

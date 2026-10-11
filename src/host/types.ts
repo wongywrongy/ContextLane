@@ -20,6 +20,8 @@ export interface Preview {
   label: string;
 }
 export interface Listener {
+  owner?: 'agent';
+  startedBy?: { name: string; pid: number };
   address: string;
   port: number;
   pid: number | null;

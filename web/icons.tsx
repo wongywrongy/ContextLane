@@ -1,5 +1,8 @@
 import React from 'react';
 const paths = {
+  play: 'm8 4 12 8-12 8Z',
+  stop: 'M5 5h14v14H5Z',
+  disclosure: 'm9 6 6 6-6 6',
   folder: 'M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
   search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   settings: 'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',

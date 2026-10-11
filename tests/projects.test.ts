@@ -102,7 +102,7 @@ test('links dedupe by source, retain independent states and branch labels, sort,
     approved: true, removed: true, url: 'https://gone.test/', route: 'absent', upstream: 'unknown', https: 'unverified',
     actualConfiguration: null, errors: [], observedAt: 'now', latestOperation: null });
   const links = groupLinks(group, envs, { [publication.id]: publication }, null);
-  assert.deepEqual(links.map(l => l.state), ['Available', 'Published', 'Attention', 'Link', 'Not exposed']);
+  assert.deepEqual(links.map(l => l.state), ['Available', 'Published', 'Down', 'Down', 'Link']);
   assert.equal(links.find(l => l.url === 'https://one.test/')!.label, 'Console · main');
   assert.equal(links.find(l => l.url === 'https://two.test/')!.label, 'Console · feature');
   assert.equal(links.find(l => l.source === 'Observed route')!.label, ':5000');
@@ -140,4 +140,37 @@ test('observation rows shorten paths and only show valid process elapsed time', 
   assert.equal(branchLabel(project('/code/plain')), '—');
   const group = groupProjects([project('/code/plain', { runtime: { services: [], ports: [8765], status: 'listeners observed', ownership: 'observe-only' } })])[0];
   assert.equal(groupServices(group, {})[0].name, 'Listener');
+});
+
+test('pill vocabulary covers every service and link source without promoting observations', async () => {
+  const { pillState, serviceState, linkState, groupServices } = await import('../web/projects.js');
+  for (const [state, tone] of Object.entries({Ready:'ok',Available:'ok',Listening:'info',Published:'info',Stopped:'bad',Down:'bad',Failed:'bad',Unhealthy:'bad',Attention:'bad',Link:'idle',Unknown:'idle',Registered:'idle',Detected:'idle'})) assert.equal(pillState(state), tone);
+  assert.equal(linkState({route:'matching',https:'verified',upstream:'ready'}),'Available');
+  assert.equal(linkState({route:'matching',https:'unverified',upstream:'ready'}),'Published');
+  for (const source of [{route:'conflict'},{https:'failed'},{upstream:'unready'},{errors:['failure']},{removed:true}]) assert.equal(linkState(source),'Down');
+  assert.equal(linkState({}),'Link'); assert.equal(linkState({route:'unknown'}),'Unknown'); assert.equal(linkState({route:'matching',https:'verified',upstream:'ready',stale:true}),'Unknown');
+  const { environmentOutput } = await import('../src/shared/contracts.js');
+  const env = environmentOutput.parse({id:'dev',profileRevision:'rev',effects:'fixture',dataRequirements:'none',startAllowed:true,ownership:'rootlane',desiredState:'running',application:'ready',preview:'available',links:[],services:[{id:'web',port:3000,unit:'web',state:'active'}],observedAt:'now',latestOperation:null,observationError:null});
+  assert.equal(serviceState(env,env.services[0],true),'Ready');
+  assert.equal(serviceState(undefined,undefined,true),'Listening');
+  assert.equal(serviceState({...env,application:'unhealthy'},env.services[0],true),'Down');
+  assert.equal(serviceState({...env,observationError:{code:'FAILED',message:'failed'}},env.services[0],true),'Unknown');
+  assert.equal(serviceState(undefined,{...env.services[0],state:'inactive'},false),'Stopped');
+  assert.equal(serviceState(undefined,{...env.services[0],state:'failed'},true),'Down');
+  assert.equal(serviceState(undefined,undefined,false),'Unknown');
+  const group=groupProjects([project('/app',{runtime:{status:'listeners observed',ports:[3000,4000],services:[],ownership:'observe-only',listeners:[{port:3000,owner:'agent'},{port:4000,startedBy:{name:'Codex',pid:10}}]}})])[0];
+  assert.deepEqual(groupServices(group,{}).map(s=>s.port),[4000]);
+  assert.equal(groupServices(group,{})[0].startedBy?.name,'Codex');
+  assert.equal(groupServices(group,{},true)[0].state,'Unknown');
+  group.primary.runtime.status='unknown'; assert.equal(groupServices(group,{})[0].state,'Unknown');
+});
+
+test('density persists, tolerates disabled storage, and Expand all toggles the current rows', async () => {
+  const { readDensity, saveDensity, expandAll } = await import('../web/projects.js');
+  const values=new Map<string,string>();const storage={getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>{values.set(key,value);}};
+  assert.equal(readDensity(storage),'Expanded');saveDensity(storage,'Compact');assert.equal(readDensity(storage),'Compact');
+  values.set('rootlane-density','bogus');assert.equal(readDensity(storage),'Expanded');
+  const denied={getItem:()=>{throw Error('disabled')},setItem:()=>{throw Error('disabled')}};
+  assert.equal(readDensity(denied),'Expanded');assert.doesNotThrow(()=>saveDensity(denied,'Compact'));
+  assert.deepEqual(expandAll(['one','two'],['one']),['one','two']);assert.deepEqual(expandAll(['one','two'],['one','two']),[]);
 });

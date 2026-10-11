@@ -46,6 +46,7 @@ export const agent = z.discriminatedUnion('source', [
     id: z.string().regex(/^[a-f0-9]{24}$/),
     name: z.enum(['Codex', 'Claude Code']),
     source: z.literal('detected process'),
+    ports: z.array(z.number().int()).optional(),
     pid: z.number().int().positive().optional(),
     cwd: z.string().optional(),
     worktreePath: z.string().optional(),
@@ -175,6 +176,8 @@ export const project = z.strictObject({
       .array(
         z.strictObject({
           port: z.number().int(),
+          owner: z.literal('agent').optional(),
+          startedBy: z.strictObject({ name: z.string(), pid: z.number().int().positive() }).optional(),
           worktreePath: z.string().optional(),
           checkoutId: id.optional(),
           loopback: z.boolean().optional(),

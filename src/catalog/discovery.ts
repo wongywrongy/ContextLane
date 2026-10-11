@@ -2,7 +2,7 @@ import { opendir, realpath, lstat, access, stat } from 'node:fs/promises';
 import { join, basename, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { worktreeState, devCommand } from './git.js';
-import { procText } from '../host/process.js';
+import { procText, listenerOwner } from '../host/process.js';
 import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
 import { page, Problem, type Project, type ProjectDetails } from '../shared/contracts.js';
@@ -370,6 +370,7 @@ export class Catalog {
     } catch {
       warnings.push('Agent detection unavailable');
     }
+    await Promise.all(listeners.map(async listener => Object.assign(listener, await listenerOwner(listener.pid, agents))));
     const projects: Project[] = [];
     for (const path of [...paths].sort()) {
       const metadataAllowed = Date.now() <= deadline;
@@ -433,7 +434,7 @@ export class Catalog {
         const transport = tcp[origin.split(':').at(-1)!];
         if (!transport?.HTTPS && !transport?.HTTP) continue;
         const proxy = config.Handlers?.['/']?.Proxy;
-        if (ownListeners.some((l) => ['127.0.0.1', '::1', '0.0.0.0', '::', '*'].includes(l.address) && loopbackPort(proxy) === l.port)) {
+        if (ownListeners.some((l) => l.owner !== 'agent' && ['127.0.0.1', '::1', '0.0.0.0', '::', '*'].includes(l.address) && loopbackPort(proxy) === l.port)) {
           const upstreamPort = loopbackPort(proxy)!;
           const preview = {
             label: ownListeners.find((l) => l.port === upstreamPort)?.process?.name ?? `:${upstreamPort}`,
@@ -524,11 +525,13 @@ export class Catalog {
                   .map((t) => ({ id: t.serviceId, name: t.serviceName, port: t.port })),
               ].map((s) => [s.port, s]),
             ).values(),
-          ],
-          status: ownListeners.length ? 'listeners observed' : observed ? 'no associated listener' : 'unknown',
-          ports: [...new Set(ownListeners.map((l) => l.port))].slice(0, 32),
+          ].filter(s => !ownListeners.some(l => l.port === s.port && l.owner === 'agent')),
+          status: ownListeners.some(l => l.owner !== 'agent') ? 'listeners observed' : observed ? 'no associated listener' : 'unknown',
+          ports: [...new Set(ownListeners.filter(l => l.owner !== 'agent').map((l) => l.port))].slice(0, 32),
           listeners: ownListeners.map((l) => ({
             port: l.port,
+            ...(l.owner ? { owner: l.owner } : {}),
+            ...(l.startedBy ? { startedBy: l.startedBy } : {}),
             worktreePath: path,
             loopback:
               !!l.pid &&
@@ -557,6 +560,7 @@ export class Catalog {
           id: agent.id,
           name: agent.name,
           source: 'detected process',
+          ports: [...new Set(listeners.filter(l => l.owner === 'agent' && l.pid === agent.pid).map(l => l.port))],
           cwd: cwd!,
           worktreePath: project.path,
           checkoutId: project.id,

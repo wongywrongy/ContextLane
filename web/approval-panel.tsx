@@ -26,7 +26,7 @@ export function ApprovalPanel({
     <section className="approval-review box glass" aria-labelledby="approval-title">
       <div className="approval-heading">
         <h2 id="approval-title" ref={title} tabIndex={-1}>
-          Review environment
+          Approve environment
         </h2>
         <button className="btn" onClick={onClose}>
           Close
@@ -48,6 +48,7 @@ export function ApprovalPanel({
         <p role="status">This request is no longer pending. Refresh to see its current recipe status.</p>
       ) : (
         <>
+          <Chip state={review.stale ? 'Attention' : 'Registered'}>{review.stale ? 'Stale' : 'Pending approval'}</Chip>
           <PathLink path={review.preview.checkoutPath} />
           <dl className="kv">
             <dt>Recipe SHA256</dt>
@@ -67,13 +68,13 @@ export function ApprovalPanel({
               <h3>
                 {s.id} <span className="mono">:{s.port}</span>
               </h3>
-              <h4>Command · argument array</h4>
-              <pre className="term">{JSON.stringify(s.command, null, 2)}</pre>
+              <h4 className="sec-h">Resolved command · argument array</h4>
+              <pre className="term cmdline">{JSON.stringify(s.command, null, 2)}</pre>
               <dl className="kv">
                 <dt>Working directory</dt>
                 <dd className="mono">{s.cwd}</dd>
                 <dt>Environment names</dt>
-                <dd className="mono">{s.envNames.join(', ') || '—'}</dd>
+                <dd>{s.envNames.length ? s.envNames.map(name => <span className="envk" key={name}>{name}</span>) : '—'}</dd>
                 <dt>Readiness</dt>
                 <dd className="mono">
                   {s.readiness.path} · HTTP {s.readiness.status} · body includes {JSON.stringify(s.readiness.bodyIncludes)} · {s.readiness.timeoutMs}{' '}

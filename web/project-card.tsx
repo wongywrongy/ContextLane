@@ -4,6 +4,7 @@ import {
   agentKey,
   branchLabel,
   chipTone,
+  pillState,
   editorHref,
   groupAgents,
   groupServices,
@@ -22,24 +23,7 @@ export const time = (value?: string | null) =>
 const date = (value?: string | null) => (value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '—');
 export function Chip({ state, children }: { state: string; children?: React.ReactNode }) {
   const tone = chipTone(state);
-  const path =
-    tone === 'ok'
-      ? 'm5 12 4 4L19 6'
-      : tone === 'warn'
-        ? 'M12 8v5m0 4h.01M12 3 2 21h20Z'
-        : tone === 'bad'
-          ? 'm6 6 12 12M6 18 18 6'
-          : tone === 'info'
-            ? 'M5 12h14m-5-5 5 5-5 5'
-            : 'M5 12h14';
-  return (
-    <span className={`chip ${tone}`} title={state === 'Published' ? 'Route exists; availability is unverified.' : undefined}>
-      <svg className="ico" aria-hidden="true" viewBox="0 0 24 24">
-        <path d={path} />
-      </svg>
-      {children ?? state}
-    </span>
-  );
+  return <span className={`chip lp sm ${['Ready', 'Available', 'Listening', 'Published', 'Stopped', 'Down', 'Unknown', 'Link'].includes(state) ? pillState(state) : tone}`} title={state} aria-label={state}><span className="d" aria-hidden="true"/>{children ?? (state === 'Unknown' ? '—' : state)}</span>;
 }
 export function Mark({ name }: { name: string }) {
   const vendor = name === 'Codex' ? 'codex' : name === 'Claude Code' ? 'claude' : 'other';
@@ -203,41 +187,32 @@ export function ProjectDetailsPanel({
       </button>
     ) : null);
   const logServices = group.checkouts.flatMap((p) => p.logServices);
-  const tabs: DetailTab[] = ['Worktrees', ...(agents.length ? ['Agents' as const] : []), ...(services.length ? ['Services' as const] : []), ...(links.length || publications.length ? ['Links' as const] : []), ...(managed ? ['Environment' as const] : []), ...(operations.length || activityError ? ['Activity' as const] : [])];
+  const tabs: DetailTab[] = ['Worktrees', 'Agents', 'Services', 'Links', 'Activity', ...(managed ? ['Environment' as const] : [])];
   const activeTab = tabs.includes(tab) ? tab : 'Worktrees';
-  const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    const panel = dialog.current!;
-    panel.showModal();
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      panel.close();
-      document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
-      else document.getElementById('projects-title')?.focus();
-    };
-  }, []);
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !(event.target as HTMLElement).closest('[popover]')) onClose(); };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [onClose]);
   const agentCheckout = (a: Project['agents'][number]) =>
     group.checkouts.find((p) =>
       a.source === 'detected process' && a.worktreePath ? p.path === a.worktreePath : p.agents.some((other) => agentKey(other) === agentKey(a)),
     );
   const count = (t: DetailTab) =>
-    t === 'Worktrees' ? group.checkouts.length : t === 'Agents' ? agents.length : t === 'Services' ? services.length : null;
+    t === 'Worktrees' ? group.checkouts.length : t === 'Agents' ? agents.length : t === 'Services' ? services.length : t === 'Links' ? links.length : t === 'Activity' ? operations.length : envs.length;
   const recipeCheckout = group.checkouts.find((p) => p.recipe?.found);
   const recipe = recipeCheckout?.recipe;
   const http = (checkoutId: string, port: number) => details?.http?.find((h) => h.checkoutId === checkoutId && h.port === port)?.http;
   return (
-    <dialog ref={dialog} className="details-drawer" aria-labelledby={`details-title-${project.id}`} onCancel={onClose} onClose={onClose} onClick={(event) => { if (event.target === dialog.current && event.clientX < dialog.current.getBoundingClientRect().left) onClose(); }}>
+    <section className="details-drawer dpanel" aria-label={`${project.name} details`}>
       <header className="drawer-header">
         <div><h2 id={`details-title-${project.id}`}>{project.name}</h2><span className="mono muted">{project.path}</span></div>
-        <button className="btn" autoFocus onClick={onClose}>Close</button>
+        <button className="btn" onClick={onClose}>Close</button>
       </header>
-      {recipe?.found && <div className="drawer-recipe"><Chip state={recipePresentation(recipe).state}>Recipe · {recipePresentation(recipe).text}</Chip>{recipe.valid && !stale && !working && <button className="btn" onClick={() => onRequest(recipeCheckout!.path)}>Request environment…</button>}</div>}
+      {recipe?.found && <div className="drawer-recipe"><Chip state={recipePresentation(recipe).state}>Recipe · {recipePresentation(recipe).text}</Chip>{recipe.valid && recipe.approval !== 'approved' && !stale && !working && <button className="btn" onClick={() => onRequest(recipeCheckout!.path)}>Request environment…</button>}</div>}
       <div className="details project-details" id={`details-${project.id}`}>
           <div
-            className="tabs"
+            className="tabs dtabs seg"
             role="tablist"
             aria-label={`${project.name} details`}
             onKeyDown={(event) => {
@@ -270,7 +245,7 @@ export function ProjectDetailsPanel({
               </button>
             ))}
           </div>
-          <div className="panel" role="tabpanel" id={`panel-${project.id}`} aria-labelledby={`tab-${project.id}-${activeTab}`} tabIndex={0}>
+          <div className="panel dbody" role="tabpanel" id={`panel-${project.id}`} aria-labelledby={`tab-${project.id}-${activeTab}`} tabIndex={0}>
             {recipe?.errors.map((e) => (
               <p className="notice bad" role="alert" key={e.code}>
                 {e.code} · {e.message}
@@ -315,7 +290,7 @@ export function ProjectDetailsPanel({
             )}
           </div>
         </div>
-    </dialog>
+    </section>
   );
 }
 
@@ -431,7 +406,7 @@ function AgentsTab({
 }) {
   return (
     <>
-      <Table headings={['Agent', 'Source', 'Checkout', 'Working directory', 'Process started', 'Process id']}>
+      <Table headings={['Agent', 'Source', 'Checkout', 'Working directory', 'Process started', 'Process id', 'Ports']}>
         {agents.map((a) => (
           <tr key={agentKey(a)}>
             <td>
@@ -445,6 +420,7 @@ function AgentsTab({
             <td className="mono">{a.source === 'detected process' ? a.cwd ?? '—' : '—'}</td>
             <td className="mono">{a.source === 'detected process' ? date(a.startedAt) : '—'}</td>
             <td className="mono">{a.source === 'detected process' ? (a.pid ?? '—') : '—'}</td>
+            <td className="mono">{a.source === 'detected process' ? a.ports?.map(port => ':' + port).join(', ') || '—' : '—'}</td>
           </tr>
         ))}
       </Table>
@@ -467,7 +443,7 @@ function ServicesTab({
 }) {
   return (
     <>
-      <Table headings={['Name', 'Endpoint', 'Process', 'Started', 'Checkout', 'Unit', 'Ownership', 'State', 'HTTP']}>
+      <Table headings={['Name', 'Endpoint', 'Process', 'Started', 'Checkout', 'Unit', 'Ownership', 'Started by', 'State', 'HTTP']}>
         {services.map((s) => (
           <tr key={s.key}>
             <td>{s.name}</td>
@@ -477,6 +453,7 @@ function ServicesTab({
             <td className="mono">{s.checkout.path}</td>
             <td className="mono">{s.unit}</td>
             <td>{s.managed ? 'Rootlane' : 'Observe-only'}</td>
+            <td>{s.startedBy ? `${s.startedBy.name} · PID ${s.startedBy.pid}` : '—'}</td>
             <td>
               <Chip state={stale || s.checkout.environmentIds.some((id) => environmentErrors[id]) ? 'Unknown' : s.state} />
             </td>

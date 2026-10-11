@@ -66,31 +66,35 @@ try {
  const key=key=>page('Input.dispatchKeyEvent',{type:'keyDown',key,code:key,windowsVirtualKeyCode:{ArrowDown:40,ArrowUp:38,Home:36,End:35,Tab:9,Enter:13}[key]});
  const captures=[],metrics=[];
  const capture=async name=>{if (process.env.ROOTLANE_CAPTURE_ONLY && !name.startsWith(process.env.ROOTLANE_CAPTURE_ONLY)) { captures.push(name); return; } if (process.env.ROOTLANE_CAPTURE==='0' && !name.startsWith('settings-')) { captures.push(name); return; } await evaluate('document.fonts.ready');await pause(400); const {data}=await page('Page.captureScreenshot',{captureBeyondViewport:!name.startsWith('details-')});await writeFile(`${evidence}/${name}.png`,Buffer.from(data,'base64'));captures.push(name);};
- const menu=async(id='p0')=>{await evaluate(`document.querySelector('#project-${id} .project-actions > button').click()`);await wait('document.querySelector(":popover-open")');};
+ const menu=async(id='p0')=>{await evaluate(`document.querySelector('#project-${id} .project-actions > button[aria-haspopup=menu]').click()`);await wait('document.querySelector(":popover-open")');};
  const choose=async label=>{await evaluate(`[...document.querySelectorAll(':popover-open button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);};
- const details=async(id='p0')=>{await menu(id);await choose('Details');await wait('document.querySelector(".details-drawer[open]")');};
+ const details=async(id='p0')=>{await menu(id);await choose('Details');await wait('document.querySelector(".details-drawer")');};
  const close=async()=>{await escape();await wait('!document.querySelector(".details-drawer")');};
  const tab=async name=>{await evaluate(`document.getElementById('tab-p0-${name}').click()`);};
- assert(!requests.some(r=>r.path.endsWith('get_environment')||r.path.endsWith('get_preview')),'List does not trigger readiness probes');
+ assert(!requests.some(r=>r.path.endsWith('get_project')),'Collapsed rows do not fetch detail or HTTP probes');
  assert.equal(await evaluate('document.querySelectorAll("#project-p0 .agent-item").length'),5);
  assert.equal(await evaluate('document.querySelectorAll("#project-p0 .service-line").length'),3);
  assert(await evaluate('document.querySelector("#project-p0 .services-cell").textContent.includes("+1 services")'));
  assert.equal(await evaluate('document.querySelectorAll(".details-drawer").length'),0);
- for(const width of [360,390,768,1280,1440]) {
+ await evaluate(`(()=>{const link=document.querySelector('#project-p0 .compact-link');link.addEventListener('click',event=>event.preventDefault(),{once:true});link.click()})()`);assert.equal(await evaluate('document.querySelectorAll(".details-drawer").length'),0,'Link click does not expand row');
+ for(const width of [390,768,1100,1440,1920]) {
   await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});
   await evaluate('window.scrollTo(0,0)');await pause(100);
   const layout=await evaluate(`({overflow:document.documentElement.scrollWidth>innerWidth,columns:getComputedStyle(document.querySelector('.project-row')).gridTemplateColumns.split(' ').length,menuRight:document.querySelector('#project-p1 .menu-cell').getBoundingClientRect().right,agentCount:document.querySelectorAll('#project-p0 .agent-item').length,serviceLines:[...document.querySelectorAll('.service-line')].every(el=>{const spans=el.querySelectorAll('span');return Math.abs(spans[1].getBoundingClientRect().top-spans[2].getBoundingClientRect().top)<3})})`);
-  assert.equal(layout.overflow,false,JSON.stringify({width,layout}));assert.equal(layout.columns,width<1000?2:6);assert(layout.menuRight<=width);assert(layout.serviceLines);
+  assert.equal(layout.overflow,false,JSON.stringify({width,layout}));assert.equal(layout.columns,width<1100?2:6);assert(layout.menuRight<=width);
+  if (width >= 1100) {
+    assert(await evaluate(`(()=>{const h=[...document.querySelectorAll('.project-table-head > [role=columnheader]')],c=[...document.querySelectorAll('#project-p0 > [role=cell]')];return h.every((el,i)=>Math.abs(el.getBoundingClientRect().x-c[i].getBoundingClientRect().x)<1) && c.slice(1).every(el=>getComputedStyle(el).borderLeftWidth==='1px') && c.every(el=>Math.abs(el.getBoundingClientRect().height-document.querySelector('#project-p0').getBoundingClientRect().height+1)<1)})()`),'Unbroken dividers and aligned header cells');
+  }
   await capture(`projects-${width}`);
   if (width === 390) {
-    const touch = await evaluate(`(()=>{const r=document.querySelector('#project-p0 .project-actions > button').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    const touch = await evaluate(`(()=>{const r=document.querySelector('#project-p0 .project-actions > button[aria-haspopup=menu]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
     await page('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});await page('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await wait('document.querySelector(":popover-open")');await escape();
   }
-  await evaluate(`(()=>{const b=[...document.querySelectorAll('.project-actions > button')].at(-1);b.scrollIntoView({block:'end'});b.click()})()`);await wait('document.querySelector(":popover-open")');await pause(50);
+  await evaluate(`(()=>{const b=[...document.querySelectorAll('.project-actions > button[aria-haspopup=menu]')].at(-1);b.scrollIntoView({block:'end'});b.click()})()`);await wait('document.querySelector(":popover-open")');await pause(50);
   const bounds=await evaluate(`(()=>{const r=document.querySelector(':popover-open').getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right}})()`);
   assert(bounds.top>=0&&bounds.bottom<=900&&bounds.left>=0&&bounds.right<=width,JSON.stringify({width,bounds}));
   await key('End');assert.equal(await evaluate('document.activeElement.textContent'),'Copy path');await key('Home');assert.equal(await evaluate('document.activeElement.textContent'),'Details');
-  await escape();await wait('!document.querySelector(":popover-open")');await wait('document.activeElement===[...document.querySelectorAll(".project-actions > button")].at(-1)');
+  await escape();await wait('!document.querySelector(":popover-open")');await wait('document.activeElement===[...document.querySelectorAll(".project-actions > button[aria-haspopup=menu]")].at(-1)');
   await evaluate('window.scrollTo(0,0)');
   await details();await wait('document.querySelector(".project-details table")');
   assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);
@@ -103,6 +107,30 @@ try {
   await close();
   metrics.push({width,...layout,bounds});
  }
+ await page('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+ await evaluate(`document.querySelector('#project-p0 .chev').click()`);await wait('document.querySelector("#details-p0")');
+ await evaluate(`document.querySelector('#project-p0 .project-cell strong').click()`);await wait('!document.querySelector("#details-p0")');
+ await details();await wait('document.querySelector("#project-p0 .services-cell .ok")');
+ assert(await evaluate(`!!document.querySelector('#project-p0 .services-cell .info') && !!document.querySelector('#project-p0 .links-cell .ok') && !!document.querySelector('#project-p0 .links-cell .info')`),'Ready/Listening and Available/Published have distinct classes');
+ await menu();await choose('Details');await wait('!document.querySelector("#details-p0")');
+ await evaluate(`document.querySelector('.xall').click()`);await wait('document.querySelectorAll(".details-drawer").length===12');
+ await evaluate(`document.querySelector('.xall').click()`);await wait('!document.querySelector(".details-drawer")');
+ await evaluate(`[...document.querySelectorAll('.density button')].find(b=>b.textContent==='Compact').click()`);
+ assert.equal(await evaluate(`localStorage.getItem('rootlane-density')`),'Compact');
+ assert.equal(await evaluate(`document.querySelectorAll('#project-p0 .agent-item').length`),4);
+ assert.equal(await evaluate(`document.querySelectorAll('#project-p0 .service-line').length`),1);
+ assert(await evaluate(`(()=>{const title=document.querySelector('#project-p1 .ptext strong').getBoundingClientRect(),cell=document.querySelector('#project-p1 .project-cell').getBoundingClientRect();return title.right<=cell.right && title.left>=cell.left})()`),'Compact title remains within Project cell');
+ await page('Page.reload');await wait('document.querySelector(".project-table.dense")');
+ await page('Emulation.setDeviceMetricsOverride',{width:390,height:900,deviceScaleFactor:1,mobile:true});
+ assert.equal(await evaluate(`getComputedStyle(document.querySelector('#project-p0 .services-cell')).display`),'none');
+ await capture('projects-compact-390');
+ await evaluate(`document.querySelector('#project-p0 .chev').click()`);await wait('document.querySelector("#details-p0")');
+ assert.notEqual(await evaluate(`getComputedStyle(document.querySelector('#project-p0 .services-cell')).display`),'none');
+ assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+ await close();
+ await page('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+ await capture('projects-compact-1440');
+ await evaluate(`[...document.querySelectorAll('.density button')].find(b=>b.textContent==='Expanded').click()`);
  const started = projects[0].agents[4].startedAt;
  delete projects[0].agents[4].startedAt;
  projects[2].branch=null;projects[3].detached=true;projects[3].detachedSha='abcdef1';projects[4].runtime.status='unknown';
@@ -117,16 +145,16 @@ try {
  await menu();await choose('Copy path');await wait('document.querySelector("#project-p0 [role=status]")?.textContent==="Path copied"');assert.equal(await evaluate('navigator.clipboard.readText()'),projects[0].path);
  await evaluate(`navigator.clipboard.writeText=async()=>{throw Error('Controlled denial')}`);await menu('p1');await choose('Copy path');await wait('document.querySelector("#project-p1 [role=status]")?.textContent.includes("Copy unavailable")');
  await menu();await choose('Logs');await wait('document.querySelector(".logs pre")?.textContent.includes("bounded")');
- assert(await evaluate('document.querySelector(".drawer-header").textContent.includes("Disposable fixture")'));
+ assert(await evaluate('document.querySelector(".details-drawer").textContent.includes("Disposable fixture")'));
  failLogs=true;await evaluate('document.querySelector(".environment-actions button:last-child").click()');await wait('document.querySelector(".logs").textContent.includes("Controlled logs failure")');failLogs=false;
- await refresh();await pause(300);assert(await evaluate('!!document.querySelector(".details-drawer[open]")'),'Refresh preserves details');
+ await refresh();await pause(300);assert(await evaluate('!!document.querySelector(".details-drawer")'),'Refresh preserves details');
  await tab('Links');await wait('document.querySelector(".project-details").textContent.includes("Available")');
  failEnvironment=true;failPreview=true;await refresh();await wait('document.querySelector(".project-details").textContent.includes("Controlled preview failure")');
  assert(await evaluate('document.querySelector(".conn").textContent.includes("Connected")'),'Partial failure retains connection');
- assert.equal(await evaluate('document.querySelectorAll("#project-p0 .links-cell .green").length'),0);
+ assert.equal(await evaluate('document.querySelectorAll("#project-p0 .links-cell .ok").length'),0);
  failEnvironment=false;failPreview=false;await refresh();await wait('!document.querySelector(".project-details").textContent.includes("Controlled preview failure")');
  failProject=true;await refresh();await wait('document.querySelector(".project-details").textContent.includes("Controlled project failure")');assert(await evaluate('document.querySelector(".conn").textContent.includes("Connected")'));failProject=false;await close();
- delayProject=500;await details();await pause(100);await close();await details('p1');await pause(800);assert(await evaluate('document.querySelector(".drawer-header").textContent.includes("A very long project")'));assert(!await evaluate('document.querySelector(".project-details").textContent.includes("rootlane-web.service")'));delayProject=0;await close();
+ delayProject=500;await details();await pause(100);await close();await details('p1');await pause(800);assert(await evaluate('document.querySelector(".details-drawer").textContent.includes("A very long project")'));assert(!await evaluate('document.querySelector(".project-details").textContent.includes("rootlane-web.service")'));delayProject=0;await close();
  delayLogs=500;await menu();await choose('Logs');await pause(100);await close();await details('p1');await pause(700);assert(!await evaluate('!!document.querySelector(".logs")'));delayLogs=0;await close();
  delayCatalog=300;await evaluate(`(()=>{const b=document.querySelector('[aria-label="Refresh projects"]');b.click();b.click();b.click()})()`);await pause(800);assert.equal(peakCatalog,1);delayCatalog=0;
  failCatalog=true;await refresh();await wait('document.querySelector("main").textContent.includes("Controlled catalog failure")');assert.equal(await evaluate('document.querySelectorAll(".project-row").length'),12);failCatalog=false;
@@ -134,7 +162,7 @@ try {
  await page('Input.dispatchKeyEvent',{type:'keyDown',key:'k',code:'KeyK',modifiers:2,windowsVirtualKeyCode:75});assert(await evaluate('document.activeElement===document.querySelector(".cmd input")'));await page('Input.insertText',{text:'6000'});await wait('document.querySelectorAll(".project-row").length===1');
  await evaluate(`(()=>{const input=document.querySelector('.cmd input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);await wait('document.querySelectorAll(".project-row").length===12');
  await evaluate(`[...document.querySelectorAll('.filters button')].find(b=>b.textContent.startsWith('With agents')).click()`);await wait('document.querySelectorAll(".project-row").length===1');await evaluate('document.querySelector(".filters button").click()');
- await details();await evaluate(`document.querySelector('.drawer-recipe .btn').click()`);await close();await wait('document.querySelector(".approval-review .primary:not(:disabled)")');await evaluate('document.querySelector(".approval-review .primary").click()');await wait('!document.querySelector(".approval-review")');assert(requests.some(r=>r.path.endsWith('/approve')));
+ projects[0].recipe.approval='none';await refresh();await details();await evaluate(`document.querySelector('.drawer-recipe .btn').click()`);await close();await wait('document.querySelector(".approval-review .primary:not(:disabled)")');for(const width of [390,1440]){await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});await capture('approval-'+width);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);}await evaluate('document.querySelector(".approval-review .primary").click()');await wait('!document.querySelector(".approval-review")');assert(requests.some(r=>r.path.endsWith('/approve')));
  await details();await tab('Environment');failActionOnce=true;await wait('[...document.querySelectorAll(".environment-actions button")].some(b=>b.textContent.startsWith("Stop"))');await evaluate('[...document.querySelectorAll(".environment-actions button")].find(b=>b.textContent.startsWith("Stop")).click()');await wait('document.querySelector("main > .notice.bad")?.textContent.includes("OPERATION_IN_PROGRESS")');await close();await evaluate('document.querySelector("main > .notice.bad .btn").click()');await wait('!document.querySelector("main > .notice.bad")');assert.equal(requests.filter(r=>r.path.endsWith('stop_environment')).slice(-2)[0].payload.requestId,requests.filter(r=>r.path.endsWith('stop_environment')).at(-1).payload.requestId);
  projects.push({...projects[11],id:'nested',name:'Nested checkout',path:projects[0].path+'/fixtures/api',environmentIds:['nested-env'],logServices:[],agents:[],links:[]});
  await refresh();await wait('document.querySelectorAll(".project-row").length===12');await details();
@@ -143,6 +171,6 @@ try {
  await close();projects.pop();await refresh();
  for(const width of [390,1440]) {await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});await evaluate('document.querySelector(".main-nav button:last-child").click()');await wait('document.querySelector(".settings-nav")');await evaluate('document.querySelector(".settings-nav button:first-child").click()');await pause(50);await capture(`settings-${width}`);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);await evaluate('document.querySelector(".settings-nav button:last-child").click()');await capture(`mcp-${width}`);assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);}
  unlocked=false;await page('Page.reload');await wait('document.querySelector("#credential")');assert(!await evaluate('!!document.querySelector(".topbar")'));
- assert.deepEqual(consoleErrors,[]);await writeFile(evidence+'/browser-results.json',JSON.stringify({captures,metrics,peakCatalog,requests,consoleErrors},null,2));
- console.log('PASS observation table at five widths, menus, details, logs, stale responses, partial failures, reconnect, filters, approvals, lifecycle, Settings and MCP');
+ await capture('unlock-1440');assert.deepEqual(consoleErrors,[]);await writeFile(evidence+'/browser-results.json',JSON.stringify({captures,metrics,peakCatalog,requests,consoleErrors},null,2));
+ console.log('PASS unified observation table at five widths, menus, details, logs, stale responses, partial failures, reconnect, filters, approvals, lifecycle, Settings and MCP');
 } finally {socket?.close();child.kill('SIGTERM');if(child.exitCode===null)await new Promise(resolve=>child.once('exit',resolve));await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
