@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "receiving": true,
+  "port": 9481,
+  "ingestNotProxied": true,
+  "widths": [
+    1440,
+    390
+  ],
+  "errors": [],
+  "http5xx": [],
+  "lastEventAt": "2026-10-12T22:48:17.318Z",
+  "reporting": {
+    "claude": 1,
+    "codex": 0
+  },
+  "secretAbsentFromHtml": true,
+  "horizontalOverflow": false
+}
