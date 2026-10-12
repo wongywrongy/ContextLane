@@ -1,0 +1,13 @@
+{
+  "version": "0.8.0",
+  "migration": 5,
+  "backup": "/home/kyle/.local/state/rootlane/pre-080-2026-10-12T22-28-59Z.sqlite",
+  "previousRelease": "/opt/stacks/rootlane/pre-080-2026-10-12T22-28-59Z.tar.gz",
+  "telemetryEnabled": false,
+  "preserved": [
+    "owner configuration",
+    "owner and agent credentials",
+    "durable resources",
+    "Serve configuration"
+  ]
+}

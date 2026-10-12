@@ -3,10 +3,12 @@ import { Lifecycle } from './lifecycle/service.js';
 import { Publications } from './preview/service.js';
 import { Recipes } from './recipes.js';
 import { locate } from './locate.js';
+import { Telemetry } from './telemetry/service.js';
 import { toolContracts, problem, type ToolName } from './shared/contracts.js';
 export class Rootlane {
   readonly publications: Publications;
   readonly recipes: Recipes;
+  readonly telemetry: Telemetry;
   lastError: ReturnType<typeof problem> | null = null;
   configError: ReturnType<typeof problem> | null = null;
   get reconciling() {
@@ -16,10 +18,15 @@ export class Rootlane {
     readonly catalog: Catalog,
     readonly lifecycle: Lifecycle,
   ) {
+    this.telemetry = new Telemetry(lifecycle.config.telemetry, lifecycle.store, catalog);
     this.publications = new Publications(lifecycle);
     this.recipes = new Recipes(this);
     lifecycle.recipeProfiles = this.recipes.profiles;
     catalog.enrich = async (p) => {
+      for (const agent of p.agents) if (agent.source === 'detected process' && agent.pid) {
+        const usedPct = this.telemetry.contextForPid(agent.pid);
+        if (usedPct !== undefined) agent.contextUsedPct = usedPct;
+      }
       p.recipe = await this.recipes.inspect(p.path, p.gitCommonDir ?? undefined);
       const instances = this.recipes.instances(p.path);
       for (const control of p.controls ?? []) {
@@ -96,6 +103,10 @@ export class Rootlane {
   async call(name: ToolName, raw: unknown) {
     const contract = toolContracts[name];
     const input = contract.input.parse(raw);
+    if (name === 'get_agent_sessions') return contract.output.parse(await this.telemetry.getSessions((input as { projectId: string }).projectId));
+    if (name === 'get_telemetry_status') return contract.output.parse({
+      ...await this.telemetry.status(), codexVersion: process.env.ROOTLANE_CODEX_VERSION ?? null, headerEnvSupported: false,
+    });
     if (name === 'start_environment') {
       const m = input as {
         environmentId: string;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, PreviewOperation, CheckHistory, ObservedEvent } from '../src/shared/contracts';
+import type { Environment, PreviewStatus, Project, ProjectDetails, Operation, PreviewOperation, CheckHistory, ObservedEvent, AgentSessions } from '../src/shared/contracts';
 import {
   detailTabs, shortPath, elapsed, projectStatus,
   agentKey,
@@ -17,8 +17,9 @@ import {
   type ProjectGroup,
 } from './projects';
 import { Icon } from './icons';
-import { ClaudeMark } from './marks/claude';
-import { CodexMark } from './marks/codex';
+import { PanelSection } from './panel-section';
+import { AgentsTab } from './agent-telemetry';
+export { Mark } from './agent-avatar';
 export type DetailTab = 'Overview' | 'Logs' | 'Worktrees' | 'Agents' | 'Services' | 'Links' | 'Activity';
 import { LogsTab } from './project-logs';
 export const time = (value?: string | null) =>
@@ -27,14 +28,6 @@ const date = (value?: string | null) => (value && Number.isFinite(Date.parse(val
 export function Chip({ state, children }: { state: string; children?: React.ReactNode }) {
   const tone = chipTone(state);
   return <span className={`chip lp sm ${['Ready', 'Available', 'Listening', 'Published', 'Stopped', 'Down', 'Unknown', 'Link'].includes(state) ? pillState(state) : tone}`} title={state} aria-label={state}><span className="d" aria-hidden="true"/>{children ?? (state === 'Unknown' ? '—' : state)}</span>;
-}
-export function Mark({ name }: { name: string }) {
-  const vendor = name === 'Codex' ? 'codex' : name === 'Claude Code' ? 'claude' : 'other';
-  return (
-    <span className={`mark ${vendor}`} aria-hidden="true">
-      {vendor === 'claude' ? <ClaudeMark /> : vendor === 'codex' ? <CodexMark /> : name.slice(0, 2).toUpperCase()}
-    </span>
-  );
 }
 export function PathLink({ path, template, host }: { path: string; template?: string | null; host?: string | null }) {
   const href = editorHref(path, template, host);
@@ -100,13 +93,14 @@ function Table({ headings, children }: { headings: string[]; children: React.Rea
     </div>
   );
 }
-export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPrevious, hasNext, environments, environmentErrors, previews, previewErrors, details, projectError, stale, lifecycleAvailable, working, editorTemplate, editorHost, activity, activityError, checks, events, onRequest, onAction, loadLogs }: {
+export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPrevious, hasNext, environments, environmentErrors, previews, previewErrors, details, projectError, stale, lifecycleAvailable, working, editorTemplate, editorHost, activity, activityError, checks, events, onRequest, onAction, loadLogs, agentSessions, agentSessionError, now = Date.now(), onTelemetrySetup = () => {} }: {
   group: ProjectGroup; tab: DetailTab; onOpen: (tab: DetailTab) => void; onClose: () => void;
   onMove: (direction: number) => void; hasPrevious: boolean; hasNext: boolean;
   environments: Record<string, Environment>; environmentErrors: Record<string,string>;
   previews: Record<string,PreviewStatus>; previewErrors: Record<string,string>;
   details: ProjectDetails | null; projectError: string; stale: boolean; lifecycleAvailable: boolean; working: string | null;
   editorTemplate: string | null; editorHost: string | null; activity: (Operation | PreviewOperation)[]; activityError: string;
+  agentSessions?: AgentSessions; agentSessionError?: string; now?: number; onTelemetrySetup?: () => void;
   checks?: CheckHistory[]; events?: ObservedEvent[]; onRequest: (path: string) => void;
   onAction: (id: string, action: 'start' | 'stop' | 'publish' | 'unpublish') => void;
   loadLogs: (environmentId: string, serviceId: string, cursor: string | undefined, signal: AbortSignal) => Promise<{ lines: string[]; nextCursor: string | null; truncated: boolean }>;
@@ -135,12 +129,12 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
   const conflict = group.checkouts.flatMap(p => p.controls ?? []).some(c => ['accepted','running'].includes(c.latestOperation?.status ?? '')) || group.environmentIds.some(id => ['accepted','running'].includes(environments[id]?.latestOperation?.status ?? '')) || publications.some(p => ['accepted','running'].includes(p.latestOperation?.status ?? ''));
   const controls = group.checkouts.flatMap(p => p.controls ?? []);
   const feed = [...(events ?? []).map((e,i) => ({ key: `event-${e.at}-${i}`, at: e.at, text: e.text })), ...activity.map(op => ({ key: op.id, at: op.createdAt, text: `${label(op.action)} · ${'environmentId' in op ? op.environmentId : op.previewId} · ${op.status}${op.error ? ` · ${op.error.code}: ${op.error.message}` : ''}` }))].sort((a,b) => b.at.localeCompare(a.at)).slice(0,50);
-  const count = (t: DetailTab) => !details ? null : t === 'Agents' ? agents.length : t === 'Worktrees' ? group.checkouts.length : t === 'Services' ? services.length : t === 'Links' ? links.length : t === 'Logs' ? details.logServices.length : t === 'Activity' && events ? feed.length : null;
+  const count = (t: DetailTab) => !details ? null : t === 'Agents' ? agentSessions ? agentSessions.sessions.length + agents.filter(agent => agent.source === 'owner registration').length : agents.length : t === 'Worktrees' ? group.checkouts.length : t === 'Services' ? services.length : t === 'Links' ? links.length : t === 'Logs' ? details.logServices.length : t === 'Activity' && events ? feed.length : null;
   const beyondLoopback = group.checkouts.flatMap(checkout => (checkout.runtime.listeners ?? []).filter(l => isBeyondLoopback(l.bind)).map(l => ({...l,checkout})));
   const funnels = [...new Set(group.checkouts.flatMap(c => c.funnel ?? []))];
   const exposureKnown = !evidenceStale && group.checkouts.every(c => c.runtime.status !== 'unknown' && c.funnel !== null && c.funnel !== undefined);
-  const exposure = <section className="card"><h3 className="card-h">Exposure</h3>{evidenceStale ? <p className="okline">—</p> : <>{beyondLoopback.map(l => <div className="warnline" key={`${l.checkout.id}:${l.bind}:${l.port}`}><div><strong>{l.process?.name ?? l.checkout.name} {l.bind}:{l.port}</strong><div className="mono muted">{shortPath(l.checkout.path)}</div><p>bind to 127.0.0.1 and share through a preview link</p></div></div>)}{funnels.map(origin => <p className="warnline" key={origin}>Public (Funnel) route: {origin}</p>)}<p className="okline">{!exposureKnown ? 'Serve or listener observation unavailable · —' : !funnels.length ? 'no public (Funnel) routes' : `${funnels.length} public (Funnel) routes observed`}</p>{exposureKnown && !beyondLoopback.length && !funnels.length && <p className="okline">Loopback only</p>}</>}</section>;
-  const changes = <section className="card"><h3 className="card-h">Recent changes<button className="btn ghost" onClick={() => onOpen('Activity')}>All activity</button></h3>{activityError && <p role="alert">{activityError}</p>}{feed.slice(0,3).map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p className="okline">{events ? 'No recorded changes.' : 'Reading changes…'}</p>}</section>;
+  const exposure = <PanelSection title="Exposure">{evidenceStale ? <p className="okline">—</p> : <>{beyondLoopback.map(l => <div className="warnline" key={`${l.checkout.id}:${l.bind}:${l.port}`}><div><strong>{l.process?.name ?? l.checkout.name} {l.bind}:{l.port}</strong><div className="mono muted">{shortPath(l.checkout.path)}</div><p>bind to 127.0.0.1 and share through a preview link</p></div></div>)}{funnels.map(origin => <p className="warnline" key={origin}>Public (Funnel) route: {origin}</p>)}<p className="okline">{!exposureKnown ? 'Serve or listener observation unavailable · —' : !funnels.length ? 'no public (Funnel) routes' : `${funnels.length} public (Funnel) routes observed`}</p>{exposureKnown && !beyondLoopback.length && !funnels.length && <p className="okline">Loopback only</p>}</>}</PanelSection>;
+  const changes = <PanelSection title="Recent changes" aside={<button className="btn ghost" onClick={() => onOpen('Activity')}>All activity</button>}>{activityError && <p role="alert">{activityError}</p>}{feed.slice(0,3).map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p className="okline">{events ? 'No recorded changes.' : 'Reading changes…'}</p>}</PanelSection>;
   return <aside ref={panel} id="project-detail" className={mobile ? 'mdetail' : `drawer ${wide ? 'wide' : ''}`} tabIndex={-1} role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-labelledby="detail-title" onKeyDown={event => {
     const input = (event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]');
     if (event.key === 'Escape' && !document.querySelector('[popover]:popover-open')) { event.preventDefault(); onClose(); }
@@ -152,38 +146,37 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
     }
   }}>
     <header className="dr-head">
-      {mobile && <button className="mback" onClick={onClose}>‹ Projects</button>}
+      {mobile && <div className="mtop"><button className="mback" onClick={onClose}>‹ Projects</button><span className="mobile-project-nav"><button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button></span></div>}
       <div className="dr-top"><div className="dr-title"><h2 id="detail-title">{project.name}</h2><div className="dr-sub">{shortPath(project.path)} · {branchLabel(project)}</div>{managed && <small>Managed · {evidenceStale ? '—' : projectStatus(group,environments,environmentErrors).replace('Unknown','—')}</small>}</div>
-      <div className="dr-actions">{controls.map(c => { const env = environments[c.id]; const canStop = c.desiredState === 'running' || c.hasResources || (env && env.application !== 'stopped'); return canStop && <button className="btn" key={c.id} disabled={evidenceStale || !!environmentErrors[c.id] || !lifecycleAvailable || !!working || conflict || !!env?.observationError} onClick={() => onAction(c.id,'stop')}>Stop{controls.length > 1 ? ` ${label(c.id)}` : ''}</button>; })}<button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button>{!mobile && <><button className="btn" aria-pressed={wide} onClick={() => { setWide(!wide); try { localStorage.setItem('rootlane.panelWide',String(!wide)); } catch {} }}>Widen</button><button className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="disclosure"/></button></>}</div></div>
-      {!mobile && <p className="kbdhint">↑ ↓ / j k to move · Esc to close</p>}
+      <div className="dr-actions">{controls.map(c => { const env = environments[c.id]; const canStop = c.desiredState === 'running' || c.hasResources || (env && env.application !== 'stopped'); return canStop && <button className="btn" key={c.id} disabled={evidenceStale || !!environmentErrors[c.id] || !lifecycleAvailable || !!working || conflict || !!env?.observationError} onClick={() => onAction(c.id,'stop')}>Stop{controls.length > 1 ? ` ${label(c.id)}` : ''}</button>; })}{!mobile && <><button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button><button className="btn" aria-pressed={wide} onClick={() => { setWide(!wide); try { localStorage.setItem('rootlane.panelWide',String(!wide)); } catch {} }}>Widen</button><button className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="disclosure"/></button></>}</div></div>
       <div className={mobile ? 'mtabs' : 'dr-tabs dtabs seg'} role="tablist" aria-label={`${project.name} details`} onKeyDown={event => { if (!['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) return; event.preventDefault(); const i = tabs.indexOf(selectedTab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; onOpen(tabs[next]); document.getElementById(`tab-${tabs[next]}`)?.focus(); }}>
         {tabs.map(t => <button key={t} id={`tab-${t}`} role="tab" aria-selected={t === selectedTab} aria-controls="detail-body" tabIndex={t === selectedTab ? 0 : -1} className={selectedTab === t ? 'on' : ''} onClick={() => onOpen(t)}>{t}{count(t) !== null && <b>{count(t)}</b>}</button>)}
       </div>
     </header>
-    <div id="detail-body" role={mobile && activeTab === 'Activity' ? 'region' : 'tabpanel'} aria-labelledby={mobile && activeTab === 'Activity' ? 'activity-title' : `tab-${activeTab}`} tabIndex={0} className={mobile ? 'mbody' : 'dr-body'}>
+    <div id="detail-body" role={mobile && activeTab === 'Activity' ? 'region' : 'tabpanel'} aria-labelledby={mobile && activeTab === 'Activity' ? 'activity-title' : `tab-${activeTab}`} tabIndex={0} className={mobile ? 'mbody dr-body flat' : 'dr-body flat'}>
       {projectError && <p className="notice bad" role="alert">{projectError} · Details observation stale</p>}
       {stale && <p className="notice">Showing retained observations · current state —</p>}
       {activeTab === 'Overview' && <>
-        <section className="card"><h3 className="card-h">Runtime map</h3><div className="rmap h"><span>Process</span><span>Listening on</span><span/><span>Reached at</span><span>State</span></div>
+        <PanelSection title="Runtime map"><div className="rmap h"><span>Process</span><span>Listening on</span><span/><span>Reached at</span><span>State</span></div>
           {services.map(s => { const destinations = evidenceStale ? [] : links.filter(l => l.checkout.id === s.checkout.id && l.target && Number(new URL(l.target).port) === s.port); return <div className="rmap" key={s.key}><div><strong>{s.name}</strong><small className="mono muted runtime-meta">{shortPath(s.checkout.path)} · pid {evidenceStale ? '—' : s.process?.pid ?? '—'}</small></div><div>{s.binds.length ? s.binds.map(l => <span key={l.bind} className={`bind ${l.wildcard ? 'wide' : ''}`}>{evidenceStale ? '—' : `${l.bind.includes(':') ? `[${l.bind}]` : l.bind}:${s.port}`}</span>) : <span className="none">—</span>}</div><span className="arrow">→</span><div>{destinations.length ? destinations.map(l => <a className="runtime-url mono" key={l.key} href={l.url} target="_blank" rel="noreferrer">{l.label} {l.url}</a>) : <span className="none">{evidenceStale || s.checkout.funnel == null ? '—' : s.managed ? 'internal' : 'no route'}</span>}</div><Chip state={s.state}>{s.state === 'Ready' ? 'Working' : s.state === 'Unknown' ? '—' : s.state}</Chip></div>; })}{!services.length && <p className="okline">{details ? 'No services observed.' : 'Reading services…'}</p>}
-        </section>
-        {!mobile && <section className="card"><h3 className="card-h">Checks</h3><p className="check-note">{managed ? 'Reviewed readiness checks · preview HTTPS verification' : 'every 30s while this panel is open · not readiness'}</p>{checks?.filter(c => managed ? ['readiness','preview-https'].includes(c.kind) : ['route','http-probe'].includes(c.kind)).map(c => { const last = c.results.at(-1);
+        </PanelSection>
+        <PanelSection title="Checks"><p className="check-note">{managed ? 'Reviewed readiness checks · preview HTTPS verification' : 'every 30s while this panel is open · not readiness'}</p>{checks?.filter(c => managed ? ['readiness','preview-https'].includes(c.kind) : ['route','http-probe'].includes(c.kind)).map(c => { const last = c.results.at(-1);
           const checkout = group.checkouts.find(p => p.id === c.checkoutId);
           const environmentId = c.subject.split('/')[0];
           const sourceFailed = c.kind === 'readiness'
             ? !environments[environmentId] || !!environmentErrors[environmentId] || !!environments[environmentId].observationError
             : c.kind === 'preview-https' && (!!previewErrors[c.subject] || !!previews[c.subject]?.errors.length || (!previews[c.subject] && !!checkout?.environmentIds.some(id => environmentErrors[id] || environments[id]?.observationError)));
-          const expired = evidenceStale || !!activityError || sourceFailed || !last || Date.now() - Date.parse(last.at) > (c.kind === 'http-probe' ? 45000 : 15000); return <div className="chk" key={`${c.subject}:${c.kind}`}><div><strong>{c.kind === 'readiness' ? 'Reviewed readiness' : c.kind === 'preview-https' ? 'Preview HTTPS verification' : c.kind === 'route' ? 'Route presence' : 'HTTP probe'}</strong><small className="mono muted runtime-meta">{c.subject}</small></div><div className="strip" role="img" aria-label={`Last ${c.results.length} results: ${c.results.map(r => r.ok === null ? 'not run' : r.ok ? 'pass' : 'fail').join(', ')}`}>{Array.from({length:30},(_,i) => c.results[i - (30 - c.results.length)]).map((r,i) => <i key={i} className={!r || r.ok === null ? 'n' : r.ok ? '' : 'f'} title={r ? `${r.at}: ${r.status ?? 'not run'}` : 'not run'}/>)}</div><Chip state={expired || last?.ok === null ? 'Unknown' : last?.ok ? 'Ready' : 'Failed'}>{expired || last?.ok === null ? '—' : last?.ok ? 'Pass' : 'Fail'}</Chip></div>; })}{checks && !checks.length && <p className="okline">No checks recorded yet.</p>}{!checks && <p className="okline">Reading check history…</p>}</section>}
+          const expired = evidenceStale || !!activityError || sourceFailed || !last || Date.now() - Date.parse(last.at) > (c.kind === 'http-probe' ? 45000 : 15000); return <div className="chk" key={`${c.subject}:${c.kind}`}><div><strong>{c.kind === 'readiness' ? 'Reviewed readiness' : c.kind === 'preview-https' ? 'Preview HTTPS verification' : c.kind === 'route' ? 'Route presence' : 'HTTP probe'}</strong><small className="mono muted runtime-meta">{c.subject}</small></div><div className="strip" role="img" aria-label={`Last ${c.results.length} results: ${c.results.map(r => r.ok === null ? 'not run' : r.ok ? 'pass' : 'fail').join(', ')}`}>{Array.from({length:30},(_,i) => c.results[i - (30 - c.results.length)]).map((r,i) => <i key={i} className={!r || r.ok === null ? 'n' : r.ok ? '' : 'f'} title={r ? `${r.at}: ${r.status ?? 'not run'}` : 'not run'}/>)}</div><Chip state={expired || last?.ok === null ? 'Unknown' : last?.ok ? 'Ready' : 'Failed'}>{expired || last?.ok === null ? '—' : last?.ok ? 'Pass' : 'Fail'}</Chip></div>; })}{checks && !checks.length && <p className="okline">No checks recorded yet.</p>}{!checks && <p className="okline">Reading check history…</p>}</PanelSection>
         {exposure}{changes}
         {group.checkouts.some(c => c.recipe?.found && c.recipe.valid && c.recipe.approval !== 'approved') && <button className="btn" disabled={stale || !!working} onClick={() => onRequest(group.checkouts.find(c => c.recipe?.found)!.path)}>Request environment…</button>}
         <LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/>
       </>}
       {activeTab === 'Logs' && managed && <LogsTab services={details?.logServices ?? []} load={loadLogs}/>}
-      {activeTab === 'Services' && <ServicesTab services={services} stale={evidenceStale} environmentErrors={environmentErrors}/>}
-      {activeTab === 'Agents' && <AgentsTab agents={agents} services={services} stale={evidenceStale} now={Date.now()}/>}
-      {activeTab === 'Worktrees' && <WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost}/>}
-      {activeTab === 'Links' && <LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/>}
-      {(activeTab === 'Activity' || (mobile && tab === 'Activity')) && <>{mobile && <div className="card-h"><h3 id="activity-title">Activity</h3><button className="btn" onClick={() => onOpen('Overview')}>Back to Overview</button></div>}<p className="pv-note">Recorded listener, route, agent and check-change observations, plus Rootlane operations. No transcripts or inferred activity.</p>{activityError && <p role="alert">{activityError}</p>}{feed.map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p>No recorded events.</p>}</>}
+      {activeTab === 'Services' && <PanelSection title="Services"><ServicesTab services={services} stale={evidenceStale} environmentErrors={environmentErrors}/></PanelSection>}
+      {activeTab === 'Agents' && <AgentsTab group={group} data={agentSessions} error={agentSessionError} stale={evidenceStale} now={now} onSetup={onTelemetrySetup}/>}
+      {activeTab === 'Worktrees' && <PanelSection title="Worktrees"><WorktreesTab group={group} editorTemplate={editorTemplate} editorHost={editorHost}/></PanelSection>}
+      {activeTab === 'Links' && <PanelSection title="Links"><LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/></PanelSection>}
+      {(activeTab === 'Activity' || (mobile && tab === 'Activity')) && <PanelSection title="Activity" aside={mobile ? <button className="btn" onClick={() => onOpen('Overview')}>Back to Overview</button> : undefined}>{mobile && <span id="activity-title" className="sr-only">Activity</span>}<p className="pv-note">Recorded listener, route, agent and check-change observations, plus Rootlane operations. No transcripts or inferred activity.</p>{activityError && <p role="alert">{activityError}</p>}{feed.map(e => <div className="ev" key={e.key}><time title={date(e.at)}>{time(e.at)}</time><span>{e.text}</span></div>)}{!feed.length && <p>No recorded events.</p>}</PanelSection>}
     </div>
   </aside>;
 }
@@ -291,11 +284,6 @@ function WorktreesTab({
   );
 }
 
-function AgentsTab({ agents, services, stale, now }: { agents: ReturnType<typeof groupAgents>; services: ReturnType<typeof groupServices>; stale: boolean; now: number }) {
-  return <><Table headings={['Agent','Working in','Running for','PID','Own ports','Started']}>
-    {agents.map(a => <tr key={agentKey(a)}><td><span className="agent-name"><Mark name={a.name}/>{a.name}</span><small>{a.source === 'detected process' ? 'Detected' : 'Registered'}</small></td><td className="mono">{a.source === 'detected process' ? a.worktreePath ?? a.cwd ?? '—' : '—'}</td><td className="mono">{!stale && a.source === 'detected process' ? elapsed(a.startedAt,now) ?? '—' : '—'}</td><td>{a.source === 'detected process' ? a.pid ?? '—' : '—'}</td><td>{!stale && a.source === 'detected process' ? a.ports?.map(p => ':'+p).join(', ') || '—' : '—'}</td><td>{!stale && a.source === 'detected process' ? services.filter(s => s.startedBy?.pid === a.pid).map(s => `${s.name} :${s.port}`).join(', ') || '—' : '—'}</td></tr>)}
-  </Table>{!agents.length && <p>No agents observed.</p>}<p className="pv-note">Detected processes do not establish activity. Rootlane does not read transcripts.</p></>;
-}
 function ServicesTab({ services, stale, environmentErrors }: { services: ReturnType<typeof groupServices>; stale: boolean; environmentErrors: Record<string,string> }) {
   return <><Table headings={['Process','Port','Bound to','PID','Started','Owner','State']}>
     {services.map(s => <tr key={s.key}><td>{s.name}<small className="mono runtime-meta">{shortPath(s.checkout.path)}</small></td><td className="mono">:{s.port}</td><td className="mono">{stale ? '—' : s.binds.map(l => l.bind).join(', ') || '—'}</td><td>{s.process?.pid ?? '—'}</td><td>{stale ? '—' : date(s.process?.startedAt)}</td><td>{s.managed ? `Rootlane · ${s.serviceId}` : s.startedBy ? `Started by ${s.startedBy.name}` : 'Observed'}</td><td><Chip state={stale || s.checkout.environmentIds.some(id => environmentErrors[id]) ? 'Unknown' : s.state}/></td></tr>)}

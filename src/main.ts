@@ -14,6 +14,7 @@ process.umask(0o077);
 const configPath = process.env.ROOTLANE_CONFIG;
 const ownerPath = process.env.ROOTLANE_OWNER_CREDENTIAL_FILE;
 const agentPath = process.env.ROOTLANE_AGENT_CREDENTIAL_FILE;
+const ingestPath = process.env.ROOTLANE_INGEST_CREDENTIAL_FILE;
 if (!configPath || !ownerPath || !agentPath)
   throw new Error('ROOTLANE_CONFIG, ROOTLANE_OWNER_CREDENTIAL_FILE and ROOTLANE_AGENT_CREDENTIAL_FILE are required');
 const config = await loadConfig(configPath);
@@ -22,7 +23,7 @@ const statePath = await realpath(config.stateDirectory);
 const stateStat = await stat(statePath);
 if (stateStat.uid !== process.getuid?.() || stateStat.mode & 0o077 || config.observationRoots.some((r) => inside(statePath, r)))
   throw new Error('State directory must be private, owner-controlled and outside observation roots');
-for (const credentialPath of [ownerPath, agentPath]) {
+for (const credentialPath of [ownerPath, agentPath, ...(ingestPath ? [ingestPath] : [])]) {
   const actual = await realpath(credentialPath);
   if (config.observationRoots.some((root) => inside(actual, root))) throw new Error('Credentials must be outside observation roots');
 }
@@ -31,6 +32,10 @@ const store = new Store(join(statePath, 'rootlane.sqlite'));
 const host = new LinuxHost();
 const lifecycle = new Lifecycle(config, store, host);
 const service = new Rootlane(new Catalog(config, host, store), lifecycle);
+const credentials = {
+  owner: (await privateFile(ownerPath)).trim(), agent: (await privateFile(agentPath)).trim(),
+  ingest: ingestPath ? (await privateFile(ingestPath)).trim() : '',
+};
 const reconciliation = reconcileWithRetry(service);
 await reconciliation.run();
 let configMtime = (await stat(configPath)).mtimeMs;
@@ -39,7 +44,7 @@ async function reload() {
   if (reloading || closing) return;
   reloading = true;
   try {
-    await reloadConfig(configPath!, config, service, [configPath!, ownerPath!, agentPath!, statePath]);
+    await reloadConfig(configPath!, config, service, [configPath!, ownerPath!, agentPath!, ...(ingestPath ? [ingestPath] : []), statePath]);
     if (!service.configError) configMtime = (await stat(configPath!)).mtimeMs;
   } finally {
     reloading = false;
@@ -48,10 +53,11 @@ async function reload() {
 const app = await createServer(
   config,
   service,
-  { owner: (await privateFile(ownerPath)).trim(), agent: (await privateFile(agentPath)).trim() },
+  credentials,
   join(dirname(fileURLToPath(import.meta.url)), 'web'),
 );
 await app.listen({ host: '127.0.0.1', port: config.port });
+await service.telemetry.reconfigure(config.telemetry, credentials.ingest);
 let closing = false;
 const reloadTimer = setInterval(() => {
   void stat(configPath!)
@@ -71,10 +77,14 @@ async function shutdown() {
   clearInterval(reloadTimer);
   reconciliation.stop();
   await app.close();
-  await lifecycle.drain();
-  await service.publications.drain();
-  store.close();
-  unlock();
+  try {
+    await service.telemetry.stop();
+  } finally {
+    await lifecycle.drain();
+    await service.publications.drain();
+    store.close();
+    unlock();
+  }
 }
 process.on('SIGTERM', () => {
   void shutdown();

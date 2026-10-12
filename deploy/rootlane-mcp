@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 release=$(dirname "$(dirname "$(readlink -f "$0")")")
+export ROOTLANE_PARENT_PID="$PPID"
 exec node --input-type=module -e '
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";

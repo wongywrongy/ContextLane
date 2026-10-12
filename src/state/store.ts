@@ -39,7 +39,7 @@ export interface PreviewRow {
   removed: number;
   desired: 'published' | 'removed';
 }
-const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql', '004_observations.sql'];
+const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql', '004_observations.sql', '005_agent_telemetry.sql'];
 export class Store {
   readonly db: Database.Database;
   readonly installation: string;

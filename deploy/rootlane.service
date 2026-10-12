@@ -10,6 +10,7 @@ ExecStart=/absolute/path/node /absolute/path/rootlane/dist/main.js
 Environment=ROOTLANE_CONFIG=%h/.config/rootlane/config.json
 Environment=ROOTLANE_OWNER_CREDENTIAL_FILE=%h/.config/rootlane/owner.credential
 Environment=ROOTLANE_AGENT_CREDENTIAL_FILE=%h/.config/rootlane/agent.credential
+Environment=ROOTLANE_INGEST_CREDENTIAL_FILE=%h/.config/rootlane/ingest.credential
 UMask=0077
 Restart=on-failure
 RestartSec=3

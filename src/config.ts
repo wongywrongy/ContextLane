@@ -78,6 +78,11 @@ export const configSchema = z.strictObject({
   observationRoots: z.array(absolute).min(1).max(32),
   stateDirectory: absolute,
   port: port.default(9480),
+  telemetry: z.strictObject({
+    enabled: z.boolean().default(false),
+    port: port.default(9480),
+    retentionDays: z.number().int().min(1).max(30).default(7),
+  }).prefault({}),
   origin,
   additionalOrigins: z.array(origin).max(4).optional(),
   tailnetHostname: z.string().regex(/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/),
@@ -179,7 +184,7 @@ export async function loadConfig(path: string): Promise<Config> {
       services.add(svc.id);
       ports.add(svc.port);
     }
-    if (ports.has(config.port) || ports.has(Number(new URL(config.origin).port || 443)))
+    if (ports.has(config.port) || ports.has(config.telemetry.port) || ports.has(Number(new URL(config.origin).port || 443)))
       throw new Problem('INVALID_PROFILE', 'Application port conflicts with Rootlane');
     orderedServices(profile);
     const routes = new Set<number>();
@@ -189,13 +194,14 @@ export async function loadConfig(path: string): Promise<Config> {
         routes.has(route.httpsPort) ||
         ports.has(route.httpsPort) ||
         route.httpsPort === config.port ||
+        route.httpsPort === config.telemetry.port ||
         route.httpsPort === Number(new URL(config.origin).port || 443)
       )
         throw new Problem('INVALID_PROFILE', 'Invalid or reserved preview port');
       routes.add(route.httpsPort);
     }
   }
-  const reserved = new Set([config.port, ...[config.origin, ...(config.additionalOrigins ?? [])].map((o) => Number(new URL(o).port || 443))]);
+  const reserved = new Set([config.port, config.telemetry.port, ...[config.origin, ...(config.additionalOrigins ?? [])].map((o) => Number(new URL(o).port || 443))]);
   const ids = new Set<string>();
   const routes = new Set<number>();
   const appPorts = new Set([...config.profiles.flatMap((p) => p.services.map((s) => s.port)), ...config.previewTargets.map((t) => t.port)]);

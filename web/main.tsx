@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  agentSessionsOutput, telemetryStatusOutput, type AgentSessions, type TelemetryStatus,
   checksOutput, eventsOutput, type CheckHistory, type ObservedEvent,
   approvalsOutput,
   requestEnvironmentOutput,
@@ -24,6 +25,8 @@ import { McpSetup } from './mcp-setup';
 import { ProjectRow } from './project-row';
 import { ApprovalPanel } from './approval-panel';
 import { ProjectDetailsPanel, Chip, time, type DetailTab } from './project-card';
+import { TelemetrySettings, type TelemetryCopyKind } from './agent-telemetry';
+import { PanelSection, DetailRow } from './panel-section';
 type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
 async function json(path: string, body?: unknown, csrf?: string, signal?: AbortSignal) {
   const response = await fetch(path, {
@@ -49,7 +52,11 @@ function App() {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [cursor, setCursor] = useState(0);
   const [view, setView] = useState<'projects' | 'settings'>('projects');
-  const [settingsPage, setSettingsPage] = useState<'connection' | 'mcp'>('connection');
+  const [settingsPage, setSettingsPage] = useState<'connection' | 'mcp' | 'telemetry'>('connection');
+  const [telemetryStatus, setTelemetryStatus] = useState<TelemetryStatus | null>(null);
+  const [telemetryError, setTelemetryError] = useState('');
+  const [agentSessions, setAgentSessions] = useState<Record<string, AgentSessions>>({});
+  const [agentSessionErrors, setAgentSessionErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<ProjectFilter>('All');
   const [tabs, setTabs] = useState<Record<string, DetailTab>>({});
 
@@ -150,6 +157,9 @@ function App() {
         return String(e);
       };
       await Promise.allSettled([
+        json('/api/tools/get_telemetry_status', {}, csrf, signal)
+          .then(value => { if (!signal.aborted) { setTelemetryStatus(telemetryStatusOutput.parse(value)); setTelemetryError(''); } })
+          .catch(e => { if (!signal.aborted) setTelemetryError(failed(e)); }),
         json('/api/approvals', undefined, undefined, signal)
           .then((value) => {
             if (!signal.aborted) {
@@ -248,6 +258,12 @@ function App() {
         if (signal.aborted) return;
         const current = () => !signal.aborted && selectedRef.current === projectId;
         try {
+          const sessions = agentSessionsOutput.parse(await json('/api/tools/get_agent_sessions', { projectId }, csrf, signal));
+          if (current()) { setAgentSessions(prev => ({ ...prev, [projectId]: sessions })); setAgentSessionErrors(prev => ({ ...prev, [projectId]: '' })); }
+        } catch (e) {
+          if (current()) setAgentSessionErrors(prev => ({ ...prev, [projectId]: failed(e) }));
+        }
+        try {
           const data = projectOutput.parse(await json('/api/tools/get_project', { projectId }, csrf, signal));
           if (!current()) continue;
           setProjectObservations(prev => ({ ...prev, [projectId]: { ...prev[projectId], details: data, error: '', activity: prev[projectId]?.activity ?? [], activityError: '' } }));
@@ -301,6 +317,10 @@ function App() {
     } finally {
       setWorking(null);
     }
+  }
+  async function copyTelemetry(kind: TelemetryCopyKind) {
+    const { value } = await json('/api/telemetry/copy', { kind }, csrf!);
+    await navigator.clipboard.writeText(value);
   }
   async function perform(tool: string, body: Record<string, string>) {
     const identity = body.environmentId ?? body.targetId ?? body.previewId;
@@ -539,68 +559,17 @@ function App() {
               >
                 MCP setup
               </button>
+              <button className={settingsPage === 'telemetry' ? 'on' : ''} aria-current={settingsPage === 'telemetry' ? 'page' : undefined} onClick={() => setSettingsPage('telemetry')}>Agent telemetry</button>
             </nav>
-            {settingsPage === 'mcp' ? (
-              <McpSetup />
-            ) : (
-              <>
-                <div className="grid-2 settings-boxes">
-                  <section className="box glass">
-                    <h4>
-                      <Icon name="link" />
-                      Tailscale <Chip state={tailscale} />
-                    </h4>
-                    <dl className="kv">
-                      <dt>Host</dt>
-                      <dd className="mono">{tailnetHostname ?? '—'}</dd>
-                      <dt>Rootlane</dt>
-                      <dd>{connection}</dd>
-                      <dt>Operator address</dt>
-                      <dd className="mono">{location.origin}</dd>
-                      <dt>Observed</dt>
-                      <dd className="mono">{time(catalog?.observedAt)}</dd>
-                    </dl>
-                  </section>
-                  <section className="box glass">
-                    <h4>
-                      <Icon name="folder" />
-                      Workspace
-                    </h4>
-                    <dl className="kv">
-                      <dt>Project roots</dt>
-                      <dd className="mono">{roots.join(', ') || '—'}</dd>
-                      <dt>Observation roots</dt>
-                      <dd className="mono">{observationRoots.join(', ') || '—'}</dd>
-                      <dt>Projects</dt>
-                      <dd>{catalog ? allGroups.length : '—'}</dd>
-                    </dl>
-                  </section>
-                  <section className="box glass">
-                    <h4>Ownership</h4>
-                    <dl className="kv">
-                      <dt>Discovery</dt>
-                      <dd>Observe-only</dd>
-                      <dt>Managed</dt>
-                      <dd>Owner-reviewed environments only</dd>
-                      <dt>Lifecycle</dt>
-                      <dd>{connection === 'Connected' ? (lifecycleAvailable ? 'Available' : 'Unavailable') : 'Unknown'}</dd>
-                    </dl>
-                  </section>
-                  <section className="box glass">
-                    <h4>Credentials</h4>
-                    <dl className="kv">
-                      <dt>Browser</dt>
-                      <dd>Installation owner session</dd>
-                      <dt>Agents</dt>
-                      <dd>Separate private agent credential</dd>
-                      <dt>Values</dt>
-                      <dd>Never displayed</dd>
-                    </dl>
-                  </section>
-                </div>
-                <p className="pv-note">Configuration is owner-controlled on the host. Settings is read-only.</p>
-              </>
-            )}
+            {settingsPage === 'mcp' ? <McpSetup/> : settingsPage === 'telemetry' ? <TelemetrySettings status={telemetryStatus} error={telemetryError} copy={copyTelemetry} now={now}/> : <>
+              <PanelSection title="Tailscale" aside={<Chip state={tailscale}/>}>
+                <DetailRow label="Host" value={<span className="mono">{tailnetHostname ?? '—'}</span>}/><DetailRow label="Rootlane" value={connection}/><DetailRow label="Operator address" value={<span className="mono">{location.origin}</span>}/><DetailRow label="Observed" value={<span className="mono">{time(catalog?.observedAt)}</span>}/>
+              </PanelSection>
+              <PanelSection title="Workspace"><DetailRow label="Project roots" value={<span className="mono">{roots.join(', ') || '—'}</span>}/><DetailRow label="Observation roots" value={<span className="mono">{observationRoots.join(', ') || '—'}</span>}/><DetailRow label="Projects" value={catalog ? allGroups.length : '—'}/></PanelSection>
+              <PanelSection title="Ownership"><DetailRow label="Discovery" value="Observe-only"/><DetailRow label="Managed" value="Owner-reviewed environments only"/><DetailRow label="Lifecycle" value={connection === 'Connected' ? lifecycleAvailable ? 'Available' : 'Unavailable' : 'Unknown'}/></PanelSection>
+              <PanelSection title="Credentials"><DetailRow label="Browser" value="Installation owner session"/><DetailRow label="Agents" value="Separate private agent credential"/><DetailRow label="Values" value="Never displayed"/></PanelSection>
+              <p className="section-note">Configuration is owner-controlled on the host. Settings is read-only.</p>
+            </>}
           </section>
         ) : (
           <>
@@ -676,6 +645,7 @@ function App() {
               return <ProjectDetailsPanel key={selected} group={group} tab={tabs[selected] ?? 'Overview'} onOpen={tab => selectProject(selected, tab)} onClose={() => selectProject(null)}
                 onMove={direction => { const next = filtered[index + direction]; if (next) { setCursor(Math.floor((index + direction) / 25) * 25); selectProject(next.primary.id, tabs[selected] ?? 'Overview'); } }} hasPrevious={index > 0} hasNext={index >= 0 && index < filtered.length - 1}
                 environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={observation?.details ?? null} projectError={observation?.error ?? ''} stale={stale} lifecycleAvailable={lifecycleAvailable} working={working ?? (activeRef.current ? 'operation' : null)} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={observation?.activity ?? []} activityError={observation?.activityError ?? ''} checks={observation?.checks} events={observation?.events} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})} onAction={action}
+                agentSessions={agentSessions[selected]} agentSessionError={agentSessionErrors[selected]} now={now} onTelemetrySetup={() => { selectProject(null); setSettingsPage('telemetry'); setView('settings'); }}
                 loadLogs={(environmentId, serviceId, cursor, signal) => json('/api/tools/get_logs', {environmentId,serviceId,limit:100,...(cursor ? {cursor} : {})},csrf!,signal).then(value => logsOutput.parse(value))}/>;
             })()}
             {filtered.length > 25 && (

@@ -14,6 +14,15 @@
         "value": "geist mono",
         "createdAt": "2026-10-10T05:51:04.711Z",
         "reason": "Codex retained the existing monospace font for service ports and URLs; the requested links UI follows the existing project design."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "web/style.css"
+        ],
+        "createdAt": "2026-10-12T22:42:04.504Z",
+        "reason": "User supplied Main artboard: .prow.sel uses the exact inset 3px violet selection stripe; user requested no other project-table changes. Preserved selection affordance, documented in DESIGN.md."
       }
     ]
   }

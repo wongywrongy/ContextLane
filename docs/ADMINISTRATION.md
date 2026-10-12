@@ -4,7 +4,7 @@ Rootlane uses one backend for the browser and local MCP adapter. Owner configura
 
 ## Configuration
 
-Docker setup creates `~/.config/rootlane/config.json` and separate `owner.credential` / `agent.credential` files, mode 0600 in a private mode-0700 directory. State lives in `~/.local/state/rootlane`, outside observed project roots. Review [the configuration example](../deploy/config.example.json); replace every example path and hostname before using it. Its disposable profile is unapproved until you explicitly review it.
+Docker setup creates `~/.config/rootlane/config.json` and separate `owner.credential`, `agent.credential` and ingest-only `ingest.credential` files, mode 0600 in a private mode-0700 directory. State lives in `~/.local/state/rootlane`, outside observed project roots. Review [the configuration example](../deploy/config.example.json); replace every example path and hostname before using it. Its disposable profile is unapproved until you explicitly review it.
 
 Configure bounded project/observation roots, canonical HTTPS origins and reviewed launch profiles. Profiles declare working directories, executable/argument arrays, fixed ports, dependencies, bounded readiness checks, previews, effects and data requirements. Git worktrees outside project roots must remain within observation roots. Known project links and agent registrations are explicit owner metadata, not inferred tasks or progress.
 
@@ -49,7 +49,7 @@ The recipe fixture derives its loopback/API/HMR ports and allowed tailnet host f
 
 ## MCP and HTTP contracts
 
-Both adapters expose the fifteen tools listed in the README. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; mutation commands, unit names and URLs are not accepted from callers. Read-only locate accepts a bounded absolute cwd; request_environment validates a checkout recipe and records a non-approving owner review; cookie sessions and CSRF are required to approve.
+Both adapters expose the seventeen tools listed in the README. Inputs use strict shared schemas. Start/stop take environment IDs and caller-generated UUID request IDs; mutation commands, unit names and URLs are not accepted from callers. Read-only locate accepts a bounded absolute cwd; request_environment validates a checkout recipe and records a non-approving owner review; cookie sessions and CSRF are required to approve.
 
 Retry a timed-out mutation with the same request ID and payload. Reuse with a different payload fails. Start/stop return a durable operation handle; poll `get_environment` for completion. An accepted start is not application readiness or preview availability.
 
@@ -57,7 +57,7 @@ Lists and journals are bounded and paginated. Logs come only from recorded owned
 
 `list_checks {projectId}` reads existing histories for the project and its checkouts, grouped by subject and kind, with 30 retained results per subject. It does not run probes. `list_events {projectId, limit}` reads the newest recorded listener, route, agent and pass/fail-change observations (at most 50; 500 retained globally). The detail panel merges these observations with lifecycle and publication `list_operations` results. These records establish observations and Rootlane operations, never transcripts or inferred activity. Route and readiness results use existing observation cadence; HTTP probes stay scoped to the open panel and its existing 30-second cache.
 
-[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example and tool policy](../deploy/claude-mcp.example.md) use an explicitly replaceable Docker adapter path. Allow only the fifteen documented tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
+[Codex example](../deploy/codex-mcp.example.toml) and [Claude Code example and tool policy](../deploy/claude-mcp.example.md) use an explicitly replaceable Docker adapter path. Allow only the seventeen documented tools and keep normal approvals. Claude user scope makes the service available across projects; avoid competing scope definitions. Verify actual Rootlane tool discovery and calls, not saved configuration, launcher source text or list_mcp_resources. Rootlane exposes tools rather than resource entries. If a session lacks tools, inspect the local client’s /mcp errors and reconnect or start a fresh session; a hosted chat may not expose local stdio configuration. Rootlane lists known project links; it does not grant GitHub/Render API access or rewrite application URLs or payment callbacks. There is no remote MCP endpoint or agent-session orchestration.
 
 ## Failure and recovery
 
@@ -85,6 +85,8 @@ docker compose exec -T rootlane node dist/state/backup.js \
 Use paths within the mounted state directory. The destination must not exist. Stop Rootlane before restoring into private state, preserve installation identity and never run two instances from copies of the same state. Validate restore and reconciliation on your installation. See [verification](../VERIFICATION.md) for historical host checks and remaining acceptance work.
 
 ## Agent observations
+
+Agent-reported session telemetry is independently opt-in. Its separate loopback JSON receiver retains counts and names only; the ingest credential cannot read the UI/API or call MCP tools. See [telemetry setup, matching limits, retention and purge](TELEMETRY.md).
 
 Rootlane scans same-user native Codex and Claude process metadata when the catalog refreshes. It reads executable identity, process start time and working directory, not command arguments, environments, prompts or transcripts. Working directories must resolve inside observation roots and a known project or Git worktree. Rootlane does not infer project associations from a parent project-root directory.
 

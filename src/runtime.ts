@@ -13,6 +13,12 @@ export async function reloadConfig(path: string, config: Config, service: Rootla
     Object.assign(config, next);
     for (const profile of config.profiles) service.lifecycle.store.ensure(profile);
     service.catalog.invalidate();
+    try {
+      await service.telemetry.reconfigure(config.telemetry);
+      if (!config.telemetry.enabled) await service.telemetry.purge();
+    } catch {
+      throw new Problem('TELEMETRY_RELOAD_FAILED', 'Telemetry configuration was applied, but storage could not be updated. Restore storage and reload to complete the purge.');
+    }
     service.configError = null;
   } catch (error) {
     service.configError =

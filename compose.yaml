@@ -1,6 +1,6 @@
 services:
   rootlane:
-    image: rootlane:0.7.1
+    image: rootlane:0.8.0
     build: .
     user: "${ROOTLANE_UID:?Run node deploy/setup.mjs}:${ROOTLANE_GID:?Run node deploy/setup.mjs}"
     group_add: ["${ROOTLANE_JOURNAL_GID:?Run node deploy/setup.mjs}"]
@@ -27,6 +27,8 @@ services:
       ROOTLANE_CONFIG: /config/config.json
       ROOTLANE_OWNER_CREDENTIAL_FILE: /config/owner.credential
       ROOTLANE_AGENT_CREDENTIAL_FILE: /config/agent.credential
+      ROOTLANE_INGEST_CREDENTIAL_FILE: /config/ingest.credential
+      ROOTLANE_CODEX_VERSION: ${ROOTLANE_CODEX_VERSION:-}
     volumes:
       - type: bind
         source: ${ROOTLANE_CONFIG_DIR}

@@ -3,6 +3,7 @@
   "observationRoots": ["/home/owner/code"],
   "stateDirectory": "/home/owner/.local/state/rootlane",
   "port": 9480,
+  "telemetry": { "enabled": false, "port": 9480, "retentionDays": 7 },
   "origin": "https://host.example.ts.net:19483",
   "tailnetHostname": "host.example.ts.net",
   "projects": [],

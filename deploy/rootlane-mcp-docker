@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 release=$(dirname "$(dirname "$(readlink -f "$0")")")
-exec docker compose --project-directory "$release" -f "$release/compose.yaml" exec -T rootlane node --input-type=module -e '
+exec docker compose --project-directory "$release" -f "$release/compose.yaml" exec -T --env ROOTLANE_PARENT_PID="$PPID" rootlane node --input-type=module -e '
 import { readFileSync } from "node:fs";
 const config = JSON.parse(readFileSync(process.env.ROOTLANE_CONFIG, "utf8"));
 process.env.ROOTLANE_URL = `http://127.0.0.1:${config.port}`;

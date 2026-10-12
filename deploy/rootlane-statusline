@@ -1,0 +1,11 @@
+#!/bin/bash
+# Keep telemetry parsing and its network timeout outside the status line's path.
+script=$(readlink -f -- "$0")
+if [[ ${1-} == -- ]]; then shift; fi
+if (($#)); then
+  tee -p >(node "${script%/*}/rootlane-statusline.mjs" >/dev/null 2>&1) | "$@"
+  exit "${PIPESTATUS[1]}"
+else
+  tee -p >(node "${script%/*}/rootlane-statusline.mjs" >/dev/null 2>&1) >/dev/null
+  exit 0
+fi

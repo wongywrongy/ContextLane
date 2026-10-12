@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { failure, toolContracts, type ToolName, Problem, problem } from '../shared/contracts.js';
 import { boundedText } from '../host/linux.js';
-export function createMcpServer(base: string, credential: string, request: typeof fetch = fetch) {
+export function createMcpServer(base: string, credential: string, request: typeof fetch = fetch, parentPid = process.ppid) {
   const url = new URL(base);
   if (
     url.protocol !== 'http:' ||
@@ -16,7 +16,7 @@ export function createMcpServer(base: string, credential: string, request: typeo
   )
     throw new Error('MCP requires a loopback backend origin and a private agent credential');
   const server = new McpServer(
-    { name: 'rootlane', version: '0.7.1' },
+    { name: 'rootlane', version: '0.8.0' },
     {
       instructions:
         'Observe: locate with your absolute cwd, then get_project or get_environment as needed. Observation is read-only; do not request approval or start anything. Publish a running service: locate → get_capabilities and identify an owner-approved target → publish_preview → poll get_preview. Publication owns only its recorded route, never application processes. A returned URL may be unverified. Start a managed environment: locate → request_environment and owner approval at approvalUrl when required → start_environment → poll get_environment. Never approve yourself, edit owner configuration, or bypass checks. Start, stop, publish and unpublish return durable operations; list_operations shows recent history. Keep the same requestId and payload when retrying the same action. Tools share the authenticated Rootlane backend; no MCP resources, remote application APIs or client session handoffs are provided.',
@@ -48,7 +48,7 @@ export function createMcpServer(base: string, credential: string, request: typeo
           try {
             response = await request(new URL(`/api/tools/${name}`, url), {
               method: 'POST',
-              headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' },
+              headers: { authorization: `Bearer ${credential}`, 'content-type': 'application/json', ...(Number.isInteger(parentPid) && parentPid > 0 && parentPid <= 2147483647 ? { 'x-rootlane-parent-pid': String(parentPid) } : {}) },
               body: JSON.stringify(parsed),
               signal: AbortSignal.timeout(10000),
               redirect: 'error',
@@ -64,7 +64,7 @@ export function createMcpServer(base: string, credential: string, request: typeo
           }
           let body: unknown;
           try {
-            body = JSON.parse(await boundedText(response, 512 * 1024));
+            body = JSON.parse(await boundedText(response, name === 'get_agent_sessions' ? 32 * 1024 * 1024 : 512 * 1024));
           } catch (error) {
             if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) throw new Problem('BACKEND_TIMEOUT', 'Rootlane response timed out. Inspect status, then retry mutations with the same requestId.');
             throw new Problem('BACKEND_INVALID_RESPONSE', 'Rootlane returned an unreadable or oversized response. Check backend health and matching adapter versions; retry mutations with the same requestId.');

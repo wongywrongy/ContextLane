@@ -1,3 +1,4 @@
+import { PanelSection } from './panel-section.js';
 import React, { useState } from 'react';
 import { toolContracts } from '../src/shared/contracts.js';
 
@@ -39,8 +40,7 @@ export function McpSetup() {
         Rootlane’s MCP adapter lets Codex and Claude Code discover projects, publish approved running services and operate reviewed environments using
         the same backend as this page.
       </p>
-      <section>
-        <h3>1. Check the installation</h3>
+      <PanelSection title="1. Check the installation">
         <p>
           Run these commands on <strong>the Rootlane host</strong>, as the installation owner, where your coding client runs. They use an example
           Docker installation at <code>/opt/stacks/rootlane</code>. If you installed elsewhere, replace that absolute path in the examples.
@@ -51,10 +51,9 @@ docker compose --project-directory /opt/stacks/rootlane ps`}</Command>
           The Rootlane container must be running and your user must have Docker access. The adapter reads its separate agent credential inside that
           container; do not paste your browser credential or an agent token into client configuration.
         </p>
-      </section>
+      </PanelSection>
       <div className="mcp-clients">
-        <section>
-          <h3>2. Connect Codex</h3>
+        <PanelSection title="2. Connect Codex">
           <p>Register the installed adapter, then restart your Codex session.</p>
           <Command title="Register with Codex">{'codex mcp add rootlane -- /opt/stacks/rootlane/deploy/rootlane-mcp-docker'}</Command>
           <p>
@@ -63,7 +62,7 @@ docker compose --project-directory /opt/stacks/rootlane ps`}</Command>
           </p>
           <Command title="Codex tool policy">{`[mcp_servers.rootlane]
 command = "/opt/stacks/rootlane/deploy/rootlane-mcp-docker"
-enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview", "locate", "request_environment", "list_operations", "list_checks", "list_events"]
+enabled_tools = ["list_projects", "get_environment", "start_environment", "stop_environment", "get_logs", "get_capabilities", "get_project", "publish_preview", "get_preview", "unpublish_preview", "locate", "request_environment", "list_operations", "list_checks", "list_events", "get_agent_sessions", "get_telemetry_status"]
 startup_timeout_sec = 10
 tool_timeout_sec = 15
 default_tools_approval_mode = "prompt"`}</Command>
@@ -73,9 +72,8 @@ default_tools_approval_mode = "prompt"`}</Command>
           <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noreferrer">
             Official Codex MCP documentation
           </a>
-        </section>
-        <section>
-          <h3>2. Connect Claude Code</h3>
+        </PanelSection>
+        <PanelSection title="2. Connect Claude Code">
           <p>Register in user scope to make Rootlane available across your projects on this host, then restart your Claude Code session.</p>
           <Command title="Register with Claude Code">
             {'claude mcp add --transport stdio --scope user rootlane -- /opt/stacks/rootlane/deploy/rootlane-mcp-docker'}
@@ -87,25 +85,23 @@ default_tools_approval_mode = "prompt"`}</Command>
           <a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noreferrer">
             Official Claude Code MCP documentation
           </a>
-        </section>
+        </PanelSection>
       </div>
-      <section>
-        <h3>Prefer agent-assisted setup?</h3>
+      <PanelSection title="Prefer agent-assisted setup?">
         <p>
           Paste this optional prompt into Codex or Claude Code running on the Rootlane host. It asks the agent to use the same registration commands
           above. Client permissions or a fresh session may still be required.
         </p>
         <details>
           <summary>Show setup prompt</summary>
-          <Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview, unpublish_preview, locate, request_environment list_operations, list_checks and list_events.
+          <Command title="setup prompt">{`Connect this coding client to the existing Rootlane installation on this host. Locate its installed MCP adapter and inspect any existing rootlane registration before changing it. Use the client’s official registration command, preserving unrelated settings and normal approvals. For Codex, allow only list_projects, get_environment, start_environment, stop_environment, get_logs, get_capabilities, get_project, publish_preview, get_preview, unpublish_preview, locate, request_environment, list_operations, list_checks, list_events, get_agent_sessions and get_telemetry_status.
 
 Never print or copy credentials. Do not install another backend, upgrade software, change routes, or launch environments. If the installation is missing or inaccessible, report the blocker rather than replacing it.
 
 Verify Rootlane with tools/list and a read-only locate call with your working directory. A list_mcp_resources result is not a tool-discovery check: Rootlane exposes tools, not resource entries. If this session has no Rootlane tools, report that limitation and give fresh-session or reconnect steps; do not claim setup succeeded from a saved registration or launcher text. Rootlane catalogs project links and reviewed local environments; it does not provide GitHub/Render API access or change public URLs or payment callbacks. Report exactly what changed.`}</Command>
         </details>
-      </section>
-      <section>
-        <h3>3. Verify a real tool call</h3>
+      </PanelSection>
+      <PanelSection title="3. Verify a real tool call">
         <p>In a new coding session, ask:</p>
         <Command title="Read-only verification prompt">
           {'Use Rootlane’s list_projects tool to list my projects. Do not start or stop anything.'}
@@ -159,8 +155,8 @@ Verify Rootlane with tools/list and a read-only locate call with your working di
           Start, stop, publish and unpublish return durable operations. Use list_operations for recent history. Keep the same UUID request ID and
           payload when retrying the same action; use a new UUID for a new action after resolving a failure.
         </p>
-      </section>
-      <section>
+      </PanelSection>
+      <PanelSection title="Troubleshooting">
         <details className="mcp-troubleshooting">
           <summary>If it does not connect</summary>
           <ul>
@@ -188,7 +184,7 @@ Verify Rootlane with tools/list and a read-only locate call with your working di
             MCP server URL from another device.
           </p>
         </details>
-      </section>
+      </PanelSection>
     </div>
   );
 }

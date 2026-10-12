@@ -6,11 +6,14 @@ import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { Rootlane } from '../service.js';
 import { approvalsOutput, toolContracts, problem, Problem, type ToolName } from '../shared/contracts.js';
+import { telemetrySetup } from '../telemetry/setup.js';
 const equal = (a: string, b: string) => Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const loginSchema = z.strictObject({ credential: z.string().min(1).max(256) });
-export async function createServer(config: Config, service: Rootlane, credentials: { owner: string; agent: string }, webRoot?: string) {
+export async function createServer(config: Config, service: Rootlane, credentials: { owner: string; agent: string; ingest?: string }, webRoot?: string) {
   if (!credentials.owner.trim() || credentials.owner.length > 256 || credentials.agent.length < 32 || equal(credentials.owner, credentials.agent))
     throw new Error('A nonempty owner credential of at most 256 characters and a distinct agent credential of at least 32 characters are required');
+  if (credentials.ingest && (credentials.ingest.length < 32 || credentials.ingest.length > 256 || equal(credentials.ingest, credentials.owner) || equal(credentials.ingest, credentials.agent)))
+    throw new Error('The ingest credential must be distinct from owner and agent credentials, with 32–256 characters');
   const app = Fastify({ logger: false, bodyLimit: 16384, requestTimeout: 10000, connectionTimeout: 10000, keepAliveTimeout: 5000 });
   const sessions = new Map<string, { csrf: string; expires: number }>();
   const cookieName = '__Host-rootlane';
@@ -42,6 +45,8 @@ export async function createServer(config: Config, service: Rootlane, credential
     if (request.headers.origin !== undefined && !browserOrigin(request.headers.host, request.headers.origin))
       return reply.code(403).send({ code: 'INVALID_ORIGIN', message: 'Unexpected Origin' });
     const path = request.routeOptions.url;
+    if (credentials.ingest && equal(request.headers.authorization ?? '', `Bearer ${credentials.ingest}`))
+      return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'The ingest credential is accepted only by the telemetry receiver' });
     if (path === '/api/login') {
       if (request.method !== 'POST') return;
       if (!browserOrigin(request.headers.host, request.headers.origin))
@@ -59,8 +64,8 @@ export async function createServer(config: Config, service: Rootlane, credential
     if (!path?.startsWith('/api/')) return;
     const auth = request.headers.authorization;
     if (auth !== undefined) {
-      if (path.startsWith('/api/approvals'))
-        return reply.code(403).send({ code: 'OWNER_SESSION_REQUIRED', message: 'Approvals require an owner cookie session and CSRF' });
+      if (path.startsWith('/api/approvals') || path === '/api/telemetry/copy')
+        return reply.code(403).send({ code: 'OWNER_SESSION_REQUIRED', message: 'This action requires an owner cookie session and CSRF' });
       if (request.ip !== '127.0.0.1' || !equal(auth, `Bearer ${credentials.agent}`))
         return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Valid loopback agent credential required' });
       return;
@@ -99,6 +104,7 @@ export async function createServer(config: Config, service: Rootlane, credential
   app.get('/api/session', async (request) => ({ csrf: session(request.headers.cookie)?.csrf ?? null }));
   app.get('/api/status', async () => ({
     connected: true,
+    version: '0.8.0',
     editorUrlTemplate: config.editorUrlTemplate ?? null,
     projectRoots: service.catalog.config.projectRoots,
     observationRoots: service.catalog.config.observationRoots,
@@ -110,13 +116,29 @@ export async function createServer(config: Config, service: Rootlane, credential
     observedAt: new Date().toISOString(),
   }));
   app.get('/api/approvals', async () => approvalsOutput.parse({ approvals: await service.recipes.listApprovals() }));
+  app.post('/api/telemetry/copy', async (request) => {
+    const { kind } = z.strictObject({ kind: z.enum(['credential','claude-env','hooks','statusline','codex']) }).parse(request.body);
+    if (!credentials.ingest) throw new Problem('INGEST_CREDENTIAL_UNSET', 'Run owner setup to generate the ingest credential');
+    return { value: telemetrySetup(kind, config, credentials.ingest) };
+  });
   for (const action of ['approve', 'reject'] as const)
     app.post(`/api/approvals/:id/${action}`, async (request) => {
       const approvalId = z.strictObject({ id: z.uuid() }).parse(request.params).id;
       z.strictObject({}).parse(request.body);
       return service.recipes.decide(approvalId, action === 'approve');
     });
-  for (const name of Object.keys(toolContracts) as ToolName[]) app.post(`/api/tools/${name}`, async (request) => service.call(name, request.body));
+  for (const name of Object.keys(toolContracts) as ToolName[]) app.post(`/api/tools/${name}`, async (request) => {
+    const parent = request.headers['x-rootlane-parent-pid'];
+    const pid = request.headers.authorization !== undefined && typeof parent === 'string' && /^[1-9]\d{0,9}$/.test(parent) && Number(parent) <= 2147483647 ? Number(parent) : null;
+    let failed = true;
+    try {
+      const result = await service.call(name, request.body);
+      failed = 'operation' in result && result.operation.error !== null;
+      return result;
+    } finally {
+      if (pid) service.telemetry.recordRootlaneCall(pid, name, failed);
+    }
+  });
   if (webRoot) {
     const index = await readFile(join(webRoot, 'index.html'));
     app.get('/', async (_request, reply) => reply.type('text/html; charset=utf-8').send(index));

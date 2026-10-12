@@ -18,6 +18,8 @@ The approved visual authority is the user's Rootlane v5 HTML artboards and rootl
 
 ## Success and exclusions
 
+Opt-in, agent-reported session telemetry: counts and names only, never content.
+
 Acceptance requires the complete real lifecycle, safe failure/recovery, second-device preview/API/HMR, and actual tool calls from installed Codex and Claude Code. Mock-adapter tests are necessary but do not establish host acceptance.
 
 No agent launching, transcripts, database actions, automatic worktrees, public previews, Compose management or multi-host orchestration.

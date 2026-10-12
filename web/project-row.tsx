@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Environment, PreviewStatus } from '../src/shared/contracts';
 import { agentKey, agentLabel, isBeyondLoopback, branchLabel, editorHref, projectStatus, recipePresentation, pillState, elapsed, groupAgents, groupLinks, groupServices, shortPath, type ProjectGroup } from './projects';
-import { Mark } from './project-card';
+import { AgentAvatar } from './agent-avatar';
 import { Icon } from './icons';
 
 export function ProjectRow({ group, environments, previews, stale, now, onDetails, onLogs, expanded, density, editorTemplate, editorHost, lifecycleAvailable, working, onAction, onRequest }: {
@@ -42,7 +42,7 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
     <div className="agents-cell" role="cell" aria-label="Agents">{!agents.length ? <span className="muted">—</span> : agents.slice(0, density === 'Compact' ? 4 : agents.length).map(agent => {
       const duration = agent.source === 'detected process' ? elapsed(agent.startedAt, now) : null;
       const identity = `${agent.name} · ${agentLabel(agent)}${agent.source === 'detected process' ? `${agent.pid ? ` · PID ${agent.pid}` : ''} · ${agent.worktreePath ?? agent.cwd ?? project.path}${duration ? ` · Process uptime ${duration}` : ''}` : ''}`;
-      return <span className="agent-item" key={agentKey(agent)} title={identity} role="img" aria-label={identity}><Mark name={agent.name}/>{duration && <span className="agent-duration mono">{duration}</span>}</span>;
+      return <span className="agent-item" key={agentKey(agent)} title={identity} role="img" aria-label={identity}><AgentAvatar name={agent.name} context={agent.source === 'detected process' ? agent.contextUsedPct : null}/>{duration && <span className="agent-duration mono">{duration}</span>}</span>;
     })}{density === 'Compact' && agents.length > 4 && <span className="av-more">+{agents.length - 4}</span>}</div>
     <div className="services-cell" data-label="Services" role="cell" aria-label="Services">{!services.length ? <span className="muted" title={project.runtime.status === 'unknown' ? 'Observation unavailable' : undefined}>—</span> : services.slice(0,limit).map(service => {
       const state = stale || service.checkout.runtime.status === 'unknown' ? 'Unknown' : service.state;

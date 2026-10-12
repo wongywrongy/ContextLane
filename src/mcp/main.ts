@@ -7,7 +7,8 @@ if (!token) {
   console.error('ROOTLANE_AGENT_TOKEN is required in the adapter launch environment');
   process.exit(1);
 }
-const handle = serveStdio(() => createMcpServer(base, token));
+const parentPid = Number(process.env.ROOTLANE_PARENT_PID ?? process.ppid);
+const handle = serveStdio(() => createMcpServer(base, token, fetch, parentPid));
 process.on('SIGINT', () => {
   void handle.close();
 });

@@ -1,0 +1,27 @@
+{
+  "version": "0.8.0",
+  "origin": "https://rootlane.avlis.dev",
+  "toolCount": 17,
+  "telemetryEnabled": false,
+  "receiving": false,
+  "credentialSet": true,
+  "codexVersion": "0.162.1",
+  "processes": 3,
+  "environments": [
+    {
+      "id": "shuttleworks-dev",
+      "application": "ready",
+      "preview": "available"
+    }
+  ],
+  "ownerCopy": true,
+  "ingestRejectedByMain": true,
+  "hooksInstalled": true,
+  "widths": [
+    1440,
+    390
+  ],
+  "errors": [],
+  "http5xx": [],
+  "assetsMatch": true
+}

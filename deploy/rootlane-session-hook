@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+import { findClaudePid, post, stdinBytes } from './telemetry-hook.mjs';
+
+try {
+  const bytes = await stdinBytes();
+  if (bytes.length <= 1024 * 1024) {
+    const input = JSON.parse(bytes.toString('utf8'));
+    if (typeof input.session_id === 'string' && typeof input.cwd === 'string' && ['SessionStart', 'SessionEnd'].includes(input.hook_event_name)) {
+      const pid = await findClaudePid();
+      await post('/hook/session', { agent: 'claude', sessionId: input.session_id, pid, cwd: input.cwd, event: input.hook_event_name === 'SessionEnd' ? 'end' : 'start', ...(typeof input.source === 'string' ? { source: input.source } : {}) });
+    }
+  }
+} catch {}
+process.exit(0);

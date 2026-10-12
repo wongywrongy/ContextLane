@@ -1,0 +1,23 @@
+{
+  "widths": [
+    1440,
+    1100,
+    768,
+    390,
+    360
+  ],
+  "states": [
+    "agent-list",
+    "claude-detail",
+    "codex-detail",
+    "process-only",
+    "settings"
+  ],
+  "configuredPort": 9748,
+  "secretAbsentFromHtml": true,
+  "listDetailBack": true,
+  "processOnly": true,
+  "telemetryOff": true,
+  "overflow": false,
+  "syntheticFixture": true
+}

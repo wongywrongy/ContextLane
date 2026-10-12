@@ -52,6 +52,7 @@ export const agent = z.discriminatedUnion('source', [
     worktreePath: z.string().optional(),
     startedAt: z.string().datetime().optional(),
     checkoutId: id.optional(),
+    contextUsedPct: z.number().min(0).max(100).optional(),
   }),
 ]);
 export const httpObservation = z.strictObject({ status: z.number().int().min(100).max(599), checkedAt: z.string().datetime() });
@@ -245,6 +246,48 @@ export const eventsInput = projectInput.extend({ limit: z.number().int().min(1).
 export const eventsOutput = z.strictObject({ events: z.array(observedEvent).max(50) });
 export type CheckHistory = z.infer<typeof checksOutput>['checks'][number];
 export type ObservedEvent = z.infer<typeof observedEvent>;
+const telemetryName = z.string().max(200);
+const nullableNumber = z.number().finite().nonnegative().nullable();
+export const rootlaneToolCall = z.strictObject({
+  pid: z.number().int().positive(), session: z.string().nullable(), tool: telemetryName,
+  calls: z.number().int().nonnegative(), errors: z.number().int().nonnegative(), lastAt: z.string().datetime(),
+});
+export const agentSession = z.strictObject({
+  id: z.string().max(256), agent: z.enum(['claude', 'codex']), sessionKey: z.string().max(160),
+  pid: z.number().int().positive().nullable(), cwd: z.string().nullable(), projectId: z.string().nullable(),
+  match: z.enum(['Matched', 'Probable', 'Process only']), model: telemetryName.nullable(), effort: telemetryName.nullable(), mode: telemetryName.nullable(),
+  startedAt: z.string().datetime(), lastSeenAt: z.string().datetime(), endedAt: z.string().datetime().nullable(),
+  counters: z.record(z.string().max(512), z.number().finite().nonnegative()),
+  tools: z.array(z.strictObject({
+    tool: telemetryName, calls: z.number().int().nonnegative(), failures: z.number().int().nonnegative(), rejects: z.number().int().nonnegative(),
+    totalMs: z.number().finite().nonnegative(), p95Ms: nullableNumber,
+  })).max(200),
+  toolkit: z.array(z.strictObject({
+    kind: z.enum(['mcp','skill','plugin']), name: telemetryName, version: telemetryName.nullable(),
+    status: z.enum(['connected','failed','active']), lastSeenAt: z.string().datetime(),
+  })).max(64),
+  context: z.strictObject({
+    usedPct: nullableNumber, window: nullableNumber, input: nullableNumber, cacheRead: nullableNumber, cacheCreation: nullableNumber,
+    rate5hPct: nullableNumber, rate5hResetsAt: z.string().nullable(), rate7dPct: nullableNumber, rate7dResetsAt: z.string().nullable(),
+    observedAt: z.string().datetime(),
+  }).nullable(),
+  requestLatency: z.strictObject({ p50Ms: nullableNumber, p95Ms: nullableNumber }),
+  rootlaneTools: z.array(rootlaneToolCall),
+});
+export const agentSessionsOutput = z.strictObject({
+  sessions: z.array(agentSession),
+  telemetry: z.strictObject({ enabled: z.boolean(), receiving: z.boolean(), lastEventAt: z.string().datetime().nullable(), dropped: z.number().int().nonnegative() }),
+});
+export const telemetryStatusOutput = z.strictObject({
+  enabled: z.boolean(), receiving: z.boolean(), bind: z.literal('127.0.0.1'), port: z.number().int(), endpoint: z.string(), protocol: z.literal('http/json'),
+  credentialSet: z.boolean(), retentionDays: z.number().int().min(1).max(30), lastEventAt: z.string().datetime().nullable(),
+  dropped: z.number().int().nonnegative(), droppedByReason: z.record(z.string(), z.number().int().nonnegative()),
+  reporting: z.strictObject({ claude: z.number().int().nonnegative(), codex: z.number().int().nonnegative() }), notReporting: z.number().int().nonnegative(), bindError: z.string().nullable(),
+  codexVersion: z.string().nullable(), headerEnvSupported: z.boolean(),
+});
+export type AgentSession = z.infer<typeof agentSession>;
+export type AgentSessions = z.infer<typeof agentSessionsOutput>;
+export type TelemetryStatus = z.infer<typeof telemetryStatusOutput>;
 export const publishInput = z.strictObject({ targetId: id.describe('Owner-approved publication target ID from locate.approvedTargetIds, get_project.approvedTargetIds or get_capabilities.approvalScope.previewTargetIds. Identifies the configured checkout and endpoint.'), requestId });
 export const previewInput = z.strictObject({ previewId });
 export const unpublishInput = previewInput.extend({ requestId });
@@ -355,6 +398,8 @@ export const locateOutput = z.strictObject({
   previews: z.array(z.strictObject({ id: z.uuid(), url: z.url() })),
 });
 export const toolContracts = {
+  get_agent_sessions: { input: projectInput, output: agentSessionsOutput, description: 'Read agent-reported session counts and names, process matching and Rootlane tool-call counts for a project. Content is discarded on arrival.', read: true },
+  get_telemetry_status: { input: emptyInput, output: telemetryStatusOutput, description: 'Read opt-in telemetry receiver status, reporting counts, retention and dropped data. Credentials are never returned.', read: true },
   list_checks: { input: projectInput, output: checksOutput, description: 'Read the last 30 existing check results per subject, grouped by kind, for a project and its checkouts. Does not run probes.', read: true },
   list_events: { input: eventsInput, output: eventsOutput, description: 'Read up to 50 recorded listener, route, agent and check-change observations for a project, newest first. These are observations, not inferred activity.', read: true },
   request_environment: {

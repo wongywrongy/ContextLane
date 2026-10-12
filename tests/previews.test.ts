@@ -94,7 +94,7 @@ test('migration preserves version-one requests, reservations and installation id
   db.prepare('INSERT INTO requests VALUES (?,?,?)').run('req',JSON.stringify({environmentId:'old',action:'stop'}),'op');
   db.prepare('INSERT INTO resources(id,environment,operation,kind,data,ordinal) VALUES (?,?,?,?,?,?)').run('res','old','op','route','{}',0);
   db.prepare('INSERT INTO reservations VALUES (?,?)').run('tcp:19484','res'); db.close();
-  const migrated = new Store(path); t.after(() => migrated.close()); assert.equal(migrated.installation, 'old'); assert.equal(migrated.retry('old','stop','req')?.id, 'op'); assert.equal(migrated.resources('old').length, 1); assert.equal(migrated.db.pragma('user_version',{simple:true}),4);
+  const migrated = new Store(path); t.after(() => migrated.close()); assert.equal(migrated.installation, 'old'); assert.equal(migrated.retry('old','stop','req')?.id, 'op'); assert.equal(migrated.resources('old').length, 1); assert.equal(migrated.db.pragma('user_version',{simple:true}),5);
 });
 
 test('recorded preview checkouts remain discoverable after approval is removed', async t => {

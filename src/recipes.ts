@@ -387,6 +387,7 @@ export class Recipes {
       routes = await host.routes(),
       reserved = new Set([
         config.port,
+        config.telemetry.port,
         ...[config.origin, ...(config.additionalOrigins ?? [])].map((u) => Number(new URL(u).port || 443)),
         ...listeners.map((l) => l.port),
         ...config.profiles.flatMap((p) => [...p.services.map((s) => s.port), ...p.previews.map((p) => p.httpsPort)]),
