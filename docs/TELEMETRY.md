@@ -12,7 +12,7 @@ Add telemetry to `~/.config/rootlane/config.json`:
 "telemetry": { "enabled": true, "port": 9481, "retentionDays": 7 }
 ```
 
-Every field is optional: `enabled` defaults to `false`, `port` to `9480`, and `retentionDays` to `7`; retention must be 1–30 days. The example uses `9481` because existing installations may already use `9480` for their main HTTP server. Choose separate main and receiver ports. A conflict leaves the main UI available and reports the receiver bind failure in Settings. If changing the main port, follow the existing administration restart and Serve-route procedure.
+Every field is optional: `enabled` defaults to `false`, `port` to `9481`, and `retentionDays` to `7`; retention must be 1–30 days. The default avoids the main HTTP server's default `9480`. Choose separate main and receiver ports. A conflict leaves the main UI available and reports the receiver bind failure in Settings. If changing the main port, follow the existing administration restart and Serve-route procedure.
 
 Reload with `deploy/rootlane-reload`. Telemetry runs in a separate Fastify listener bound only to `127.0.0.1`. Tailscale Serve continues to proxy only the main server. Never publish or proxy the ingest port. The service/Compose environment sets `ROOTLANE_INGEST_CREDENTIAL_FILE` to the private credential file. It accepts only the ingest Bearer credential; owner and agent credentials cannot ingest, and the ingest credential cannot access Rootlane's UI, API or MCP tools.
 

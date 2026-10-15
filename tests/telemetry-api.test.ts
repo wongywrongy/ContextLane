@@ -11,8 +11,8 @@ import { setup } from './helpers.js';
 test('telemetry config defaults off, bounds retention and does not accept remote bind options', async t => {
   const { config } = await setup(t);
   const raw = { ...config, telemetry: undefined };
-  assert.deepEqual(configSchema.parse(raw).telemetry, { enabled: false, port: 9480, retentionDays: 7 });
-  assert.deepEqual(configSchema.parse({ ...raw, telemetry: { enabled: true } }).telemetry, { enabled: true, port: 9480, retentionDays: 7 });
+  assert.deepEqual(configSchema.parse(raw).telemetry, { enabled: false, port: 9481, retentionDays: 7 });
+  assert.deepEqual(configSchema.parse({ ...raw, telemetry: { enabled: true } }).telemetry, { enabled: true, port: 9481, retentionDays: 7 });
   for (const telemetry of [{ retentionDays: 0 }, { retentionDays: 31 }, { port: 65536 }, { host: '0.0.0.0' }]) assert(!configSchema.safeParse({ ...raw, telemetry }).success);
 });
 

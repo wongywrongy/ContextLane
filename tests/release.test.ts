@@ -32,8 +32,8 @@ test('release setup creates private owner files, preserves credentials and rejec
     const config = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'));
     assert.deepEqual(config.profiles, []);
     assert.equal(config.origin, 'https://workstation.example.ts.net:19483');
-    assert.deepEqual(config.telemetry, { enabled: false, port: 9480, retentionDays: 7 });
-    assert.equal(await readFile(join(directory, 'ingest.env'), 'utf8'), `ROOTLANE_TELEMETRY_URL=http://127.0.0.1:9480\nROOTLANE_INGEST_TOKEN=${ingest.trim()}\n`);
+    assert.deepEqual(config.telemetry, { enabled: false, port: 9481, retentionDays: 7 });
+    assert.equal(await readFile(join(directory, 'ingest.env'), 'utf8'), `ROOTLANE_TELEMETRY_URL=http://127.0.0.1:9481\nROOTLANE_INGEST_TOKEN=${ingest.trim()}\n`);
     for (const name of ['rootlane-session-hook', 'rootlane-statusline']) assert.equal(await readlink(join(temp, '.local/bin', name)), join(temp, 'deploy', name));
     const wrappedRun = run(join(temp, '.local/bin/rootlane-statusline'), ['--', '/bin/echo', 'unchanged'], { env });
     wrappedRun.child.stdin!.end();

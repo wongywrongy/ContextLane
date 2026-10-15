@@ -80,7 +80,7 @@ export const configSchema = z.strictObject({
   port: port.default(9480),
   telemetry: z.strictObject({
     enabled: z.boolean().default(false),
-    port: port.default(9480),
+    port: port.default(9481),
     retentionDays: z.number().int().min(1).max(30).default(7),
   }).prefault({}),
   origin,

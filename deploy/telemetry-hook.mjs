@@ -14,7 +14,7 @@ export function ingestSettings(env = process.env) {
       }
     } catch {}
   }
-  const endpoint = new URL(env.ROOTLANE_TELEMETRY_URL ?? fallback.ROOTLANE_TELEMETRY_URL ?? 'http://127.0.0.1:9480');
+  const endpoint = new URL(env.ROOTLANE_TELEMETRY_URL ?? fallback.ROOTLANE_TELEMETRY_URL ?? 'http://127.0.0.1:9481');
   const token = env.ROOTLANE_INGEST_TOKEN ?? fallback.ROOTLANE_INGEST_TOKEN;
   if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1' || endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash || typeof token !== 'string' || token.length < 32 || token.length > 256 || /[\r\n]/.test(token)) throw new Error('Invalid loopback ingest configuration');
   return { endpoint, token };

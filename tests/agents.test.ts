@@ -65,3 +65,8 @@ test('npm agents are attributed once through wrappers with observed process star
   assert.equal(result.agents.find(a=>a.name==='Codex')?.pid,10); assert.match(result.agents[0].startedAt!,/^2023-/);
   assert(!JSON.stringify(result).includes('SHOULD_NOT_ESCAPE'));
 });
+
+test('host-side hooks can load process helpers without node_modules', async () => {
+  const { readFile } = await import('node:fs/promises');
+  for (const file of ['agents.ts', 'process.ts']) assert.doesNotMatch(await readFile(join(import.meta.dirname, '../src/host', file), 'utf8'), /^import (?!type ).*from '(?!node:|\.\/(process|types)\.js')/m);
+});

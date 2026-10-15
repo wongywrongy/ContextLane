@@ -1,5 +1,4 @@
 import { open, stat } from 'node:fs/promises';
-import { command } from './command.js';
 import { join } from 'node:path';
 export async function procText(path: string, limit = 8192) {
   const file = await open(path, 'r');
@@ -22,7 +21,8 @@ export function processStat(text: string) {
 let ticks: Promise<number> | undefined;
 export async function processClock(procRoot = '/proc') {
   try {
-    ticks ??= command('getconf', ['CLK_TCK'], { timeout: 1000 }).then(Number);
+    // Lazy: host-side telemetry hooks import this file without node_modules (command.js pulls zod).
+    ticks ??= import('./command.js').then(({ command }) => command('getconf', ['CLK_TCK'], { timeout: 1000 })).then(Number);
     const hz = await ticks;
     const stat = await procText(join(procRoot, 'stat'), 65536);
     const boot = Number(stat.match(/^btime (\d+)$/m)?.[1]);
