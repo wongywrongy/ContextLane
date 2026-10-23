@@ -11,6 +11,7 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY package.json ./
 COPY dist ./dist
+RUN chmod -R a+rX dist
 COPY deploy/serve.mjs ./deploy/serve.mjs
 ARG ROOTLANE_REVISION=unknown
 LABEL org.opencontainers.image.version="0.9.0" org.opencontainers.image.revision=$ROOTLANE_REVISION
