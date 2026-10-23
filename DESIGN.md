@@ -59,6 +59,11 @@ typography:
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
+  code:
+    fontFamily: "Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.6
 rounded:
   sm: "6px"
   md: "8px"

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-23T08:54:42.490102+00:00",
+  "generatedAt": "2026-10-23T09:13:38.011949+00:00",
   "title": "Design System: Rootlane",
   "extensions": {
     "colorMeta": {
@@ -133,6 +133,10 @@
       "body": {
         "displayName": "Workspace text",
         "purpose": "Body text, with mono reserved for paths, ports, code and identifiers."
+      },
+      "code": {
+        "displayName": "Code and technical values",
+        "purpose": "Geist Mono for paths, ports, identifiers and code, matching the existing --mono CSS token."
       }
     },
     "shadows": [
