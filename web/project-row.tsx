@@ -45,11 +45,11 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
       const identity = `${agent.name} · ${agentLabel(agent)}${agent.source === 'detected process' ? `${agent.pid ? ` · PID ${agent.pid}` : ''} · ${agent.worktreePath ?? agent.cwd ?? project.path}${duration ? ` · Process uptime ${duration}` : ''}` : ''}`;
       return <span className="agent-item" key={agentKey(agent)} title={identity} role="img" aria-label={identity}><AgentAvatar name={agent.name} context={agent.source === 'detected process' ? agent.contextUsedPct : null}/>{duration && <span className="agent-duration mono">{duration}</span>}</span>;
     })}{density === 'Compact' && agents.length > 4 && <span className="av-more">+{agents.length - 4}</span>}</div>
-    <div className="services-cell" data-label="Services" role="cell" aria-label="Services">{!services.length ? <span className="muted" title={project.runtime.status === 'unknown' ? 'Observation unavailable' : undefined}>—</span> : services.map(service => {
+    <div className={`services-cell ${!services.length ? 'empty-cell' : ''}`} data-label="Services" role="cell" aria-label="Services">{!services.length ? <span className="muted" title={project.runtime.status === 'unknown' ? 'Observation unavailable' : undefined}>—</span> : services.map(service => {
       const state = stale || service.checkout.runtime.status === 'unknown' ? 'Unknown' : service.state;
       return <div className={`service-line lp ${pillState(state)}`} role="img" aria-label={`${service.name} · ${state}`} key={service.key} title={`${service.name} :${service.port} · ${state} · ${service.checkout.path}`}><span className="d" aria-hidden="true"/><span className="service-name">{service.name}</span><span className="mono lp-port">:{service.port}</span></div>;
     })}</div>
-    <div className="links-cell" data-label="Links" role="cell" aria-label="Links">{!links.length ? <span className="muted">—</span> : links.map(link => {
+    <div className={`links-cell ${!links.length ? 'empty-cell' : ''}`} data-label="Links" role="cell" aria-label="Links">{!links.length ? <span className="muted">—</span> : links.map(link => {
       const state = stale ? 'Unknown' : link.state;
       const displayLabel = link.source === 'Environment' && group.environmentIds.length > 1 ? link.label.slice(0, -(3 + branchLabel(link.checkout).length)) : link.label;
       return <a className={`compact-link lp ${pillState(state)}`} onClick={event => event.stopPropagation()} key={link.key} href={link.url} target="_blank" rel="noreferrer" title={`${link.url} · ${state}`} aria-label={`${link.label} · ${state} · ${link.url}`}><span className="d" aria-hidden="true"/><span>{displayLabel}</span><Icon name="external"/></a>;
@@ -57,7 +57,7 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
     <div className="menu-cell project-actions" role="cell" onClick={event => event.stopPropagation()}>
       {control && (stopping || control.startAllowed) && <button className="icon-btn lifecycle-button" title={multipleTargets ? 'Choose checkout controls' : stopping ? 'Stop environment' : 'Start environment'} aria-label={multipleTargets ? `Choose ${project.name} checkout` : `${stopping ? 'Stop' : 'Start'} ${project.name}`} disabled={working || stale || !lifecycleAvailable || group.checkouts.some(p => p.controls?.some(c => ['accepted', 'running'].includes(c.latestOperation?.status ?? '')))} onClick={() => multipleTargets ? onDetails() : onAction(control.id, stopping ? 'stop' : 'start')}><Icon name={stopping ? 'stop' : 'play'}/></button>}
       {!control && multipleTargets && <button className="icon-btn" title="Choose checkout controls" aria-label={`Choose ${project.name} checkout`} onClick={()=>onDetails()}><Icon name="play"/></button>}
-      <button ref={button} className="icon-btn" aria-label={`${project.name} actions`} aria-haspopup="menu" aria-expanded={open} onClick={() => onDetails()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); menu.current?.showPopover(); } }} popoverTarget={`menu-${project.id}`}><Icon name="more"/></button>
+      <button ref={button} className="icon-btn" aria-label={`${project.name} actions`} aria-haspopup="menu" aria-expanded={open} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); menu.current?.showPopover(); } }} popoverTarget={`menu-${project.id}`}><Icon name="more"/></button>
       <div ref={menu} id={`menu-${project.id}`} popover="auto" role="menu" aria-label={`${project.name} actions`} className="project-popover" onToggle={event => {
         const opening = event.newState === 'open'; setOpen(opening);
         if (opening) { position(); menu.current?.querySelector<HTMLButtonElement>('button')?.focus(); }
@@ -65,7 +65,7 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
       }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); menu.current?.hidePopover(); button.current?.focus(); return; }
         if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
-        event.preventDefault(); const items = [...menu.current!.querySelectorAll<HTMLElement>('[role=menuitem]')];
+        event.preventDefault(); const items = [...menu.current!.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)')];
         const index = items.indexOf(document.activeElement as HTMLElement);
         items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length-1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
       }}>

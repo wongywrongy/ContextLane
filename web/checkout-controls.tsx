@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { environmentInspection, type Environment, type EnvironmentInspection, type Project } from '../src/shared/contracts';
 import { PanelSection } from './panel-section';
-import { branchLabel } from './projects';
+import { branchLabel, shortPath } from './projects';
 
 export function CheckoutControls({checkouts,environments,working,onRequest,onAction,api,onChanged,selectedPath,onSelect}: {
   checkouts:Project[]; environments:Record<string,Environment>; working:boolean;
@@ -42,17 +42,17 @@ export function CheckoutControls({checkouts,environments,working,onRequest,onAct
   const env = inspection?.environmentId?environments[inspection.environmentId]:checkout.environmentIds.map(id=>environments[id]).find(Boolean);
   const blocked = !!inspection?.blockers.length;
   return <PanelSection title="Environment">
-    <label className="checkout-selector">Checkout<select value={checkout.path} onChange={e=>{setSelection(e.target.value);onSelect?.(e.target.value);}}>{checkouts.map(p=><option key={p.id} value={p.path}>{branchLabel(p)} · {p.path}</option>)}</select></label>
+    <label className="checkout-selector">Checkout<select value={checkout.path} onChange={e=>{setSelection(e.target.value);onSelect?.(e.target.value);}}>{checkouts.map(p=><option key={p.id} value={p.path}>{branchLabel(p)} · {shortPath(p.path)}</option>)}</select></label>
     <p className="mono runtime-meta">{checkout.path}{checkout.missing ? ' · directory unavailable' : ''}</p>
-    {inspection && <p>{inspection.source ?? 'No saved configuration'}{inspection.proposal && (inspection.proposal as {restart?:string}).restart === 'on-failure' ? ' · Crash recovery: at most 3 starts within 60 seconds, with a 2-second retry delay' : ''}</p>}
+    {inspection && <p className="section-note">{inspection.source ?? 'No saved configuration'}</p>}
     {error && <p className="notice bad" role="alert">{error}</p>}
-    {inspection?.warnings.map((warning,i)=><p className="pv-note" key={i}>{warning}</p>)}
+    {!!inspection?.warnings.length && <details className="disclosure"><summary>Configuration notes <span>{inspection.warnings.length}</span></summary>{inspection.warnings.map((warning,i)=><p className="pv-note" key={i}>{warning}</p>)}</details>}
     {!!inspection?.blockers.length && <ul className="prerequisite-list">{inspection.blockers.map((b,i)=><li key={i}><strong>{b.code}</strong> · {b.message}</li>)}</ul>}
     {!!inspection?.requiredEnv.length && <p className="pv-note">Private environment files stay on the host with mode 0600. Only variable names and missing status are shown here.</p>}
     {inspection?.preparationError && <p role="alert">{inspection.preparationError.code} · {inspection.preparationError.message}</p>}
     {inspection?.preparationError?.code === 'PREPARATION_CLEANUP_REQUIRED' && inspection.preparationProgress && <button className="btn primary" disabled={disabled} onClick={()=>void run(()=>api(`/api/owner/preparation/${inspection.preparationProgress!.id}/cleanup`,{}))}>Verify preparation cleanup</button>}
     {inspection?.preparationStatus === 'running' && <p role="status">Preparation running in host systemd…</p>}
-    {inspection?.preparationProgress && <p className="pv-note">Preparation step {inspection.preparationProgress.step}/{inspection.preparationProgress.total} · {inspection.preparationStatus}<br/><span className="mono">{inspection.preparationProgress.unit}</span></p>}
+    {inspection?.preparationProgress && <details className="disclosure"><summary>Preparation <span>{inspection.preparationStatus} · {inspection.preparationProgress.step}/{inspection.preparationProgress.total}</span></summary><p className="mono runtime-meta">{inspection.preparationProgress.unit}</p></details>}
     {!editing && <div className="environment-actions">
       {primary === 'Configure environment' && <button className="btn primary" disabled={disabled} onClick={edit}>Configure environment</button>}
       {primary === 'Review preparation' && <button className="btn primary" disabled={disabled || inspection?.preparationStatus === 'running'} onClick={()=>{setPreparationReview(true);setEditing(true);}}>Review preparation</button>}
@@ -79,15 +79,17 @@ export function CheckoutControls({checkouts,environments,working,onRequest,onAct
       <button className="btn" onClick={()=>setEditing(false)}>Close review</button>
     </div>}
     {controls.map(control=>{const state=environments[control.id];return <div key={control.id} className="checkout-instance">
-      <p className="mono">{branchLabel(checkout)} · {checkout.path} · {control.id}</p>
-      {state?.services.map(service=><p className="pv-note" key={service.id}>{service.id}: {service.state}{service.restarts !== undefined ? ` · ${service.restarts} restart attempts` : ''}{service.result ? ` · ${service.result}` : ''}{service.exitCode !== undefined ? ` · exit ${service.exitCode}` : ''}</p>)}
-      {state?.latestOperation?.error && <p role="alert">{state.latestOperation.error.code} · {state.latestOperation.error.message}</p>}
+      {controls.length > 1 && <p className="mono runtime-meta">{control.id}</p>}
+      {state?.latestOperation?.error && <p className="section-note bad" role="alert">{state.latestOperation.error.code} · {state.latestOperation.error.message}</p>}
       <div className="environment-actions">
         {(control.hasResources || control.desiredState === 'running') && <button className="btn" disabled={disabled} onClick={()=>onAction(control.id,'stop')}>Stop</button>}
         {!control.hasResources && control.desiredState === 'stopped' && control.startAllowed && (control.id!==env?.id || primary!=='Start') && <button className="btn" disabled={disabled} onClick={()=>onAction(control.id,'start')}>Start {control.id}</button>}
-        {!control.hasResources && control.desiredState === 'stopped' && control.kind==='instance' && <button className="btn" disabled={disabled} onClick={()=>{if(window.confirm(`Retire ${control.id} at ${checkout.path}? Release its verified-clean allocations and retain operation history.`))void run(()=>api('/api/owner/retirement',{environmentId:control.id}));}}>Retire instance…</button>}
-        {state && <label className="recovery-choice"><input type="checkbox" checked={!!state.restoreAfterReboot} disabled={disabled || (!control.startAllowed && !state.restoreAfterReboot)} onChange={e=>void run(()=>api('/api/owner/recovery-policy',{environmentId:control.id,restore:e.target.checked}))}/>Restore this previously running checkout after reboot</label>}
       </div>
+      <details className="disclosure"><summary>Environment options</summary><p className="mono runtime-meta">{control.id}</p>{state?.services.map(service=><p className="pv-note" key={service.id}>{service.id}: {service.state}{service.restarts !== undefined ? ` · ${service.restarts} restart attempts` : ''}{service.result ? ` · ${service.result}` : ''}{service.exitCode !== undefined ? ` · exit ${service.exitCode}` : ''}</p>)}
+        {!!inspection?.proposal && (inspection.proposal as {restart?:string}).restart === 'on-failure' && <p className="section-note">Crash recovery: at most 3 starts within 60 seconds, with a 2-second retry delay.</p>}
+        {state && <label className="recovery-choice"><input type="checkbox" checked={!!state.restoreAfterReboot} disabled={disabled || (!control.startAllowed && !state.restoreAfterReboot)} onChange={e=>void run(()=>api('/api/owner/recovery-policy',{environmentId:control.id,restore:e.target.checked}))}/>Restore this previously running checkout after reboot</label>}
+        {!control.hasResources && control.desiredState === 'stopped' && control.kind==='instance' && <button className="btn" disabled={disabled} onClick={()=>{if(window.confirm(`Retire ${control.id} at ${checkout.path}? Release its verified-clean allocations and retain operation history.`))void run(()=>api('/api/owner/retirement',{environmentId:control.id}));}}>Retire instance…</button>}
+      </details>
       {!!state?.restorationAttempts && <p className="pv-note">Reboot restoration attempts: {state.restorationAttempts}/3. Stop cancels restoration.</p>}
     </div>;})}
     {inspection?.source && !!inspection.proposal && <button className="btn ghost" onClick={()=>void run(async()=>{const {recipe}=await api('/api/owner/export-recipe',{path:checkout.path});const url=URL.createObjectURL(new Blob([JSON.stringify(recipe,null,2)+'\n'],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='.rootlane.json';link.click();URL.revokeObjectURL(url);})}>Export recipe</button>}

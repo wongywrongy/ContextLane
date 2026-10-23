@@ -123,7 +123,8 @@ function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setView('projects');
-        searchInput.current?.focus();
+        if (selectedRef.current && matchMedia('(max-width: 1099px)').matches) selectProject(null);
+        requestAnimationFrame(() => searchInput.current?.focus());
       }
     };
     window.addEventListener('keydown', focusSearch);
@@ -504,7 +505,7 @@ function App() {
           )}
         </div>
       </header>
-      <main className="wrap">
+      <main className={`wrap ${selected && view === 'projects' ? 'has-detail' : ''}`}>
         {lastAction && lastAction.status !== 'succeeded' && (
           <p className="notice" role="status">
             {lastAction.action} · {'environmentId' in lastAction ? lastAction.environmentId : lastAction.previewId.slice(0, 8)} ·{' '}
@@ -592,8 +593,10 @@ function App() {
               <div className="filters">{(['All', 'Running', 'With agents', ...(allGroups.some(g => g.environmentIds.length) ? ['Managed'] : [])] as ProjectFilter[]).map(value => <button key={value} className={`fchip ${filter === value ? 'on' : ''}`} aria-pressed={filter === value} onClick={() => { setFilter(value); setCursor(0); }}>{value}<b>{allGroups.filter(g => matchesFilter(g, value, environments)).length}</b></button>)}</div>
               <div className="legend">{[['ok','working'], ['info','unverified'], ['bad','down'], ['idle','link']].map(([tone,text]) => <span key={tone}><i className={`ldot ${tone}`} aria-hidden="true"/>{text}</span>)}</div>
             </div>
-            {noticesOpen && <div id="discovery-notices" className="notice catalog-notice"><div>{catalog?.warnings.length ? catalog.warnings.map(w => <p key={w}>{w}</p>) : <p>No discovery notices.</p>}</div></div>}
-            {catalog?.scan && <p className="pv-note">Scan: {catalog.scan.durationMs} ms · {catalog.scan.entries}/{catalog.scan.limits.entries} entries · depth {catalog.scan.limits.depth} · {catalog.scan.complete ? 'complete' : 'incomplete observations'}{catalog.scan.unmatchedListeners.length ? ` · unmatched listener ports: ${catalog.scan.unmatchedListeners.join(', ')}` : ''}</p>}
+            {noticesOpen && <section id="discovery-notices" className="notice catalog-notice" aria-label="Discovery diagnostics">
+              {catalog?.scan && <p>Scan: {catalog.scan.durationMs} ms · {catalog.scan.entries}/{catalog.scan.limits.entries} entries · depth {catalog.scan.limits.depth} · {catalog.scan.complete ? 'complete' : 'incomplete observations'}{catalog.scan.unmatchedListeners.length ? ` · unmatched listener ports: ${catalog.scan.unmatchedListeners.join(', ')}` : ''}</p>}
+              <div>{catalog?.warnings.length ? catalog.warnings.map(w => <p key={w}>{w}</p>) : <p>No discovery notices.</p>}</div>
+            </section>}
             {approvalsError && (
               <p className="notice bad" role="alert">
                 Approvals: {approvalsError}

@@ -88,12 +88,18 @@ try {
  const key=key=>page('Input.dispatchKeyEvent',{type:'keyDown',key,code:key,windowsVirtualKeyCode:{ArrowDown:40,ArrowUp:38,Home:36,End:35,Tab:9,Enter:13}[key]});
  const captures=[],metrics=[];
  const capture=async name=>{if (process.env.ROOTLANE_CAPTURE_ONLY && !name.startsWith(process.env.ROOTLANE_CAPTURE_ONLY)) { captures.push(name); return; } if (process.env.ROOTLANE_CAPTURE==='0' && !name.startsWith('settings-')) { captures.push(name); return; } await evaluate('document.fonts.ready');await pause(400); const {data}=await page('Page.captureScreenshot',{captureBeyondViewport:!name.startsWith('v070-details-')&&!name.startsWith('v070-activity-')});await writeFile(`${evidence}/${name}.png`,Buffer.from(data,'base64'));captures.push(name);};
- const menu=async(id='p0')=>{await evaluate(`document.querySelector('#project-${id} .project-actions > button[aria-haspopup=menu]').click()`);await wait('document.querySelector("#project-detail")');await wait('document.querySelector(":popover-open")');};
+ const menu=async(id='p0')=>{await evaluate(`document.querySelector('#project-${id} .project-actions > button[aria-haspopup=menu]').click()`);await wait('document.querySelector(":popover-open")');};
  const choose=async label=>{await evaluate(`[...document.querySelectorAll(':popover-open button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);};
  const details=async(id='p0')=>{await menu(id);await choose('Details');await wait('document.querySelector("#project-detail")');};
  const close=async()=>{await evaluate('document.querySelector("#project-detail").focus()');await escape();await wait('!document.querySelector("#project-detail")');};
  const tab=async name=>{await evaluate(`document.getElementById('tab-${name}').click()`);};
  assert(!requests.some(r=>r.path.endsWith('get_project')),'Closed panels do not fetch detail HTTP probes');
+ await menu();assert.equal(await evaluate('!!document.querySelector("#project-detail")'),false,'Opening actions does not open details');await escape();
+ projects[2].recipe={found:true,valid:true,errors:[],approval:'pending'};await refresh();await wait('document.querySelector("#project-p2 .row-status")');
+ disconnect=true;await refresh();await wait('document.querySelector(".conn").textContent.includes("Disconnected")');
+ await menu('p2');assert(await evaluate('document.querySelector(":popover-open button:disabled")?.textContent==="Request environment…"'));
+ await key('End');assert.equal(await evaluate('document.activeElement.textContent'),'Copy path');await key('ArrowUp');assert.equal(await evaluate('document.activeElement.textContent'),'Open in editor','Menu arrows skip disabled actions');await escape();
+ delete projects[2].recipe;disconnect=false;await refresh();await wait('document.querySelector(".conn").textContent.includes("Connected")');
  for(const width of [360,390,768,1100,1440,1920]) {
   await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});
   await evaluate('window.scrollTo(0,0)');await pause(100);
@@ -120,6 +126,11 @@ try {
   assert(await evaluate('document.querySelector(".rmap:not(.h)").textContent.includes("https://neo.example.ts.net:19484/")'), 'Runtime URL maps to observed process');
   await capture(`v070-details-${width}`);
   if(width<1100) {
+    await evaluate('document.querySelector("#project-detail").focus()');
+    await page('Input.dispatchKeyEvent',{type:'keyDown',key:'k',code:'KeyK',modifiers:2});
+    await wait('!document.querySelector("#project-detail") && document.activeElement===document.querySelector(".cmd input")');
+    assert.equal(new URL(await evaluate('location.href')).searchParams.get('project'),null,'Search closes the phone dialog');
+    await details();
     await evaluate('[...document.querySelectorAll(".psec-h button")].find(b=>b.textContent==="All activity").click()');
     await wait('document.querySelector("#activity-title")');
     assert.equal(await evaluate('document.querySelector("#tab-Overview").getAttribute("aria-selected")'),'true');
@@ -139,6 +150,8 @@ try {
  assert.equal(await evaluate('document.querySelectorAll("#tab-Logs").length'),0,'Unmanaged has no Logs');
  await key('ArrowUp');await wait('new URLSearchParams(location.search).get("project")==="p0"');
  await evaluate('document.querySelector("#project-detail").focus()');await key('j');await wait('new URLSearchParams(location.search).get("project")!=="p0"');await key('k');await wait('new URLSearchParams(location.search).get("project")==="p0"');
+ await page('Input.dispatchKeyEvent',{type:'keyDown',key:'k',code:'KeyK',modifiers:2});await wait('document.activeElement===document.querySelector(".cmd input")');
+ assert.equal(await evaluate('new URLSearchParams(location.search).get("project")'),'p0','Search shortcut does not select the previous project');
  await evaluate('[...document.querySelectorAll("#project-detail button")].find(b=>b.textContent==="Widen").click()');
  assert.equal(await evaluate('document.querySelector("#project-detail").getBoundingClientRect().width'),1080);
  await tab('Agents');await page('Page.reload');await wait('document.querySelector("#tab-Agents[aria-selected=true]")');
@@ -162,6 +175,7 @@ try {
  for(const width of [390,1440]) {await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});await evaluate('document.querySelector(".main-nav button:last-child").click()');await wait('document.querySelector(".settings-nav")');await evaluate('[...document.querySelectorAll(".settings-nav button")].find(b=>b.textContent==="MCP setup").click()');await wait('document.querySelector(".mcp-tools").textContent.includes("list_checks")');integrationRepaired=false;
   await evaluate("[...document.querySelectorAll('.mcp-setup button')].find(b=>b.textContent==='Inspect integration').click()");await wait("document.querySelector('.mcp-setup').textContent.includes('Missing tools')");
   assert(await evaluate("document.querySelector('.mcp-setup').textContent.includes('disabled_tools')"));assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+  await evaluate("(()=>{const review=document.querySelector('.repair-review');if(!review.open)review.querySelector('summary').click()})()");assert(await evaluate("document.querySelector('.repair-review[open] .repair-change').innerText.includes('disabled_tools')"),'Exact repair is reviewable');
   await evaluate("[...document.querySelectorAll('.mcp-setup button')].find(b=>b.textContent==='Apply reviewed repair').click()");await wait("!document.querySelector('.mcp-setup').textContent.includes('Missing tools')");}
  const telemetryEvidence=resolve(evidence,'telemetry-080');await mkdir(telemetryEvidence,{recursive:true});
  const captureTelemetry=async name=>{await evaluate('document.fonts.ready');await pause(200);const viewport=await evaluate('({width:innerWidth,height:innerHeight})');const fullHeight=await evaluate("(()=>{const body=document.querySelector('#detail-body');document.activeElement?.blur();body?.scrollTo(0,0);window.scrollTo(0,0);return body?innerHeight+Math.max(0,body.scrollHeight-body.clientHeight):innerHeight})()");if(name.includes('detail-'))await page('Emulation.setDeviceMetricsOverride',{width:viewport.width,height:fullHeight,deviceScaleFactor:1,mobile:viewport.width<500});const documentHeight=await evaluate('document.documentElement.scrollHeight');const {data}=await page('Page.captureScreenshot',name.startsWith('settings-')?{captureBeyondViewport:true,clip:{x:0,y:0,width:viewport.width,height:documentHeight,scale:1}}:{captureBeyondViewport:false});await writeFile(`${telemetryEvidence}/${name}.png`,Buffer.from(data,'base64'));if(name.includes('detail-'))await page('Emulation.setDeviceMetricsOverride',{width:viewport.width,height:viewport.height,deviceScaleFactor:1,mobile:viewport.width<500});};
@@ -186,10 +200,15 @@ try {
   }
   await close();await evaluate("document.querySelector('.main-nav button:last-child').click()");await wait('document.querySelector(".settings-nav")');await evaluate("[...document.querySelectorAll('.settings-nav button')].find(b=>b.textContent==='Agent telemetry').click()");
   await wait('document.querySelector(".telemetry-settings")');assert(await evaluate("document.querySelector('.telemetry-settings').textContent.includes('127.0.0.1:9748/otlp')"));assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,`telemetry settings overflow at ${width}`);
+  await evaluate("document.querySelectorAll('.telemetry-settings details').forEach(d=>d.open=true)");
+  assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,`expanded setup overflow at ${width}`);
   assert(!await evaluate(`document.documentElement.innerHTML.includes(${JSON.stringify(ingestSentinel)})`));
   if(width!==360)await captureTelemetry('settings-'+width);
  }
  await evaluate("[...document.querySelectorAll('.telemetry-settings .dl')].find(r=>r.textContent.includes('Credential')).querySelector('button').click()");await wait("[...document.querySelectorAll('.telemetry-settings button')].some(b=>b.textContent==='Copied')");
+ await page('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+ assert(await evaluate("[...document.querySelectorAll('button,summary,a')].every(e=>getComputedStyle(e).transitionDuration.split(',').every(t=>parseFloat(t)===0))"),'Reduced motion disables control transitions');
+ await page('Emulation.setEmulatedMedia',{features:[]});
  assert.equal(await evaluate('navigator.clipboard.readText()'),ingestSentinel);assert(!await evaluate(`document.documentElement.innerHTML.includes(${JSON.stringify(ingestSentinel)})`),'Copied ingest token never enters HTML');
  telemetryEnabled=false;await evaluate("document.querySelector('.main-nav button:first-child').click()");await details();await tab('Agents');await refresh();await wait("document.querySelector('#detail-body').textContent.includes('Agent telemetry is off.')");assert.equal(await evaluate("document.querySelectorAll('.agent-list-row .context-ring').length"),0);await close();
  await writeFile(telemetryEvidence+'/results.json',JSON.stringify({widths:[1440,1100,768,390,360],states:['agent-list','claude-detail','codex-detail','process-only','settings'],configuredPort:telemetryPort,secretAbsentFromHtml:true,listDetailBack:true,processOnly:true,telemetryOff:true,overflow:false,syntheticFixture:true},null,2));
