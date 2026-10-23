@@ -143,7 +143,7 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
     if (event.key === 'Escape' && !document.querySelector('[popover]:popover-open')) { event.preventDefault(); onClose(); }
     if (!input && !event.ctrlKey && !event.metaKey && !event.altKey && !(event.target as HTMLElement).closest('details,button,a') && ['ArrowUp','ArrowDown','j','k'].includes(event.key)) { event.preventDefault(); onMove(event.key === 'ArrowUp' || event.key === 'k' ? -1 : 1); }
     if (mobile && event.key === 'Tab') {
-      const items = [...panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input,select,[tabindex="0"]')].filter(e => e.getClientRects().length);
+      const items = [...panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]')].filter(e => e.tabIndex >= 0 && e.checkVisibility());
       if (event.shiftKey && (document.activeElement === items[0] || document.activeElement === panel.current)) { event.preventDefault(); items.at(-1)?.focus(); }
       if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0]?.focus(); }
     }

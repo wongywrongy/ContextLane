@@ -126,6 +126,10 @@ try {
   assert(await evaluate('document.querySelector(".rmap:not(.h)").textContent.includes("https://neo.example.ts.net:19484/")'), 'Runtime URL maps to observed process');
   await capture(`v070-details-${width}`);
   if(width<1100) {
+    await evaluate('document.querySelector("#detail-body > details.disclosure > summary").focus()');await key('Tab');
+    assert(await evaluate('document.activeElement===document.querySelector(".mback")'),'Tab from the last disclosure wraps inside the phone dialog');
+    await page('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
+    assert(await evaluate('document.activeElement===document.querySelector("#detail-body > details.disclosure > summary")'),'Reverse Tab reaches the disclosure');
     await evaluate('document.querySelector("#project-detail").focus()');
     await page('Input.dispatchKeyEvent',{type:'keyDown',key:'k',code:'KeyK',modifiers:2});
     await wait('!document.querySelector("#project-detail") && document.activeElement===document.querySelector(".cmd input")');
