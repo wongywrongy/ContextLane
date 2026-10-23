@@ -39,7 +39,7 @@ export interface PreviewRow {
   removed: number;
   desired: 'published' | 'removed';
 }
-const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql', '004_observations.sql', '005_agent_telemetry.sql'];
+const migrations = ['001_initial.sql', '002_previews.sql', '003_recipes.sql', '004_observations.sql', '005_agent_telemetry.sql', '006_environments.sql'];
 export class Store {
   readonly db: Database.Database;
   readonly installation: string;
@@ -106,7 +106,7 @@ export class Store {
   }
   getOperation(id: string): Operation {
     const row = this.db.prepare('SELECT * FROM operations WHERE id=?').get(id) as Omit<Operation, 'error'> & { error: string | null };
-    return { ...row, error: row.error ? JSON.parse(row.error) : null };
+    return { ...row, action: this.db.prepare('SELECT operationId FROM recovery_operations WHERE operationId=?').get(id) ? 'recover' : row.action, error: row.error ? JSON.parse(row.error) : null };
   }
   latest(id: string) {
     const row = this.db.prepare('SELECT id FROM operations WHERE environmentId=? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string } | undefined;
@@ -134,7 +134,8 @@ export class Store {
         ).map((r) => this.previewOperation(r.id));
     return [...lifecycle, ...previews].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
-  retry(environmentId: string, action: 'start' | 'stop', requestId: string) {
+  retry(environmentId: string, action: 'start' | 'stop' | 'recover', requestId: string) {
+    if(this.db.prepare('SELECT id FROM preparations WHERE id=?').get(requestId))throw new Problem('REQUEST_ID_REUSED','requestId belongs to preparation');
     if (this.db.prepare('SELECT id FROM recipe_requests WHERE id=?').get(requestId))
       throw new Problem('REQUEST_ID_REUSED', 'requestId belongs to an environment request');
     const prior = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as { payload: string; operation: string } | undefined;
@@ -143,7 +144,7 @@ export class Store {
       throw new Problem('REQUEST_ID_REUSED', 'requestId already belongs to another action');
     return this.getOperation(prior.operation);
   }
-  accept(environmentId: string, action: 'start' | 'stop', requestId: string): { operation: Operation; fresh: boolean } {
+  accept(environmentId: string, action: 'start' | 'stop' | 'recover', requestId: string): { operation: Operation; fresh: boolean } {
     return this.db
       .transaction(() => {
         const payload = JSON.stringify({ environmentId, action });
@@ -152,14 +153,16 @@ export class Store {
         const active = this.db
           .prepare("SELECT id, action FROM operations WHERE environmentId=? AND status IN ('accepted','running')")
           .get(environmentId) as { id: string; action: string } | undefined;
-        if (active && active.action !== action) throw new Problem('OPERATION_IN_PROGRESS', `Wait for operation ${active.id}`);
+        if (active && this.getOperation(active.id).action !== action) throw new Problem('OPERATION_IN_PROGRESS', `Wait for operation ${active.id}`);
         const opId = active?.id ?? randomUUID();
         if (!active)
           this.db
             .prepare('INSERT INTO operations VALUES (?, ?, ?, ?, NULL, ?, NULL)')
-            .run(opId, environmentId, action, 'accepted', new Date().toISOString());
+            .run(opId, environmentId, action === 'recover' ? 'start' : action, 'accepted', new Date().toISOString());
+        if (!active && action === 'recover') this.db.prepare('INSERT INTO recovery_operations VALUES (?)').run(opId);
         this.db.prepare('INSERT INTO requests (id,payload,operation) VALUES (?, ?, ?)').run(requestId, payload, opId);
-        this.db.prepare('UPDATE environments SET desired=? WHERE id=?').run(action === 'start' ? 'running' : 'stopped', environmentId);
+        this.db.prepare('UPDATE environments SET desired=? WHERE id=?').run(action === 'stop' ? 'stopped' : 'running', environmentId);
+        if (action === 'stop') this.db.prepare('UPDATE recovery_preferences SET pendingBoot=NULL,attempts=0 WHERE environmentId=?').run(environmentId);
         return { operation: this.getOperation(opId), fresh: !active };
       })
       .immediate();
@@ -244,6 +247,7 @@ export class Store {
     return row ? this.previewOperation(row.id) : null;
   }
   retryPreview(payload: string, requestId: string) {
+    if(this.db.prepare('SELECT id FROM preparations WHERE id=?').get(requestId))throw new Problem('REQUEST_ID_REUSED','requestId belongs to preparation');
     if (this.db.prepare('SELECT id FROM recipe_requests WHERE id=?').get(requestId))
       throw new Problem('REQUEST_ID_REUSED', 'requestId belongs to an environment request');
     const row = this.db.prepare('SELECT * FROM requests WHERE id=?').get(requestId) as

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { agentName, observeAgents } from '../src/host/agents.js';
@@ -64,6 +64,19 @@ test('npm agents are attributed once through wrappers with observed process star
   const result = await observeAgents(root); assert.equal(result.agents.length,2);
   assert.equal(result.agents.find(a=>a.name==='Codex')?.pid,10); assert.match(result.agents[0].startedAt!,/^2023-/);
   assert(!JSON.stringify(result).includes('SHOULD_NOT_ESCAPE'));
+});
+
+test('other users processes do not exhaust the owner process budget', async t => {
+  if ((await stat('/proc/1')).uid === process.getuid!()) return t.skip('Requires a process owned by another user');
+  const root = await mkdtemp(join(tmpdir(), 'rootlane-other-proc-')); t.after(() => rm(root, { recursive: true, force: true }));
+  t.mock.method(Date, 'now', () => 0);
+  for (let start = 1; start <= 8193; start += 64) await Promise.all(Array.from({ length: Math.min(64, 8194 - start) }, (_, i) => symlink('/proc/1', join(root, String(start + i)))));
+  const path = join(root, '9000'); await mkdir(path);
+  await writeFile(join(path, 'stat'), `9000 (claude) S ${Array(18).fill('0').join(' ')} 100`);
+  await symlink('/opt/claude', join(path, 'exe')); await symlink('/approved/app', join(path, 'cwd'));
+  const result = await observeAgents(root);
+  assert.equal(result.agents[0]?.pid, 9000);
+  assert.deepEqual(result.warnings, []);
 });
 
 test('host-side hooks can load process helpers without node_modules', async () => {

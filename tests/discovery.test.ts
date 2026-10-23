@@ -105,3 +105,37 @@ test('observed Serve loopback normalization never accepts wildcard, paths or cre
   for (const address of ['http://localhost:3000','http://127.0.0.1:3000/','http://[::1]:3000/']) assert.equal(loopbackPort(address),3000);
   for (const address of ['http://0.0.0.0:3000/','http://127.0.0.1:3000/private','http://user@localhost:3000/']) assert.equal(loopbackPort(address),null);
 });
+
+test('reviewed endpoints discover Docker links without claiming process ownership or approving publication', async t => {
+  const { root, config, host, store } = await setup(t); config.profiles = [];
+  const app = join(root, 'app'); const other = join(root, 'other');
+  await mkdir(app); await writeFile(join(app, 'package.json'), '{}');
+  await mkdir(other); await writeFile(join(other, 'package.json'), '{}');
+  const target = { id: 'demo', approved: true as const, projectPath: app, checkoutPath: app, serviceId: 'demo', serviceName: 'Demo public site', port: 8091, httpsPort: 20191, readiness: { path: '/e/', status: 200, bodyIncludes: 'Tournaments', timeoutMs: 15000 } };
+  config.previewTargets = [target];
+  host.listeners = async () => [{ address: '127.0.0.1', port: 8091, pid: null, cwd: null, cgroup: null }];
+  host.routeState = (await import('../src/host/routes.js')).routeState;
+  const routes = { TCP: { '20191': { HTTPS: true } }, Web: { [`${config.tailnetHostname}:20191`]: { Handlers: { '/': { Proxy: 'http://127.0.0.1:8091' } } } } };
+  (host as import('../src/host/types.js').Host).routes = async () => routes;
+  const observe = async () => (await new Catalog(config, host, store).list({ limit: 50 })).projects;
+  let projects = await observe(); let project = projects.find(p => p.path === app)!;
+  assert.deepEqual(project.observedPreviews, [{ label: 'Demo public site', url: `https://${config.tailnetHostname}:20191/` }]);
+  assert.equal(project.routeSummaries?.[0].route, 'matching');
+  assert.deepEqual(project.runtime.ports, [8091]);
+  assert.equal(project.runtime.listeners?.[0].loopback, false);
+  assert.equal(project.runtime.listeners?.[0].process, undefined);
+  assert.equal(project.runtime.ownership, 'observe-only'); assert.deepEqual(project.previewIds, []);
+  assert.deepEqual(projects.find(p => p.path === other)!.observedPreviews, []);
+  assert.equal(store.previews().length, 0); assert.equal(host.starts, 0);
+  host.listeners = async () => [];
+  assert((await observe()).every(p => !p.observedPreviews?.length));
+  host.listeners = async () => [{ address: '127.0.0.1', port: 8091, pid: 123, cwd: other, cgroup: null }];
+  projects = await observe();
+  assert.deepEqual(projects.find(p => p.path === app)!.observedPreviews, []);
+  assert.equal(projects.find(p => p.path === other)!.observedPreviews?.length, 1);
+  host.listeners = async () => [{ address: '127.0.0.1', port: 8091, pid: null, cwd: null, cgroup: null }];
+  config.previewTargets.push({ ...target, id: 'ambiguous', checkoutPath: other, projectPath: other, httpsPort: 20192 });
+  assert((await observe()).every(p => !p.observedPreviews?.length));
+  config.previewTargets = [];
+  assert((await observe()).every(p => !p.observedPreviews?.length));
+});

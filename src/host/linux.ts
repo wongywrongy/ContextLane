@@ -1,5 +1,6 @@
 import { readFile, readlink, access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { dirname } from 'node:path';
 import { command } from './command.js';
 import type { Host, Unit, Preview, Listener } from './types.js';
 import type { Service } from '../config.js';
@@ -28,6 +29,23 @@ export async function boundedText(response: Response, limit: number): Promise<st
   }
 }
 export class LinuxHost implements Host {
+  private tools: {expires:number;node:string;value:Promise<Record<string,string>>}|undefined;
+  toolchains(node:string) {
+    if(this.tools && this.tools.node===node && this.tools.expires>Date.now())return this.tools.value;
+    const script="const fs=require('node:fs'),p=require('node:path');const roots=[p.dirname(process.execPath),...(process.env.PATH||'/usr/local/bin:/usr/bin:/bin').split(':')];const out={node:process.execPath};for(const name of ['python3','npm','pnpm','yarn','bun'])for(const root of roots){const file=p.join(root,name);try{fs.accessSync(file,fs.constants.X_OK);out[name==='python3'?'python':name]=fs.realpathSync(file);break;}catch{}}console.log(JSON.stringify(out));";
+    const value=command('systemd-run',['--user','--no-ask-password','--quiet','--pipe','--wait','--collect','--property=RuntimeMaxSec=5s','--expand-environment=no','--',node,'-e',script],{timeout:8000,maxBuffer:16384}).then(text=>{
+      const value=JSON.parse(text);if(!value || typeof value!=='object' || Object.values(value).some(v=>typeof v!=='string' || !v.startsWith('/')))throw new Problem('TOOLCHAIN_MISSING','Host toolchain probe returned invalid paths');return value as Record<string,string>;
+    });
+    this.tools={expires:Date.now()+30000,node,value};return value;
+  }
+  private async checkServices(services:Pick<Service,'cwd'|'executable'>[]) {
+    if(this.tools?.node) {
+      const script="const fs=require('node:fs'),p=require('node:path');const wrappers=new Set(['env','sh','bash','dash','zsh','fish','ksh','csh','tcsh','pwsh','powershell']);for(const s of JSON.parse(process.argv[1])){fs.accessSync(s.executable,fs.constants.X_OK);fs.accessSync(s.cwd,fs.constants.R_OK|fs.constants.X_OK);if(wrappers.has(p.basename(fs.realpathSync(s.executable))))process.exit(1);}";
+      await command('systemd-run',['--user','--no-ask-password','--quiet','--pipe','--wait','--collect','--property=RuntimeMaxSec=5s','--expand-environment=no','--',this.tools.node,'-e',script,JSON.stringify(services.map(s=>({cwd:s.cwd,executable:s.executable})))],{timeout:8000,maxBuffer:4096});
+      return;
+    }
+    for(const service of services){await access(service.executable,constants.X_OK);await access(service.cwd,constants.R_OK|constants.X_OK);}
+  }
   private serve = new ServeRoutes();
   agents = observeAgents;
   guardedRoutes() {
@@ -49,14 +67,7 @@ export class LinuxHost implements Host {
     return readFile('/proc/sys/kernel/random/boot_id', 'utf8').then((s) => s.trim());
   }
   async capabilities(services: Service[]) {
-    for (const service of services) {
-      try {
-        await access(service.executable, constants.X_OK);
-        await access(service.cwd, constants.R_OK | constants.X_OK);
-      } catch {
-        throw new Problem('MISSING_CAPABILITY', `${service.id}: executable or working directory is unavailable`);
-      }
-    }
+    try {await this.checkServices(services);}catch{throw new Problem('MISSING_CAPABILITY','A service executable or directory is unavailable on the host, or resolves to a shell/env wrapper');}
     await command('systemctl', ['--user', 'show', '--property=Version']);
     const help = await command('systemd-run', ['--help']);
     if (!help.includes('--expand-environment')) throw new Problem('MISSING_CAPABILITY', 'systemd-run requires --expand-environment support');
@@ -120,7 +131,7 @@ export class LinuxHost implements Host {
     );
   }
   async inspectUnit(name: string) {
-    const output = await command('systemctl', ['--user', 'show', name, '--property=LoadState,ActiveState,Description,ControlGroup,InvocationID'], {
+    const output = await command('systemctl', ['--user', 'show', name, '--property=LoadState,ActiveState,Description,ControlGroup,InvocationID,NRestarts,ExecMainStatus,Result,Restart'], {
       allowedExitCodes: [1],
     });
     const props = Object.fromEntries(
@@ -134,10 +145,12 @@ export class LinuxHost implements Host {
     );
     if (props.LoadState === 'not-found') return null;
     if (!props.LoadState || !props.ActiveState) throw new Problem('UNIT_STATE', `Cannot inspect ${name}`);
-    return { state: props.ActiveState, marker: props.Description, cgroup: props.ControlGroup, invocation: props.InvocationID };
+    return { state: props.ActiveState, marker: props.Description, cgroup: props.ControlGroup, invocation: props.InvocationID,
+      ...(props.NRestarts ? {restarts:Number(props.NRestarts)} : {}), ...(props.ExecMainStatus ? {exitCode:Number(props.ExecMainStatus)} : {}),
+      ...(props.Result ? {result:props.Result} : {}), ...(props.Restart ? {restart:props.Restart} : {}) };
   }
   async startUnit(unit: Unit, service: Service) {
-    await access(service.executable, constants.X_OK);
+    await this.checkServices([service]);
     if (await this.inspectUnit(unit.name)) throw new Problem('OWNERSHIP_CONFLICT', `Unit ${unit.name} already exists`);
     await command('systemd-run', [
       '--user',
@@ -150,7 +163,8 @@ export class LinuxHost implements Host {
       `--working-directory=${service.cwd.replaceAll('%', '%%')}`,
       '--property=KillMode=control-group',
       '--property=TimeoutStopSec=10s',
-      '--property=Restart=no',
+      `--property=Restart=${service.restart ?? 'no'}`,
+      ...(service.restart === 'on-failure' ? ['--property=RestartSec=2s','--property=StartLimitIntervalSec=60s','--property=StartLimitBurst=3'] : []),
       '--property=StandardOutput=journal',
       '--property=StandardError=journal',
       ...(service.envFile ? [`--property=EnvironmentFile=${service.envFile.replaceAll('%', '%%')}`] : []),
@@ -159,6 +173,33 @@ export class LinuxHost implements Host {
       service.executable,
       ...service.args,
     ]);
+  }
+  async runPreparation(unit: Unit, step: {command:string[];cwd:string;timeoutMs:number}) {
+    await this.checkServices([{cwd:step.cwd,executable:step.command[0]}]);
+    if (await this.inspectUnit(unit.name)) throw new Problem('OWNERSHIP_CONFLICT','Preparation unit already exists');
+    const ownerHome = process.env.ROOTLANE_OWNER_HOME ?? process.env.HOME ?? '/tmp';
+    await command('systemd-run',[
+      '--user','--no-ask-password','--quiet',`--unit=${unit.name}`,`--description=${unit.marker}`,
+      '--service-type=exec','--expand-environment=no',`--working-directory=${step.cwd.replaceAll('%','%%')}`,
+      '--property=RemainAfterExit=yes','--property=KillMode=control-group','--property=TimeoutStopSec=10s',
+      `--property=RuntimeMaxSec=${Math.ceil(step.timeoutMs/1000)}s`,'--property=Restart=no',
+      '--property=StandardOutput=journal','--property=StandardError=journal',
+      '--','/usr/bin/env','-i',`HOME=${ownerHome}`,`PATH=${dirname(this.tools?.node ?? step.command[0])}:${process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin'}`,
+      ...step.command,
+    ]);
+    try {
+      const deadline = Date.now() + step.timeoutMs;
+      while (Date.now() < deadline) {
+        const current = await this.inspectUnit(unit.name);
+        if (!current || current.marker !== unit.marker) throw new Problem('OWNERSHIP_CONFLICT','Preparation ownership could not be verified');
+        if (current.state === 'failed' || (current.exitCode !== undefined && current.exitCode !== 0)) throw new Problem('PREPARATION_FAILED',`Preparation failed (${current.result ?? 'exit'}; status ${current.exitCode ?? 'unknown'}). Inspect ${unit.name} in the host journal.`);
+        // RemainAfterExit preserves successful short jobs until ownership and exit status are checked.
+        const sub = await command('systemctl',['--user','show',unit.name,'--property=SubState','--value']);
+        if (current.state === 'active' && sub.trim() === 'exited') return;
+        await new Promise(resolve=>setTimeout(resolve,250));
+      }
+      throw new Problem('PREPARATION_TIMEOUT',`Preparation exceeded ${step.timeoutMs} ms`);
+    } finally { await this.stopUnit(unit); }
   }
   async stopUnit(unit: Unit) {
     const current = await this.inspectUnit(unit.name);

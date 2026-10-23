@@ -51,7 +51,7 @@ test('toolchain revision and request IDs bind reviews; env files are private and
  const logs=await f.service.call('get_logs',{environmentId:id,serviceId:'web'});assert(!JSON.stringify(logs).includes(value));assert(JSON.stringify(logs).includes('[redacted]'));assert(!JSON.stringify(await f.service.call('get_environment',{environmentId:id})).includes(value));assert(!JSON.stringify(await f.service.recipes.listApprovals()).includes(value));
  await f.service.call('stop_environment',request(id));await f.lifecycle.drain();await chmod(secret,0o644);await assert.rejects(f.service.call('start_environment',request(id)),/mode 0600/);await chmod(secret,0o600);
  f.config.toolchains.node='/bin/true';assert.equal((await f.service.recipes.inspect(f.repo)).approval,'stale');await assert.rejects(f.service.call('start_environment',request(id)),(e:unknown)=>e instanceof Problem&&e.code==='APPROVAL_REQUIRED');await assert.rejects(f.service.call('request_environment',input),/Recipe changed/);
- delete f.config.toolchains.node;assert.equal((await f.service.recipes.inspect(f.repo)).errors[0]?.code,'TOOLCHAIN_MISSING');
+ delete f.config.toolchains.node;assert.equal((await f.service.recipes.inspect(f.repo)).valid,true); // Host Node is detected when an override is removed.
 });
 test('recipe reviews keep snapshots consistent, reject stale approval and rejected starts, and survive restart',async t=>{
  const f=await fixture(t);const pending=toolContracts.request_environment.output.parse(await f.service.call('request_environment',{path:f.repo,requestId:randomUUID()}));const id=pending.resolvedPreview.instanceId,approvalId=new URL(pending.approvalUrl).searchParams.get('approval')!;

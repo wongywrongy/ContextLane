@@ -21,6 +21,7 @@ import { PanelSection } from './panel-section';
 import { AgentsTab } from './agent-telemetry';
 export { Mark } from './agent-avatar';
 export type DetailTab = 'Overview' | 'Logs' | 'Worktrees' | 'Agents' | 'Services' | 'Links' | 'Activity';
+import { CheckoutControls } from './checkout-controls';
 import { LogsTab } from './project-logs';
 export const time = (value?: string | null) =>
   value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleTimeString('en-GB', { hour12: false }) : '—';
@@ -93,7 +94,7 @@ function Table({ headings, children }: { headings: string[]; children: React.Rea
     </div>
   );
 }
-export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPrevious, hasNext, environments, environmentErrors, previews, previewErrors, details, projectError, stale, lifecycleAvailable, working, editorTemplate, editorHost, activity, activityError, checks, events, onRequest, onAction, loadLogs, agentSessions, agentSessionError, now = Date.now(), onTelemetrySetup = () => {} }: {
+export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPrevious, hasNext, environments, environmentErrors, previews, previewErrors, details, projectError, stale, lifecycleAvailable, working, editorTemplate, editorHost, activity, activityError, checks, events, onRequest, onAction, loadLogs, agentSessions, agentSessionError, now = Date.now(), onTelemetrySetup = () => {}, api = async()=>{throw new Error('Connection unavailable');}, onChanged = ()=>{} }: {
   group: ProjectGroup; tab: DetailTab; onOpen: (tab: DetailTab) => void; onClose: () => void;
   onMove: (direction: number) => void; hasPrevious: boolean; hasNext: boolean;
   environments: Record<string, Environment>; environmentErrors: Record<string,string>;
@@ -101,11 +102,13 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
   details: ProjectDetails | null; projectError: string; stale: boolean; lifecycleAvailable: boolean; working: string | null;
   editorTemplate: string | null; editorHost: string | null; activity: (Operation | PreviewOperation)[]; activityError: string;
   agentSessions?: AgentSessions; agentSessionError?: string; now?: number; onTelemetrySetup?: () => void;
+  api?:(path:string,body:unknown)=>Promise<any>; onChanged?:()=>void;
   checks?: CheckHistory[]; events?: ObservedEvent[]; onRequest: (path: string) => void;
-  onAction: (id: string, action: 'start' | 'stop' | 'publish' | 'unpublish') => void;
+  onAction: (id: string, action: 'start' | 'stop' | 'recover' | 'publish' | 'unpublish') => void;
   loadLogs: (environmentId: string, serviceId: string, cursor: string | undefined, signal: AbortSignal) => Promise<{ lines: string[]; nextCursor: string | null; truncated: boolean }>;
 }) {
   const project = group.primary, managed = group.environmentIds.length > 0;
+  const [selectedCheckout,setSelectedCheckout]=useState(project.path);
   const [mobile, setMobile] = useState(() => matchMedia('(max-width:1099px)').matches);
   const [wide, setWide] = useState(() => { try { return localStorage.getItem('rootlane.panelWide') === 'true'; } catch { return false; } });
   const panel = useRef<HTMLElement>(null);
@@ -148,7 +151,7 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
     <header className="dr-head">
       {mobile && <div className="mtop"><button className="mback" onClick={onClose}>‹ Projects</button><span className="mobile-project-nav"><button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button></span></div>}
       <div className="dr-top"><div className="dr-title"><h2 id="detail-title">{project.name}</h2><div className="dr-sub">{shortPath(project.path)} · {branchLabel(project)}</div>{managed && <small>Managed · {evidenceStale ? '—' : projectStatus(group,environments,environmentErrors).replace('Unknown','—')}</small>}</div>
-      <div className="dr-actions">{controls.map(c => { const env = environments[c.id]; const canStop = c.desiredState === 'running' || c.hasResources || (env && env.application !== 'stopped'); return canStop && <button className="btn" key={c.id} disabled={evidenceStale || !!environmentErrors[c.id] || !lifecycleAvailable || !!working || conflict || !!env?.observationError} onClick={() => onAction(c.id,'stop')}>Stop{controls.length > 1 ? ` ${label(c.id)}` : ''}</button>; })}{!mobile && <><button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button><button className="btn" aria-pressed={wide} onClick={() => { setWide(!wide); try { localStorage.setItem('rootlane.panelWide',String(!wide)); } catch {} }}>Widen</button><button className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="disclosure"/></button></>}</div></div>
+      <div className="dr-actions">{!mobile && <><button className="icon-btn" aria-label="Previous project" disabled={!hasPrevious} onClick={() => onMove(-1)}>↑</button><button className="icon-btn" aria-label="Next project" disabled={!hasNext} onClick={() => onMove(1)}>↓</button><button className="btn" aria-pressed={wide} onClick={() => { setWide(!wide); try { localStorage.setItem('rootlane.panelWide',String(!wide)); } catch {} }}>Widen</button><button className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="disclosure"/></button></>}</div></div>
       <div className={mobile ? 'mtabs' : 'dr-tabs dtabs seg'} role="tablist" aria-label={`${project.name} details`} onKeyDown={event => { if (!['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) return; event.preventDefault(); const i = tabs.indexOf(selectedTab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; onOpen(tabs[next]); document.getElementById(`tab-${tabs[next]}`)?.focus(); }}>
         {tabs.map(t => <button key={t} id={`tab-${t}`} role="tab" aria-selected={t === selectedTab} aria-controls="detail-body" tabIndex={t === selectedTab ? 0 : -1} className={selectedTab === t ? 'on' : ''} onClick={() => onOpen(t)}>{t}{count(t) !== null && <b>{count(t)}</b>}</button>)}
       </div>
@@ -156,6 +159,7 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
     <div id="detail-body" role={mobile && activeTab === 'Activity' ? 'region' : 'tabpanel'} aria-labelledby={mobile && activeTab === 'Activity' ? 'activity-title' : `tab-${activeTab}`} tabIndex={0} className={mobile ? 'mbody dr-body flat' : 'dr-body flat'}>
       {projectError && <p className="notice bad" role="alert">{projectError} · Details observation stale</p>}
       {stale && <p className="notice">Showing retained observations · current state —</p>}
+      {activeTab==='Overview' && <CheckoutControls key={group.id} selectedPath={selectedCheckout} onSelect={setSelectedCheckout} checkouts={[group.primary,...group.checkouts.filter(p=>p.id!==group.primary.id)]} environments={environments} working={!!working} onRequest={onRequest} onAction={onAction} api={api} onChanged={onChanged}/>}
       {activeTab === 'Overview' && <>
         <PanelSection title="Runtime map"><div className="rmap h"><span>Process</span><span>Listening on</span><span/><span>Reached at</span><span>State</span></div>
           {services.map(s => { const destinations = evidenceStale ? [] : links.filter(l => l.checkout.id === s.checkout.id && l.target && Number(new URL(l.target).port) === s.port); return <div className="rmap" key={s.key}><div><strong>{s.name}</strong><small className="mono muted runtime-meta">{shortPath(s.checkout.path)} · pid {evidenceStale ? '—' : s.process?.pid ?? '—'}</small></div><div>{s.binds.length ? s.binds.map(l => <span key={l.bind} className={`bind ${l.wildcard ? 'wide' : ''}`}>{evidenceStale ? '—' : `${l.bind.includes(':') ? `[${l.bind}]` : l.bind}:${s.port}`}</span>) : <span className="none">—</span>}</div><span className="arrow">→</span><div>{destinations.length ? destinations.map(l => <a className="runtime-url mono" key={l.key} href={l.url} target="_blank" rel="noreferrer">{l.label} {l.url}</a>) : <span className="none">{evidenceStale || s.checkout.funnel == null ? '—' : s.managed ? 'internal' : 'no route'}</span>}</div><Chip state={s.state}>{s.state === 'Ready' ? 'Working' : s.state === 'Unknown' ? '—' : s.state}</Chip></div>; })}{!services.length && <p className="okline">{details ? 'No services observed.' : 'Reading services…'}</p>}
@@ -168,7 +172,7 @@ export function ProjectDetailsPanel({ group, tab, onOpen, onClose, onMove, hasPr
             : c.kind === 'preview-https' && (!!previewErrors[c.subject] || !!previews[c.subject]?.errors.length || (!previews[c.subject] && !!checkout?.environmentIds.some(id => environmentErrors[id] || environments[id]?.observationError)));
           const expired = evidenceStale || !!activityError || sourceFailed || !last || Date.now() - Date.parse(last.at) > (c.kind === 'http-probe' ? 45000 : 15000); return <div className="chk" key={`${c.subject}:${c.kind}`}><div><strong>{c.kind === 'readiness' ? 'Reviewed readiness' : c.kind === 'preview-https' ? 'Preview HTTPS verification' : c.kind === 'route' ? 'Route presence' : 'HTTP probe'}</strong><small className="mono muted runtime-meta">{c.subject}</small></div><div className="strip" role="img" aria-label={`Last ${c.results.length} results: ${c.results.map(r => r.ok === null ? 'not run' : r.ok ? 'pass' : 'fail').join(', ')}`}>{Array.from({length:30},(_,i) => c.results[i - (30 - c.results.length)]).map((r,i) => <i key={i} className={!r || r.ok === null ? 'n' : r.ok ? '' : 'f'} title={r ? `${r.at}: ${r.status ?? 'not run'}` : 'not run'}/>)}</div><Chip state={expired || last?.ok === null ? 'Unknown' : last?.ok ? 'Ready' : 'Failed'}>{expired || last?.ok === null ? '—' : last?.ok ? 'Pass' : 'Fail'}</Chip></div>; })}{checks && !checks.length && <p className="okline">No checks recorded yet.</p>}{!checks && <p className="okline">Reading check history…</p>}</PanelSection>
         {exposure}{changes}
-        {group.checkouts.some(c => c.recipe?.found && c.recipe.valid && c.recipe.approval !== 'approved') && <button className="btn" disabled={stale || !!working} onClick={() => onRequest(group.checkouts.find(c => c.recipe?.found)!.path)}>Request environment…</button>}
+        {false && group.checkouts.some(c => c.recipe?.found && c.recipe.valid && c.recipe.approval !== 'approved') && <button className="btn" disabled={stale || !!working} onClick={() => onRequest(group.checkouts.find(c => c.recipe?.found)!.path)}>Request environment…</button>}
         <LinksTab links={links} publications={publications} details={details} enabled={!evidenceStale && lifecycleAvailable && !conflict && !working} onAction={onAction} previewErrors={previewErrors}/>
       </>}
       {activeTab === 'Logs' && managed && <LogsTab services={details?.logServices ?? []} load={loadLogs}/>}

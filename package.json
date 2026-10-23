@@ -1,25 +1,26 @@
 {
   "name": "rootlane",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24.11.0 <25"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
-    "build": "tsc && mkdir -p dist/state/migrations && cp src/state/migrations/*.sql dist/state/migrations/ && vite build && cp web/fonts/Geist-LICENSE.txt dist/web/Geist-LICENSE.txt",
+    "build": "tsc && node deploy/build-mcp.mjs && mkdir -p dist/state/migrations && cp src/state/migrations/*.sql dist/state/migrations/ && vite build && cp web/fonts/Geist-LICENSE.txt dist/web/Geist-LICENSE.txt",
     "test": "node --import tsx --test tests/*.test.ts",
     "check": "npm run typecheck && npm run build && npm test",
     "start": "node dist/main.js",
     "mcp": "node dist/mcp/main.js",
     "backup": "node dist/state/backup.js",
-    "host:acceptance": "npm run build && node tests/host-acceptance.mjs"
+    "host:acceptance": "npm run build && node tests/host-acceptance.mjs && node tests/environment-host-acceptance.mjs",
+    "client:acceptance": "npm run build && node tests/client-acceptance.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
     "better-sqlite3": "13.0.3",
-    "fastify": "5.12.5",
+    "fastify": "5.12.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5"
@@ -32,6 +33,6 @@
     "@types/react-dom": "19.3.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
-    "vite": "7.3.6"
+    "vite": "7.3.7"
   }
 }

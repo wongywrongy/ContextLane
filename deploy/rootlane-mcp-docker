@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 release=$(dirname "$(dirname "$(readlink -f "$0")")")
+if { [ -x "$release/runtime/node/bin/node" ] || command -v node >/dev/null 2>&1; } && [ -f "$release/dist/mcp/standalone.cjs" ]; then
+  exec "$release/deploy/rootlane-mcp"
+fi
 exec docker compose --project-directory "$release" -f "$release/compose.yaml" exec -T --env ROOTLANE_PARENT_PID="$PPID" rootlane node --input-type=module -e '
 import { readFileSync } from "node:fs";
 const config = JSON.parse(readFileSync(process.env.ROOTLANE_CONFIG, "utf8"));

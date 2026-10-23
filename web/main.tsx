@@ -129,6 +129,7 @@ function App() {
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
+  const forceRescan = useRef(false);
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
   const [environments, setEnvironments] = useState<Record<string, Environment>>({});
@@ -191,9 +192,10 @@ function App() {
               setLifecycleAvailable(false);
             }
           }),
-        loadCatalog((cursor, snapshot) => json('/api/tools/list_projects', { cursor, limit: 50, ...(snapshot ? { snapshot } : {}) }, csrf, signal))
+        loadCatalog((cursor, snapshot) => json('/api/tools/list_projects', { cursor, limit: 50, ...(snapshot ? { snapshot } : forceRescan.current ? {rescan:true} : {}) }, csrf, signal))
           .then((data) => {
             if (signal.aborted) return;
+            forceRescan.current = false;
             catalogRef.current = data;
             setCatalog(data);
             setCatalogError('');
@@ -345,7 +347,7 @@ function App() {
       setWorking(null);
     }
   }
-  function action(identity: string, action: 'start' | 'stop' | 'publish' | 'unpublish') {
+  function action(identity: string, action: 'start' | 'stop' | 'recover' | 'publish' | 'unpublish') {
     if (
       (action === 'stop' || action === 'unpublish') &&
       !window.confirm(
@@ -355,7 +357,7 @@ function App() {
       )
     )
       return;
-    void perform(action + (action === 'start' || action === 'stop' ? '_environment' : '_preview'), {
+    void perform(action + (action === 'start' || action === 'stop' || action === 'recover' ? '_environment' : '_preview'), {
       [action === 'publish' ? 'targetId' : action === 'unpublish' ? 'previewId' : 'environmentId']: identity,
       requestId: crypto.randomUUID(),
     });
@@ -373,6 +375,7 @@ function App() {
       const value = requestEnvironmentOutput.parse(await json('/api/tools/request_environment', input, csrf!));
       setReviewId(value.status === 'pending' ? new URL(value.approvalUrl).searchParams.get('approval') : null);
       setRequestRetry(null);
+      if (value.status === 'approved') await perform('start_environment',{environmentId:value.resolvedPreview.instanceId,requestId:crypto.randomUUID()});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -389,7 +392,9 @@ function App() {
     setWorking('approval');
     setError('');
     try {
+      const review = approvals.find(r=>r.id===id);
       await json(`/api/approvals/${id}/${approve ? 'approve' : 'reject'}`, {}, csrf!);
+      if (approve && review) await perform('start_environment',{environmentId:review.preview.instanceId,requestId:crypto.randomUUID()});
       setReviewId(null);
       document.getElementById('projects-title')?.focus();
       history.replaceState(null, '', location.pathname);
@@ -543,7 +548,7 @@ function App() {
         {view === 'settings' ? (
           <section className="settings-page">
             <h1 className="h1">Settings</h1>
-            <p className="sub">read-only · change on the host</p>
+            <p className="sub">Host connection and reviewed client integrations</p>
             <nav className="seg settings-nav" aria-label="Settings pages">
               <button
                 className={settingsPage === 'connection' ? 'on' : ''}
@@ -561,7 +566,7 @@ function App() {
               </button>
               <button className={settingsPage === 'telemetry' ? 'on' : ''} aria-current={settingsPage === 'telemetry' ? 'page' : undefined} onClick={() => setSettingsPage('telemetry')}>Agent telemetry</button>
             </nav>
-            {settingsPage === 'mcp' ? <McpSetup/> : settingsPage === 'telemetry' ? <TelemetrySettings status={telemetryStatus} error={telemetryError} copy={copyTelemetry} now={now}/> : <>
+            {settingsPage === 'mcp' ? <McpSetup api={(path,body)=>json(path,body,csrf!)} telemetryEnabled={!!telemetryStatus?.enabled} onChanged={()=>void refreshController.current?.refresh()}/> : settingsPage === 'telemetry' ? <TelemetrySettings status={telemetryStatus} error={telemetryError} copy={copyTelemetry} now={now}/> : <>
               <PanelSection title="Tailscale" aside={<Chip state={tailscale}/>}>
                 <DetailRow label="Host" value={<span className="mono">{tailnetHostname ?? '—'}</span>}/><DetailRow label="Rootlane" value={connection}/><DetailRow label="Operator address" value={<span className="mono">{location.origin}</span>}/><DetailRow label="Observed" value={<span className="mono">{time(catalog?.observedAt)}</span>}/>
               </PanelSection>
@@ -578,7 +583,7 @@ function App() {
               <div className="toolbar-actions">
                 <button className={`npill ${noticesOpen ? 'on' : ''}`} aria-expanded={noticesOpen} aria-controls="discovery-notices" onClick={() => setNoticesOpen(!noticesOpen)}>{catalog?.warnings.length ?? 0} notices</button>
                 <span className="observed mono muted">{catalog ? `updated ${elapsed(catalog.observedAt, now) ?? '—'} ago` : 'Updating…'}</span>
-                <button className="icon-btn" aria-label="Refresh projects" onClick={() => void refreshController.current?.refresh()}><Icon name="refresh"/></button>
+                <button className="icon-btn" aria-label="Rescan projects" onClick={() => {forceRescan.current=true;void refreshController.current?.refresh();}}><Icon name="refresh"/></button>
                 <label className="select">Sort <select aria-label="Sort projects" value={sort} onChange={e => { setSort(e.target.value); setCursor(0); }}><option value="name">Name</option><option value="status">Status</option><option value="worktrees">Worktrees</option></select></label>
                 <div className="seg density" aria-label="Row density">{(['Compact', 'Expanded'] as const).map(value => <button key={value} className={density === value ? 'on' : ''} aria-pressed={density === value} onClick={() => { setDensity(value); try { saveDensity(localStorage, value); } catch {} }}>{value}</button>)}</div>
               </div>
@@ -588,6 +593,7 @@ function App() {
               <div className="legend">{[['ok','working'], ['info','unverified'], ['bad','down'], ['idle','link']].map(([tone,text]) => <span key={tone}><i className={`ldot ${tone}`} aria-hidden="true"/>{text}</span>)}</div>
             </div>
             {noticesOpen && <div id="discovery-notices" className="notice catalog-notice"><div>{catalog?.warnings.length ? catalog.warnings.map(w => <p key={w}>{w}</p>) : <p>No discovery notices.</p>}</div></div>}
+            {catalog?.scan && <p className="pv-note">Scan: {catalog.scan.durationMs} ms · {catalog.scan.entries}/{catalog.scan.limits.entries} entries · depth {catalog.scan.limits.depth} · {catalog.scan.complete ? 'complete' : 'incomplete observations'}{catalog.scan.unmatchedListeners.length ? ` · unmatched listener ports: ${catalog.scan.unmatchedListeners.join(', ')}` : ''}</p>}
             {approvalsError && (
               <p className="notice bad" role="alert">
                 Approvals: {approvalsError}
@@ -642,7 +648,7 @@ function App() {
               const group = allGroups.find(g => g.primary.id === selected);
               if (!group) return null;
               const observation = projectObservations[selected], index = filtered.findIndex(g => g.primary.id === selected);
-              return <ProjectDetailsPanel key={selected} group={group} tab={tabs[selected] ?? 'Overview'} onOpen={tab => selectProject(selected, tab)} onClose={() => selectProject(null)}
+              return <ProjectDetailsPanel api={(path,body)=>json(path,body,csrf!)} onChanged={()=>void refreshController.current?.refresh()} key={selected} group={group} tab={tabs[selected] ?? 'Overview'} onOpen={tab => selectProject(selected, tab)} onClose={() => selectProject(null)}
                 onMove={direction => { const next = filtered[index + direction]; if (next) { setCursor(Math.floor((index + direction) / 25) * 25); selectProject(next.primary.id, tabs[selected] ?? 'Overview'); } }} hasPrevious={index > 0} hasNext={index >= 0 && index < filtered.length - 1}
                 environments={environments} environmentErrors={environmentErrors} previews={previews} previewErrors={previewErrors} details={observation?.details ?? null} projectError={observation?.error ?? ''} stale={stale} lifecycleAvailable={lifecycleAvailable} working={working ?? (activeRef.current ? 'operation' : null)} editorTemplate={editorTemplate} editorHost={tailnetHostname} activity={observation?.activity ?? []} activityError={observation?.activityError ?? ''} checks={observation?.checks} events={observation?.events} onRequest={path => void requestEnvironment({path,requestId:crypto.randomUUID()})} onAction={action}
                 agentSessions={agentSessions[selected]} agentSessionError={agentSessionErrors[selected]} now={now} onTelemetrySetup={() => { selectProject(null); setSettingsPage('telemetry'); setView('settings'); }}

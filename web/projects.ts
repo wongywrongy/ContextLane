@@ -8,18 +8,19 @@ export async function loadCatalog(fetchPage: (cursor: number, snapshot?: string)
   const projects: Project[] = [];
   const warnings = new Set<string>();
   let observedAt = '';
+  let scan: import('zod').infer<typeof import('../src/shared/contracts.js').scanEvidence>|undefined;
   while (projects.length < 1000) {
     const page = catalogOutput.parse(await fetchPage(cursor, observedAt || undefined));
     if (observedAt && page.observedAt !== observedAt) throw new Error('Catalog changed during refresh. Retry refresh.');
-    observedAt = page.observedAt;
+    observedAt = page.observedAt; scan=page.scan;
     page.warnings.forEach((w) => warnings.add(w));
     projects.push(...page.projects);
-    if (page.nextCursor === null) return { projects, warnings: [...warnings], observedAt };
+    if (page.nextCursor === null) return { projects, warnings: [...warnings], observedAt, scan };
     if (page.nextCursor <= cursor) throw new Error('Catalog pagination did not advance.');
     cursor = page.nextCursor;
   }
   warnings.add('Catalog limited to 1,000 entries.');
-  return { projects: projects.slice(0, 1000), warnings: [...warnings], observedAt };
+  return { projects: projects.slice(0, 1000), warnings: [...warnings], observedAt, scan };
 }
 export function groupProjects(projects: Project[]): ProjectGroup[] {
   const independent = (p: Project) =>

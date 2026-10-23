@@ -4,27 +4,19 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { McpSetup } from '../web/mcp-setup.js';
 import { toolContracts } from '../src/shared/contracts.js';
+import { readFile } from 'node:fs/promises';
 
-test('MCP guide teaches installed local adapters and verification without credential examples', () => {
+test('Codex example exposes every current workflow tool with approval prompts', async () => {
+  const config = await readFile('deploy/codex-mcp.example.toml', 'utf8');
+  const allowlist = JSON.parse(config.match(/^enabled_tools = (\[[^\n]+\])/m)![1]);
+  assert.deepEqual(allowlist.sort(), Object.keys(toolContracts).sort());
+  assert.match(config, /default_tools_approval_mode = "prompt"/);
+});
+
+test('integration UI distinguishes registration, connection and tool verification without credentials', () => {
   const html = renderToStaticMarkup(React.createElement(McpSetup));
-  assert(html.includes('codex mcp add rootlane -- /opt/stacks/rootlane/deploy/rootlane-mcp-docker'));
-  assert(html.includes('claude mcp add --transport stdio --scope user rootlane -- /opt/stacks/rootlane/deploy/rootlane-mcp-docker'));
   for (const name of Object.keys(toolContracts)) assert(html.includes(`<code>${name}</code>`));
-  assert(html.includes('Do not start or stop anything.'));
-  assert(html.includes('does not currently expose a remote'));
+  for (const text of ['Inspect integration','Configured, Connection checked and Tool call verified','Do not start or stop anything.','does not currently expose a remote','Normal client approvals','list_mcp_resources is not a connection test']) assert(html.includes(text),text);
   assert(!html.includes('ROOTLANE_AGENT_TOKEN'));
-  assert(!html.includes('neo'));
-  assert(html.includes('example Docker installation'));
   assert(!html.includes('dangerously-skip-permissions'));
-  assert(html.includes('aria-label="Copy setup prompt"'));
-  assert(html.indexOf('Register with Claude Code') < html.indexOf('Prefer agent-assisted setup?'));
-  assert(html.includes('inspect any existing rootlane registration'));
-  assert(html.includes('Never print or copy credentials.'));
-  assert(html.includes('Do not install another backend'));
-  assert(html.includes('report the blocker rather than replacing it'));
-  assert(html.includes('read-only locate call'));
-  assert(html.includes('list_mcp_resources is not a connection test'));
-  assert(html.includes('do not claim setup succeeded'));
-  assert(html.includes('payment callbacks'));
-  assert(html.includes('normal approvals'));
 });

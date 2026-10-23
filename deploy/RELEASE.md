@@ -25,7 +25,7 @@ For managed profiles, review the [configuration example](config.example.json) an
 
 The project-root mount already includes its existing checkout and installed Vite. Downloading this release does not install dependencies in any observed project or authorize another launch profile. Reload owner configuration with `deploy/rootlane-reload` (SIGHUP), or allow the ten-second mtime check. Invalid config keeps the running config. Changes to state, backend port, tailnet hostname or operator origins require restart. New mount paths require rerunning setup and recreating only Rootlane.
 
-For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow only the seventeen Rootlane tools. This wrapper executes the thin adapter inside the already-running container, reading its private credential there. It never starts a container/backend; an unavailable deployment fails clearly. Keep the effective client approval policy separate from backend ownership checks.
+For local coding clients, use the absolute path to `deploy/rootlane-mcp-docker` as the stdio command and allow all nineteen current Rootlane tools. With host Node 24, the bundled adapter runs independently of the controller, reads the private agent credential on the host, and keeps its stdio connection through controller recreation. Calls during an outage return a backend error; later calls recover on the same connection. Install the rebuilt bundle and wrappers together. Older installations without the bundle or host Node use the already-running container and require reconnecting after recreation. The wrapper never starts a container/backend. Keep the effective client approval policy separate from backend ownership checks.
 
 Check `docker compose ps`, `docker compose logs --tail=100`, and the authenticated UI status. Container health establishes that HTTP serves requests; managed readiness is a separate systemd/listener/application check. `docker compose restart` preserves managed host services, which Rootlane reconciles. `docker compose down` removes the backend container, not its SQLite state or managed host services. Stop managed environments through Rootlane before decommissioning; inspect and remove only the matching dedicated Rootlane Serve route separately.
 
@@ -53,3 +53,85 @@ Login adds persisted exponential failure backoff (1 second, doubling to 60 secon
 0.7.1 corrects process ownership, failed-refresh state, mobile exposure counts and route-check sampling. The first catalog scan after a controller restart establishes an observation baseline. Removed checkouts emit disappearance observations, and their project associations remain available while their events are retained. Historical associations use the existing metadata store; the SQLite schema stays at migration 004. Existing 0.7.0 observations are preserved, including any earlier duplicate entries.
 
 0.8.0 adds opt-in, agent-reported session telemetry: counts and names only, never content. A separate loopback-only JSON OTLP/hook receiver uses a new ingest-only credential; Settings provides guarded setup copies for Claude Code and Codex. Claude hooks establish process matches, while Codex matches remain probable. Context/usage limits require the optional Claude status-line wrapper. Rootlane MCP call counts remain available even while telemetry is off. The Agents tab adds list/detail views, and all panel tabs share flat divided sections with responsive detail rows. Two new read tools, get_agent_sessions and get_telemetry_status, bring the total to seventeen. Migration 005 adds bounded session aggregates, latest context and per-PID Rootlane tool counts, with hourly retention and backup coverage. Set telemetry.enabled=false and run rootlane-reload to close the receiver and purge retained rows. Back up before upgrading: rollback needs the matching pre-migration-005 backup. See [telemetry setup and privacy](../docs/TELEMETRY.md).
+
+## 0.9.0 environment workflow upgrade (schema 006)
+
+Preparation cleanup failures block configuration, approval and Start until the owner verifies recorded-unit cleanup. Installation retains the reviewed fingerprint: changed or newly created lockfiles require a second preparation review. Integration inspection checks registration arguments and effective Codex allow/deny lists; reviewed repairs change only Rootlane settings and preserve approval policies.
+
+The container and CI use Node 24.22.1, Fastify 5.12.7 and Vite 7.3.7. For host jobs and stdio, place the checksum-verified official Node 24.22.1 Linux distribution under `runtime/node` in the installation before running setup. Setup records `ROOTLANE_HOST_NODE` and mounts that directory read-only. Existing application toolchain overrides and profile executables are preserved. The adapter prefers that installation runtime. The official image index digests are pinned in Dockerfile; application dependencies remain the application's responsibility.
+
+Native client acceptance can be repeated with `ROOTLANE_CLIENT_ACCEPTANCE=1 ROOTLANE_CLIENT_AUTHENTICATED=1 ROOTLANE_CLIENT_TELEMETRY=1 npm run client:acceptance`. This uses an isolated backend, private temporary client settings, a temporary copy of Claude's existing sign-in and only fixture catalog data. It verifies an actual read-only result and fresh exporter events; it does not send the production catalog to a model or modify global client settings.
+
+This change adds private host-local recipes, owner-approved preparation, retirement and recovery state. Project mounts remain read-only. Run setup again to record `ROOTLANE_MCP_ADAPTER` and the host paths required by the integration jobs. Existing recipes keep their restart policy; only generated recipes select crash recovery. Reboot restoration stays off until selected per checkout. Old builds cannot open schema 006.
+
+For the detected Docker installation at `/opt/stacks/rootlane`, finish active preparation/lifecycle operations before upgrading. The following preserves the previous image, installation files, private configuration, state files and a SQLite backup made through the old image. It stops only the controller; existing managed host applications remain running.
+
+```sh
+cd /opt/stacks/rootlane
+umask 077
+rootlane_backup="$HOME/rootlane-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$rootlane_backup"
+rootlane_container=$(docker compose ps -q rootlane)
+rootlane_image=$(docker inspect "$rootlane_container" --format '{{.Image}}')
+rootlane_image_tag=$(docker inspect "$rootlane_container" --format '{{.Config.Image}}')
+rootlane_config_dir=$(docker inspect "$rootlane_container" --format '{{range .Mounts}}{{if eq .Destination "/config"}}{{.Source}}{{end}}{{end}}')
+rootlane_state=$(docker compose exec -T rootlane node -e 'console.log(JSON.parse(require("fs").readFileSync(process.env.ROOTLANE_CONFIG,"utf8")).stateDirectory)')
+rootlane_rollback_tag="rootlane:rollback-$(basename "$rootlane_backup" | tr '[:upper:]' '[:lower:]')"
+node --input-type=module - "$rootlane_backup" "$rootlane_image_tag" "$rootlane_rollback_tag" "$rootlane_config_dir" "$rootlane_state" "$rootlane_image" <<'JS'
+import { writeFileSync } from 'node:fs';
+const [backup, previousTag, rollbackTag, configDirectory, stateDirectory, previousImage] = process.argv.slice(2);
+writeFileSync(backup + '/metadata.json', JSON.stringify({backup, installation:process.cwd(), previousTag, rollbackTag, configDirectory, stateDirectory, previousImage}, null, 2), {mode:0o600,flag:'wx'});
+JS
+docker image tag "$rootlane_image" "$rootlane_rollback_tag"
+docker image save "$rootlane_rollback_tag" | gzip > "$rootlane_backup/image.tar.gz"
+docker compose stop rootlane
+docker compose run --rm --no-deps --entrypoint node rootlane dist/state/backup.js \
+  "$rootlane_state/rootlane.sqlite" "$rootlane_state/pre-environment-upgrade.sqlite"
+cp "$rootlane_state/pre-environment-upgrade.sqlite" "$rootlane_backup/rootlane.sqlite"
+tar -C /opt/stacks/rootlane -czf "$rootlane_backup/installation.tar.gz" .
+tar -C "$rootlane_config_dir" -czf "$rootlane_backup/config.tar.gz" .
+tar -C "$rootlane_state" -czf "$rootlane_backup/state.tar.gz" .
+printf 'Backup: %s\n' "$rootlane_backup"
+```
+
+Use a fresh backup destination and ensure `pre-environment-upgrade.sqlite` does not already exist. These are controller backups; application databases or external application files need their own reviewed backup procedure.
+
+With the reviewed new release archive available at `/tmp/rootlane-release.tar.gz`:
+
+```sh
+cd /opt/stacks/rootlane
+tar -xzf /tmp/rootlane-release.tar.gz -C /opt/stacks/rootlane
+node deploy/setup.mjs "$HOME/code"
+docker load -i rootlane-image.tar.gz
+docker compose up -d --no-deps --no-build --force-recreate --wait rootlane
+deploy/preflight-docker
+docker compose ps rootlane
+docker compose logs --tail=100 rootlane
+```
+
+For a source installation, replace `docker load` with `npm ci`, `npm run check` and `docker compose build rootlane`; keep the same `up --no-deps ... rootlane` command. Do not recreate unrelated stacks, reset Serve or change global coding-client settings. Check owner login, catalog rescan evidence, existing environment state, verified links and the client adapter. A healthy container alone does not verify applications or previews. Client repairs require a separate owner review in Settings.
+
+Rollback requires the matching old image and state. First stop any environments created or changed after the upgrade through Rootlane, verifying cleanup; an old ownership snapshot cannot safely identify later resources. Set `rootlane_backup` to the saved directory above:
+
+```sh
+cd /opt/stacks/rootlane
+rootlane_config_dir=$(node -p 'require(process.argv[1]).configDirectory' "$rootlane_backup/metadata.json")
+rootlane_state=$(node -p 'require(process.argv[1]).stateDirectory' "$rootlane_backup/metadata.json")
+rootlane_image_tag=$(node -p 'require(process.argv[1]).previousTag' "$rootlane_backup/metadata.json")
+rootlane_rollback_tag=$(node -p 'require(process.argv[1]).rollbackTag' "$rootlane_backup/metadata.json")
+docker compose stop rootlane
+tar -xzf "$rootlane_backup/installation.tar.gz" -C /opt/stacks/rootlane
+tar -xzf "$rootlane_backup/config.tar.gz" -C "$rootlane_config_dir"
+tar -xzf "$rootlane_backup/state.tar.gz" -C "$rootlane_state"
+rm -f "$rootlane_state/rootlane.sqlite-wal" "$rootlane_state/rootlane.sqlite-shm"
+cp "$rootlane_backup/rootlane.sqlite" "$rootlane_state/rootlane.sqlite"
+chmod 600 "$rootlane_state/rootlane.sqlite"
+docker load -i "$rootlane_backup/image.tar.gz"
+docker image tag "$rootlane_rollback_tag" "$rootlane_image_tag"
+docker compose up -d --no-deps --no-build --force-recreate --wait rootlane
+deploy/preflight-docker
+docker compose ps rootlane
+docker compose logs --tail=100 rootlane
+```
+
+Restoring the database also restores approval/reservation/ownership history to its backup time. Keep the full backup until the new workflow has passed owner acceptance. The backup format is `metadata.json`, including `previousTag`, `rollbackTag`, `configDirectory` and `stateDirectory`; older production backups already use this format. Rehearse with `node tests/backup-acceptance.mjs /absolute/backup` before release. That command restores only beneath a private temporary directory and never starts a controller or touches live resources.

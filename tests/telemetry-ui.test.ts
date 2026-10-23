@@ -44,10 +44,21 @@ test('stale session reports its age, Codex limits stay unavailable, thresholds f
   assert.deepEqual([59, 60, 85, 86].map(meterTone), ['ok', 'warn', 'warn', 'bad']);
 });
 
+test('a live process without telemetry does not show a stale report age', () => {
+  const old = new Date(now - 86400000).toISOString();
+  const process = { ...session, id: 'process:42', sessionKey: '', match: 'Process only' as const, model: null, context: null, startedAt: old, lastSeenAt: old };
+  const render = (entry: typeof process) => renderToStaticMarkup(React.createElement(AgentsTab, { group, data: { sessions: [entry], telemetry: { enabled: true, receiving: true, lastEventAt: old, dropped: 0 } }, stale: false, now, onSetup: () => {} }));
+  assert(render(process).includes('1d 0h'));
+  assert(!render(process).includes('updated'));
+  assert(render({ ...process, sessionKey: 'reported-session' }).includes('updated 1d 0h ago'));
+});
+
 test('Settings renders configured endpoints, both hooks and placeholder credentials only', () => {
   const status = telemetryStatusOutput.parse({ enabled: true, receiving: true, bind: '127.0.0.1', port: 9748, endpoint: 'http://127.0.0.1:9748/otlp', protocol: 'http/json', credentialSet: true, retentionDays: 7, lastEventAt: at, dropped: 1, droppedByReason: { unknownService: 1 }, reporting: { claude: 1, codex: 0 }, notReporting: 2, bindError: null, codexVersion: '0.162.1', headerEnvSupported: false });
   const html = renderToStaticMarkup(React.createElement(TelemetrySettings, { status, error: '', copy: async () => { throw new Error('INGEST_SECRET_SENTINEL'); }, now }));
   assert(html.includes('127.0.0.1:9748/otlp')); assert(!html.includes('127.0.0.1:9480'));
   for (const value of ['SessionStart', 'SessionEnd', '10000', 'log_user_prompt = false', '&lt;ingest token&gt;', 'literal ingest token']) assert(html.includes(value), value);
   assert(!html.includes('INGEST_SECRET_SENTINEL'));
+  const loading = renderToStaticMarkup(React.createElement(TelemetrySettings, { status: null, error: '', copy: async () => {}, now }));
+  assert(loading.includes('127.0.0.1:9481/otlp')); assert(!loading.includes('127.0.0.1:9480'));
 });

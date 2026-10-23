@@ -8,7 +8,7 @@ import { command } from '../host/command.js';
 import { inside, type Config } from '../config.js';
 import { page, Problem, type Project, type ProjectDetails } from '../shared/contracts.js';
 import type { Store, Observation } from '../state/store.js';
-import type { Host, Listener, AgentObservation, Unit } from '../host/types.js';
+import { unitRestarted, type Host, type Listener, type AgentObservation, type Unit } from '../host/types.js';
 export function loopbackPort(proxy?: string) {
   try {
     const url = new URL(proxy ?? '');
@@ -37,7 +37,7 @@ const manifests = [
 ];
 export class Catalog {
   enrich: ((project: Project) => Promise<void>) | undefined;
-  private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string } | null = null;
+  private cached: { expires: number; projects: Project[]; warnings: string[]; observedAt: string; scan: import('zod').infer<typeof import('../shared/contracts.js').scanEvidence> } | null = null;
   private snapshots = new Map<string, NonNullable<Catalog['cached']>>();
   private slowPaths: { expires: number; paths: string[]; warnings: string[]; complete: boolean } | null = null;
   private metadata = new Map<
@@ -51,18 +51,23 @@ export class Catalog {
   private previous: Project[] = [];
   private evidenceSeen = { listeners: false, routes: false, agents: false };
   private scan: Promise<NonNullable<Catalog['cached']>> | null = null;
+  private generation = 0;
+  private forced = false;
   constructor(
     readonly config: Config,
     readonly host: Host,
     readonly store?: Store,
   ) {}
   invalidate() {
+    this.generation++;
     this.cached = null;
     this.slowPaths = null;
     this.metadata.clear();
   }
   async list(input: unknown) {
-    const { cursor, limit, snapshot } = page.parse(input);
+    const { cursor, limit, snapshot, rescan } = page.parse(input);
+    if (rescan && snapshot) throw new Problem('INVALID_INPUT','Rescan cannot use an older snapshot');
+    if (rescan && !this.forced) { this.forced = true; this.invalidate(); }
     for (const [key, value] of this.snapshots) if (Date.now() > Date.parse(key) + 30000) this.snapshots.delete(key);
     if (snapshot) {
       const value = this.snapshots.get(snapshot);
@@ -72,12 +77,13 @@ export class Catalog {
         nextCursor: cursor + limit < value.projects.length ? cursor + limit : null,
         warnings: value.warnings,
         observedAt: value.observedAt,
+        scan:value.scan,
       };
     }
     if (!this.cached || this.cached.expires < Date.now()) {
-      this.scan ??= this.discover().finally(() => {
-        this.scan = null;
-      });
+      this.scan ??= (async()=>{
+        while (true) { const generation = this.generation; const result = await this.discover(); if (generation === this.generation) return result; }
+      })().finally(() => { this.scan = null; this.forced = false; });
       this.cached = await this.scan;
       this.snapshots.set(this.cached.observedAt, this.cached);
     }
@@ -86,6 +92,7 @@ export class Catalog {
       nextCursor: cursor + limit < this.cached.projects.length ? cursor + limit : null,
       warnings: this.cached.warnings,
       observedAt: this.cached.observedAt,
+      scan:this.cached.scan,
     };
   }
   async checkouts(projectId: string) {
@@ -220,8 +227,9 @@ export class Catalog {
   }
   private async discover() {
     const warnings: string[] = [];
-    const deadline = Date.now() + 5000;
-    const paths = new Set<string>();
+    const started = Date.now();
+    const deadline = started + 5000;
+    const paths = new Set<string>(), visited = new Set<string>(), unavailable = new Set<string>();
     const safe = async (path: string) => {
       const resolved = await realpath(path);
       return this.config.observationRoots.some((r) => inside(resolved, r)) ? resolved : null;
@@ -229,15 +237,18 @@ export class Catalog {
     const skipped = new Set(['node_modules', '.venv', 'venv', 'dist', 'build', '.next', 'target', 'vendor']);
     let entries = 0;
     let discoveryComplete = true;
-    const walk = async (directoryPath: string, depth: number): Promise<void> => {
+    const walk = async (directoryPath: string, depth: number, parentProject = false): Promise<void> => {
+      if (visited.has(directoryPath)) return;
+      visited.add(directoryPath);
       if (Date.now() > deadline || entries >= 1000 || paths.size >= 1000) {
         discoveryComplete = false;
         warnings.push('Directory discovery budget exhausted');
         return;
       }
       try {
+        const gitProject = (await lstat(join(directoryPath, '.git')).then(()=>true).catch(()=>false));
         const isProject =
-          (await lstat(join(directoryPath, '.git'))
+          (await lstat(join(directoryPath, '.rootlane.json'))
             .then(() => true)
             .catch(() => false)) ||
           (
@@ -249,12 +260,10 @@ export class Catalog {
               ),
             )
           ).some(Boolean);
-        if (isProject) {
-          paths.add(directoryPath);
-          return;
-        }
+        if (gitProject || (isProject && !parentProject)) paths.add(directoryPath);
         if (depth >= 3) {
-          if (depth) paths.add(directoryPath);
+          discoveryComplete = false;
+          warnings.push(`Depth limit reached at ${directoryPath}`);
           return;
         }
         let children = 0;
@@ -270,14 +279,14 @@ export class Catalog {
             const candidate = await safe(join(directoryPath, entry.name));
             if (candidate && !paths.has(candidate)) {
               children++;
-              await walk(candidate, depth + 1);
+              await walk(candidate, depth + 1, parentProject || gitProject || isProject);
             }
           } catch {
             discoveryComplete = false;
             warnings.push(`${entry.name}: directory unavailable`);
           }
         }
-        if (!children && depth) paths.add(directoryPath);
+
       } catch {
         discoveryComplete = false;
         warnings.push(`${directoryPath}: discovery unavailable`);
@@ -298,7 +307,8 @@ export class Catalog {
       warnings.push(...this.slowPaths!.warnings);
       discoveryComplete = this.slowPaths!.complete;
     }
-    // Only reviewed profile paths are additional seeds; do not recursively traverse repositories.
+    for (const entry of this.config.projects) { try { const path = await safe(entry.path); if (path) paths.add(path); } catch { warnings.push(`${entry.path}: configured project unavailable`); } }
+    for (const entry of (this.store?.db.prepare('SELECT checkoutPath FROM local_recipes').all() ?? []) as {checkoutPath:string}[]) { try { const path = await safe(entry.checkoutPath); if (path) paths.add(path); } catch { warnings.push(`${entry.checkoutPath}: host-local application unavailable`); } }
     for (const profile of this.config.profiles) {
       try {
         const path = await safe(profile.projectPath);
@@ -328,13 +338,14 @@ export class Catalog {
         }
       }
     }
-    const recorded = (this.store?.environments() ?? []).map((e) => ({ id: e.id, path: (JSON.parse(e.observation) as Observation).projectPath }));
+    const recorded = (this.store?.environments().filter(e=>!this.store?.db.prepare('SELECT instanceId FROM retired_instances WHERE instanceId=?').get(e.id)) ?? []).map((e) => ({ id: e.id, path: (JSON.parse(e.observation) as Observation).projectPath }));
     for (const entry of recorded) {
       try {
         const path = await safe(entry.path);
         if (path) paths.add(path);
       } catch {
-        warnings.push(`Recorded environment ${entry.id} project is unavailable; stop remains available by ID`);
+        warnings.push(`Recorded environment ${entry.id} project is unavailable; Stop and retirement remain available`);
+        if (this.config.observationRoots.some(root=>inside(entry.path,root))) { paths.add(entry.path); unavailable.add(entry.path); }
       }
     }
     if (refreshSlow)
@@ -397,15 +408,20 @@ export class Catalog {
         const unit = JSON.parse(resource.data) as Unit;
         try {
           const current = await this.host.inspectUnit(unit.name);
-          if (!current?.cgroup || current.marker !== unit.marker || (unit.invocation && current.invocation !== unit.invocation)) continue;
+          if (!current?.cgroup || current.marker !== unit.marker || (unit.invocation && current.invocation !== unit.invocation && !unitRestarted(unit,current))) continue;
+          if(unitRestarted(unit,current)){unit.invocation=current.invocation;this.store?.updateData(resource.id,unit);}
           for (const listener of listeners) if (listener.port === unit.port && listener.pid && (listener.cgroup === current.cgroup || listener.cgroup?.startsWith(current.cgroup + '/')))
             listener.managedBy = { environmentId: environment.id, serviceId: unit.serviceId };
         } catch { /* Missing ownership evidence leaves the listener observed. */ }
       }
     }
+    for (const cwd of [...listeners.flatMap(l=>l.cwd ? [l.cwd] : []),...agents.map(a=>a.cwd)]) {
+      if (paths.size >= 1000 || Date.now() > deadline) break;
+      try { const path = await safe(cwd); if (path && ![...paths].some(p=>inside(path,p)) && !this.config.projectRoots.includes(path)) paths.add(path); } catch { /* Unmatched observations stay visible in scan evidence. */ }
+    }
     const projects: Project[] = [];
     for (const path of [...paths].sort()) {
-      try { if (!(await safe(path))) continue; } catch (error) {
+      try { if (!unavailable.has(path) && !(await safe(path))) continue; } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') discoveryComplete = false;
         continue;
       }
@@ -457,8 +473,15 @@ export class Catalog {
       }
       const { gitCommonDir, branch, detached, detachedSha, manifests: found, git, devCommand: dev } = meta!;
       const settings = this.config.projects.find((p) => p.path === path);
+      const targets = this.config.previewTargets.filter((t) => t.checkoutPath === path);
       const ownListeners = listeners.filter(
-        (l) => l.cwd && inside(l.cwd, path) && ![...paths].some((other) => other !== path && inside(other, path) && inside(l.cwd!, other)),
+        (l) => {
+          if(l.managedBy && recorded.some(e=>e.id===l.managedBy!.environmentId && e.path===path))return true;
+          if (l.cwd) return inside(l.cwd, path) && ![...paths].some((other) => other !== path && inside(other, path) && inside(l.cwd!, other));
+          // Reviewed endpoints associate opaque Docker bindings for observation, never process ownership or publication.
+          const checkouts = new Set(this.config.previewTargets.filter((t) => t.port === l.port).map((t) => t.checkoutPath));
+          return !l.pid && checkouts.size === 1 && checkouts.has(path);
+        },
       );
       for (const listener of ownListeners) if (wildcardBind(listener.address)) warnings.push(`${listener.process?.name ?? basename(path)} :${listener.port} reachable on the network`);
       const links = [...(settings?.links ?? [])];
@@ -474,7 +497,7 @@ export class Catalog {
         if (ownListeners.some((l) => l.owner !== 'agent' && ['127.0.0.1', '::1', '0.0.0.0', '::', '*'].includes(l.address) && loopbackPort(proxy) === l.port)) {
           const upstreamPort = loopbackPort(proxy)!;
           const preview = {
-            label: ownListeners.find((l) => l.port === upstreamPort)?.process?.name ?? `:${upstreamPort}`,
+            label: targets.find((t) => t.port === upstreamPort)?.serviceName ?? ownListeners.find((l) => l.port === upstreamPort)?.process?.name ?? `:${upstreamPort}`,
             url: `${transport.HTTPS ? 'https' : 'http'}://${origin}/`,
           };
           observedPreviews.push(preview);
@@ -499,7 +522,7 @@ export class Catalog {
           .filter((p) => !p.removed && JSON.parse(p.target).checkoutPath === path)
           .map((p) => JSON.parse(p.route) as import('../host/types.js').Preview),
       ].map((route) => ({
-        url: `https://${route.hostname}:${route.port}/`,
+        url: `https://${route.hostname}:${route.port}${route.path ?? '/'}`,
         upstreamPort: Number(new URL(route.upstream).port),
         target: route.upstream,
         route: routes ? this.host.routeState(routes, route) : 'unknown',
@@ -510,6 +533,7 @@ export class Catalog {
       if (routes !== null) for (const port of new Set(ownListeners.filter(l => l.owner !== 'agent').map(l => l.port)))
         this.store?.recordCheck(path, `${this.store.checkoutId(path)}:${port}:route`, 'route', routeSummaries.some(r => r.upstreamPort === port && r.route === 'matching'), routeSummaries.some(r => r.upstreamPort === port && r.route === 'matching') ? 'present' : 'absent');
       projects.push({
+        ...(unavailable.has(path) ? {missing:true} : {}),
         funnel: routes === null ? null : publicFunnelRoutes(routes as import('../host/routes.js').ServeConfig),
         routeSummaries,
         controls: [
@@ -626,7 +650,7 @@ export class Catalog {
           ports: p.runtime.ports,
         }));
     if (unassigned) warnings.push(`${unassigned} detected agent process${unassigned === 1 ? '' : 'es'} unassigned to a known project`);
-    if (Date.now() > deadline) warnings.push('Git metadata budget exhausted; some associations may be unknown');
+    if (Date.now() > deadline) {discoveryComplete=false;warnings.push('Git metadata budget exhausted; some associations may be unknown');}
     if (this.enrich)
       for (let offset = 0; offset < projects.length; offset += 4) await Promise.all(projects.slice(offset, offset + 4).map((p) => this.enrich!(p)));
     const at = new Date().toISOString();
@@ -648,6 +672,7 @@ export class Catalog {
       warnings: warnings.slice(0, 50),
       observedAt: new Date(Math.max(Date.now(), this.cached ? Date.parse(this.cached.observedAt) + 1 : 0)).toISOString(),
       expires: Date.now() + 5000,
+      scan:{durationMs:Date.now()-started,complete:discoveryComplete && observed && routes !== null && agentsObserved,entries,limits:{entries:1000,depth:3,timeMs:5000},unmatchedListeners:[...new Set(listeners.filter(l=>!l.managedBy && (!l.cwd || !projects.some(p=>inside(l.cwd!,p.path)))).map(l=>l.port))],unmatchedAgents:unassigned},
     };
   }
 }
