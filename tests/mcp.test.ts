@@ -56,6 +56,40 @@ test('native wrapper resolves a relocated release and configured port, keeps std
   assert(unavailable.isError); assert(JSON.stringify(unavailable).includes('BACKEND_UNAVAILABLE'));
 });
 
+test('bundled Docker adapter runs without Docker or node_modules and recovers on the same connection after backend replacement', { timeout: 20000 }, async t => {
+  const { mkdir, copyFile, writeFile, symlink } = await import('node:fs/promises');
+  const { join, dirname } = await import('node:path');
+  const { root, config, lifecycle, host } = await setup(t);
+  const service = new Rootlane(new Catalog(config, host), lifecycle);
+  const credentials = { owner: 'o'.repeat(40), agent: 'a'.repeat(40) };
+  const first = await createServer(config, service, credentials); t.after(() => first.close());
+  let parentPid: unknown;
+  first.addHook('preHandler', async request => { parentPid = request.headers['x-rootlane-parent-pid']; });
+  await first.listen({ host: '127.0.0.1', port: 0 });
+  const port = (first.server.address() as AddressInfo).port; config.port = port;
+  const release = join(root, 'standalone release');
+  await mkdir(join(release,'runtime/node/bin'),{recursive:true});await symlink(process.execPath,join(release,'runtime/node/bin/node'));
+  await mkdir(join(release, 'deploy'), { recursive: true }); await mkdir(join(release, 'dist/mcp'), { recursive: true }); await mkdir(join(release, 'bin'));
+  for (const name of ['rootlane-mcp', 'rootlane-mcp-docker']) await copyFile(`deploy/${name}`, join(release, 'deploy', name));
+  await copyFile('dist/mcp/standalone.cjs', join(release, 'dist/mcp/standalone.cjs'));
+  await writeFile(join(release, 'bin/docker'), '#!/bin/sh\necho "Docker must not be invoked" >&2\nexit 99\n', { mode: 0o700 });
+  await writeFile(join(release,'bin/node'),'#!/bin/sh\nexit 99\n',{mode:0o700});
+  const settings = join(release, 'config.json'), credential = join(release, 'agent.credential');
+  await writeFile(settings, JSON.stringify({ port }), { mode: 0o600 }); await writeFile(credential, credentials.agent, { mode: 0o600 });
+  const client = new Client({ name: 'standalone-recovery-test', version: '1.0.0' }); t.after(() => client.close());
+  await client.connect(new StdioClientTransport({ command: join(release, 'deploy/rootlane-mcp-docker'), env: { PATH: `${join(release, 'bin')}:${dirname(process.execPath)}:/usr/bin:/bin`, ROOTLANE_CONFIG: settings, ROOTLANE_AGENT_CREDENTIAL_FILE: credential }, stderr: 'pipe' }));
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), Object.keys(toolContracts).sort());
+  assert(!(await client.callTool({ name: 'list_projects', arguments: {} })).isError);
+  assert.equal(parentPid, String(process.pid));
+  await first.close();
+  const down = await client.callTool({ name: 'list_projects', arguments: {} }); assert(down.isError); assert.match(JSON.stringify(down), /BACKEND_UNAVAILABLE/);
+  const replacement = await createServer(config, service, credentials); t.after(() => replacement.close());
+  await replacement.listen({ host: '127.0.0.1', port });
+  const recovered = await client.callTool({ name: 'locate', arguments: { path: root } });
+  assert(!recovered.isError, JSON.stringify(recovered)); assert.equal(toolContracts.locate.output.parse(recovered.structuredContent).checkout.path, root);
+  assert.equal(host.starts, 0);
+});
+
 test('stdio adapter distinguishes safe transport, timeout, response, approval and input failures', { timeout: 20000 }, async t => {
   const { writeFile } = await import('node:fs/promises');
   const { root } = await setup(t);
@@ -73,8 +107,9 @@ test('stdio adapter distinguishes safe transport, timeout, response, approval an
         case 4: return Response.json({message:'SECRET malformed error'},{status:500});
         case 5: return Response.json({code:'APPROVAL_REQUIRED',message:'Owner approval required',approvalUrl:'https://neo.example.ts.net/?approval=test'},{status:409});
         case 6: return Response.json({code:'ROUTE_CONFLICT',message:'HTTPS route belongs to another configuration'},{status:409});
-        case 7: return new Response('SECRET '+ 'x'.repeat(512*1024));
-        case 8: return new Response(new ReadableStream({start(controller){controller.error(new DOMException('SECRET body timeout','TimeoutError'));}}));
+        case 7: return Response.json({code:'LOCAL_TARGET_REQUIRED',message:'Attributable loopback listener required'},{status:409});
+        case 8: return new Response('SECRET '+ 'x'.repeat(512*1024));
+        case 9: return new Response(new ReadableStream({start(controller){controller.error(new DOMException('SECRET body timeout','TimeoutError'));}}));
         default: return Response.json({projects:[],nextCursor:null,warnings:[],observedAt:new Date().toISOString()});
       }
     });
@@ -83,11 +118,12 @@ test('stdio adapter distinguishes safe transport, timeout, response, approval an
   const client = new Client({ name: 'fault-test', version: '1.0.0' }); t.after(() => client.close());
   await client.connect(new StdioClientTransport({ command: process.execPath, args: ['--import', 'tsx', script], stderr: 'pipe' }));
   assert.match(client.getInstructions()!, /Observation is read-only/);
-  for (const code of ['BACKEND_UNAVAILABLE', 'BACKEND_TIMEOUT', 'BACKEND_INVALID_RESPONSE', 'BACKEND_INVALID_RESPONSE', 'BACKEND_INVALID_RESPONSE', 'APPROVAL_REQUIRED', 'ROUTE_CONFLICT', 'BACKEND_INVALID_RESPONSE', 'BACKEND_TIMEOUT']) {
+  for (const code of ['BACKEND_UNAVAILABLE', 'BACKEND_TIMEOUT', 'BACKEND_INVALID_RESPONSE', 'BACKEND_INVALID_RESPONSE', 'BACKEND_INVALID_RESPONSE', 'APPROVAL_REQUIRED', 'ROUTE_CONFLICT', 'LOCAL_TARGET_REQUIRED', 'BACKEND_INVALID_RESPONSE', 'BACKEND_TIMEOUT']) {
     const result = await client.callTool({ name: 'list_projects', arguments: {} });
     assert(result.isError); const text = JSON.stringify(result); assert(text.includes(code)); assert(!text.includes('SECRET'));
     if (code === 'APPROVAL_REQUIRED') assert(text.includes('approvalUrl'));
     if (code === 'ROUTE_CONFLICT') assert(text.includes('never overwrite unrelated routes'));
+    if (code === 'LOCAL_TARGET_REQUIRED') assert(text.includes('observedPreviews') && text.includes('do not republish'));
   }
   const invalid = await client.callTool({ name: 'locate', arguments: { path: 'relative' } });
   assert(invalid.isError); assert.match(JSON.stringify(invalid), /validation|INVALID_INPUT/i); assert(!JSON.stringify(invalid).includes('BACKEND_UNAVAILABLE'));

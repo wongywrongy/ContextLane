@@ -4,13 +4,17 @@ import { Publications } from './preview/service.js';
 import { Recipes } from './recipes.js';
 import { locate } from './locate.js';
 import { Telemetry } from './telemetry/service.js';
-import { toolContracts, problem, type ToolName } from './shared/contracts.js';
+import { toolContracts, problem, Problem, type ToolName } from './shared/contracts.js';
+import { randomUUID } from 'node:crypto';
+import { Integrations } from './integrations/service.js';
 export class Rootlane {
   readonly publications: Publications;
   readonly recipes: Recipes;
   readonly telemetry: Telemetry;
+  readonly integrations: Integrations;
   lastError: ReturnType<typeof problem> | null = null;
   configError: ReturnType<typeof problem> | null = null;
+  private maintenanceTask:Promise<void>|null = null;
   get reconciling() {
     return !this.lifecycle.available || !this.publications.available;
   }
@@ -19,6 +23,9 @@ export class Rootlane {
     readonly lifecycle: Lifecycle,
   ) {
     this.telemetry = new Telemetry(lifecycle.config.telemetry, lifecycle.store, catalog);
+    const telemetryOverride = lifecycle.store.meta('telemetryEnabled');
+    if(telemetryOverride !== undefined)lifecycle.config.telemetry.enabled=telemetryOverride==='true';
+    this.integrations = new Integrations(this);
     this.publications = new Publications(lifecycle);
     this.recipes = new Recipes(this);
     lifecycle.recipeProfiles = this.recipes.profiles;
@@ -31,6 +38,7 @@ export class Rootlane {
       const instances = this.recipes.instances(p.path);
       for (const control of p.controls ?? []) {
         const instance = instances.find((i) => i.id === control.id);
+        control.kind=instance?'instance':'profile';
         control.startAllowed = instance
           ? p.recipe.valid && p.recipe.approval === 'approved' && p.recipe.approvalId === instance.approvalId
           : lifecycle.config.profiles.some((profile) => profile.id === control.id);
@@ -107,12 +115,13 @@ export class Rootlane {
     if (name === 'get_telemetry_status') return contract.output.parse({
       ...await this.telemetry.status(), codexVersion: process.env.ROOTLANE_CODEX_VERSION ?? null, headerEnvSupported: false,
     });
-    if (name === 'start_environment') {
+    if (name === 'inspect_environment') return contract.output.parse(await this.recipes.inspectEnvironment((input as {path:string}).path));
+    if (name === 'start_environment' || name === 'recover_environment') {
       const m = input as {
         environmentId: string;
         requestId: string;
       };
-      if (!this.lifecycle.store.retry(m.environmentId, 'start', m.requestId)) await this.recipes.prepare(m.environmentId);
+      if (!this.lifecycle.store.retry(m.environmentId, name === 'start_environment' ? 'start' : 'recover', m.requestId)) await this.recipes.prepare(m.environmentId);
     }
     if (name === 'list_checks' || name === 'list_events') {
       const scope = await this.catalog.checkouts((input as { projectId: string }).projectId);
@@ -175,7 +184,7 @@ export class Rootlane {
                         ? await this.lifecycle.get(input)
                         : name === 'get_logs'
                           ? await this.lifecycle.logs(input)
-                          : this.lifecycle.accept(name === 'start_environment' ? 'start' : 'stop', input);
+                          : this.lifecycle.accept(name === 'start_environment' ? 'start' : name === 'recover_environment' ? 'recover' : 'stop', input);
     if (name === 'get_environment')
       (output as import('./shared/contracts.js').Environment).startAllowed = await this.recipes.startAllowed(
         (
@@ -185,5 +194,45 @@ export class Rootlane {
         ).environmentId,
       );
     return contract.output.parse(output);
+  }
+  async recoveryPolicy(environmentId:string, restore:boolean) {
+    if (!this.lifecycle.store.environment(environmentId)) throw new Problem('NOT_FOUND','No recorded environment');
+    if (restore && !await this.recipes.startAllowed(environmentId)) throw new Problem('APPROVAL_REQUIRED','Approve the current recipe before enabling reboot restoration');
+    this.lifecycle.store.db.prepare('INSERT INTO recovery_preferences(environmentId,restore) VALUES (?,?) ON CONFLICT(environmentId) DO UPDATE SET restore=excluded.restore,pendingBoot=NULL,attempts=0').run(environmentId,Number(restore));
+    return {environmentId,restore};
+  }
+  maintain() {
+    return this.maintenanceTask ??= this.maintainNow().finally(()=>{this.maintenanceTask=null;});
+  }
+  async drain() {await this.maintenanceTask?.catch(()=>{});}
+  private async maintainNow() {
+    if(this.reconciling)return;
+      const {store,host} = this.lifecycle;
+      const connection = await host.connection();
+      if (connection.status !== 'connected' || connection.hostname !== this.lifecycle.config.tailnetHostname) return;
+      for (const env of store.environments()) {
+        if (env.desired !== 'running' || ['accepted','running'].includes(store.latest(env.id)?.status ?? '')) continue;
+        const preference = store.db.prepare('SELECT pendingBoot,attempts FROM recovery_preferences WHERE environmentId=? AND restore=1').get(env.id) as {pendingBoot:string|null;attempts:number}|undefined;
+        if (preference?.pendingBoot && preference.attempts < 3) {
+          store.db.prepare('UPDATE recovery_preferences SET attempts=attempts+1 WHERE environmentId=? AND pendingBoot IS NOT NULL').run(env.id);
+          try {
+            await this.recipes.prepare(env.id);
+            const pending = store.db.prepare('SELECT pendingBoot FROM recovery_preferences WHERE environmentId=?').get(env.id) as {pendingBoot:string|null}|undefined;
+            if(store.environment(env.id)?.desired !== 'running' || pending?.pendingBoot !== preference.pendingBoot)continue;
+            this.lifecycle.accept('recover',{environmentId:env.id,requestId:randomUUID()});
+            await this.lifecycle.drain();
+            if (store.latest(env.id)?.status === 'succeeded') store.db.prepare('UPDATE recovery_preferences SET pendingBoot=NULL WHERE environmentId=?').run(env.id);
+          } catch { /* Attempts persist; the owner can inspect prerequisites and recover. */ }
+        } else if (store.resources(env.id).length) {
+          const state = await this.lifecycle.get({environmentId:env.id});
+          if (state.application === 'ready' && !state.observationError && state.previewRoutes?.some(r=>r.route==='absent') && !state.previewRoutes.some(r=>r.route==='conflict')) {
+            try {
+              await this.recipes.prepare(env.id);
+              if(store.environment(env.id)?.desired !== 'running')continue;
+              this.lifecycle.accept('recover',{environmentId:env.id,requestId:randomUUID()});await this.lifecycle.drain();
+            } catch { /* Reapproval or prerequisite review remains owner-visible. */ }
+          }
+        }
+      }
   }
 }

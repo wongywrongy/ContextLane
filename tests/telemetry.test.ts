@@ -229,7 +229,7 @@ test('matching needs a real Claude PID or exactly one earlier Codex process; del
   matchSessions([stale], [], projects);
   assert.equal(stale.endedAt, stale.lastSeenAt);
 });
-test('Codex exact completed SSE fields provide tokens and API errors are status counts only', async t => {
+test('Codex app-server telemetry provides tokens and API errors as status counts only', async t => {
   const { telemetry, post, observed, root } = await fixture(t);
   observed.push({ id: 'codex', name: 'Codex', pid: 202, cwd: root, startedAt: new Date(Date.now() - 60000).toISOString() });
   const codexLog = (event: string, fields: Record<string, unknown>) => ({ attributes: attrs({ 'conversation.id': 'conversation-one', 'event.name': `codex.${event}`, ...fields }) });
@@ -239,7 +239,7 @@ test('Codex exact completed SSE fields provide tokens and API errors are status 
     codexLog('sse_event', { 'event.kind': 'response.completed', input_token_count: '100', output_token_count: '20', cached_token_count: 40, cache_write_token_count: 5 }),
     codexLog('tool_result', { tool_name: 'exec_command', success: 'false', duration_ms: '15', output: 'PRIVATE_OUTPUT' }),
     codexLog('tool_decision', { tool_name: 'exec_command', decision: 'denied' }),
-  ], 'codex_cli_rs'));
+  ], 'codex-app-server'));
   const session = (await telemetry.getSessions('test-project')).sessions[0];
   assert.equal(session.counters['tokens.input'], 100); assert.equal(session.counters['tokens.output'], 20);
   assert.equal(session.counters['tokens.cacheRead'], 40); assert.equal(session.counters.requests, 1); assert.equal(session.counters['errors.429'], 1);

@@ -59,6 +59,7 @@ const app = await createServer(
 await app.listen({ host: '127.0.0.1', port: config.port });
 await service.telemetry.reconfigure(config.telemetry, credentials.ingest);
 let closing = false;
+const recoveryTimer = setInterval(()=>{ void service.maintain().catch(()=>{}); },15000);
 const reloadTimer = setInterval(() => {
   void stat(configPath!)
     .then((info) => {
@@ -75,12 +76,15 @@ async function shutdown() {
   if (closing) return;
   closing = true;
   clearInterval(reloadTimer);
+  clearInterval(recoveryTimer);
   reconciliation.stop();
   await app.close();
   try {
     await service.telemetry.stop();
   } finally {
+    await service.drain();
     await lifecycle.drain();
+    await service.recipes.drain();
     await service.publications.drain();
     store.close();
     unlock();

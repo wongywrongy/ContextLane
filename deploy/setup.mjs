@@ -38,9 +38,11 @@ if (existing.stateDirectory !== stateDirectory || JSON.stringify(existing.projec
 const journalGroup = (await stat('/var/log/journal')).gid;
 let codexVersion = '';
 try { codexVersion = /^codex-cli ([0-9][0-9A-Za-z.+-]*)\s*$/m.exec(execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 3000, maxBuffer: 16384, stdio: ['ignore', 'pipe', 'ignore'] }))?.[1] ?? ''; } catch {}
-const values = { ROOTLANE_OWNER_HOME: await realpath(homedir()), ROOTLANE_UID: process.getuid(), ROOTLANE_GID: process.getgid(), ROOTLANE_JOURNAL_GID: journalGroup, ROOTLANE_PROJECT_ROOT: root, ROOTLANE_CONFIG_DIR: configDirectory, ROOTLANE_STATE_DIR: stateDirectory, ROOTLANE_CODEX_VERSION: codexVersion };
+const values = { ROOTLANE_MCP_ADAPTER: resolve(fileURLToPath(new URL('rootlane-mcp-docker',import.meta.url))), ROOTLANE_OWNER_HOME: await realpath(homedir()), ROOTLANE_UID: process.getuid(), ROOTLANE_GID: process.getgid(), ROOTLANE_JOURNAL_GID: journalGroup, ROOTLANE_PROJECT_ROOT: root, ROOTLANE_CONFIG_DIR: configDirectory, ROOTLANE_STATE_DIR: stateDirectory, ROOTLANE_CODEX_VERSION: codexVersion };
 const quote = value => `'${String(value).replaceAll("'", "\\'")}'`;
 const release = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const runtime = join(release,'runtime/node');
+if(await stat(join(runtime,'bin/node')).catch(()=>null))values.ROOTLANE_HOST_NODE=join(runtime,'bin/node');
 const ingestEnv = join(configDirectory, 'ingest.env');
 const previousEnv = await lstat(ingestEnv).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
 if (previousEnv && (!previousEnv.isFile() || previousEnv.uid !== process.getuid() || previousEnv.mode & 0o077)) throw new Error('Existing ingest.env must be a private owner file');
@@ -60,6 +62,7 @@ for (const name of ['rootlane-session-hook', 'rootlane-statusline']) {
 }
 await writeFile(join(release, '.env'), Object.entries(values).map(([key, value]) => `${key}=${quote(value)}`).join('\n') + '\n', { mode: 0o600 });
 const binds = new Set([homedir(),...existing.observationRoots,...Object.values(existing.toolchains?.venvs??{}),...[existing.toolchains?.node,existing.toolchains?.python].filter(Boolean).map(p=>resolve(p,'..')), ...(existing.profiles ?? []).flatMap(p => p.services.map(s => resolve(s.executable, '..')))]);
+if(values.ROOTLANE_HOST_NODE)binds.add(runtime);
 // Include canonical executable directories and venv interpreter targets as well as configured paths.
 for(const executable of [existing.toolchains?.node,existing.toolchains?.python,...(existing.profiles??[]).flatMap(p=>p.services.map(s=>s.executable)),...Object.values(existing.toolchains?.venvs??{}).map(p=>join(p,'bin/python'))].filter(Boolean)) {
   const actual=await realpath(executable).catch(error=>{if(error.code==='ENOENT')return null;throw error;});

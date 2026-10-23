@@ -25,13 +25,18 @@ export async function observeAgents(procRoot = '/proc', uid = process.getuid!())
   const directory = await opendir(procRoot);
   for await (const entry of directory) {
     if (!/^\d+$/.test(entry.name)) continue;
-    if (++entries > 8192 || Date.now() >= deadline || agents.length >= 128) {
+    if (Date.now() >= deadline || agents.length >= 128) {
       warnings.push('Agent detection limited; some processes may be missing');
       break;
     }
     const path = join(procRoot, entry.name);
     try {
       if ((await stat(path)).uid !== uid) continue;
+      // Other users' containers must not exhaust this owner's observation budget.
+      if (++entries > 8192) {
+        warnings.push('Agent detection limited; some processes may be missing');
+        break;
+      }
       const before = processStat(await procText(join(path, 'stat')));
       if (!before) continue;
       const exe = await readlink(join(path, 'exe'));

@@ -63,6 +63,7 @@ export function ApprovalPanel({
               Recipe or toolchain changed. Request a new review before approving.
             </p>
           )}
+          {!!review.preview.prerequisites?.length && <ul className="prerequisite-list" role="alert">{review.preview.prerequisites.map((b,i)=><li key={i}>{b.code} · {b.message}</li>)}</ul>}
           {review.preview.services.map((s) => (
             <section className="approval-service box" key={s.id}>
               <h3>
@@ -83,6 +84,7 @@ export function ApprovalPanel({
               </dl>
             </section>
           ))}
+          {review.preview.source && <p>{review.preview.source} · Crash recovery: {review.preview.restart ?? 'no'}</p>}
           <h3>Private previews</h3>
           {review.preview.previews.map((p) => (
             <p className="approval-preview" key={p.serviceId}>
@@ -105,12 +107,12 @@ export function ApprovalPanel({
             </>
           )}
           <p className="pv-note">
-            Environment values and secrets are never displayed. Approval permits the reviewed commands; it does not start them.
+            Environment values and secrets are never displayed. Approval starts this checkout using the reviewed commands. Preparation requires its separate owner review.
           </p>
           <div className="environment-actions">
             {!working && !review.stale && (
-              <button className="btn primary" onClick={() => onDecide(review.id, true)}>
-                Approve recipe…
+              <button className="btn primary" disabled={!!review.preview.prerequisites?.length} onClick={() => onDecide(review.id, true)}>
+                Approve and start
               </button>
             )}
             {!working && (

@@ -45,6 +45,21 @@ test('expanded listener probe uses HEAD then GET only on 405, never promotes rea
   await catalog.get(list.projects[0].id);assert.deepEqual(methods,['HEAD','GET']);
 });
 
+test('locate exposes discovered Docker links and reviewed service names without inventing publication IDs', async t => {
+  const { root, config, host, lifecycle, store } = await setup(t); config.profiles = [];
+  config.previewTargets = [{ id: 'demo', approved: true, projectPath: root, checkoutPath: root, serviceId: 'console', serviceName: 'Demo console', port: 8090, httpsPort: 20190, readiness: { path: '/', status: 200, bodyIncludes: 'Demo', timeoutMs: 15000 } }];
+  host.listeners = async () => [{ address: '127.0.0.1', port: 8090, pid: null, cwd: null, cgroup: null }];
+  host.routeState = (await import('../src/host/routes.js')).routeState;
+  (host as import('../src/host/types.js').Host).routes = async () => ({ TCP: { '20190': { HTTPS: true } }, Web: { [`${config.tailnetHostname}:20190`]: { Handlers: { '/': { Proxy: 'http://127.0.0.1:8090' } } } } });
+  const service = new Rootlane(new Catalog(config, host, store), lifecycle); await service.publications.reconcile();
+  const located = toolContracts.locate.output.parse(await service.call('locate', { path: root }));
+  assert.deepEqual(located.observedPreviews, [{ label: 'Demo console', url: `https://${config.tailnetHostname}:20190/` }]);
+  assert.deepEqual(located.ports, [{ port: 8090, name: 'Demo console' }]); assert.deepEqual(located.previews, []);
+  assert.equal(store.previews().length, 0); assert.equal(host.starts, 0);
+  await assert.rejects(service.call('publish_preview', { targetId: 'demo', requestId: request().requestId }), /attributable process metadata/);
+  assert.equal(store.previews().length, 0);
+});
+
 test('operation history combines lifecycle and preview errors newest first and bounds output',async t=>{
   const {config,host,lifecycle,store}=await setup(t);const service=new Rootlane(new Catalog(config,host),lifecycle);
   for(let i=0;i<3;i++){lifecycle.accept('start',request());await lifecycle.drain();lifecycle.accept('stop',request());await lifecycle.drain();}

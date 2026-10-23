@@ -5,6 +5,8 @@ import type { Rootlane } from './service.js';
 export async function reloadConfig(path: string, config: Config, service: Rootlane, privatePaths: string[]) {
   try {
     const next = await loadConfig(path);
+    const telemetryOverride=service.lifecycle.store.meta('telemetryEnabled');
+    if(telemetryOverride!==undefined)next.telemetry.enabled=telemetryOverride==='true';
     for (const key of ['stateDirectory', 'port', 'origin', 'additionalOrigins', 'tailnetHostname'] as const)
       if (JSON.stringify(next[key]) !== JSON.stringify(config[key])) throw new Problem('CONFIG_RESTART_REQUIRED', `${key} changes require a restart`);
     for (const privatePath of privatePaths)
@@ -31,8 +33,10 @@ export function reconcileWithRetry(service: Rootlane, schedule = (work: () => vo
   let timer: ReturnType<typeof setTimeout> | undefined;
   let retryMs = 2000;
   let stopped = false;
+  let preparationReconciled = false;
   async function run() {
     try {
+      if (!preparationReconciled) { await service.recipes.reconcilePreparation(); preparationReconciled = true; }
       if (!service.lifecycle.available) await service.lifecycle.reconcile();
       if (!service.publications.available) await service.publications.reconcile();
       service.lastError = null;

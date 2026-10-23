@@ -35,7 +35,7 @@ export function parseOtlp(payload: unknown, signal: 'metrics' | 'logs', now = Da
   for (const resource of array(object(payload)[signal === 'metrics' ? 'resourceMetrics' : 'resourceLogs'])) {
     const r = object(resource);
     const service = attributes(object(r.resource).attributes, ['service.name'])['service.name'];
-    const agent: AgentKind | undefined = service === 'claude-code' || service === 'claude-code-desktop' ? 'claude' : service === 'codex' || service === 'codex_cli_rs' ? 'codex' : undefined;
+    const agent: AgentKind | undefined = service === 'claude-code' || service === 'claude-code-desktop' ? 'claude' : service === 'codex' || service === 'codex_cli_rs' || service === 'codex-app-server' ? 'codex' : undefined;
     for (const scope of array(r[signal === 'metrics' ? 'scopeMetrics' : 'scopeLogs'])) {
       const s = object(scope);
       for (const entry of array(s[signal === 'metrics' ? 'metrics' : 'logRecords'])) {

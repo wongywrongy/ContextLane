@@ -1,6 +1,7 @@
 import { z } from 'zod';
 export const id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 export const page = z.strictObject({
+  rescan: z.boolean().optional().describe('Invalidate discovery metadata and scan again; omit with snapshot pagination.'),
   snapshot: z.string().datetime().optional().describe('Snapshot timestamp returned by list_projects; reuse for subsequent pages.'),
   cursor: z.number().int().min(0).max(10000).default(0).describe('Offset from list_projects.nextCursor; omit for the first page.'),
   limit: z.number().int().min(1).max(50).default(25).describe('Maximum projects per page, up to 50.'),
@@ -24,7 +25,7 @@ export const failure = z.strictObject({ code: z.string().max(80), message: z.str
 export const operation = z.strictObject({
   id: z.uuid(),
   environmentId: id,
-  action: z.enum(['start', 'stop']),
+  action: z.enum(['start', 'stop', 'recover']),
   status: z.enum(['accepted', 'running', 'succeeded', 'partial', 'failed']),
   error: failure.nullable(),
   createdAt: z.string(),
@@ -70,6 +71,7 @@ export const gitState = z.strictObject({
     .nullable(),
 });
 export const recipeStatus = z.strictObject({
+  source: z.enum(['Host-local', 'Project-shared']).optional(),
   found: z.boolean(),
   valid: z.boolean(),
   errors: z.array(failure),
@@ -78,6 +80,7 @@ export const recipeStatus = z.strictObject({
   approvalUrl: z.url().optional(),
 });
 export const resolvedPreview = z.strictObject({
+  prerequisites: z.array(failure).optional(),
   instanceId: id,
   projectPath: z.string(),
   checkoutPath: z.string(),
@@ -94,6 +97,12 @@ export const resolvedPreview = z.strictObject({
     }),
   ),
   previews: z.array(z.strictObject({ serviceId: id, label: z.string(), port: z.number().int(), url: z.url() })),
+  source: z.enum(['Host-local', 'Project-shared']).optional(),
+  restart: z.enum(['no', 'on-failure']).optional(),
+  preparation: z.array(z.strictObject({ command: z.array(z.string()), cwd: z.string(), writes: z.array(z.string()), lifecycleScripts: z.boolean(), timeoutMs: z.number() })).optional(),
+  manifestRevisions: z.record(z.string(), z.string()).optional(),
+  tools: z.record(z.string(), z.string()).optional(),
+  requiredEnv: z.array(z.string()).optional(),
   setup: z.array(z.string()),
 });
 export const approvalReview = z.strictObject({
@@ -119,6 +128,7 @@ export const requestEnvironmentInput = z.strictObject({
 });
 export const requestEnvironmentOutput = z.strictObject({ status: z.enum(['approved', 'pending']), approvalUrl: z.url(), resolvedPreview });
 export const project = z.strictObject({
+  missing: z.boolean().optional(),
   funnel: z.array(z.string().max(200)).max(100).nullable().optional(),
   recipe: recipeStatus.optional(),
   routeSummaries: z
@@ -137,6 +147,7 @@ export const project = z.strictObject({
         id,
         desiredState: z.enum(['running', 'stopped']),
         hasResources: z.boolean(),
+        kind: z.enum(['profile','instance']).optional(),
         startAllowed: z.boolean(),
         latestOperation: operation.nullable(),
       }),
@@ -194,7 +205,9 @@ export const project = z.strictObject({
     ownership: z.literal('observe-only'),
   }),
 });
+export const scanEvidence = z.strictObject({ durationMs: z.number(), complete: z.boolean(), entries: z.number(), limits: z.strictObject({ entries: z.number(), depth: z.number(), timeMs: z.number() }), unmatchedListeners: z.array(z.number()), unmatchedAgents: z.number() });
 export const catalogOutput = z.strictObject({
+  scan: scanEvidence.optional(),
   projects: z.array(project),
   nextCursor: z.number().nullable(),
   warnings: z.array(z.string()),
@@ -213,7 +226,9 @@ export const environmentOutput = z.strictObject({
   application: z.enum(['ready', 'stopped', 'unhealthy', 'unknown']),
   preview: z.enum(['available', 'unavailable', 'unknown']),
   links: z.array(link),
-  services: z.array(z.strictObject({ id, port: z.number().int().optional(), unit: z.string(), state: z.string(), ready: z.boolean().optional() })),
+  services: z.array(z.strictObject({ id, port: z.number().int().optional(), unit: z.string(), state: z.string(), ready: z.boolean().optional(), restarts: z.number().int().optional(), exitCode: z.number().int().optional(), result: z.string().optional(), restart: z.string().optional() })),
+  restoreAfterReboot: z.boolean().optional(),
+  restorationAttempts: z.number().int().optional(),
   observedAt: z.string(),
   latestOperation: operation.nullable(),
   recentOperations: z.array(operation).max(10).optional(),
@@ -378,6 +393,7 @@ export const operationsInput = z.strictObject({
 });
 export const operationsOutput = z.strictObject({ operations: z.array(z.union([operation, previewOperation])).max(20) });
 export const locateOutput = z.strictObject({
+  observedPreviews: z.array(link).optional(),
   recipe: recipeStatus.optional(),
   instances: z
     .array(
@@ -397,7 +413,23 @@ export const locateOutput = z.strictObject({
   approvedTargetIds: z.array(id),
   previews: z.array(z.strictObject({ id: z.uuid(), url: z.url() })),
 });
+export const environmentInspection = z.strictObject({
+  environmentId: id.optional(),
+  path: z.string(), source: z.enum(['Host-local','Project-shared']).nullable(),
+  proposal: z.unknown().nullable(), fingerprint: z.string(),
+  tools: z.record(z.string(), z.string()), blockers: z.array(failure), warnings: z.array(z.string()),
+  manifestRevisions: z.record(z.string(), z.string()),
+  preparation: z.array(z.strictObject({ command: z.array(z.string()), cwd: z.string(), writes: z.array(z.string()), lifecycleScripts: z.boolean(), timeoutMs: z.number() })),
+  preparationStatus: z.enum(['not-needed','review','running','succeeded','failed','interrupted']),
+  preparationError: failure.nullable(),
+  preparationProgress: z.strictObject({id:z.uuid(),unit:z.string().nullable(),step:z.number().int(),total:z.number().int(),startedAt:z.string(),finishedAt:z.string().nullable()}).optional(),
+  requiredEnv: z.array(z.strictObject({ name: z.string(), missing: z.boolean(), file: z.string().nullable() })),
+  nextAction: z.enum(['Open','Start','Configure environment','Review preparation','Review configuration','Recover','Retry observation']),
+});
+export type EnvironmentInspection = z.infer<typeof environmentInspection>;
 export const toolContracts = {
+  inspect_environment: { input: locateInput, output: environmentInspection, description: 'Inspect bounded project files, toolchains, preparation and prerequisite blockers. Proposes a host-local recipe without executing code or writing files. Only the owner can save configuration or approve preparation.', read: true },
+  recover_environment: { input: mutation, output: acceptedOutput, description: 'Recover an approved recorded environment. Repair absent owned routes without restarting healthy services; otherwise clean up only recorded resources and restart. Conflicting routes are preserved. Reuse requestId on retry.', read: false },
   get_agent_sessions: { input: projectInput, output: agentSessionsOutput, description: 'Read agent-reported session counts and names, process matching and Rootlane tool-call counts for a project. Content is discarded on arrival.', read: true },
   get_telemetry_status: { input: emptyInput, output: telemetryStatusOutput, description: 'Read opt-in telemetry receiver status, reporting counts, retention and dropped data. Credentials are never returned.', read: true },
   list_checks: { input: projectInput, output: checksOutput, description: 'Read the last 30 existing check results per subject, grouped by kind, for a project and its checkouts. Does not run probes.', read: true },
@@ -413,7 +445,7 @@ export const toolContracts = {
     input: locateInput,
     output: locateOutput,
     description:
-      'Call locate with your working directory first. Resolve an absolute cwd to its observed project, checkout, services, reviewed environments and previews.',
+      'Call locate with your working directory first. Resolve an absolute cwd to its observed project, checkout, services, reviewed environments and previews. observedPreviews contains existing discovered links without publication ownership or a previewId.',
     read: true,
   },
   list_operations: {
@@ -432,7 +464,7 @@ export const toolContracts = {
   get_project: {
     input: projectInput,
     output: projectOutput,
-    description: 'Identify a project, its checkouts, services, links, agent sources and approved publication target IDs.',
+    description: 'Identify a project, its checkouts, services, links, agent sources and approved publication target IDs. project.observedPreviews contains existing links; reuse them without republishing or inventing preview IDs.',
     read: true,
   },
   publish_preview: {

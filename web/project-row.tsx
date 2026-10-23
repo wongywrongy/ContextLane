@@ -13,9 +13,10 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
 }) {
   const project = group.primary;
   const agents = groupAgents(group), services = groupServices(group, environments, stale), links = groupLinks(group, environments, previews, null);
-  const limit = density === 'Compact' ? 1 : 3;
   const editor = editorHref(project.path, editorTemplate, editorHost);
-  const control = group.checkouts.flatMap(p => p.controls ?? [])[0];
+  const controls = group.checkouts.flatMap(p=>p.controls ?? []);
+  const multipleTargets = group.checkouts.length > 1 || controls.length > 1;
+  const control = controls.length === 1 ? controls[0] : undefined;
   const stopping = control?.desiredState === 'running' || control?.hasResources;
   const recipeProject = group.checkouts.find(p => p.recipe?.found);
   const logs = group.checkouts.flatMap(p => p.logServices)[0];
@@ -44,17 +45,18 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
       const identity = `${agent.name} · ${agentLabel(agent)}${agent.source === 'detected process' ? `${agent.pid ? ` · PID ${agent.pid}` : ''} · ${agent.worktreePath ?? agent.cwd ?? project.path}${duration ? ` · Process uptime ${duration}` : ''}` : ''}`;
       return <span className="agent-item" key={agentKey(agent)} title={identity} role="img" aria-label={identity}><AgentAvatar name={agent.name} context={agent.source === 'detected process' ? agent.contextUsedPct : null}/>{duration && <span className="agent-duration mono">{duration}</span>}</span>;
     })}{density === 'Compact' && agents.length > 4 && <span className="av-more">+{agents.length - 4}</span>}</div>
-    <div className="services-cell" data-label="Services" role="cell" aria-label="Services">{!services.length ? <span className="muted" title={project.runtime.status === 'unknown' ? 'Observation unavailable' : undefined}>—</span> : services.slice(0,limit).map(service => {
+    <div className="services-cell" data-label="Services" role="cell" aria-label="Services">{!services.length ? <span className="muted" title={project.runtime.status === 'unknown' ? 'Observation unavailable' : undefined}>—</span> : services.map(service => {
       const state = stale || service.checkout.runtime.status === 'unknown' ? 'Unknown' : service.state;
       return <div className={`service-line lp ${pillState(state)}`} role="img" aria-label={`${service.name} · ${state}`} key={service.key} title={`${service.name} :${service.port} · ${state} · ${service.checkout.path}`}><span className="d" aria-hidden="true"/><span className="service-name">{service.name}</span><span className="mono lp-port">:{service.port}</span></div>;
-    })}{services.length > limit && <button className="more-link" onClick={event => { event.stopPropagation(); onDetails('Services'); }}>+{services.length-limit} services</button>}</div>
-    <div className="links-cell" data-label="Links" role="cell" aria-label="Links">{!links.length ? <span className="muted">—</span> : links.slice(0,limit).map(link => {
+    })}</div>
+    <div className="links-cell" data-label="Links" role="cell" aria-label="Links">{!links.length ? <span className="muted">—</span> : links.map(link => {
       const state = stale ? 'Unknown' : link.state;
       const displayLabel = link.source === 'Environment' && group.environmentIds.length > 1 ? link.label.slice(0, -(3 + branchLabel(link.checkout).length)) : link.label;
       return <a className={`compact-link lp ${pillState(state)}`} onClick={event => event.stopPropagation()} key={link.key} href={link.url} target="_blank" rel="noreferrer" title={`${link.url} · ${state}`} aria-label={`${link.label} · ${state} · ${link.url}`}><span className="d" aria-hidden="true"/><span>{displayLabel}</span><Icon name="external"/></a>;
-    })}{links.length > limit && <button className="more-link" onClick={event => { event.stopPropagation(); onDetails('Links'); }}>+{links.length-limit} links</button>}</div>
+    })}</div>
     <div className="menu-cell project-actions" role="cell" onClick={event => event.stopPropagation()}>
-      {control && (stopping || control.startAllowed) && <button className="icon-btn lifecycle-button" title={stopping ? 'Stop environment' : 'Start environment'} aria-label={`${stopping ? 'Stop' : 'Start'} ${project.name}`} disabled={working || stale || !lifecycleAvailable || group.checkouts.some(p => p.controls?.some(c => ['accepted', 'running'].includes(c.latestOperation?.status ?? '')))} onClick={() => onAction(control.id, stopping ? 'stop' : 'start')}><Icon name={stopping ? 'stop' : 'play'}/></button>}
+      {control && (stopping || control.startAllowed) && <button className="icon-btn lifecycle-button" title={multipleTargets ? 'Choose checkout controls' : stopping ? 'Stop environment' : 'Start environment'} aria-label={multipleTargets ? `Choose ${project.name} checkout` : `${stopping ? 'Stop' : 'Start'} ${project.name}`} disabled={working || stale || !lifecycleAvailable || group.checkouts.some(p => p.controls?.some(c => ['accepted', 'running'].includes(c.latestOperation?.status ?? '')))} onClick={() => multipleTargets ? onDetails() : onAction(control.id, stopping ? 'stop' : 'start')}><Icon name={stopping ? 'stop' : 'play'}/></button>}
+      {!control && multipleTargets && <button className="icon-btn" title="Choose checkout controls" aria-label={`Choose ${project.name} checkout`} onClick={()=>onDetails()}><Icon name="play"/></button>}
       <button ref={button} className="icon-btn" aria-label={`${project.name} actions`} aria-haspopup="menu" aria-expanded={open} onClick={() => onDetails()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); menu.current?.showPopover(); } }} popoverTarget={`menu-${project.id}`}><Icon name="more"/></button>
       <div ref={menu} id={`menu-${project.id}`} popover="auto" role="menu" aria-label={`${project.name} actions`} className="project-popover" onToggle={event => {
         const opening = event.newState === 'open'; setOpen(opening);
@@ -68,9 +70,10 @@ export function ProjectRow({ group, environments, previews, stale, now, onDetail
         items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length-1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
       }}>
         <button role="menuitem" onClick={() => dismiss(() => onDetails())}>Details</button>
+        <button role="menuitem" onClick={() => dismiss(() => onDetails())}>Environment controls</button>
         {logs && <button role="menuitem" onClick={() => dismiss(() => onLogs(logs.environmentId, logs.serviceId))}>Logs</button>}
         {editor && <a role="menuitem" href={editor} onClick={() => menu.current?.hidePopover()}>Open in editor</a>}
-        {recipeProject?.recipe?.valid && recipeProject.recipe.approval !== 'approved' && <button role="menuitem" disabled={working || stale || !lifecycleAvailable} onClick={() => dismiss(() => onRequest(recipeProject.path))}>Request environment…</button>}
+        {!multipleTargets && recipeProject?.recipe?.valid && !recipeProject.environmentIds.length && <button role="menuitem" disabled={working || stale || !lifecycleAvailable} onClick={() => dismiss(() => onRequest(recipeProject.path))}>{recipeProject.recipe.approval==='approved'?'Start environment':'Request environment…'}</button>}
         <button role="menuitem" onClick={() => dismiss(() => { void navigator.clipboard.writeText(project.path).then(() => setNotice('Path copied')).catch(() => setNotice('Copy unavailable. Open Details to select the full path.')); })}>Copy path</button>
       </div>
       {notice && <span className={notice === 'Path copied' ? 'sr-only' : 'copy-error'} role="status">{notice}</span>}

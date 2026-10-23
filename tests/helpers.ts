@@ -13,6 +13,7 @@ export class FakeHost implements Host {
   async agents() { return this.agentObservations; }
   units = new Map<string, UnitState>(); routesMap = new Map<number, string>(); busyPorts: number[] = [];
   starts = 0; stops: string[] = []; failService = ''; unready = ''; failPreview = false; failStop = false; missing = false; boot = 'boot-1';
+  async runPreparation(_unit:Unit,_step:{command:string[];cwd:string;timeoutMs:number}) {}
   async bootId() { return this.boot; }
   async capabilities() { if (this.missing) throw new Problem('MISSING_CAPABILITY', 'systemd unavailable'); }
   async listeners(): Promise<Listener[]> { return this.busyPorts.map(port => ({ address: '127.0.0.1', port, pid: null, cwd: null, cgroup: null })); }

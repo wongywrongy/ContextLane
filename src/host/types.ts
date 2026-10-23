@@ -1,5 +1,6 @@
 import type { Service } from '../config.js';
 export interface Unit {
+  restart?: 'no' | 'on-failure';
   name: string;
   marker: string;
   serviceId: string;
@@ -12,8 +13,16 @@ export interface UnitState {
   marker: string;
   cgroup: string;
   invocation: string;
+  restarts?: number;
+  exitCode?: number;
+  result?: string;
+  restart?: string;
+}
+export function unitRestarted(unit:Unit,current:UnitState|null) {
+  return unit.restart==='on-failure' && current?.restart==='on-failure' && (current.restarts ?? 0)>0 && current.marker===unit.marker && !!current.invocation && current.invocation!==unit.invocation;
 }
 export interface Preview {
+  path?:string;
   hostname: string;
   port: number;
   upstream: string;
@@ -43,6 +52,8 @@ export interface LogPage {
   truncated: boolean;
 }
 export interface Host {
+  toolchains?(node:string):Promise<Record<string,string>>;
+  runPreparation?(unit: Unit, step: { command: string[]; cwd: string; timeoutMs: number }): Promise<void>;
   bootId(): Promise<string>;
   capabilities(services: Service[]): Promise<void>;
   listeners(): Promise<Listener[]>;

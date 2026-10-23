@@ -16,10 +16,10 @@ export function createMcpServer(base: string, credential: string, request: typeo
   )
     throw new Error('MCP requires a loopback backend origin and a private agent credential');
   const server = new McpServer(
-    { name: 'rootlane', version: '0.8.0' },
+    { name: 'rootlane', version: '0.9.0' },
     {
       instructions:
-        'Observe: locate with your absolute cwd, then get_project or get_environment as needed. Observation is read-only; do not request approval or start anything. Publish a running service: locate → get_capabilities and identify an owner-approved target → publish_preview → poll get_preview. Publication owns only its recorded route, never application processes. A returned URL may be unverified. Start a managed environment: locate → request_environment and owner approval at approvalUrl when required → start_environment → poll get_environment. Never approve yourself, edit owner configuration, or bypass checks. Start, stop, publish and unpublish return durable operations; list_operations shows recent history. Keep the same requestId and payload when retrying the same action. Tools share the authenticated Rootlane backend; no MCP resources, remote application APIs or client session handoffs are provided.',
+        'Observe: locate with your absolute cwd, then get_project or get_environment as needed. Observation is read-only; do not request approval or start anything. Reuse existing observedPreviews links; these have no publication previewId and must not be republished or unpublished. Publish a running service: locate → get_capabilities and identify an owner-approved target → publish_preview → poll get_preview. Publication owns only its recorded route, never application processes. A returned URL may be unverified. Start a managed environment: locate → request_environment and owner approval at approvalUrl when required → start_environment → poll get_environment. Never approve yourself, edit owner configuration, or bypass checks. Use inspect_environment to inspect configuration proposals and preparation blockers without executing setup; ask the owner to save or approve them. Recover approved recorded resources with recover_environment; healthy applications remain running during preview repair. Start, stop, recover, publish and unpublish return durable operations; list_operations shows recent history. Keep the same requestId and payload when retrying the same action. Tools share the authenticated Rootlane backend; no MCP resources, remote application APIs or client session handoffs are provided.',
     },
   );
   for (const name of Object.keys(toolContracts) as ToolName[]) {
@@ -106,6 +106,7 @@ function recovery(code: string, message: string) {
   const guidance: Record<string, string> = {
     APPROVAL_REQUIRED: 'Request a new environment review if the recipe changed, then ask the owner to review the returned approvalUrl; agents cannot approve.',
     TARGET_NOT_APPROVED: 'Use get_capabilities and get_project to find an approved target; ask the owner to review configuration.',
+    LOCAL_TARGET_REQUIRED: 'Unattributable listeners, including Docker published ports, require owner inspection. Reuse existing get_project project.observedPreviews links; do not republish them or restart services to bypass attribution checks.',
     ROUTE_CONFLICT: 'Inspect get_preview if you have a recorded previewId. Ask the owner to resolve the conflicting route; never overwrite unrelated routes.',
     UPSTREAM_UNREADY: 'Check the application and approved endpoint. Inspect get_preview, unpublish the failed recorded preview, then publish with a new requestId; retries preserve the original operation.',
     HTTPS_UNVERIFIED: 'Inspect get_preview; do not describe the URL as verified until HTTPS verification succeeds.',

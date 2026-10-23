@@ -35,6 +35,7 @@ export const previewTargetSchema = z.strictObject({
 });
 export type PreviewTarget = z.infer<typeof previewTargetSchema>;
 const service = z.strictObject({
+  restart: z.enum(['no', 'on-failure']).optional(),
   id,
   cwd: absolute,
   executable: absolute,
@@ -69,7 +70,7 @@ export const profileSchema = z.strictObject({
   dataRequirements: z.string().min(1).max(1000),
   services: z.array(service).min(1).max(16),
   previews: z
-    .array(z.strictObject({ serviceId: id, httpsPort: port, label: z.string().min(1).max(100) }))
+    .array(z.strictObject({ serviceId: id, httpsPort: port, label: z.string().min(1).max(100), path:z.string().regex(/^\/(?!\/)[^\s#]*$/).max(256).optional() }))
     .min(1)
     .max(8),
 });

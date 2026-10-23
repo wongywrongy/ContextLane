@@ -6,7 +6,7 @@ import { realpath } from 'node:fs/promises';
 import { orderedServices, privateFile, inside, revision, type Config, type Profile } from '../config.js';
 import { Store, type Resource, type Observation } from '../state/store.js';
 import { Problem, problem, mutation, environmentInput, logsInput, type Environment } from '../shared/contracts.js';
-import type { Host, Preview, Unit } from '../host/types.js';
+import { unitRestarted, type Host, type Preview, type Unit } from '../host/types.js';
 
 export class Lifecycle {
   recipeProfiles = new Map<string, Profile>();
@@ -30,20 +30,30 @@ export class Lifecycle {
   private exists(id: string) {
     if (!this.store.environment(id)) throw new Problem('NOT_FOUND', `No Rootlane-owned environment ${id}`);
   }
-  accept(action: 'start' | 'stop', input: unknown) {
+  accept(action: 'start' | 'stop' | 'recover', input: unknown) {
     const { environmentId, requestId } = mutation.parse(input);
     this.exists(environmentId);
     const prior = this.store.retry(environmentId, action, requestId);
     if (prior) return { operation: prior, ownership: 'rootlane' as const };
     if (this.reconciling) throw new Problem('RECONCILING', 'Host reconciliation must finish before lifecycle actions');
-    if (action === 'start') this.profile(environmentId);
+    if(action!=='stop' && this.store.db.prepare('SELECT instanceId FROM retired_instances WHERE instanceId=?').get(environmentId))throw new Problem('INSTANCE_RETIRED','Request a new instance for this retired checkout');
+    if (action !== 'stop') this.profile(environmentId);
+    let previousTask:Promise<void>|undefined;
+    const current=this.store.latest(environmentId);
+    const restoration=this.store.db.prepare('SELECT pendingBoot FROM recovery_preferences WHERE environmentId=?').get(environmentId) as {pendingBoot:string|null}|undefined;
+    if(action==='stop' && current?.action==='recover' && ['accepted','running'].includes(current.status) && restoration?.pendingBoot) {
+      previousTask=this.tasks.get(environmentId);
+      this.store.finish(current.id,'failed',{code:'STOP_REQUESTED',message:'The owner stopped pending reboot restoration'});
+    }
     const result = this.store.accept(environmentId, action, requestId);
     if (result.fresh) {
-      const task = Promise.resolve()
+      const task:Promise<void> = Promise.resolve()
         .then(async () => {
+          await previousTask;
           this.store.finish(result.operation.id, 'running');
           try {
             if (action === 'start') await this.start(environmentId, result.operation.id);
+            else if (action === 'recover') await this.recover(environmentId, result.operation.id);
             else await this.stop(environmentId, result.operation.id);
           } catch (error) {
             if (!(error instanceof Problem))
@@ -51,7 +61,7 @@ export class Lifecycle {
             this.store.finish(result.operation.id, 'failed', problem(error));
           }
         })
-        .finally(() => this.tasks.delete(environmentId));
+        .finally(() => {if(this.tasks.get(environmentId)===task)this.tasks.delete(environmentId);});
       this.tasks.set(environmentId, task);
     }
     return { operation: result.operation, ownership: 'rootlane' as const };
@@ -71,11 +81,13 @@ export class Lifecycle {
       serviceId: svc.id,
       port: svc.port,
       readiness: svc.readiness,
+      ...(svc.restart?{restart:svc.restart}:{}),
       invocation: null,
     };
   }
   private async start(id: string, operation: string) {
     const profile = this.profile(id);
+    if(this.store.environment(id)?.desired==='stopped')throw new Problem('STOP_REQUESTED','Start cancelled by deliberate Stop');
     await this.host.capabilities(profile.services);
     const connection = await this.host.connection();
     if (connection.status !== 'connected' || connection.hostname !== this.config.tailnetHostname)
@@ -108,6 +120,7 @@ export class Lifecycle {
       port: p.httpsPort,
       upstream: `http://127.0.0.1:${profile.services.find((s) => s.id === p.serviceId)!.port}`,
       label: p.label,
+      ...(p.path?{path:p.path}:{}),
     }));
     await this.routeLock(async () => {
       const live = await this.host.listeners();
@@ -124,6 +137,7 @@ export class Lifecycle {
     });
     try {
       for (const row of this.store.resources(id).filter((r) => r.kind === 'unit')) {
+        if(this.store.environment(id)?.desired==='stopped')throw new Problem('STOP_REQUESTED','Start cancelled by deliberate Stop');
         const unit = JSON.parse(row.data) as Unit;
         const service = profile.services.find((s) => s.id === unit.serviceId)!;
         this.store.attempted(row.id);
@@ -160,6 +174,7 @@ export class Lifecycle {
       return;
     }
     try {
+      if(this.store.environment(id)?.desired==='stopped')throw new Problem('STOP_REQUESTED','Publication cancelled by deliberate Stop');
       await this.routeLock(async () => {
         for (const row of this.store.resources(id).filter((r) => r.kind === 'route')) {
           const route = JSON.parse(row.data) as Preview;
@@ -180,10 +195,37 @@ export class Lifecycle {
           }
         }
       });
+      const observed = await this.get({environmentId:id});
+      if (observed.preview !== 'available') throw new Problem('HTTPS_UNVERIFIED','Applications are ready; private preview HTTPS verification failed. Recover to retry publication.');
       this.store.finish(operation, 'succeeded');
     } catch (error) {
       this.store.finish(operation, 'partial', problem(error));
     }
+  }
+  private async recover(id:string, operation:string) {
+    const state = await this.get({environmentId:id});
+    if (state.observationError) throw new Problem(state.observationError.code,state.observationError.message);
+    if (state.application === 'ready' && state.profileRevision === revision(this.profile(id))) {
+      try {
+        const connection = await this.host.connection();
+        if (connection.status !== 'connected' || connection.hostname !== this.config.tailnetHostname) throw new Problem('TAILSCALE_UNAVAILABLE','Applications are retained; reconnect Tailscale before recovering previews');
+        await this.routeLock(async()=>{
+          for (const row of this.store.resources(id).filter(r=>r.kind==='route')) {
+            const route = JSON.parse(row.data) as Preview, live = this.host.routeState(await this.host.routes(),route);
+            if (live === 'conflict') throw new Problem('ROUTE_CONFLICT',`HTTPS port ${route.port} conflicts with another route`);
+            if (live === 'absent') { this.store.attempted(row.id); await this.host.addRoute(route); }
+          }
+        });
+        const verified = await this.get({environmentId:id});
+        if (verified.preview !== 'available') throw new Problem('HTTPS_UNVERIFIED','Applications are retained; private preview HTTPS verification failed');
+        this.store.finish(operation,'succeeded');
+      } catch(error) { this.store.finish(operation,'partial',problem(error)); }
+      return;
+    }
+    for (const row of this.store.resources(id).filter(r=>r.kind==='route')) if (this.host.routeState(await this.host.routes(),JSON.parse(row.data)) === 'conflict') throw new Problem('ROUTE_CONFLICT','Resolve the conflicting route before restarting recorded services');
+    const errors = await this.cleanup(id);
+    if (errors.length) throw new Problem('STOP_INCOMPLETE',errors.join('; '));
+    await this.start(id,operation);
   }
   private async capture(row: Resource, unit: Unit) {
     try {
@@ -242,15 +284,18 @@ export class Lifecycle {
     const { environmentId: id } = environmentInput.parse(input);
     this.exists(id);
     const env = this.store.environment(id)!;
+    const preference = this.store.db.prepare('SELECT restore,attempts FROM recovery_preferences WHERE environmentId=?').get(id) as {restore:number;attempts:number}|undefined;
     const rows = this.store.resources(id);
     const observation = JSON.parse(env.observation) as Observation;
     const result: Environment = {
       ports: Object.fromEntries(observation.services.map((s) => [s.id, s.port])),
+      restoreAfterReboot:!!preference?.restore,
+      restorationAttempts:preference?.attempts ?? 0,
       previews: observation.previews.map((p) => ({
         serviceId: p.serviceId,
         label: p.label,
         port: p.httpsPort,
-        url: `https://${this.config.tailnetHostname}:${p.httpsPort}/`,
+        url: `https://${this.config.tailnetHostname}:${p.httpsPort}${p.path ?? '/'}`,
       })),
       id,
       profileRevision: env.revision,
@@ -276,7 +321,9 @@ export class Lifecycle {
         const unit = JSON.parse(row.data) as Unit;
         const current = await this.host.inspectUnit(unit.name);
         if (current && current.marker !== unit.marker) throw new Problem('OWNERSHIP_CONFLICT', `${unit.name} no longer matches recorded ownership`);
-        result.services.push({ id: unit.serviceId, port: unit.port, unit: unit.name, state: current?.state ?? 'absent' });
+        if(unitRestarted(unit,current)){unit.invocation=current!.invocation;this.store.updateData(row.id,unit);}
+        result.services.push({ id: unit.serviceId, port: unit.port, unit: unit.name, state: current?.state ?? 'absent',
+          ...(current ? {restarts:current.restarts,exitCode:current.exitCode,result:current.result,restart:current.restart} : {}) });
         if (!current || current.state === 'inactive' || current.state === 'failed') absent++;
         const ready = await this.host.ready(unit);
         result.services.at(-1)!.ready = ready;
@@ -285,11 +332,14 @@ export class Lifecycle {
       }
       const unitCount = rows.filter((r) => r.kind === 'unit').length;
       result.application = unitCount === 0 || absent === unitCount ? 'stopped' : healthy === observation.services.length ? 'ready' : 'unhealthy';
+      result.preview='unavailable';
+      const connection=await this.host.connection().catch(()=>({status:'unavailable',hostname:null}));
+      const connected=connection.status==='connected' && connection.hostname===this.config.tailnetHostname;
       const config = await this.host.routes();
       const routeRows = rows.filter((r) => r.kind === 'route');
       for (const row of routeRows) {
         const route = JSON.parse(row.data) as Preview;
-        const url = `https://${route.hostname}:${route.port}/`;
+        const url = `https://${route.hostname}:${route.port}${route.path ?? '/'}`;
         const state = this.host.routeState(config, route);
         this.store.recordCheck(observation.projectPath, url, 'route', state === 'matching', state);
         let https: 'verified' | 'unverified' | 'failed' = 'unverified';
@@ -297,8 +347,10 @@ export class Lifecycle {
         if (row.attempted && state === 'matching') {
           result.links.push({ label: route.label, url });
           const service = observation.services.find((s) => Number(new URL(route.upstream).port) === s.port);
-          if (service && result.application === 'ready') {
-            https = (await this.host.probe(url, service.readiness)) ? 'verified' : 'failed';
+          if (connected && service && result.application === 'ready') {
+            const ready=await this.host.probe(url,service.readiness);
+            const destination=ready && (!route.path || route.path===service.readiness.path || await this.host.probe(url,{...service.readiness,path:route.path,bodyIncludes:''}));
+            https = destination ? 'verified' : 'failed';
             this.store.recordCheck(observation.projectPath, `managed-preview:${row.id}`, 'preview-https', https === 'verified', https);
             if (https === 'verified') this.store.setMeta(verifiedKey, result.observedAt);
           }
@@ -314,7 +366,7 @@ export class Lifecycle {
         });
       }
       result.preview =
-        result.previewRoutes!.length > 0 &&
+        connected && result.previewRoutes!.length > 0 &&
         result.previewRoutes!.length === observation.previews.length &&
         result.previewRoutes!.every((r) => r.https === 'verified')
           ? 'available'
@@ -342,6 +394,7 @@ export class Lifecycle {
       const current = await this.host.inspectUnit(unit.name);
       if (current && current.marker !== unit.marker && !row.removed)
         throw new Problem('OWNERSHIP_CONFLICT', 'Current unit is not the recorded owner');
+      if(!row.removed && unitRestarted(unit,current)){unit.invocation=current!.invocation;this.store.updateData(row.id,unit);}
       const page = await this.host.logs(unit, cursor, limit, this.store.redactor(environmentId));
       if (page.lines.length || cursor) return { ...page, lines: this.store.redact(environmentId, page.lines) };
     } catch (error) {
@@ -382,14 +435,18 @@ export class Lifecycle {
         if (errors.length && latest)
           this.store.finish(latest.id, 'failed', { code: 'RECONCILE_CONFLICT', message: errors.join('; ').slice(0, 1024) });
       }
-      if (live && env.desired === 'running' && latest && ['accepted', 'running'].includes(latest.status) && latest.action === 'start') {
+      if (live && env.desired === 'running' && latest && ['accepted', 'running'].includes(latest.status) && ['start','recover'].includes(latest.action)) {
         const observed = await this.get({ environmentId: env.id });
         if (observed.application !== 'ready' && observed.application !== 'unknown') {
           const errors = await this.cleanup(env.id, latest.id);
           if (errors.length) this.store.finish(latest.id, 'failed', { code: 'RECONCILE_CONFLICT', message: errors.join('; ').slice(0, 1024) });
         }
       }
-      if (this.store.meta('boot') !== boot && !live) this.store.db.prepare("UPDATE environments SET desired='stopped' WHERE id=?").run(env.id);
+      if (this.store.meta('boot') !== boot && !live) {
+        const preference = this.store.db.prepare('SELECT restore FROM recovery_preferences WHERE environmentId=?').get(env.id) as {restore:number}|undefined;
+        if (preference?.restore && env.desired === 'running') this.store.db.prepare('UPDATE recovery_preferences SET pendingBoot=?,attempts=0 WHERE environmentId=?').run(boot,env.id);
+        else this.store.db.prepare("UPDATE environments SET desired='stopped' WHERE id=?").run(env.id);
+      }
     }
     this.store.setMeta('boot', boot);
     this.reconciling = false;

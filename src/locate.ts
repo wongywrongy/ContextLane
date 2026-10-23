@@ -17,6 +17,7 @@ export async function locate(service: Rootlane, raw: unknown) {
   const recipe = await service.recipes.inspect(checkout.path, checkout.gitCommonDir ?? undefined);
   const instances = service.recipes.instances(checkout.path).map((i) => {
     const a = JSON.parse(i.allocations);
+    const observation=JSON.parse(store.environment(i.id)?.observation ?? '{}') as import('./state/store.js').Observation;
     return {
       id: i.id,
       checkoutPath: i.checkoutPath,
@@ -25,7 +26,7 @@ export async function locate(service: Rootlane, raw: unknown) {
       previews: Object.entries(a.previews).map(([serviceId, port]) => ({
         serviceId,
         port: port as number,
-        url: `https://${config.tailnetHostname}:${port}/`,
+        url: `https://${config.tailnetHostname}:${port}${observation.previews?.find(p=>p.serviceId===serviceId)?.path ?? '/'}`,
       })),
     };
   });
@@ -39,7 +40,8 @@ export async function locate(service: Rootlane, raw: unknown) {
       branch: checkout.branch,
       ...(checkout.detachedSha ? { detachedSha: checkout.detachedSha } : {}),
     },
-    ports: checkout.runtime.ports.map((port) => ({ port, name: checkout.runtime.listeners?.find((l) => l.port === port)?.process?.name ?? '—' })),
+    ports: checkout.runtime.ports.map((port) => ({ port, name: checkout.runtime.listeners?.find((l) => l.port === port)?.process?.name ?? checkout.runtime.services.find((s) => s.port === port)?.name ?? '—' })),
+    observedPreviews: checkout.observedPreviews ?? [],
     environments: checkout.environmentIds.map((id) => ({ id, status: store.environment(id) ? `desired ${store.environment(id)!.desired}` : '—' })),
     approvedTargetIds: config.previewTargets.filter((t) => t.checkoutPath === checkout.path).map((t) => t.id),
     previews: [
@@ -48,7 +50,7 @@ export async function locate(service: Rootlane, raw: unknown) {
         .filter((p) => !p.removed && JSON.parse(p.target).checkoutPath === checkout.path)
         .map((p) => {
           const route = JSON.parse(p.route);
-          return { id: p.id, url: `https://${route.hostname}:${route.port}/` };
+          return { id: p.id, url: `https://${route.hostname}:${route.port}${route.path ?? '/'}` };
         }),
       ...checkout.environmentIds.flatMap((id) =>
         store
@@ -56,7 +58,7 @@ export async function locate(service: Rootlane, raw: unknown) {
           .filter((r) => r.kind === 'route')
           .map((r) => {
             const route = JSON.parse(r.data);
-            return { id: r.id, url: `https://${route.hostname}:${route.port}/` };
+            return { id: r.id, url: `https://${route.hostname}:${route.port}${route.path ?? '/'}` };
           }),
       ),
     ],

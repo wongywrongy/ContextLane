@@ -71,6 +71,8 @@ The installed host version was verified as Codex CLI `0.162.1`. Its OTEL headers
 
 Verified events are `codex.conversation_starts`, `codex.api_request`, `codex.tool_result` and `codex.tool_decision`, keyed by `conversation.id`. Token counts arrive on `codex.sse_event` with `event.kind=response.completed`; Rootlane reads only its numeric usage fields. Model, reasoning effort, approval/sandbox enums, request durations/statuses and tool count/success/duration/decision are kept. Codex does not report the Claude status-line percentages or subscription limits. [0.162.1 event source](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/otel/src/events/session_telemetry.rs).
 
+The receiver accepts `codex`, `codex_cli_rs` and the current app-server service name `codex-app-server`. [Official app-server source](https://github.com/openai/codex/blob/main/codex-rs/app-server/src/lib.rs).
+
 ## What is retained
 
 | Kept | Dropped on arrival |
@@ -102,3 +104,7 @@ Unmatched sessions appear under a project only when their cwd is known. They are
 Retention prunes hourly using session `last_seen_at`, cascading through counters, tools, toolkit and the latest context row; Rootlane MCP counts use the same retention. The existing SQLite backup includes all migration-005 tables. Back up before upgrading; rollback to an older schema requires the matching pre-upgrade database.
 
 To stop ingestion and purge retained telemetry, set `telemetry.enabled` to `false` and run `deploy/rootlane-reload`. The receiver closes and the telemetry tables' rows are deleted. New Rootlane MCP counts can still accumulate because those remain available while telemetry is off. Remove the exporters and hooks/status-line wrapper from each agent's settings as well. Existing external backups remain your responsibility; deleting live rows does not rewrite them.
+
+## Reviewed setup in Settings
+
+Settings → MCP setup can enable the receiver and preview client telemetry changes together. This is owner-session/CSRF protected. The receiver preference persists privately in SQLite and takes precedence over `telemetry.enabled` in config; change the owner preference to disable/purge when that override exists. Existing client exporters require explicit replacement review. Claude hooks and status-line output remain unchanged. Receiver availability and client-reported events appear separately; a synthetic ingestion test does not establish actual client reporting. Registration, connection checks and MCP tool-call verification also remain separate.

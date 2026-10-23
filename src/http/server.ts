@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { Rootlane } from '../service.js';
-import { approvalsOutput, toolContracts, problem, Problem, type ToolName } from '../shared/contracts.js';
+import { approvalsOutput, toolContracts, problem, Problem, id, locateInput, environmentInspection, type ToolName } from '../shared/contracts.js';
+import { recipeSchema } from '../recipes.js';
 import { telemetrySetup } from '../telemetry/setup.js';
 const equal = (a: string, b: string) => Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const loginSchema = z.strictObject({ credential: z.string().min(1).max(256) });
@@ -64,7 +65,7 @@ export async function createServer(config: Config, service: Rootlane, credential
     if (!path?.startsWith('/api/')) return;
     const auth = request.headers.authorization;
     if (auth !== undefined) {
-      if (path.startsWith('/api/approvals') || path === '/api/telemetry/copy')
+      if (path.startsWith('/api/approvals') || path.startsWith('/api/owner/') || path === '/api/telemetry/copy')
         return reply.code(403).send({ code: 'OWNER_SESSION_REQUIRED', message: 'This action requires an owner cookie session and CSRF' });
       if (request.ip !== '127.0.0.1' || !equal(auth, `Bearer ${credentials.agent}`))
         return reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Valid loopback agent credential required' });
@@ -104,7 +105,7 @@ export async function createServer(config: Config, service: Rootlane, credential
   app.get('/api/session', async (request) => ({ csrf: session(request.headers.cookie)?.csrf ?? null }));
   app.get('/api/status', async () => ({
     connected: true,
-    version: '0.8.0',
+    version: '0.9.0',
     editorUrlTemplate: config.editorUrlTemplate ?? null,
     projectRoots: service.catalog.config.projectRoots,
     observationRoots: service.catalog.config.observationRoots,
@@ -116,6 +117,34 @@ export async function createServer(config: Config, service: Rootlane, credential
     observedAt: new Date().toISOString(),
   }));
   app.get('/api/approvals', async () => approvalsOutput.parse({ approvals: await service.recipes.listApprovals() }));
+  app.post('/api/owner/configuration', async request=>{
+    const input = locateInput.extend({recipe:recipeSchema,tools:z.partialRecord(z.enum(['node','python','venv']),z.string().startsWith('/').max(4096).refine(v=>!/[\0\r\n]/.test(v))),fingerprint:z.string().regex(/^[a-f0-9]{64}$/)}).parse(request.body);
+    return environmentInspection.parse(await service.recipes.configure(input.path,input.recipe,input.tools,input.fingerprint));
+  });
+  app.post('/api/owner/preparation', async request=>{
+    const input = locateInput.extend({fingerprint:z.string().regex(/^[a-f0-9]{64}$/),requestId:z.uuid()}).parse(request.body);
+    return service.recipes.runPreparation(input.path,input.fingerprint,input.requestId);
+  });
+  app.post('/api/owner/preparation/:id/cleanup', async request=>service.recipes.cleanupPreparation(z.strictObject({id:z.uuid()}).parse(request.params).id));
+  app.post('/api/owner/retirement', async request=>service.recipes.retire(z.strictObject({environmentId:id}).parse(request.body).environmentId));
+  app.post('/api/owner/recovery-policy', async request=>{
+    const {environmentId,restore} = z.strictObject({environmentId:id,restore:z.boolean()}).parse(request.body);
+    return service.recoveryPolicy(environmentId,restore);
+  });
+  app.post('/api/owner/export-recipe', async request=>{
+    const inspection = await service.recipes.inspectEnvironment(locateInput.parse(request.body).path);
+    if (!inspection.proposal) throw new Problem('NOT_FOUND','No recipe to export');
+    return {recipe:inspection.proposal};
+  });
+  app.post('/api/owner/integrations', async request=>service.integrations.run(z.strictObject({client:z.enum(['codex','claude']),action:z.enum(['inspect','apply','verify']),fingerprint:z.string().regex(/^[a-f0-9]{64}$/).optional(),telemetry:z.boolean().optional(),replaceExporters:z.boolean().optional()}).parse(request.body),credentials.ingest ?? ''));
+  app.post('/api/owner/telemetry-policy', async request=>{
+    const {enabled}=z.strictObject({enabled:z.boolean()}).parse(request.body);
+    if(enabled && !credentials.ingest)throw new Problem('INGEST_CREDENTIAL_UNSET','Generate an ingest credential through owner setup first');
+    await service.telemetry.reconfigure({...config.telemetry,enabled},credentials.ingest);
+    config.telemetry.enabled=enabled;service.lifecycle.store.setMeta('telemetryEnabled',String(enabled));
+    if(!enabled)await service.telemetry.purge();
+    return {enabled};
+  });
   app.post('/api/telemetry/copy', async (request) => {
     const { kind } = z.strictObject({ kind: z.enum(['credential','claude-env','hooks','statusline','codex']) }).parse(request.body);
     if (!credentials.ingest) throw new Problem('INGEST_CREDENTIAL_UNSET', 'Run owner setup to generate the ingest credential');
