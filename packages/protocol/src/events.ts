@@ -106,7 +106,7 @@ export const NewLaneEvent = z.discriminatedUnion("type", EVENT_TYPES.map((type) 
 
 /** Hosts report agent observations; only the daemon may write owner decisions and commands. */
 export const HostEvent = z.object({ eventId: z.uuid(), event: NewLaneEvent }).refine(({ event }) => {
-  return ["agent.plan", "agent.thought", "agent.message", "agent.session", "agent.turn", "agent.error", "agent.command.result", "tool.call", "tool.update", "permission.requested", "usage"].includes(String(event.type)) &&
+  return ["agent.plan", "agent.thought", "agent.message", "agent.session", "agent.turn", "agent.error", "agent.command.result", "tool.call", "tool.update", "permission.requested", "usage", "usage.turn", "usage.limit", "usage.compaction"].includes(String(event.type)) &&
     (event.type !== "agent.message" || (event.payload as { role: string }).role === "agent");
 }, "hosts may only report agent observations");
 

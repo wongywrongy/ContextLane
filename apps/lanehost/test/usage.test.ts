@@ -3,7 +3,8 @@ import { appendFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { openAgentSession } from "@contextlanes/lanehost";
+import { openAgentSession, runLaneHost } from "@contextlanes/lanehost";
+import { Config, EventBus, HostLinks, LaneManager, Store, buildServer } from "@contextlanes/daemon";
 import { NewLaneEvent, type TurnUsage } from "@contextlanes/protocol";
 import { SessionUsage, usageDelta, reportedLimits } from "../src/usage.js";
 import { fakeAgent } from "./fake-agent.js";
@@ -11,6 +12,28 @@ import { fakeAgent } from "./fake-agent.js";
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function root() { const dir = await mkdtemp(join(tmpdir(), "cl-usage-")); roots.push(dir); return dir; }
+
+it("delivers fake-agent usage through the authenticated host socket into the database and usage API", async () => {
+  const dir = await root(), store = Store.open(":memory:"), bus = new EventBus();
+  const hosts = new HostLinks({ store, bus }), socketPath = join(dir, "lanes.sock");
+  await hosts.listen(socketPath);
+  const config = Config.parse({ paths: { data: dir, lanes: join(dir, "lanes") }, lanes: { launchHosts: false } });
+  const run = async () => ({ stdout: "" });
+  const lanes = new LaneManager({ store, bus, config, run });
+  store.addProject({ id: "demo", name: "Demo", path: dir });
+  const lane = await lanes.start({ project: "demo", task: "usage" });
+  const fake = fakeAgent(), stop = new AbortController();
+  const host = runLaneHost({ lane: lane.id, cwd: dir, task: "usage", agent: { command: "unused", args: [] }, token: store.mintLaneToken(lane.id), socketPath, signal: stop.signal, connect: (client) => client.connect(fake.app) });
+  const app = buildServer({ store, bus, hosts, lanes, config, run, version: "test" });
+  try {
+    await vi.waitFor(() => expect(store.usage().lanes).toHaveLength(1));
+    const response = await app.inject({ url: "/api/usage", headers: { authorization: `Bearer ${store.ownerSession()}` } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().lanes[0]).toMatchObject({ lane: lane.id, turns: 1, inputTokens: 100, outputTokens: 20, costUsd: .25 });
+    expect(response.json().limits).toHaveLength(2);
+    expect(store.events(lane.id).filter((e) => e.type === "usage.compaction")).toHaveLength(1);
+  } finally { stop.abort(); await host; await app.close(); await hosts.close(); store.close(); }
+});
 
 it("records ACP prompt totals, USD increments and one completed compaction, preferring ACP over a matching log", async () => {
   const dir = await root();
