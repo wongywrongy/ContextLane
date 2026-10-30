@@ -7,11 +7,12 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
 import { Collisions } from "../collisions.js";
 import { LocalModels } from "../localmodels.js";
+import { Briefs } from "../briefs.js";
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -35,7 +36,7 @@ import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -192,6 +193,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   const localModels = deps.localModels ?? new LocalModels({ config, run });
   app.get("/api/models/local", async () => localModels.status());
+  const briefs = deps.briefs ?? new Briefs({ config, store, codemaps, models: localModels });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/briefs", async (req) => briefs.get(ProjectId.parse(req.params.project), BriefQuery.parse(req.query)));
+  app.post<{ Params: { project: string } }>("/api/projects/:project/briefs/write", async (req) => briefs.write(ProjectId.parse(req.params.project), BriefQuery.parse(req.body)));
+  app.put<{ Params: { project: string } }>("/api/projects/:project/briefs", async (req) => {
+    const body = BriefEdit.extend({ module: z.string().min(1).max(300) }).parse(req.body);
+    return briefs.edit(ProjectId.parse(req.params.project), body.module, body.text);
+  });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/notes", async (req) => ({ text: await briefs.notes(ProjectId.parse(req.params.project)) }));
+  app.put<{ Params: { project: string } }>("/api/projects/:project/notes", async (req) => { await briefs.saveNotes(ProjectId.parse(req.params.project), ProjectNotes.parse(req.body).text); return { saved: true }; });
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));
@@ -286,6 +296,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (req.params.tool === "checkpoint") return reply.code(202).send(await checker.begin(lane, CheckpointRequest.parse(req.body).summary));
     if (req.params.tool === "env_status") return runtime.status(lane);
+    if (req.params.tool === "get_brief") return { brief: await briefs.forAgent(store.getLane(lane)!.project, BriefQuery.parse(req.body ?? {})) };
     if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
     if (req.params.tool === "preview_url") return runtime.previewUrl(lane, z.object({ service: z.string().default("web") }).parse(req.body ?? {}).service);
     if (req.params.tool === "get_logs") {

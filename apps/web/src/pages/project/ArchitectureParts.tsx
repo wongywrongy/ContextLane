@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Collision, Lane } from "@contextlanes/protocol";
+import type { Collision, Lane, ModuleBrief } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../../api";
 import { LaneBadge, laneNumber } from "../../components/ui";
 
@@ -27,7 +27,30 @@ export function CollisionBox({ project, module, editing, lanes }: { project: str
   </div>;
 }
 
-/** What agents are told about a module (phase 3.5). Hidden until briefs exist. */
-export function BriefBlock(_: { project: string; module: string }) {
-  return null;
+const k = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
+
+/** "Brief agents get": what get_brief returns for this module, editable, with its size against reading the files. */
+export function BriefBlock({ project, module }: { project: string; module: string }) {
+  const [brief, error, reload] = useJson<ModuleBrief>(`/api/projects/${project}/briefs?module=${encodeURIComponent(module)}`);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const act = (p: Promise<unknown>) => { setBusy(true); setMessage(""); void p.then(() => { setEditing(null); reload(); }, (e) => setMessage(errorMessage(e))).finally(() => setBusy(false)); };
+  if (error || !brief) return null;
+  return <div className="ps">
+    <div className="ps-h"><span className="lbl">Brief agents get</span><div className="e">{editing === null ? <button className="btn ghost sm" onClick={() => setEditing(brief.text ?? "")}>Edit</button> : null}</div></div>
+    {editing !== null ? <>
+      <textarea className="in" rows={6} value={editing} maxLength={4000} onChange={(e) => setEditing(e.target.value)} aria-label="Brief" />
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn sm" disabled={busy || !editing.trim()} onClick={() => act(postJson(`/api/projects/${project}/briefs`, { module, text: editing }, "PUT"))}>Save</button><button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button></div>
+    </> : brief.text ? <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{brief.text}</p>
+      : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{brief.canWrite ? "No brief yet. Agents get CodeGraph's facts until one is written." : "Agents get CodeGraph's facts about this module. Add a local model under Models to have briefs written."}</p>}
+    {brief.stale && editing === null ? <p style={{ margin: "8px 0 0", fontSize: 12.5 }}><i className="g wait" aria-hidden="true" /> Written before its files last changed.</p> : null}
+    {brief.canWrite && editing === null && (!brief.text || brief.stale) ? <button className="btn sm" style={{ marginTop: 10 }} disabled={busy} onClick={() => act(postJson(`/api/projects/${project}/briefs/write`, { module }))}>{busy ? "Writing…" : brief.text ? "Write it again" : "Write it now"}</button> : null}
+    {brief.tokens !== null ? <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px", marginTop: 14, fontSize: 13 }}>
+      <span className="muted">this brief</span><span className="mono" style={{ color: "var(--ok-ink)", fontWeight: 600 }}>≈ {k(brief.tokens)} tokens</span>
+      <span className="muted">reading the files instead</span><span className="mono">≈ {k(brief.filesTokens)} tokens</span>
+    </div> : null}
+    {brief.edited ? <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>Edited by you.</p> : brief.model ? <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>Written by {brief.model}.</p> : null}
+    {message ? <p role="alert" style={{ margin: "8px 0 0", fontSize: 13 }}>{message}</p> : null}
+  </div>;
 }

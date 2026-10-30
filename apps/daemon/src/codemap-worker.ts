@@ -8,6 +8,7 @@
  *
  * Prints one CodeMap as JSON on stdout. Indexes from scratch the first time, then syncs changed files.
  */
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -126,7 +127,13 @@ async function main(): Promise<void> {
         const top = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
         return { name, tech: configured ?? (top ? LANGUAGE[top] ?? top : null) };
       }),
-      modules: [...modules].map(([id, m]) => ({ id, layer: m.layer, files: m.files, lines: m.lines, tests: m.tests })).sort((a, b) => a.id.localeCompare(b.id)),
+      modules: [...modules].map(([id, m]) => {
+        const own = assignments.filter((a) => a.module === id).map((a) => a.filePath).sort();
+        const hash = createHash("sha256").update(own.map((f) => `${f}:${files.find((x) => x.path === f)?.contentHash ?? ""}`).join("\n")).digest("hex").slice(0, 16);
+        const symbols = cg.getNodesInFiles(own).filter((n) => n.isExported && ["function", "class", "method", "interface", "type_alias", "constant"].includes(n.kind))
+          .slice(0, 12).map((n) => ({ name: n.name, kind: n.kind, file: n.filePath, signature: n.signature ? n.signature.split("\n")[0]!.slice(0, 160) : null }));
+        return { id, layer: m.layer, files: m.files, lines: m.lines, tests: m.tests, hash, symbols, paths: own.slice(0, 200) };
+      }).sort((a, b) => a.id.localeCompare(b.id)),
       links: [...links.values()].map((l) => ({ ...l, kinds: [...l.kinds] })).sort((a, b) => b.count - a.count),
       pairs: agg.pairs.filter((p) => p.source !== p.target).map(({ source, target, from, to, count }) => ({ source, target, from, to, count })),
       coveredBy: Object.fromEntries(Object.entries(coveredBy).map(([k, v]) => [k, [...v].map(([module, set]) => ({ module, files: set.size })).sort((a, b) => b.files - a.files)])),

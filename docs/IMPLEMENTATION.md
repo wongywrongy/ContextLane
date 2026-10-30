@@ -331,8 +331,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.2 Architecture page and `contextlanes arch` | architecture | Done: see 3.2 |
 | 3.3 Collision warnings | architecture, review | Done: see 3.3 |
 | 3.4 Local model runtime | models | Done with a fake server; real models need Kyle; see 3.4 |
-| 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Next |
-| 3.6 Local helper (`delegate`) | models, work-lane | Not started |
+| 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Done: see 3.5 |
+| 3.6 Local helper (`delegate`) | models, work-lane | Next |
 | 3.7 Insights | insights | Not started |
 | 3.8 ⌘K Ask | top bar | Not started |
 | 3.9 Measure the phase 3 gate | — | Not started |
@@ -566,6 +566,15 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Inspector line: "this brief Nk tokens · reading the files instead ≈ Mk tokens", both counted with the same tokenizer estimate.
 - Project notes: short owner-edited facts in `<data>/notes/<project>.md`, added to the start of every new lane's first prompt and counted. They appear in Insights under "What every lane starts with", with an Edit button.
 - Add `get_brief` to `LIVE_TOOLS`.
+
+#### What was done (2026-10-30)
+
+- The code map now gives each module a content hash, its exported symbols (name, kind, file, first line of the signature) and its files.
+- `apps/daemon/src/briefs.ts`: a brief is written by the local model from CodeGraph's facts (layer, size, exports, who uses it and through which symbol, what it uses, its tests) and the first 60 lines of up to eight of its files, in at most 120 words, and saved under `<data>/briefs/<project>/` against the module's hash. A changed module's brief is marked "written before its files last changed". An owner edit is kept and marked as edited.
+- `get_brief({ module | path })` is live (`LIVE_TOOLS`). It returns the brief, writing it first if a model is set up (waiting at most a minute), plus the facts. With no local model it returns the facts and says so, so the tool never answers with nothing.
+- Architecture inspector: "Brief agents get" with Edit, Write it now, and "this brief ≈ 1.8k tokens · reading the files instead ≈ 38k tokens", both estimated at four characters per token from the brief and the files' sizes.
+- Project notes: `GET/PUT /api/projects/:p/notes`, saved as `<data>/notes/<project>.md` and put before the task in every new lane's first message. Editing them in the page comes with Insights (3.7).
+- Tests: `briefs.test.ts` (write, cache, stale, edit kept, facts-only without a model, unknown module, notes in the first message).
 
 ### 3.6 Local helper (`delegate`) (models, work-lane)
 

@@ -38,8 +38,8 @@ export const TOOLS = {
   },
   get_brief: {
     phase: 3,
-    description: "The short brief for a module (what it holds, rules, entry points) instead of reading every file.",
-    input: z.object({ module: z.string() }),
+    description: "A module's brief and facts (what it is for, its exports, what uses it, its tests) from the code map, instead of reading every file. Give a module name from the Architecture page or any file path inside it.",
+    input: z.object({ module: z.string().optional(), path: z.string().optional() }),
   },
   delegate: {
     phase: 3,
@@ -55,4 +55,4 @@ export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
  * Tools agents are given today. A tool joins this list only when its daemon route works; until
  * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
  */
-export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint"];
+export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];

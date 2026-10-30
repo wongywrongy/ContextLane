@@ -6,7 +6,12 @@ export const ArchitectureConfig = z.strictObject({
 });
 export type ArchitectureConfig = z.infer<typeof ArchitectureConfig>;
 
-export const CodeModule = z.object({ id: z.string(), layer: z.string(), files: z.number().int(), lines: z.number().int(), tests: z.number().int() });
+export const CodeModule = z.object({ id: z.string(), layer: z.string(), files: z.number().int(), lines: z.number().int(), tests: z.number().int(),
+  /** Changes when any of its files changes; module briefs are cached against it. */
+  hash: z.string().optional(),
+  /** Exported symbols, the module's public surface, at most 12. */
+  symbols: z.array(z.object({ name: z.string(), kind: z.string(), file: z.string(), signature: z.string().nullable() })).optional(),
+  paths: z.array(z.string()).optional() });
 export type CodeModule = z.infer<typeof CodeModule>;
 export const CodeLink = z.object({ source: z.string(), target: z.string(), count: z.number().int(), kinds: z.array(z.string()) });
 /** The busiest symbol pairs behind a link: "solver/model.py → to_solver_input()". */
@@ -118,3 +123,11 @@ function layerOf(module: string, path: string): string {
   for (const [name, re] of LAYER_WORDS) if (re.test(named.join("/"))) return name;
   return "Logic";
 }
+
+/** What agents are told about a module (Architecture inspector, get_brief). */
+export type ModuleBrief = { module: string; text: string | null; edited: boolean; stale: boolean; model: string | null; writtenAt: string | null; tokens: number | null; filesTokens: number; canWrite: boolean; facts: string };
+export const BriefEdit = z.object({ text: z.string().trim().min(1).max(4000) });
+export const BriefQuery = z.object({ module: z.string().min(1).max(300).optional(), path: z.string().min(1).max(500).optional() }).refine((q) => q.module || q.path, "a module or a path");
+export const ProjectNotes = z.object({ text: z.string().max(8000) });
+/** About four characters per token for code and English; shown as an estimate, never billed against. */
+export const estimateTokens = (text: string) => Math.ceil(text.length / 4);

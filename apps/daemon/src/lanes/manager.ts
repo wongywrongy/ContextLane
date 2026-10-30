@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { access, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { laneColour, laneId, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
@@ -89,7 +90,7 @@ export class LaneManager {
       await extra.prepare?.(lane);
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
       // Through the environment, not arguments: every process on the machine can read arguments.
-      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption, extra.firstPrompt), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
+      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption, extra.firstPrompt, await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "")), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {
@@ -104,8 +105,10 @@ export class LaneManager {
 }
 
 /** systemd-run arguments for a lane host. Kept separate so it can be tested and documented. */
-export function hostCommand(lane: Lane, config: Config, adoption?: ServiceProposal, firstPrompt?: string): string[] {
-  const task = firstPrompt ? firstPrompt : adoption ? `${lane.task}\n\nPropose a .contextlanes.json service from this observed process. Keep the outside copy running. Adapt paths to the lane's worktree, replace its observed port with a free $PORT and bind to 127.0.0.1. Request the owner's normal recipe approval before starting the copy. Observed data: ${JSON.stringify(adoption)}` : lane.task;
+export function hostCommand(lane: Lane, config: Config, adoption?: ServiceProposal, firstPrompt?: string, notes = ""): string[] {
+  const asked = firstPrompt ? firstPrompt : adoption ? `${lane.task}\n\nPropose a .contextlanes.json service from this observed process. Keep the outside copy running. Adapt paths to the lane's worktree, replace its observed port with a free $PORT and bind to 127.0.0.1. Request the owner's normal recipe approval before starting the copy. Observed data: ${JSON.stringify(adoption)}` : lane.task;
+  // Project notes are what every lane starts with (Insights → What every lane starts with).
+  const task = notes.trim() ? `Project notes from the owner. Keep to them unless the task says otherwise:\n${notes.trim()}\n\n---\n\n${asked}` : asked;
   const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
   return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
