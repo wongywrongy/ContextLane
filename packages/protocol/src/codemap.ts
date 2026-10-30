@@ -195,3 +195,8 @@ export type InsightsView = {
 /** ⌘K Ask: an answer from the project's notes, code map, briefs and lanes, with the sources it cited. */
 export type AskAnswer = { answer: string; model: string; sources: { id: string; kind: "notes" | "map" | "brief" | "lane"; label: string }[] };
 export const AskRequest = z.object({ question: z.string().trim().min(3).max(500) });
+
+/** Tidy: a local model's proposed grouping of the map into named areas and layers; the owner approves it. */
+export type TidyGrouping = { areas: Record<string, string>; layers: Record<string, string>; notes: string[]; model: string; at: string };
+export type TidyChange = { module: string; from: { area: string; layer: string }; to: { area: string; layer: string } };
+export type TidyView = { proposal: (TidyGrouping & { changes: TidyChange[]; areaNames: string[] }) | null; approved: { at: string; model: string; areas: number } | null; canRun: boolean; running: boolean };

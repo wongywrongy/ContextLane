@@ -6,6 +6,7 @@ import { NotFound } from "./lanes/manager.js";
 import { readRecipe } from "./recipes.js";
 import type { Runner } from "./run.js";
 import { sandbox } from "./sandbox.js";
+import { Tidy } from "./tidy.js";
 
 export const CODEMAP_WORKER = fileURLToPath(new URL("./codemap-worker.js", import.meta.url));
 const OPEN = ["setting_up", "working", "needs_you", "in_review", "failed", "paused"];
@@ -20,7 +21,16 @@ export class CodeMaps {
   private running = new Map<ProjectId, Promise<void>>();
   constructor(private deps: { run: Runner; store: Store; config: Config; worker?: string; maxAgeMs?: number }) {}
 
+  /** The map with the owner's approved tidy (named areas, corrected layers) laid over it. */
   async map(project: ProjectId): Promise<{ map: CodeMap | null; error: string | null }> {
+    const raw = await this.raw(project);
+    if (!raw.map) return raw;
+    const approved = await new Tidy({ config: this.deps.config, models: null as never, raw: async () => null, changed: () => {} }).saved(project).then((s) => s.approved, () => null);
+    return { ...raw, map: Tidy.apply(raw.map, approved) };
+  }
+
+  /** CodeGraph's map as built, before any tidy. */
+  async raw(project: ProjectId): Promise<{ map: CodeMap | null; error: string | null }> {
     const p = this.deps.store.getProject(project);
     if (!p) throw new NotFound("no such project");
     const cached = this.cache.get(project);

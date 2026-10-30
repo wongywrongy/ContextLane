@@ -732,6 +732,17 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
 - Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
 
+#### After the first run on neo (2026-10-30)
+
+Kyle ran it on a 48-module repository; Architecture became a wall of boxes and lines. Changes:
+
+- **Areas first.** Above 16 modules (`AREA_THRESHOLD`) Architecture opens on one card per area: its modules, files, layers, lanes and the areas it uses. Opening an area (in the address, so Back works) shows its modules; with more than 16 on screen only the selected module's links are drawn. Find a module searches by name. Layer labels follow the languages of the modules shown (`CodeModule.tech`), so a TypeScript store no longer sits under "Data · Python".
+- **Tidy with a local model** (`apps/daemon/src/tidy.ts`). The model reads CodeGraph's modules (layer, language, exports, uses) and proposes named areas and layer fixes as JSON. Output is checked: only real module ids, each in one area, only known layers. The proposal lists area moves and layer changes; nothing changes until Approve, and Back to folders undoes it. Module ids never change, so lanes, briefs and collisions are unaffected. Stored in `<data>/tidy/<project>.json`.
+- **Local endpoints with roles.** Each endpoint has an optional name and roles (briefs, helper, insights, ask, tidy; none = every job). A job goes to an answering endpoint with its role and the shortest queue, so the same model on two machines shares work and a down one is skipped. The same model may now be added at several addresses.
+- **Projects and lanes.** Rename (the id stays, also across restarts), pin, reorder and remove projects in Settings → Projects; removing hides the project and keeps the repository, branches and history, and adding the folder again restores it. Rename a lane from its header (`lane.renamed` event). Archive cleaned-up or failed lanes from the inspector; archived lanes are hidden in the lane list until Show archived.
+- **Banners.** Ten flowing-ribbon images (generated, `apps/web/public/covers`) replace the gradient covers.
+- Decided against for now: a local model judging lanes' checkpoints. Ask another agent to review already covers it with a stronger model; a local first pass can come later if reviews pile up.
+
 #### Setup order (2026-10-30)
 
 Setup now maps the workspace before asking for a lane: after Add projects, step 4 "Get to know your projects" maps each one with CodeGraph and shows, per project, its modules and layers, whether `.contextlanes.json` exists and is approved, services already listening outside a lane (Adopt on Run) and agent sessions started outside ContextLanes (Take over on Work). Continue waits for every map. Start your first lane follows and can be skipped; Continue and Skip are remembered in that browser. No server change: it reads `/map`, `/environments` and `/outside-agents`.

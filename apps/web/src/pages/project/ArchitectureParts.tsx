@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { Collision, Lane, ModuleBrief } from "@contextlanes/protocol";
+import type { Collision, Lane, ModuleBrief, TidyView } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../../api";
-import { LaneBadge, laneNumber } from "../../components/ui";
+import { Glyph, LaneBadge, Section, agoText, laneNumber } from "../../components/ui";
 
 /**
  * "Two lanes are editing this": who and how much, the suggested order and why, and the one action:
@@ -53,4 +53,45 @@ export function BriefBlock({ project, module }: { project: string; module: strin
     {brief.edited ? <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>Edited by you.</p> : brief.model ? <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>Written by {brief.model}.</p> : null}
     {message ? <p role="alert" style={{ margin: "8px 0 0", fontSize: 13 }}>{message}</p> : null}
   </div>;
+}
+
+/**
+ * Grouping: areas and layers come from folder names until the owner approves a local model's tidy.
+ * The proposal shows every module that would move; nothing changes before Approve.
+ */
+export function TidyBlock({ project, changed }: { project: string; changed: () => void }) {
+  const [view, , reload] = useJson<TidyView>(`/api/projects/${project}/tidy`);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [all, setAll] = useState(false);
+  const act = async (path: string, method = "POST") => {
+    setBusy(true); setError("");
+    try { await postJson(`/api/projects/${project}/tidy${path}`, {}, method); reload(); changed(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+  };
+  if (!view) return null;
+  const p = view.proposal;
+  if (p) return <Section title="Proposed grouping" meta={`by ${p.model} · ${agoText(p.at)} · ${p.changes.length} ${p.changes.length === 1 ? "module moves" : "modules move"}`}
+    end={<><button className="btn sm" disabled={busy} onClick={() => void act("/approve")}>Approve</button><button className="btn ghost sm" disabled={busy} onClick={() => void act("/discard")}>Discard</button></>}>
+    {(() => {
+      // Area moves grouped by where they come from and go to; layer moves one module at a time.
+      const moves = new Map<string, number>();
+      for (const c of p.changes) if (c.from.area !== c.to.area) moves.set(`${c.from.area}\u0000${c.to.area}`, (moves.get(`${c.from.area}\u0000${c.to.area}`) ?? 0) + 1);
+      const layers = p.changes.filter((c) => c.from.layer !== c.to.layer);
+      const rows = [...moves].map(([k, n]) => { const [from, to] = k.split("\u0000"); return <div className="sec-r" key={k} style={{ minHeight: 40, fontSize: 13.5 }}><span className="mono" style={{ flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere" }}>{from}</span><span style={{ flex: "1 1 0", minWidth: 0 }}>→ <b>{to}</b> <span className="muted">· {n} {n === 1 ? "module" : "modules"}</span></span></div>; });
+      const layerRows = layers.map((c) => <div className="sec-r" key={c.module} style={{ minHeight: 40, fontSize: 13.5 }}><span className="mono" style={{ flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere" }}>{c.module}</span><span style={{ flex: "1 1 0", minWidth: 0 }}><span className="muted">{c.from.layer}</span> → <b>{c.to.layer}</b> <span className="muted">layer</span></span></div>);
+      const shown = [...rows, ...layerRows];
+      return <>{shown.slice(0, all ? undefined : 12)}{shown.length > 12 ? <div className="sec-r"><button className="lnk" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `Show all ${shown.length}`}</button></div> : null}</>;
+    })()}
+    {p.notes.map((n, i) => <div className="sec-r" key={i} style={{ fontSize: 13.5 }}><Glyph g="idle">{n}</Glyph></div>)}
+    {error ? <div className="sec-f" role="alert">{error}</div> : null}
+  </Section>;
+  return <Section title="Grouping" meta={view.approved ? `tidied by ${view.approved.model}, approved ${agoText(view.approved.at)}` : "from folder names"}>
+    <div className="sec-r wrap">
+      <span className="grow muted" style={{ fontSize: 13.5 }}>{view.approved ? `${view.approved.areas} named areas and corrected layers you approved. Module names never change.` : "Areas are top folders and layers are guessed from folder names. A local model can propose named areas and fix layers; you approve before anything changes."}</span>
+      {view.canRun ? <button className="btn ghost sm" disabled={busy || view.running} onClick={() => void act("")}>{busy || view.running ? "Tidying…" : view.approved ? "Tidy again" : "Tidy with local model"}</button>
+        : <span className="muted" style={{ fontSize: 13 }}>Add a local model for tidying under Models.</span>}
+      {view.approved ? <button className="btn ghost sm" disabled={busy} onClick={() => void act("", "DELETE")}>Back to folders</button> : null}
+    </div>
+    {error ? <div className="sec-f" role="alert">{error}</div> : null}
+  </Section>;
 }

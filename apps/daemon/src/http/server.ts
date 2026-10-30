@@ -21,6 +21,7 @@ import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import type { Schedules } from "../schedules.js";
 import { Skills } from "../skills.js";
+import { Tidy } from "../tidy.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
 const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
@@ -239,6 +240,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return collisions.plan(ProjectId.parse(req.params.project), body.module, body.lane);
   });
   const localModels = deps.localModels ?? new LocalModels({ config, run });
+  const tidy = new Tidy({ config, models: localModels, raw: async (p) => (await codemaps.raw(p)).map, changed: () => {} });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/tidy", async (req) => tidy.view(ProjectId.parse(req.params.project)));
+  app.post<{ Params: { project: string } }>("/api/projects/:project/tidy", async (req) => tidy.propose(ProjectId.parse(req.params.project)));
+  app.post<{ Params: { project: string } }>("/api/projects/:project/tidy/approve", async (req) => tidy.approve(ProjectId.parse(req.params.project)));
+  app.post<{ Params: { project: string } }>("/api/projects/:project/tidy/discard", async (req) => tidy.discard(ProjectId.parse(req.params.project)));
+  app.delete<{ Params: { project: string } }>("/api/projects/:project/tidy", async (req) => tidy.reset(ProjectId.parse(req.params.project)));
   app.get("/api/models/local", async () => localModels.status());
   const briefs = deps.briefs ?? new Briefs({ config, store, codemaps, models: localModels });
   app.get<{ Params: { project: string } }>("/api/projects/:project/briefs", async (req) => briefs.get(ProjectId.parse(req.params.project), BriefQuery.parse(req.query)));

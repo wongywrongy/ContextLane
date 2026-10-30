@@ -6,7 +6,7 @@ import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
 import { editorLink, useEditor } from "../../components/editor";
 import { Empty, Glyph, Icon, LaneBadge, PageHeader, Section, agoText } from "../../components/ui";
-import { BriefBlock, CollisionBox } from "./ArchitectureParts";
+import { BriefBlock, CollisionBox, TidyBlock } from "./ArchitectureParts";
 
 type Filter = "all" | "lanes" | "changes" | "tests";
 type Box = { x: number; y: number; w: number; h: number };
@@ -79,6 +79,7 @@ export function ArchitecturePage() {
             <span><i className="ln" />calls or imports</span><span><i className="ed" />a lane edits it</span><span><i className="tw" />two lanes edit it</span><span><i />uses a change</span>
           </div>
         </Section>
+        <TidyBlock project={project} changed={reload} />
         {map.paths.length ? <Section title="Main paths" meta="select one to trace it on the diagram">
           {map.paths.map((p, i) => <button key={p.name + i} className={`mrow${traced === i ? " on" : ""}`} aria-pressed={traced === i} onClick={() => setTraced(traced === i ? null : i)}>
             <Icon name="move" /><b style={{ fontSize: 14 }}>{p.name}</b><span className="p">{p.modules.join(" → ")}</span>
@@ -87,7 +88,7 @@ export function ArchitecturePage() {
       </div>
       <aside className="sec insp" aria-label="Selected module">
         {focus ? <Inspector project={project} map={map} module={focus} touched={touched} lanes={lanes} startHere={() => setStarting(focus.id)} root={projects?.find((p) => p.id === project)?.path ?? null} />
-          : <div className="ps"><span className="lbl">{atAreas ? "Areas" : "Selected module"}</span><p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>{atAreas ? "Each area is a top folder of the repository. Open one to see its modules and how they connect, or find a module by name." : "Choose a module to see what uses it, which tests cover it and what agents are told about it."}</p></div>}
+          : <div className="ps"><span className="lbl">{atAreas ? "Areas" : "Selected module"}</span><p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>{atAreas ? map.areas ? "Areas are the grouping you approved under Grouping. Open one to see its modules and how they connect, or find a module by name." : "Each area is a top folder of the repository. Open one to see its modules and how they connect, or find a module by name." : "Choose a module to see what uses it, which tests cover it and what agents are told about it."}</p></div>}
       </aside>
     </div>
     {starting && projects ? <NewLaneDialog projects={projects} project={project} task={`In ${starting}: `} onClose={() => setStarting(null)} /> : null}
