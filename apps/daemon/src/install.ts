@@ -1,10 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Runner } from "./run.js";
 
 const systemdQuote = (text: string) => `"${text.replace(/%/g, "%%").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r")}"`;
 const systemdExecQuote = (text: string) => systemdQuote(text.replace(/\$/g, () => "$$"));
 const shellQuote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
+const MARKER = "# Installed by ContextLanes";
 
 export async function installService(options: { root: string; home: string; node: string; run: Runner; config?: string }): Promise<void> {
   const { root, home, node, run } = options;
@@ -23,11 +24,12 @@ export async function installService(options: { root: string; home: string; node
   await run("systemctl", ["--user", "daemon-reload"]);
   await run("systemctl", ["--user", "enable", "--now", "contextlanes.service"]);
 }
+/** Writes a file this installer owns. Ours carry the marker line; anything else is left alone. */
 async function writeOwned(path: string, content: string, mode: number): Promise<void> {
-  try {
-    const current = await readFile(path, "utf8");
-    if (current === content) return;
-    throw new Error(`Refusing to overwrite ${path}; move it aside before installing`);
-  } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
-  await writeFile(path, content, { mode, flag: "wx" });
+  let current: string | null = null;
+  try { current = await readFile(path, "utf8"); } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+  if (current === content) return;
+  if (current !== null && !current.split("\n").slice(0, 2).includes(MARKER)) throw new Error(`Refusing to overwrite ${path}; move it aside before installing`);
+  if (current === null) await writeFile(path, content, { mode, flag: "wx" });
+  else { await writeFile(`${path}.tmp`, content, { mode }); await rename(`${path}.tmp`, path); }
 }

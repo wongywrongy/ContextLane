@@ -11,10 +11,12 @@ import { runCommand } from "./run.js";
 import { SetupManager } from "./setup.js";
 import { Notifier } from "./notifications/notifier.js";
 import { Runtime } from "./runtime.js";
-
-const VERSION = "0.1.0";
+import { releaseVersion } from "./layout.js";
+import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
+  // The commit this release was built from; `contextlanes update` waits for it after a restart.
+  const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), "0.1.0");
   const config = loadConfig();
   mkdirSync(config.paths.data, { recursive: true, mode: 0o700 });
   const store = Store.open(join(config.paths.data, "contextlanes.sqlite"));
