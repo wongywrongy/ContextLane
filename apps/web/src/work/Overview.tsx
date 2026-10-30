@@ -19,7 +19,7 @@ export function Overview({ lanes, events, select }: { lanes: Lane[]; events: Lan
       nodes.push({ id: `goal:${goal}`, position: { x: 0, y: 0 }, data: { label: <div className="goal-node"><span>Goal</span><strong>{goal}</strong></div> }, className: "goal-node-box", sourcePosition: Position.Right, style: { width: 240, height: 90 } });
     }
     for (const lane of lanes) {
-      nodes.push({ id: lane.id, position: { x: 0, y: 0 }, data: { label: <div className="lane-node"><div><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} /></div><strong>{lane.task}</strong><StateGlyph state={lane.state} label /></div> }, className: "lane-node-box", sourcePosition: Position.Right, targetPosition: Position.Left, style: { width: 260, height: 128 } });
+      nodes.push({ id: lane.id, position: { x: 0, y: 0 }, data: { label: <div className="lane-node"><div><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} /></div><strong>{lane.task}</strong><StateGlyph state={lane.state} label /></div> }, className: `lane-node-box ${lane.colour}`, sourcePosition: Position.Right, targetPosition: Position.Left, style: { width: 260, height: 128 } });
       edges.push({ id: `goal:${lane.id}`, source: `goal:${lane.goal ?? "Independent tasks"}`, target: lane.id, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#9C958A" } });
       if (["needs_you", "in_review"].includes(lane.state)) {
         nodes.push({ id: `gate:${lane.id}`, position: { x: 0, y: 0 }, data: { label: <div className="gate-node"><StateGlyph state={lane.state} label /><span>{lane.state === "in_review" ? "Your review" : "Your answer"}</span></div> }, className: "gate-node-box", targetPosition: Position.Left, style: { width: 170, height: 80 } });
@@ -42,7 +42,7 @@ export function Overview({ lanes, events, select }: { lanes: Lane[]; events: Lan
     <Section title="Goals and lanes" meta={`${lanes.length} lanes · choose one to steer it`}>
       {!lanes.length ? <Empty>No lanes yet. Start one to see how the work fits together.</Empty> : <>
         {layoutError ? <p className="sec-b" role="alert">{layoutError}</p> : <div className="overview-graph" aria-label="Goals, lanes and owner gates">
-          {positions.size ? <ReactFlow nodes={structure.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position }))} edges={structure.edges} fitView nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} onNodeClick={(_event, node) => { if (lanes.some((l) => l.id === node.id)) select(node.id); else if (node.id.startsWith("gate:")) select(node.id.slice(5)); }} minZoom={0.25} maxZoom={1.5}>
+          {positions.size ? <ReactFlow nodes={structure.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position }))} edges={structure.edges} fitView fitViewOptions={{ maxZoom: 1 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} onNodeClick={(_event, node) => { if (lanes.some((l) => l.id === node.id)) select(node.id); else if (node.id.startsWith("gate:")) select(node.id.slice(5)); }} minZoom={0.25} maxZoom={1.5}>
             <Controls showInteractive={false} />
           </ReactFlow> : <Empty>Arranging the lanes…</Empty>}
         </div>}

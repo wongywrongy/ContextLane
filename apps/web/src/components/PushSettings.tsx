@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { postJson, useJson, errorMessage, RequestError } from "../api";
-import { Section } from "./ui";
 
 export function PushSettings() {
   const [config] = useJson<{ publicKey: string | null; channels: Record<string, boolean> }>("/api/notifications");
@@ -21,10 +20,9 @@ export function PushSettings() {
     } catch (err) { setMessage(errorMessage(err)); }
     finally { setBusy(false); }
   };
-  return <Section title="Phone notifications" meta="you decide when the agent continues">
-    <div className="sec-b"><p>Install ContextLanes on your home screen, then enable notifications on this device. Requests keep waiting until you answer.</p>
-      <button className="btn" disabled={busy} onClick={() => void enable()}>Enable push on this device</button>
-      {message ? <p role="status">{message}</p> : null}
-    </div>
-  </Section>;
+  // One row of the Notifications section (settings.webp).
+  return <>
+    <div className="sec-r"><span className="kl">Phone push</span><span style={{ flex: 1, minWidth: 0 }}>On this device, once ContextLanes is on its home screen. Requests wait for your answer.</span><button className="btn ghost sm" disabled={busy} onClick={() => void enable()}>Turn on here</button></div>
+    {message ? <div className="sec-f" role="status" style={{ fontSize: 13 }}>{message}</div> : null}
+  </>;
 }

@@ -29,13 +29,13 @@ export function WorkPage() {
   useEffect(() => setView("steps"), [lane?.id]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
   const closeNew = () => { setCreating(false); if (params.has("new")) setParams(lane ? { lane: lane.id } : {}); };
-  return <div className={`wk3${lane ? "" : " overview"}`}>
+  return <div className={`wk3${lane ? " has-lane" : " overview"}`}>
     <LaneList lanes={work.lanes} events={work.events} inbox={inbox ?? []} selected={lane?.id ?? null} choose={choose} create={() => setCreating(true)} />
     <main className="lane-main" aria-label={lane ? "Lane" : "Overview"}>
       {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
-      {lane ? <LaneView key={lane.id} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
+      {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
         : <>
-          <div className="ph"><h2>Overview</h2><span className="m">every lane as a graph</span><div className="e"><button className="btn sm" onClick={() => setCreating(true)}>New lane</button></div></div>
+          <div className="ph"><h2>Overview</h2><span className="m">every lane as a graph · click a lane to open it</span></div>
           {work.lanes.length ? <Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={work.lanes} events={work.events} select={choose} /></Suspense>
             : <section className="sec"><div className="empty">No lanes yet. A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>Start the first one</button>.</div></section>}
         </>}
@@ -110,7 +110,7 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
   </div>;
 }
 
-function LaneView({ lane, events, error, reload, view, setView }: { lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {
+function LaneView({ projectName, lane, events, error, reload, view, setView }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -133,6 +133,8 @@ function LaneView({ lane, events, error, reload, view, setView }: { lane: Lane; 
   const first = events[0];
   const agent = AGENT_NAMES[lane.agent] ?? lane.agent;
   return <>
+    {/* Phone only (phone-lane.webp): the lane fills the screen, with a way back to the project. */}
+    <Link className="back" to={`/p/${lane.project}/work`}>‹ {projectName}</Link>
     <div className="ph">
       <LaneBadge id={lane.id} colour={lane.colour} large /><AgentMark agent={lane.agent} />
       <h2>{lane.task}</h2><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />

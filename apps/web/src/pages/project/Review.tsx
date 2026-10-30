@@ -50,7 +50,7 @@ export function ReviewPage() {
   useEffect(reload, [reload, changes]);
   const latest = (lane: string) => checkpoints?.find((c) => c.lane === lane);
   const ready = lanes.filter((l) => l.state === "in_review" && latest(l.id));
-  const waiting = lanes.filter((l) => l.state === "needs_you");
+  const waiting = lanes.filter((l) => l.state === "needs_you" || l.state === "working");
   const lane = ready.find((l) => l.id === params.get("lane")) ?? ready[0] ?? null;
   const checkpoint = lane ? latest(lane.id)! : null;
   const number = checkpoint ? checkpoints!.filter((c) => c.lane === checkpoint.lane).length : 0;
@@ -65,7 +65,7 @@ export function ReviewPage() {
       </div>
       {waiting.length ? <div>
         <span className="lbl">Not ready <span>{waiting.length}</span></span>
-        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className="g wait" role="img" aria-label="Needs you" /><small>needs your answer</small></Link>)}
+        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${l.state === "needs_you" ? "wait" : "work"}`} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs your answer" : "still working"}</small></Link>)}
       </div> : null}
     </aside>
     <main className="rvm" aria-label="Checkpoint">

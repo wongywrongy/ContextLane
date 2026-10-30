@@ -11,6 +11,7 @@ export function Shell() {
   const inboxQuery = useLiveInbox();
   const [inbox] = inboxQuery;
   const [jump, setJump] = useState(false);
+  const inProject = useMatch("/p/*") !== null;
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setJump(true); } };
     document.addEventListener("keydown", key);
@@ -21,7 +22,7 @@ export function Shell() {
       <header className="top">
         <NavLink className="wm" to="/">Context<span className="ln">Lanes</span></NavLink>
         <nav className="gnav" aria-label="Main">
-          <NavLink to="/" end>Projects</NavLink>
+          <NavLink to="/" end className={({ isActive }) => isActive || inProject ? "active" : ""}>Projects</NavLink>
           <NavLink to="/inbox">Inbox{inbox?.length ? <span className="ib">{inbox.length}</span> : null}</NavLink>
           <NavLink to="/models">Models</NavLink>
           <NavLink to="/settings">Settings</NavLink>

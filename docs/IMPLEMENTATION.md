@@ -346,7 +346,7 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 4.4 Routing | models | Done; see 4.4 |
 | 4.5 Scheduled lanes | — (needs a board) | Done; see 4.5 |
 | 4.6 Shared skills | insights | Done; see 4.6 |
-| 4.7 Final board pass | all | Next |
+| 4.7 Final board pass | all | Done; see 4.7 |
 
 ### 3.0 Usage and cost
 
@@ -738,6 +738,22 @@ An independent read of `773e700..a0a3f2b` found that the daemon, which runs outs
 ### 4.7 Final board pass
 
 - Compare every page with its board at 1440px and 390px. Fix the differences, or list each one that remains with its reason in `docs/mockups/README.md`.
+
+#### What was done (2026-10-30)
+
+- Every page was screenshotted at 1440 and 390 with a seeded fixture and compared with its board by a separate reviewer, then fixed:
+  - phone lane fills the screen (back link, no band, tabs or lane strip, pinned message box);
+  - the Overview graph no longer zooms past 1:1, the goal node is black and lane nodes carry their colour;
+  - Settings has one Notifications section, a fixed label column, and a carded side nav that marks the current section and scrolls on a phone;
+  - Setup's Now / Next / Any time have glyphs, and its state moves under the title on a phone;
+  - Models is full width with Add rows inside its sections;
+  - Insights rows wrap on a phone;
+  - Review sizes its empty state and lists working lanes under Not ready;
+  - Architecture links run over the layer columns;
+  - Projects stays marked in the top bar inside a project;
+  - Inbox hides a lone filter chip;
+  - section rows use 14.5px text throughout.
+- What still differs, and why, is in the Built column of `docs/mockups/README.md`.
 
 ## Testing
 

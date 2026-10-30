@@ -55,7 +55,7 @@ function Step({ n, state, title, optional, desc, children, change }: { n: number
       <p className="d">{desc}</p>
       {children ? <div className="body">{children}</div> : null}
     </div>
-    <span className={`state ${state}`}>{state === "done" ? <>{change ? <button className="lnk" style={{ fontWeight: 500, color: "var(--muted)", marginRight: 10 }} onClick={change}>Change</button> : null}<i className="g done" />Done</> : state === "now" ? "Now" : optional ? "Any time" : "Next"}</span>
+    <span className={`state ${state}`}>{state === "done" ? <>{change ? <button className="lnk" style={{ fontWeight: 500, color: "var(--muted)", marginRight: 10 }} onClick={change}>Change</button> : null}<i className="g done" />Done</> : state === "now" ? <><i className="g think" />Now</> : <><i className="g idle" />{optional ? "Any time" : "Next"}</>}</span>
   </div>;
 }
 

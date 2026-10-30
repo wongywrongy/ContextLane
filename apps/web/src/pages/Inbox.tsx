@@ -22,7 +22,7 @@ export function InboxPage() {
   const count = (k: string) => k === "all" ? sorted.length : sorted.filter((i) => i.kind === k).length;
   return <main className="pg" style={{ gap: 0 }}>
     <div className="ph"><h1>Inbox</h1><span className="m">everything waiting on you, oldest first</span>
-      <div className="e">{KINDS.filter(([k]) => k === "all" || count(k)).map(([k, label]) => <button key={k} className={`chipf${kind === k ? " on" : ""}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{label} {count(k)}</button>)}</div></div>
+      <div className="e">{KINDS.filter(([k]) => k !== "all" && count(k)).length < 2 ? null : KINDS.filter(([k]) => k === "all" || count(k)).map(([k, label]) => <button key={k} className={`chipf${kind === k ? " on" : ""}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{label} {count(k)}</button>)}</div></div>
     {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
     {items && !sorted.length ? <section className="sec"><div className="sec-r"><Glyph g="done" /><span>Nothing is waiting on you. When an agent asks for permission or a question, it shows up here and on your phone.</span></div></section>
       : <div className="ibx">
