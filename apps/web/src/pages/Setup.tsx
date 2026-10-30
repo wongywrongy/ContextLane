@@ -94,15 +94,15 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
       </> : status.hasLane ? <PasskeyButton /> : null}
     </Step>
     <Step n={2} state={state(1)} title="Connect an agent" change={done[1] && current !== 1 ? () => setOpened(1) : undefined}
-      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready. You can message, approve and interrupt them here; they keep their own logins.` : "ContextLanes talks to each agent over ACP, so you can message, approve and interrupt it here. Agents keep their own logins."}>
+      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready. You can message, approve and interrupt them here; they keep their own logins.` : "Install and sign in to at least one coding agent. You message, approve and interrupt it here; it keeps its own login."}>
       {state(1) === "now" ? <><AgentRows agents={agents} error={agentError} reload={reloadAgents} />{opened === 1 ? <div><button className="btn" disabled={!ready} onClick={() => setOpened(null)}>Continue</button></div> : null}</> : null}
     </Step>
     <Step n={3} state={state(2)} title="Add projects" change={done[2] && current !== 2 ? () => setOpened(2) : undefined}
       desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents already work in, or any folder on the machine. Each lane gets its own checkout."}>
       {state(2) === "now" ? <div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => setAdding(true)}>{hasProject ? "Add more" : "Add repositories"}</button>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
     </Step>
-    <Step n={4} state={state(3)} title="Get to know your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
-      desc={done[3] && current !== 3 ? "Mapped. Architecture and Run show the detail." : "ContextLanes maps each repository with CodeGraph on this machine and checks how it runs, so lanes start with what is already known."}>
+    <Step n={4} state={state(3)} title="Map your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
+      desc={done[3] && current !== 3 ? "Mapped. Architecture and Run show the detail." : "ContextLanes reads each repository on this machine to map its code and check how it runs. Nothing leaves the machine."}>
       {state(3) === "now" && projects?.length ? <><div className="agents">{projects.map((p) => <ProjectSurvey key={p.id} project={p} done={() => setMapped((m) => m[p.id] ? m : { ...m, [p.id]: true })} />)}</div>
         <div><button className="btn" disabled={!surveyed} onClick={() => { remember("cl-projects-surveyed"); setSeen(true); setOpened(null); }}>{surveyed ? "Continue" : "Mapping…"}</button></div></> : null}
     </Step>
@@ -136,7 +136,7 @@ function ProjectSurvey({ project, done }: { project: Project; done: () => void }
   return <div className="sec-r wrap" style={{ alignItems: "flex-start" }}>
     <span className="grow survey">
       <b>{project.name} <span className="mono muted" style={{ fontSize: 12, fontWeight: 400 }}>{project.id}</span></b>
-      {!finished ? <Glyph g="think">Mapping with CodeGraph…</Glyph>
+      {!finished ? <Glyph g="think">Reading the code…</Glyph>
         : m ? <Glyph g="done">{m.modules.length} modules in {m.layers.map((l) => l.name).join(", ") || "one layer"} · {m.files} files</Glyph>
         : <Glyph g="fail">Not mapped: {map?.error ?? mapError?.message}</Glyph>}
       {env ? recipe ? recipe.error ? <Glyph g="fail">.contextlanes.json is invalid: {recipe.error}</Glyph>

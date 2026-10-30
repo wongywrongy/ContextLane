@@ -56,7 +56,8 @@ export function stepsFor(events: LaneEvent[]): Step[] {
     else if (event.type === "helper.delegated") {
       const p = event.payload;
       const what = p.kind === "read" ? `read ${p.files?.length ? p.files.map((f) => f.split("/").at(-1)).join(", ") : "files"}` : p.kind === "check" ? "ran the checks" : `wrote a patch for ${p.files?.map((f) => f.split("/").at(-1)).join(", ") ?? "files"}`;
-      steps.push({ seq: event.seq, at: event.at, family: "team", title: `Local helper ${what}`, type: "status", text: `${p.model}${p.resultTokens ? ` · came back as ${p.resultTokens} tokens` : ""} · saved ≈ ${p.tokensSaved >= 1000 ? `${Math.round(p.tokensSaved / 1000)}k` : p.tokensSaved} cloud tokens`, event });
+      const k = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+      steps.push({ seq: event.seq, at: event.at, family: "team", title: `Your local model ${what} for the agent`, type: "status", text: `${p.model} · about ${k(p.tokensSaved)} fewer tokens for the cloud agent to read`, event });
     }
     else if (event.type === "lane.handoff") steps.push({ seq: event.seq, at: event.at, family: "team", title: event.payload.from === event.payload.to ? "Fresh session from a handoff" : `Handed off to ${event.payload.to}`, type: "status", text: `${event.payload.chars.toLocaleString()} characters of handoff`, event });
     else if (event.type === "lane.forked") steps.push({ seq: event.seq, at: event.at, family: "team", title: `Forked into lane ${event.payload.to.slice(event.payload.to.lastIndexOf("/") + 1)}`, type: "status", event });

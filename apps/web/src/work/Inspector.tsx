@@ -18,12 +18,6 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
   };
-  const sendCheckpoint = async () => {
-    const said = events.findLast((e) => e.type === "agent.message" && e.payload.role === "agent");
-    const summary = said?.type === "agent.message" ? said.payload.text.trim().slice(0, 2000) : "";
-    try { await postJson(`/api/lanes/${lane.id}/checkpoint`, { summary: summary || lane.task }); setCopied("Checks started. The lane moves to Review when they finish."); }
-    catch (err) { setCopied(err instanceof Error ? err.message : "The checkpoint could not start."); }
-  };
   const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
   const done = entries.filter((e) => e.status === "completed").length;
   const used = usage?.type === "usage" ? usage.payload : null;
@@ -41,7 +35,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
       </div> : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows how full the agent’s context is once it reports it.</p>}
-      {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Fresh session from a handoff</button> : null}
+      {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
     </section>
     <section className="ps">
       <div className="ps-h"><span className="lbl">Checkout</span></div>
@@ -49,13 +43,13 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
     </section>
     {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
-      <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Lane</span></div>
-      <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the terminal</button>
-      <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}><Tile family="look" icon="read" small />Copy the terminal command</button>
-      <button className="act" onClick={() => void copy(lane.branch, "Branch")}><Tile family="change" icon="move" small />Copy the branch name</button>
-      {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open in editor</a> : null}
-      {READY.handoff ? <><button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
-      {READY.review ? <button className="act" disabled={lane.state !== "working"} onClick={() => void sendCheckpoint()}><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
+      <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Your access</span></div>
+      <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the lane's terminal</button>
+      {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open the folder in your editor</a> : null}
+      <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>From any shell: <button className="lnk mono" style={{ fontSize: 12 }} onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}>contextlanes term {lane.id}</button> · branch <button className="lnk mono" style={{ fontSize: 12 }} onClick={() => void copy(lane.branch, "Branch name")}>{lane.branch}</button> <span className="muted">(click to copy)</span></p>
+      {READY.handoff ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
+        <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>
+        <button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Copy into a new lane</button></> : null}
       {["cleaned", "failed"].includes(lane.state) ? <button className="act" onClick={() => void postJson(`/api/lanes/${lane.id}/archive`, {}).then(() => setCopied("Archived. Show archived lanes in the list to find it again."), (e) => setCopied(errorMessage(e)))}><Tile family="look" icon="checkpoint" small />Archive this lane</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
@@ -92,9 +86,9 @@ function HandoffDialog({ lane, kind, onClose }: { lane: Lane; kind: "fresh" | "a
     const body = { ...(kind !== "fresh" && agent ? { agent } : {}), ...(note.trim() ? { note: note.trim() } : {}) };
     void postJson<Lane>(`/api/lanes/${lane.id}/${kind === "fork" ? "fork" : "handoff"}`, body).then((r) => { onClose(); if (kind === "fork") navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(r.id)}`); }, (e) => setError(errorMessage(e))).finally(() => setBusy(false));
   };
-  const title = kind === "fresh" ? "Fresh session" : kind === "agent" ? "Hand off to another agent" : "Fork into a new lane";
-  return <Dialog title={title} onClose={onClose} footer={<div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={busy || (kind === "agent" && !agent)} onClick={go}>{busy ? "Starting…" : kind === "fork" ? "Fork" : "Write the handoff"}</button></div>}>
-    <p style={{ margin: "0 0 12px", fontSize: 14 }}>{kind === "fork" ? `A new lane starts from ${lane.branch} with its uncommitted changes, and its agent starts from a summary of this lane's conversation. This lane keeps going.` : `${AGENT_NAMES[lane.agent] ?? lane.agent} writes a handoff, its session ends, and ${kind === "fresh" ? "a fresh session" : "the agent you choose"} continues in the same checkout from that handoff. Takes a minute or two.`}</p>
+  const title = kind === "fresh" ? "Restart with a summary" : kind === "agent" ? "Hand off to another agent" : "Copy into a new lane";
+  return <Dialog title={title} onClose={onClose} footer={<div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={busy || (kind === "agent" && !agent)} onClick={go}>{busy ? "Starting…" : kind === "fork" ? "Start the copy" : "Write the summary and continue"}</button></div>}>
+    <p style={{ margin: "0 0 12px", fontSize: 14 }}>{kind === "fork" ? `A new lane starts from ${lane.branch} with its uncommitted changes, and its agent starts from a summary of this lane's conversation. This lane keeps going.` : `${AGENT_NAMES[lane.agent] ?? lane.agent} writes a summary of the work so far, its session ends, and ${kind === "fresh" ? "a new session of the same agent, with an empty context," : "the agent you choose"} continues in the same branch and folder from that summary. Use it when the context is full or the agent is going in circles. Takes a minute or two.`}</p>
     {kind !== "fresh" ? <label className="field">Agent<select className="in" value={agent} onChange={(e) => setAgent(e.target.value)}>{kind === "agent" ? <option value="">Choose…</option> : null}{(kind === "fork" ? (agents ?? []).filter((a) => a.status === "Ready") : ready).map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label> : null}
     <label className="field" style={{ marginTop: 10 }}>Note for the next session <span className="hint">optional</span><textarea className="in" rows={3} value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} /></label>
   </Dialog>;

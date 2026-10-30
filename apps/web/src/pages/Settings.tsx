@@ -79,9 +79,9 @@ export function SettingsPage() {
       <div className="col">
         <Section id="machine" title="This machine">
           {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
-            <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os} · {machine.linger === null ? "linger not reported" : machine.linger ? "always on" : "linger off"}</span></div>
+            <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os}{machine.linger === null ? "" : machine.linger ? " · keeps running after you log out" : " · stops when you log out"}</span></div>
             <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => setUpdates(await postJson<UpdateCheck>("/api/machine/updates", {}))}>Check for updates</Action></div></div>
-            <div className="sec-r"><span className="kl">Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user} · {machine.service === null ? "service not reported" : machine.service ? "systemd user service" : "interactive process"} · {machine.address}</span></div>
+            <div className="sec-r"><span className="kl">Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user}{machine.service === null ? "" : machine.service ? " · systemd user service" : " · started by hand"} · {machine.address}</span></div>
           </>}
           {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
         </Section>
@@ -91,7 +91,7 @@ export function SettingsPage() {
           <div className="sec-r"><span className="kl">Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><span className="muted">Not added.</span><PasskeyButton /></>}</div>
           <div className="sec-r"><span className="kl">Public internet</span><span>Off · tailnet or SSH tunnel only</span></div>
         </Section>
-        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button>}>
+        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>
           {projects?.map((p, i) => <ProjectRow key={p.id} project={p} first={i === 0} last={i === projects.length - 1} move={(by) => {
             const ids = projects.map((x) => x.id); const j = i + by; [ids[i], ids[j]] = [ids[j]!, ids[i]!];
             void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects);
@@ -126,7 +126,7 @@ export function SettingsPage() {
         <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
         <ScheduledLanes />
         <Section id="data" title="Data">
-          <div className="sec-r"><span className="kl">Backups</span>{machine ? <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>{machine.backups.scheduled === null ? "Schedule not reported" : machine.backups.scheduled ? "Nightly" : "Not scheduled"} · {machine.backups.directory}{machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : " · no run reported"}</span> : <span className="muted">Backup status not available</span>}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
+          <div className="sec-r"><span className="kl">Backups</span>{machine ? <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>{machine.backups.scheduled === null ? "" : machine.backups.scheduled ? "Nightly · " : "Not scheduled · "}{machine.backups.directory}{machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : ""}</span> : <span className="muted">Backup status not available</span>}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
           <div className="sec-r"><span className="kl">Export</span><span>Everything as JSON · known secrets masked</span><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => {
             const data = await getJson<DataExport>("/api/data/export");
             const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));

@@ -23,8 +23,8 @@ export function ProjectsPage() {
     <main className="pg">
       <NeedsYou lanes={lanes ?? []} projects={projects ?? []} />
       <section aria-labelledby="projects-h">
-        <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} ${projects.length === 1 ? "repo" : "repos"} on ${health?.host ?? "this machine"}` : ""}</span>
-          <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button></div></div>
+        <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
+          <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button></div></div>
         <div className="tiles">
           {(projects ?? []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
           {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}
@@ -55,17 +55,18 @@ function ProjectTile({ project, lanes, services }: { project: Project; lanes: La
         {!open.length ? <Glyph g="idle">No lanes</Glyph> : null}
       </div>
     </div>
-    <div className="tf">{line}{services ? <> · {services.up} {services.up === 1 ? "service" : "services"} up{services.down ? ` · ${services.down} down` : ""}</> : null}</div>
+    <div className="tf">{line}{services && services.up + services.down ? <> · {services.up} {services.up === 1 ? "service" : "services"} up{services.down ? ` · ${services.down} down` : ""}</> : null}</div>
   </Link>;
 }
 
 function NeedsYou({ lanes, projects }: { lanes: Lane[]; projects: Project[] }) {
   const [items, , reload] = useInbox();
   const shown = (items ?? []).slice(0, 4);
+  // Amber only when something waits: with nothing waiting this is one quiet line, not an amber card.
+  if (items && !items.length) return <section className="sec" aria-labelledby="need-h"><div className="sec-r"><Glyph g="done" /><span id="need-h" className="muted">Nothing needs you. Agents' questions and permission requests appear here.</span><Link className="lnk" style={{ marginLeft: "auto" }} to="/inbox">Inbox →</Link></div></section>;
   return <section className="sec you" aria-labelledby="need-h">
     <div className="sec-h"><i className="g wait" aria-hidden="true" /><h2 id="need-h">Needs you</h2>{items?.length ? <span className="m">{shown.length} of {items.length}</span> : null}<div className="e"><Link className="lnk" to="/inbox">Open inbox →</Link></div></div>
     {shown.map((item) => <NeedRow key={item.id} item={item} lane={lanes.find((l) => l.id === item.lane)} project={projects.find((p) => item.lane.startsWith(`${p.id}/`))} answered={reload} />)}
-    {items && !items.length ? <div className="sec-r"><Glyph g="done" /><span className="muted">Nothing is waiting on you. Questions and permissions from your agents land here and on your phone.</span></div> : null}
   </section>;
 }
 

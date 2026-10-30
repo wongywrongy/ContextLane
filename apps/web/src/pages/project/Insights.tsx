@@ -57,8 +57,8 @@ export function InsightsPage() {
         <div className="facts4">
           <div><b>{view.facts.merges}</b><span>{view.facts.merges === 1 ? "merge" : "merges"}</span></div>
           <div><b>{k(view.facts.cloudTokens)}</b><span>cloud tokens</span></div>
-          <div><b>{view.facts.localShare === null ? "–" : `${Math.round(view.facts.localShare * 100)}%`}</b><span>of tokens on your GPUs</span></div>
-          <div><b>{view.facts.medianWaitMinutes === null ? "–" : `${Math.round(view.facts.medianWaitMinutes)}m`}</b><span>median wait for you</span></div>
+          {view.facts.localShare === null ? null : <div><b>{Math.round(view.facts.localShare * 100)}%</b><span>of tokens on your GPUs</span></div>}
+          {view.facts.medianWaitMinutes === null ? null : <div><b>{Math.round(view.facts.medianWaitMinutes)}m</b><span>median wait for you</span></div>}
         </div>
       </div>
     </Section>
@@ -109,7 +109,7 @@ function SkillsBlock({ project }: { project: string }) {
   const remove = async (name: string) => { try { await postJson(`/api/projects/${project}/skills/${name}`, {}, "DELETE"); reload(); } catch (e) { setError(errorMessage(e)); } };
   return <>
     <div className="sec-r wrap"><Tile family="run" icon="checkpoint" small /><span className="grow"><b>Skills</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{skills?.length ? `${skills.length} copied into every new lane: .claude/skills for Claude Code, .agents/skills for Codex and OpenCode, kept out of git` : "None yet. Steps an agent loads only when the task needs them, like how to cut a release."}</span></span><button className="btn ghost sm" onClick={() => setEditing(blank)}>Add</button></div>
-    {skills?.map((s) => <div className="sec-r wrap" key={s.name}><Tile family="run" icon="plan" small /><span className="grow"><b className="mono" style={{ fontSize: 13 }}>{s.name}</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{s.description}</span></span><button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button><button className="btn ghost sm" onClick={() => void remove(s.name)}>Remove</button></div>)}
+    {skills?.map((s) => <div className="sec-r wrap sub" key={s.name}><span className="grow"><b className="mono" style={{ fontSize: 13 }}>{s.name}</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{s.description}</span></span><button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button><button className="btn ghost sm" onClick={() => void remove(s.name)}>Remove</button></div>)}
     {editing ? <form className="sec-b" onSubmit={(e) => { e.preventDefault(); void save(e.currentTarget); }}>
       <div className="two"><label className="field">Name <span className="hint">lowercase, digits and dashes</span><input className="in" name="name" required pattern="[a-z0-9][a-z0-9-]{0,40}" defaultValue={editing.name} readOnly={!!editing.name} /></label>
         <label className="field">When to use it <span className="hint">the agent reads this to decide</span><input className="in" name="description" required maxLength={300} defaultValue={editing.description} /></label></div>

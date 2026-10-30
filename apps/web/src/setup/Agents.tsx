@@ -26,7 +26,7 @@ export function AgentRows({ agents, error, reload, limits }: { agents: DetectedA
     <div className="agents">
       {installed.map(row)}
       {!installed.length ? <Empty>No agent is installed on this machine yet. Install one below.</Empty> : null}
-      {others.length ? <details><summary className="sec-r" style={{ cursor: "pointer", borderTop: installed.length ? undefined : 0 }}><span className="muted">Other agents · {others.length}</span></summary>{others.map(row)}</details> : null}
+      {others.length ? <details><summary className="sec-r" style={{ cursor: "pointer", borderTop: installed.length ? undefined : 0, fontSize: 14 }}><span className="lnk">Show {others.length} more {others.length === 1 ? "agent" : "agents"} you can install</span></summary>{others.map(row)}</details> : null}
     </div>
     {login ? <div className="agents" style={{ marginTop: 12 }}>
       <div className="sec-r"><AgentMark agent={login} /><b>Sign in to {AGENT_NAMES[login]}</b><div className="e"><button className="btn ghost sm" onClick={() => { setLogin(null); reload(); }}>Done</button></div></div>

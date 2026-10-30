@@ -205,7 +205,7 @@ function AreaGrid({ areas, map, touched, usesChange, open }: { areas: CodeArea[]
       <span className="nm">{a.name}</span>
       <span className="sb">{a.modules.length} {a.modules.length === 1 ? "module" : "modules"} · {a.files} files{lanes.size ? <span className="e">{[...lanes.values()].map((l) => <LaneBadge key={l.id} id={l.id} colour={l.colour} />)}</span> : null}</span>
       <span className="ly">{a.layers.join(" · ")}</span>
-      {a.uses.length ? <span className="us">uses {a.uses.slice(0, 3).map((u) => u.area).join(", ")}{a.uses.length > 3 ? ` +${a.uses.length - 3}` : ""}</span> : <span className="us">uses no other area</span>}
+      {a.uses.length ? <span className="us">uses {a.uses.slice(0, 3).map((u) => u.area).join(", ")}{a.uses.length > 3 ? ` +${a.uses.length - 3}` : ""}</span> : null}
     </button>;
   })}<span className="sr-only">{map.modules.length} modules in {areas.length} areas</span></div>;
 }

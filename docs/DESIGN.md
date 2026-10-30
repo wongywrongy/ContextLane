@@ -2,6 +2,36 @@
 
 The mockups are exported to [mockups/](mockups/README.md), one image per page, with a **Legend** board that shows every code below in one place. The web app ports the canvas CSS with the same class names (`apps/web/src/styles/app.css`); tokens are in `tokens.css`. Match the board; do not reinterpret it.
 
+## Principles
+
+These settle disputes. When a screen and a principle disagree, the screen changes.
+
+1. **The loop first.** Every screen answers "what needs me, and what do I do" before anything else. The loop is: start a lane, answer it, review it, merge it.
+2. **One word per thing.** Use the words below and nothing else. Tool and protocol names (ACP, CodeGraph, tmux, tailnet) appear only where you set them up.
+3. **One main action per section.** A black button for the main action, ghost buttons for the rest, a text link only for navigation. A big decision (review, hand off) never sits in a list with a clipboard helper.
+4. **Unknown is silent.** A value that was not measured is left out, never shown as "–", "not reported" or 0. An error is one sentence that says what to do.
+5. **Glyphs mean state.** Amber only when something waits on you; a green check only for something finished or healthy. Policies and descriptions are plain text.
+6. **State agrees everywhere.** Every page reads the same events; two pages showing different states for one lane is a bug.
+7. **Machine text in mono, people text in sans.** Ids, branches, paths, numbers and section meta are mono; sentences are not.
+8. **Show, then configure.** Pages show what is happening; settings live in Settings or behind an explicit Edit.
+
+## Words
+
+| Word | Means | Not |
+|---|---|---|
+| Project | A git repository you added | repo, workspace |
+| Lane | One agent on one task, with its own branch, folder and terminal | job, session, worker |
+| Agent | The coding program doing the work (Claude Code, Codex, OpenCode) | model, bot |
+| Local model | A model on your machines (Ollama, llama.cpp) used for small jobs | endpoint (except in its form) |
+| Needs you | A question or permission request waiting for your answer | pending, blocked |
+| Ask for review | Run the checks and put a lane's work on Review | send checkpoint |
+| Checkpoint | One reviewable state of a lane's work: checks, screenshots, plan, diff | packet |
+| Recipe | How a lane runs your app (`.contextlanes.json`): setup, services, checks | config, environment file |
+| Preview | A lane's running copy of your app | environment, instance |
+| Brief | A short note about a module that agents can ask for | summary, doc |
+| Area / module / layer | A top folder / a folder of code in it / Web, API, Logic or Data | package, component |
+| Hand off / Restart with a summary / Copy into a new lane | Another agent continues / the same agent restarts with an empty context / a second lane starts from this one | fork, fresh session |
+
 ## Look
 
 - Light first, warm and editorial: cream background `#FAF7F2`, white section cards, black ink `#0D0C0B`.

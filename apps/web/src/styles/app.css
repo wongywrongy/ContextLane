@@ -94,6 +94,8 @@ a.btn.ghost { color: var(--ink); }
 .sec-r > .kl { flex: none; width: 180px; color: var(--muted); }
 .sec-r .grow { flex: 1 1 0; min-width: 0; }
 .sec-r.wrap { flex-wrap: wrap; }
+/* A row that belongs to the row above it (a skill under Skills): indented past the tile. */
+.sec-r.sub { padding-left: 58px; border-top-style: dashed; }
 .sec-h + .sec-r, .sec-r:first-child { border-top: 0; }
 .sec-f { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 18px; border-top: 1px solid var(--line-soft); flex-wrap: wrap; background: var(--surface-2); }
 .empty { padding: 22px 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }

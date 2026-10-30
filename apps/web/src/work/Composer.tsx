@@ -81,7 +81,7 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
         <button className={`chipf${picker === "command" ? " on" : ""}`} aria-expanded={picker === "command"} onClick={() => toggle("command")}>/ command</button>
         {takesImages ? <><button className="chipf" onClick={() => fileInput.current?.click()}>Attach image</button>
           <input ref={fileInput} type="file" accept={TYPES.join(",")} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void addPicture(f); e.target.value = ""; }} /></> : null}
-        <span className="keys"><span className="kbd2">↵</span> queue · <span className="kbd2">⌘↵</span> send now · <span className="kbd2">⇧↵</span> new line</span>
+        <span className="keys"><span className="kbd2">↵</span> send after this step · <span className="kbd2">⌘↵</span> interrupt and send · <span className="kbd2">⇧↵</span> new line</span>
         <button className="btn sm" disabled={sending || !text.trim()} onClick={() => void send(false)}>{sending ? "Sending…" : "Send"}</button>
       </div>
       {notice ? <p role="status">{notice}</p> : null}

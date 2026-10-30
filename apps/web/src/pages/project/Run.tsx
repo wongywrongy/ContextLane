@@ -39,7 +39,7 @@ export function RunPage() {
       {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} facts={environments?.facts?.lanes.find((f) => f.lane === lane.id)} /> : null; })}
       {environments && !open.length ? <Empty>No open lanes. Start a lane from Work, then run its copy of the app here.</Empty> : null}
       <div className="envl"><div className="envl-h"><b>Not started by ContextLanes</b><span className="m">watched only</span></div>
-        {environments?.facts?.outside === null ? <p className="muted">The socket list could not be read.</p> : environments?.facts?.outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
+        {environments?.facts?.outside === null ? <div className="empty">Listening ports could not be read on this machine (the ss command is missing or failed).</div> : environments?.facts?.outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
           <Glyph g="idle">{service.name}</Glyph><code>:{service.port}</code><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>pid {service.pid} · {service.cwd} · {service.bind}</span>
           {service.adoptedLane ? <span>Proposed for {service.adoptedLane}. Stop this outside copy only once the lane’s copy runs.</span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
         </div>)}
@@ -53,14 +53,14 @@ export function RunPage() {
           {recipe ? <><span className="mono" style={{ fontSize: 13.5 }}>{recipe.file}</span>
             <span className="mono muted" style={{ fontSize: 12 }}>sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((s) => s.name).join(", ") || "no services"} · ports per lane` : ""}</span>
             <div><button className="btn ghost sm" onClick={() => setViewing(recipe)}>View recipe</button></div></>
-            : <span className="muted" style={{ fontSize: 13.5 }}>Add <span className="mono">.contextlanes.json</span> to the repository to say how this project runs. Nothing starts without your approval.</span>}
+            : <span className="muted" style={{ fontSize: 13.5 }}>None yet. A recipe tells ContextLanes how to run this app for each lane: setup steps, services and their ports, and the checks to run before review. It lives in <span className="mono">.contextlanes.json</span> in the repository, and nothing in it runs until you approve it here. Lanes still edit, test and get reviewed without one.</span>}
         </div>
         {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
         <div>
           <h4>Exposure</h4>
-          <Glyph g="done">{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews reachable on your tailnet only"}</Glyph>
-          <Glyph g="done">A lane service found listening beyond localhost is stopped within seconds</Glyph>
-          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <Glyph key={lane.lane} g="done">{lane.lane} · certificate valid {lane.certificateDays} more days</Glyph>)}
+          <span style={{ fontSize: 13.5 }}>{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews are reachable on your tailnet only."}</span>
+          <span className="muted" style={{ fontSize: 13.5 }}>A lane service found listening beyond localhost is stopped within seconds.</span>
+          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <span key={lane.lane} className="muted" style={{ fontSize: 13.5 }}>{lane.lane} · certificate valid {lane.certificateDays} more days</span>)}
         </div>
       </div>
     </Section>
@@ -86,9 +86,8 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
   };
   return <div>
     <h4>Clean up{entries.length ? <span className="e mono muted" style={{ fontSize: 12, fontWeight: 500 }}>{entries.length} merged {entries.length === 1 ? "lane" : "lanes"}{disk ? ` · ${size(disk)}` : ""}</span> : null}</h4>
-    <Glyph g="done">Stops services and the agent, and drops lane databases</Glyph>
-    <Glyph g="done">Removes checkouts, including ignored files such as .env; keeps branches</Glyph>
-    <Glyph g={unpushed || unknown ? "wait" : "done"}>Skips anything unpushed ({unpushed} now{unknown ? `; ${unknown} could not be checked` : ""})</Glyph>
+    <span style={{ fontSize: 13.5 }}>For merged lanes: stops their services and agent, drops their databases and removes their checkouts (with ignored files such as .env). Branches are kept.</span>
+    {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit is" : "commits are"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} could not be checked` : ""}</Glyph> : null}
     {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
     {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{message}</p> : null}
   </div>;
@@ -126,7 +125,7 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
   return <div className="envl">
     <div className="envl-h">
       <LaneBadge id={lane.id} colour={lane.colour} /><b>{lane.task}</b>
-      <span className="m">{lane.branch} · {isRunning && env?.startedAt ? `up ${duration(env.startedAt)}` : "not started"}</span>
+      <span className="m">{lane.branch} · {isRunning && env?.startedAt ? `up ${duration(env.startedAt)}` : "not started"}{facts?.diskBytes != null ? ` · ${size(facts.diskBytes)} on disk` : ""}</span>
       <div className="e">
         {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
           : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Review recipe</button>
@@ -135,15 +134,13 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
     </div>
     {error ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{error}</p> : null}
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}
-    {(env?.setup && isRunning) || facts?.diskBytes != null ? <div className="envfacts">
+    {env?.setup && isRunning ? <div className="envfacts">
       {env?.setup && isRunning ? <><div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
       <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div>
       {env.setup.database ? <div><Glyph g="done">Database</Glyph><small>{env.setup.database.kind === "postgres" ? `${env.setup.database.name} from ${env.setup.database.template}` : `${env.setup.database.name} copied`}</small></div> : null}</> : null}
-      {facts?.diskBytes != null ? <div><Glyph g="done">Disk</Glyph><small>{size(facts.diskBytes)} in this lane</small></div> : null}
     </div> : null}
     {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? null : service.name)} />) : null}
     {isRunning && logs ? <Logs lane={lane.id} service={logs} /> : null}
-    {!isRunning && !recipe ? <span className="muted" style={{ fontSize: 14 }}>This project has no recipe yet.</span> : null}
     {!isRunning && recipe?.recipe ? <span style={{ fontSize: 14, color: "var(--text-2)" }}>{plan(recipe)}</span> : null}
   </div>;
 }

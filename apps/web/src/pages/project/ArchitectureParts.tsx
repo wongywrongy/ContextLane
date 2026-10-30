@@ -82,14 +82,14 @@ export function TidyBlock({ project, changed }: { project: string; changed: () =
       const shown = [...rows, ...layerRows];
       return <>{shown.slice(0, all ? undefined : 12)}{shown.length > 12 ? <div className="sec-r"><button className="lnk" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `Show all ${shown.length}`}</button></div> : null}</>;
     })()}
-    {p.notes.map((n, i) => <div className="sec-r" key={i} style={{ fontSize: 13.5 }}><Glyph g="idle">{n}</Glyph></div>)}
+    {p.notes.length ? <div className="sec-f" style={{ fontSize: 13.5, display: "grid", gap: 4 }}><span className="lbl">Why</span>{p.notes.map((n, i) => <span key={i}>{n}</span>)}</div> : null}
     {error ? <div className="sec-f" role="alert">{error}</div> : null}
   </Section>;
   return <Section title="Grouping" meta={view.approved ? `tidied by ${view.approved.model}, approved ${agoText(view.approved.at)}` : "from folder names"}>
     <div className="sec-r wrap">
-      <span className="grow muted" style={{ fontSize: 13.5 }}>{view.approved ? `${view.approved.areas} named areas and corrected layers you approved. Module names never change.` : "Areas are top folders and layers are guessed from folder names. A local model can propose named areas and fix layers; you approve before anything changes."}</span>
-      {view.canRun ? <button className="btn ghost sm" disabled={busy || view.running} onClick={() => void act("")}>{busy || view.running ? "Tidying…" : view.approved ? "Tidy again" : "Tidy with local model"}</button>
-        : <span className="muted" style={{ fontSize: 13 }}>Add a local model for tidying under Models.</span>}
+      <span className="grow muted" style={{ fontSize: 13.5 }}>{view.approved ? `${view.approved.areas} named areas and corrected layers you approved. Module names never change.` : "Areas are top folders and layers are guessed from folder names. Your local model can suggest named areas and fix layers; nothing changes until you approve."}</span>
+      {view.canRun ? <button className="btn ghost sm" disabled={busy || view.running} onClick={() => void act("")}>{busy || view.running ? "Thinking…" : view.approved ? "Suggest again" : "Suggest a grouping"}</button>
+        : <span className="muted" style={{ fontSize: 13 }}>Add a local model under Models to get suggestions.</span>}
       {view.approved ? <button className="btn ghost sm" disabled={busy} onClick={() => void act("", "DELETE")}>Back to folders</button> : null}
     </div>
     {error ? <div className="sec-f" role="alert">{error}</div> : null}

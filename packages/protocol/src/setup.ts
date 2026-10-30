@@ -20,7 +20,7 @@ export type SetupLink = z.infer<typeof SetupLink>;
 /** What a local endpoint is used for. An endpoint with no roles takes every job. */
 export const LocalRole = z.enum(["briefs", "helper", "insights", "ask", "tidy"]);
 export type LocalRole = z.infer<typeof LocalRole>;
-export const LOCAL_ROLES: Record<LocalRole, string> = { briefs: "Module briefs", helper: "Local helper (delegate)", insights: "Insights", ask: "Ask", tidy: "Tidy the code map" };
+export const LOCAL_ROLES: Record<LocalRole, string> = { briefs: "Module briefs", helper: "Local helper (delegate)", insights: "Insights", ask: "Ask", tidy: "Grouping suggestions" };
 export const LocalModel = z.object({ name: z.string().min(1).max(100), provider: z.enum(["ollama", "llama.cpp"]),
   /** A name for this endpoint, e.g. "neo 4090"; the same model may be served by several. */
   label: z.string().trim().max(40).optional(),

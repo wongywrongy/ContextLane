@@ -71,7 +71,7 @@ export function ReviewPage() {
     <main className="rvm" aria-label="Checkpoint">
       {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
       {lane && checkpoint ? <Packet key={checkpoint.id} lane={lane} checkpoint={checkpoint} number={number} decided={reload} />
-        : <section className="sec"><Empty>When an agent sends a checkpoint, its checks, screenshots, plan and files appear here for you to decide on.</Empty></section>}
+        : <section className="sec"><Empty>Nothing to review yet. When a lane is ready (the agent asks, or you choose Ask for review on the lane), its checks, screenshots, plan and changed files appear here for you to merge or send back.</Empty></section>}
     </main>
   </div>;
 }
