@@ -10,6 +10,19 @@ const WORDS = { strong: "Strong", mixed: "Mixed", weak: "Weak" } as const;
 const SIGNAL = { strong: "", mixed: " wait", weak: " fail" } as const;
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const totals = (files: Checkpoint["files"]) => files.reduce((sum, f) => ({ added: sum.added + f.added, removed: sum.removed + f.removed }), { added: 0, removed: 0 });
+/** "Tests pass 44 / 44", "Types clean · tsc", "2 lint warnings · eslint": the tool's own summary when it printed one. */
+function CheckRow({ check }: { check: Checkpoint["checks"][number] }) {
+  const c = check.counts;
+  const warned = check.passed && !!c?.warnings;
+  const words = !c ? check.name
+    : c.total !== null ? `${check.name} ${check.passed ? "pass" : "fail"}`
+    : warned ? `${c.warnings} ${c.warnings === 1 ? "warning" : "warnings"}`
+    : check.passed ? `${check.name} clean` : `${c.failed} ${c.failed === 1 ? "error" : "errors"}`;
+  const right = !c ? (check.ms < 1000 ? `${check.ms} ms` : `${Math.round(check.ms / 100) / 10} s`)
+    : c.total !== null ? `${c.passed} / ${c.total}` : c.tool;
+  return <div className="rvr" title={check.detail || undefined}><i className={`g ${warned ? "wait" : check.passed ? "done" : "fail"}`} role="img" aria-label={warned ? "Look closer" : check.passed ? "Passed" : "Failed"} /><span>{words}</span><span className="r">{right}{c && c.total !== null ? <span className="muted"> · {c.tool}</span> : null}</span></div>;
+}
+
 const clean = (c: Checkpoint) => c.checks.every((check) => check.passed) && !c.unplanned.length;
 
 function duration(from: string, to: string): string {
@@ -73,7 +86,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
     </header>
     <div className="rv3">
       <Section title="Result" end={results ? <span className="mono muted" style={{ fontSize: 12 }}>{results} {results === 1 ? "check" : "checks"}</span> : undefined}>
-        {checkpoint.checks.map((check) => <div className="rvr" key={check.name} title={check.detail || undefined}><i className={`g ${check.passed ? "done" : "fail"}`} role="img" aria-label={check.passed ? "Passed" : "Failed"} /><span>{check.name}</span><span className="r">{check.ms < 1000 ? `${check.ms} ms` : `${Math.round(check.ms / 100) / 10} s`}</span></div>)}
+        {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
         {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
         {!results ? <div className="rvr muted">The recipe has no checks.</div> : null}
       </Section>
@@ -89,7 +102,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
     {shots.map((shot) => <Section key={shot.path} title="Before and after" meta={`${shot.path} · ${clock(checkpoint.createdAt)}`} end={shot.url ? <a className="lnk mono" href={shot.url} target="_blank" rel="noreferrer">{new URL(shot.url).host} ↗</a> : undefined}>
       <div className="ba">
         <Shot checkpoint={checkpoint} file={shot.before} tag={<span className="fchip">{base}</span>} label={`Before this lane`} />
-        <Shot checkpoint={checkpoint} file={shot.after} tag={<span className={`lb ${lane.colour}`}>lane {lane.id.slice(lane.id.lastIndexOf("/") + 1)}</span>} label={`${checkpoint.files.length} changed ${checkpoint.files.length === 1 ? "file" : "files"}`} />
+        <Shot checkpoint={checkpoint} file={shot.after} tag={<span className={`lb ${lane.colour}`}>lane {lane.id.slice(lane.id.lastIndexOf("/") + 1)}</span>} label={`${checkpoint.files.length} changed ${checkpoint.files.length === 1 ? "file" : "files"}`} changes={shot.changes} />
       </div>
       {shot.note ? <div className="sec-f" style={{ fontSize: 13 }}>{shot.note}</div> : null}
     </Section>)}
@@ -99,11 +112,13 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
   </>;
 }
 
-function Shot({ checkpoint, file, tag, label }: { checkpoint: Checkpoint; file: string | null; tag: ReactNode; label: string }) {
+function Shot({ checkpoint, file, tag, label, changes }: { checkpoint: Checkpoint; file: string | null; tag: ReactNode; label: string; changes?: Checkpoint["screenshots"][number]["changes"] }) {
   const src = useImage(file ? `/api/checkpoints/${checkpoint.id}/shots/${file}` : null);
+  const pct = (v: number, of: number) => `${(v / of) * 100}%`;
+  const count = changes?.areas.length ?? 0;
   return <figure className="shot">
-    <div className="frame"><div className="bar" />{src ? <img src={src} alt={label} /> : <div className="none">{file ? "Loading…" : "No picture"}</div>}</div>
-    <figcaption className="cap">{tag}{label}</figcaption>
+    <div className="frame"><div className="bar" />{src ? <div className="pic"><img src={src} alt={label} />{changes?.areas.map((a, i) => <span key={i} className="area" aria-hidden="true" style={{ left: pct(a.x, changes.width), top: pct(a.y, changes.height), width: pct(a.w, changes.width), height: pct(a.h, changes.height) }} />)}</div> : <div className="none">{file ? "Loading…" : "No picture"}</div>}</div>
+    <figcaption className="cap">{tag}{label}{changes ? ` · ${count ? `${count} changed ${count === 1 ? "area" : "areas"}` : "no visible change"}` : ""}</figcaption>
   </figure>;
 }
 

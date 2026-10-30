@@ -1,7 +1,7 @@
 import type { RequestPermissionRequest, SessionUpdate, ToolKind, ToolCallContent } from "@agentclientprotocol/sdk/unstable";
 import { diffLines } from "diff";
 import { stripVTControlCharacters } from "node:util";
-import type { NewLaneEvent, StepKind } from "@contextlanes/protocol";
+import { testSummary, type NewLaneEvent, type StepKind, type TestCounts } from "@contextlanes/protocol";
 
 const KIND: Record<ToolKind, StepKind> = {
   read: "read", search: "search", fetch: "fetch",
@@ -66,7 +66,7 @@ export function mapUpdate(u: SessionUpdate): NewLaneEvent | null {
   }
 }
 
-export function toolEvidence(content: ToolCallContent[] | null | undefined): { diff?: { added: number; removed: number }; tests?: { name: string; passed: boolean }[]; summary?: string } {
+export function toolEvidence(content: ToolCallContent[] | null | undefined): { diff?: { added: number; removed: number }; tests?: { name: string; passed: boolean }[]; counts?: TestCounts; summary?: string } {
   let added = 0, removed = 0, hasDiff = false, timedOut = false;
   const output: string[] = [];
   for (const item of content ?? []) {
@@ -80,7 +80,8 @@ export function toolEvidence(content: ToolCallContent[] | null | undefined): { d
   }
   const text = output.join("\n");
   const tests = [...text.matchAll(/^(not ok|ok)\s+\d+\s*(?:-\s*)?([^\n#]*)(?:#\s*(SKIP|TODO).*)?$/gm)].filter((m) => !m[3]).map((m) => ({ name: m[2]!.trim(), passed: m[1] === "ok" }));
-  return { ...(hasDiff && !timedOut ? { diff: { added, removed } } : {}), ...(tests.length ? { tests } : {}), ...(text ? { summary: text.length > 12_000 ? `${text.slice(0, 12_000)}\n[Output trimmed]` : text } : {}) };
+  const counts = !tests.length && text ? testSummary(text) : null;
+  return { ...(hasDiff && !timedOut ? { diff: { added, removed } } : {}), ...(tests.length ? { tests } : {}), ...(counts?.total ? { counts } : {}), ...(text ? { summary: text.length > 12_000 ? `${text.slice(0, 12_000)}\n[Output trimmed]` : text } : {}) };
 }
 
 /** A permission request becomes an inbox item with the agent's own options. */

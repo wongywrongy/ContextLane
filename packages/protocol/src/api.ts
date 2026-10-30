@@ -1,3 +1,4 @@
+import { TestCounts } from "./testsummary.js";
 import { z } from "zod";
 import { LANE_COLOURS, LaneId, ProjectId } from "./ids.js";
 import { LaneState } from "./states.js";
@@ -69,9 +70,11 @@ export const RequestChanges = z.object({ note: z.string().trim().min(1).max(10_0
 export const CheckpointRequest = z.object({ summary: z.string().trim().min(1).max(2000) });
 
 /** A change ready for review: measured evidence only. */
-export const CheckResult = z.object({ name: z.string(), passed: z.boolean(), ms: z.number(), detail: z.string() });
+export const CheckResult = z.object({ name: z.string(), passed: z.boolean(), ms: z.number(), detail: z.string(), counts: TestCounts.nullable().optional() });
 export type CheckResult = z.infer<typeof CheckResult>;
-export const Screenshot = z.object({ path: z.string(), url: z.string().nullable(), before: z.string().nullable(), after: z.string().nullable(), note: z.string().nullable() });
+export const Screenshot = z.object({ path: z.string(), url: z.string().nullable(), before: z.string().nullable(), after: z.string().nullable(), note: z.string().nullable(),
+  /** Where after differs from before, in pixels of the after picture. Null when either is missing. */
+  changes: z.object({ areas: z.array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })), width: z.number(), height: z.number() }).nullable().optional() });
 export type Screenshot = z.infer<typeof Screenshot>;
 export const ChangedFile = z.object({ path: z.string(), added: z.number().int(), removed: z.number().int() });
 export type ChangedFile = z.infer<typeof ChangedFile>;

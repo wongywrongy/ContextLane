@@ -397,6 +397,8 @@ input.in.mono { font: 400 14px var(--mono); }
 .shot .frame { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
 .shot .bar { height: 24px; background: var(--sunk); }
 .shot img { display: block; width: 100%; height: auto; }
+.shot .pic { position: relative; }
+.shot .area { position: absolute; border: 1.5px dashed var(--lc1); border-radius: 6px; pointer-events: none; }
 .shot .none { padding: 40px 18px; font-size: 13.5px; color: var(--muted); text-align: center; }
 .shot .cap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-2); }
 .trail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 18px; }

@@ -323,8 +323,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | T. Terminals survive a node-pty crash | work-lane | Done: PTY host process on the standard POSIX pty, node-pty removed; see T |
 | S2. Daemon git runs in the sandbox | — | Done: every daemon git and gh runs in the lane sandbox with hooks and fsmonitor off; see S2 |
 | B3 Per-lane databases | run | Done: Postgres template copies and SQLite copies; real Postgres 16 test passes; see B3 |
-| B4 Review packet gaps | review | Next |
-| B5 Composer, editor link, watching only | work-lane | Not started |
+| B4 Review packet gaps | review | Done: test counts from tool output, changed areas on screenshots; see B4 |
+| B5 Composer, editor link, watching only | work-lane | Next |
 | B6 Add from GitHub, branch in the band | projects | Not started |
 | 3.1 Code map | architecture | Not started |
 | 3.2 Architecture page and `contextlanes arch` | architecture | Not started |
@@ -451,6 +451,14 @@ The plan's split (sandbox for most commands, a config allow-list for push and `g
 - Changed areas on the after screenshot: a pixel diff of before and after, merged into at most five boxes, and the caption "N changed areas". Pin `pixelmatch` (or similar) to an exact version.
 - Plan vs done, "Not in the plan": changed files no plan entry mentions. Counting callers waits for 3.1.
 - **Not here:** "Shares a file with 02" (3.3), Ask Codex to review (4.2).
+
+#### What was done (2026-10-30)
+
+- `testSummary` (`packages/protocol/src/testsummary.ts`) reads the closing summary of vitest, jest, pytest (with and without `-q`), `node --test`/TAP, `go test -v`, tsc, mypy, ruff and eslint. The pytest, mypy, ruff and `node --test` formats were checked against the real tools here. Unknown output gives nothing, and the row shows pass or fail as before.
+- Review's Result rows read "Tests pass 44 / 44 · vitest", "Types clean", or "2 warnings · eslint" with the look-closer glyph. The Work trail draws the same 41 / 44 bar for an agent's own test runs when its output has a summary and no TAP lines.
+- Changed areas: `apps/daemon/src/visualdiff.ts` compares before and after with pixelmatch 7.1.0 (anti-aliasing ignored), groups changed 16 px cells that touch into boxes, merges down to five, and treats a taller after page as new content at the bottom. Review draws them dashed on the after picture and captions "N changed areas" or "no visible change".
+- "Not in the plan" was already there (changed files no plan entry mentions).
+- Tests: `testsummary.test.ts`, `visualdiff.test.ts` (two separate changes, identical pictures, a missing picture, a taller page, merging to five).
 
 ### B5 Composer, editor link, watching only (work-lane)
 

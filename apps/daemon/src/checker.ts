@@ -1,7 +1,8 @@
+import { changedAreas } from "./visualdiff.js";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ChangedFile, Checkpoint, CheckResult, Lane, LaneEvent, Recipe, Screenshot } from "@contextlanes/protocol";
+import { testSummary, type ChangedFile, type Checkpoint, type CheckResult, type Lane, type LaneEvent, type Recipe, type Screenshot, type TestCounts } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -87,9 +88,9 @@ export class Checker {
     return (await this.deps.run("git", ["diff", "--no-color", "--no-renames", checkpoint.base, checkpoint.head, ...(file === undefined ? [] : ["--", file])], { cwd: project.path })).stdout.slice(0, 500_000);
   }
 
-  private report(lane: string, name: string, passed: boolean, ms: number, detail: string): CheckResult {
+  private report(lane: string, name: string, passed: boolean, ms: number, detail: string, counts: TestCounts | null = null): CheckResult {
     this.deps.bus.publish(this.deps.store.appendEvent(lane, { type: "check.result", payload: { name, passed, detail } }));
-    return { name, passed, ms, detail };
+    return { name, passed, ms, detail, counts };
   }
 
   private async build(lane: Lane, summary: string, base: string, recipe: Recipe | null): Promise<void> {
@@ -99,7 +100,7 @@ export class Checker {
     const checks: CheckResult[] = [];
     for (const check of recipe?.checks ?? []) {
       const result = await oneshot(run, lane.worktree, check.command, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, check.timeoutSeconds, sandbox(this.deps.config));
-      checks.push(this.report(lane.id, check.name, result.ok, result.ms, result.output.trim().slice(-1000)));
+      checks.push(this.report(lane.id, check.name, result.ok, result.ms, result.output.trim().slice(-1000), testSummary(result.output, check.command)));
     }
     const files = parseNumstat((await run("git", ["diff", "--numstat", "--no-renames", base, head], { cwd: lane.worktree })).stdout);
     const events = await this.history(lane.id);
@@ -151,6 +152,7 @@ export class Checker {
     } catch (err) { shots.forEach((_, i) => note(i, `No after picture: ${err instanceof Error ? err.message : "the app did not start"}.`)); }
     try { await runtime.fromCommit(lane, recipe, base, (port) => take(`http://127.0.0.1:${port}`, "before")); }
     catch (err) { shots.forEach((_, i) => note(i, `No before picture: ${err instanceof Error ? err.message : "the base commit did not start"}.`)); }
+    for (const shot of shots) if (shot.before && shot.after) shot.changes = await changedAreas(join(dir, shot.before), join(dir, shot.after)).catch(() => null);
     return shots;
   }
 

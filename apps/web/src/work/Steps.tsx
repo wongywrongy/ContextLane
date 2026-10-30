@@ -48,11 +48,12 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
     sub = now ? `Now: ${now.text}` : null;
   }
   if (step.tool) {
-    const { diff, tests, status, failedBefore, files, summary } = step.tool;
+    const { diff, tests, counts, status, failedBefore, files, summary } = step.tool;
     if (files.length) extra = <div className="files">{files.slice(0, 4).map((f) => <span className="fchip" key={f}>{f.split("/").at(-1)}</span>)}{files.length > 4 ? <span className="fchip">+{files.length - 4}</span> : null}</div>;
     if (summary) extra = <>{extra}<button className="tgl" aria-expanded={open} onClick={() => setOpen(!open)} style={{ color: "var(--text-2)" }}><Chevron />{open ? "Hide output" : "Show output"}</button>{open ? <div className="out">{summary}</div> : null}</>;
     if (diff) { const total = diff.added + diff.removed || 1; right = <><span className="diffbar" aria-hidden="true"><i className="a" style={{ width: `${diff.added / total * 100}%` }} /><i className="d" style={{ width: `${diff.removed / total * 100}%` }} /></span><span className="mono" style={{ fontSize: 12 }} aria-label={`${diff.added} lines added, ${diff.removed} removed`}><span style={{ color: "var(--ok-ink)" }}>+{diff.added}</span> <span style={{ color: "var(--bad-ink)" }}>−{diff.removed}</span></span></>; }
     else if (tests?.length) { const passed = tests.filter((t) => t.passed).length; right = <><span className="pips" aria-hidden="true">{tests.slice(0, 60).map((t, i) => <i key={i} className={t.passed ? "" : "f"} title={t.name} />)}</span><span className="mono" style={{ fontSize: 12 }}>{passed} / {tests.length}</span></>; }
+    else if (counts?.total) { const pips = Math.min(counts.total, 60); const bad = Math.round(counts.failed / counts.total * pips); right = <><span className="pips" aria-hidden="true">{Array.from({ length: pips }, (_, i) => <i key={i} className={i >= pips - bad ? "f" : ""} />)}</span><span className="mono" style={{ fontSize: 12 }} aria-label={`${counts.passed} of ${counts.total} passed, ${counts.tool}`}>{counts.passed} / {counts.total}</span></>; }
     if (status === "failed") right = <>{right}<span className="sig fail">failed</span></>;
     else if (failedBefore && status === "completed") right = <>{right}<span className="sig">failed, then fixed</span></>;
     else if (status === "in_progress" || status === "pending") right = <>{right}<span className="sig wait">running</span></>;
