@@ -53,5 +53,10 @@ export const FolderListing = z.object({ path: z.string(), parent: z.string().nul
   folders: z.array(z.object({ name: z.string(), path: z.string(), repo: z.boolean().default(false) })),
 });
 export type FolderListing = z.infer<typeof FolderListing>;
-export const ProjectBranches = z.object({ branches: z.array(z.string()), defaultBranch: z.string().nullable() });
+export const ProjectBranches = z.object({ branches: z.array(z.string()), defaultBranch: z.string().nullable(), current: z.string().nullable().optional() });
+/** Add repositories, GitHub tab: the owner's repositories through gh, cloned into the code folder. */
+export const GithubRepo = z.object({ name: z.string(), description: z.string().nullable(), private: z.boolean(), updatedAt: z.string(), path: z.string(), cloned: z.boolean() });
+export type GithubRepo = z.infer<typeof GithubRepo>;
+export type GithubListing = { available: true; folder: string; repos: GithubRepo[] } | { available: false; reason: string };
+export const CloneRequest = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "owner/name").refine((r) => !r.split("/").some((p) => p === "." || p === ".."), "owner/name") });
 export type ProjectBranches = z.infer<typeof ProjectBranches>;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { FolderListing, Project, RepositoryScan } from "@contextlanes/protocol";
+import type { FolderListing, GithubListing, Project, RepositoryScan } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, AgentMark, Dialog, Icon, ago, tildePath } from "./ui";
 
@@ -9,7 +9,7 @@ import { AGENT_NAMES, AgentMark, Dialog, Icon, ago, tildePath } from "./ui";
  * same dialog, so it never takes over the page.
  */
 export function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [view, setView] = useState<"found" | "browse">("found");
+  const [view, setView] = useState<"found" | "browse" | "github">("found");
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
   const [home] = useJson<FolderListing>("/api/setup/projects/folders?path=~");
   const [scan, scanError, rescan] = useJson<RepositoryScan>("/api/setup/projects/scan");
@@ -25,11 +25,12 @@ export function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdd
       reloadProjects(); onAdded(); onClose();
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
+  if (view === "github") return <FromGithub onBack={() => setView("found")} onClose={onClose} onAdded={() => { reloadProjects(); onAdded(); onClose(); }} />;
   if (view === "browse") return <FolderBrowser home={homePath} onBack={() => setView("found")} onClose={onClose} add={add} busy={busy} error={error} added={added} />;
   const repos = scan?.repositories ?? [];
   const choosable = repos.filter((r) => !added.has(r.path) && !r.note?.startsWith("Owned by"));
   return <Dialog title="Add repositories" meta={scan ? `${repos.length} found` : undefined} onClose={onClose}
-    footer={<><button className="btn ghost" onClick={() => setView("browse")}>Choose a folder…</button>
+    footer={<><button className="btn ghost" onClick={() => setView("browse")}>Choose a folder…</button><button className="btn ghost" onClick={() => setView("github")}>From GitHub…</button>
       <div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn" disabled={!selected.size || busy} onClick={() => void add([...selected])}>{busy ? "Adding…" : selected.size ? `Add ${selected.size} ${selected.size === 1 ? "repository" : "repositories"}` : "Add repositories"}</button></div></>}>
     {scanError ? <div className="empty">Repositories could not be listed. <button className="lnk" onClick={rescan}>Try again</button> or choose a folder.</div>
       : !scan ? <div className="empty">Looking at your agents’ recent work and your home folder…</div>
@@ -83,6 +84,36 @@ function FolderBrowser({ home, onBack, onClose, add, busy, error, added }: { hom
           {folder.repo ? added.has(folder.path) ? <span className="sig">added</span> : <button className="btn ghost sm" disabled={busy} onClick={() => void add([folder.path])}>Add</button> : null}
         </div>)}
         {!listing.folders.length ? <div className="empty">No folders here.</div> : null}
+      </>}
+  </Dialog>;
+}
+
+/** Your GitHub repositories (through gh on this machine); adding one clones it into the code folder first. */
+function FromGithub({ onBack, onClose, onAdded }: { onBack: () => void; onClose: () => void; onAdded: () => void }) {
+  const [listing, listError, retry] = useJson<GithubListing>("/api/setup/github");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const add = async (repo: string) => {
+    setBusy(repo); setError("");
+    try { await postJson("/api/setup/github/clone", { repo }); onAdded(); } catch (e) { setError(errorMessage(e)); } finally { setBusy(null); }
+  };
+  const repos = listing?.available ? listing.repos.filter((r) => !filter || r.name.toLowerCase().includes(filter.toLowerCase())) : [];
+  return <Dialog title="Add from GitHub" meta={listing?.available ? `clones into ${listing.folder}` : undefined} onClose={onClose}
+    footer={<><button className="btn ghost" onClick={onBack}>Back</button><div className="e">{error ? <span role="alert">{error}</span> : null}</div></>}>
+    {listError ? <div className="empty">Your repositories could not be listed. <button className="lnk" onClick={retry}>Try again</button></div>
+      : !listing ? <div className="empty">Asking GitHub for your repositories…</div>
+      : !listing.available ? <div className="empty">{listing.reason}</div>
+      : <>
+        <input className="in" aria-label="Filter repositories" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ marginBottom: 8 }} />
+        {repos.map((r) => <div className="repo" key={r.name}>
+          <span style={{ minWidth: 0 }}>
+            <span className="nm"><b>{r.name}</b>{r.private ? <span className="mono">private</span> : null}</span>
+            <span className="sub" style={{ display: "block" }}>{[r.description, `updated ${ago(r.updatedAt)} ago`, r.cloned ? "already on this machine" : null].filter(Boolean).join(" · ")}</span>
+          </span>
+          <span className="meta"><button className="btn sm" disabled={!!busy} onClick={() => void add(r.name)}>{busy === r.name ? (r.cloned ? "Adding…" : "Cloning…") : r.cloned ? "Add" : "Clone and add"}</button></span>
+        </div>)}
+        {!repos.length ? <div className="empty">No repositories match.</div> : null}
       </>}
   </Dialog>;
 }

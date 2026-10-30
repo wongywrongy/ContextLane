@@ -177,7 +177,8 @@ export class ProjectDiscovery {
       let preferred: string | undefined;
       try { preferred = (await this.run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd: path, timeout: 5000 })).stdout.trim().replace(/^origin\//, ""); } catch { /* A local-only repository has no remote HEAD. */ }
       const defaultBranch = [preferred, "main", "master", branches[0]].find((branch) => branch && branches.includes(branch)) ?? null;
-      return { branches, defaultBranch };
+      const current = (await this.run("git", ["branch", "--show-current"], { cwd: path, timeout: 5000 }).catch(() => ({ stdout: "" }))).stdout.trim() || null;
+      return { branches, defaultBranch, current };
     } catch { throw new ProjectError("Branches could not be read; check this repository and try again."); }
   }
 }

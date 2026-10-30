@@ -325,8 +325,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B3 Per-lane databases | run | Done: Postgres template copies and SQLite copies; real Postgres 16 test passes; see B3 |
 | B4 Review packet gaps | review | Done: test counts from tool output, changed areas on screenshots; see B4 |
 | B5 Composer, editor link, watching only | work-lane | Done: @ file, / command, pictures, Open in editor, Watching only and Take over; see B5 |
-| B6 Add from GitHub, branch in the band | projects | Next |
-| 3.1 Code map | architecture | Not started |
+| B6 Add from GitHub, branch in the band | projects | Done: see B6 |
+| 3.1 Code map | architecture | Next |
 | 3.2 Architecture page and `contextlanes arch` | architecture | Not started |
 | 3.3 Collision warnings | architecture, review | Not started |
 | 3.4 Local model runtime | models | Not started |
@@ -481,6 +481,12 @@ The plan's split (sandbox for most commands, a config allow-list for push and `g
 
 - Add repositories, GitHub tab: `gh repo list --json` through Runner, clone the chosen repository into the configured code folder, then register it as Add does now. Hide the tab when `gh` is missing or signed out, and say why.
 - Project band: the main checkout's current branch.
+
+#### What was done (2026-10-30)
+
+- Add repositories has **From GitHub…**: `gh repo list` (newest first, private marked), then **Clone and add** runs `gh repo clone` into `paths.code` (default `~/code`) and registers it. A clone already there is reused if its remote is the same repository and refused otherwise. Missing or signed-out `gh` is a sentence, not an error. gh runs in the sandbox like the daemon's other git, reading its login from `~/.config/gh`; a `gh` that keeps its token in a desktop keyring will look signed out, which headless machines like neo do not use.
+- The project band shows `owner/repo · branch`, from the GitHub remote and the main checkout's current branch.
+- Tests: `github.test.ts`.
 
 ### 3.1 Code map (architecture)
 

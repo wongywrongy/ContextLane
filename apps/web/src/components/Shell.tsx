@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
-import type { Health, Lane, Project, ProjectEnvironments } from "@contextlanes/protocol";
+import type { Health, Lane, Project, ProjectBranches, ProjectEnvironments } from "@contextlanes/protocol";
 import { useJson, useLiveInbox, InboxContext, useInbox } from "../api";
 import { useWork } from "../work/useWork";
 import { READY } from "../features";
@@ -92,6 +92,8 @@ export function ProjectShell() {
   useEffect(reload, [reload, changes]);
   const [inbox] = useInbox();
   const info = projects?.find((p) => p.id === project);
+  const [branches] = useJson<ProjectBranches>(project ? `/api/projects/${project}/branches` : null);
+  const repoName = info?.remote?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1] ?? info?.path.split("/").at(-1) ?? project;
   const active = work.lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const waiting = inbox?.filter((i) => i.lane.startsWith(`${project}/`)).length ?? 0;
   const tabs = TABS.filter(([, , ready]) => ready);
@@ -103,7 +105,7 @@ export function ProjectShell() {
         <div className={`cover ${coverFor(project)}`} />
         <div className="shade" />
         <div className="in">
-          <div><div className="meta"><Link to="/">Projects</Link> / {info?.path.split("/").at(-1) ?? project}</div><h1>{info?.name ?? project}</h1></div>
+          <div><div className="meta"><Link to="/">Projects</Link> / {repoName}{branches?.current ? ` · ${branches.current}` : ""}</div><h1>{info?.name ?? project}</h1></div>
           <div className="facts">
             <Glyph g="work">{active.length} {active.length === 1 ? "lane" : "lanes"}</Glyph>
             {waiting ? <Glyph g="wait">{waiting} need{waiting === 1 ? "s" : ""} you</Glyph> : null}

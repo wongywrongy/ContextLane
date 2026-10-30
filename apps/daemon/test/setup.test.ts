@@ -301,7 +301,7 @@ describe("project discovery", () => {
   });
   it("reads registered repo branches and selects remote HEAD rather than the current feature branch", async () => {
     const f = await fixture(); await f.claim(); const project = await f.setup.addProject({ path: "~/repo" });
-    const branches = (await f.app.inject({ url: `/api/projects/${project.id}/branches`, headers: f.owner })).json(); expect(branches).toEqual({ branches: ["feature", "trunk"], defaultBranch: "trunk" });
+    const branches = (await f.app.inject({ url: `/api/projects/${project.id}/branches`, headers: f.owner })).json(); expect(branches).toMatchObject({ branches: ["feature", "trunk"], defaultBranch: "trunk" });
     for (const path of ["/api/setup/projects/scan", "/api/setup/projects/folders", `/api/projects/${project.id}/branches`]) expect((await f.app.inject(path)).statusCode).toBe(401);
   });
 });

@@ -1,3 +1,5 @@
+import { GitHub } from "../github.js";
+import { CloneRequest } from "@contextlanes/protocol";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AgentId, FolderQuery, ProjectId, SignInRequest } from "@contextlanes/protocol";
 import { z } from "zod";
@@ -77,6 +79,9 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
     if (!project) throw new SetupError("Add this project before choosing a branch.", 404);
     return setup.projects.branches(project.path);
   });
+  const github = new GitHub(run, setup.config.paths.code);
+  app.get("/api/setup/github", async () => github.list());
+  app.post("/api/setup/github/clone", async (req) => setup.addProject({ path: await github.clone(CloneRequest.parse(req.body)) }));
   app.post("/api/setup/tailnet", async () => setup.enableTailnet());
   app.post("/api/setup/push", async () => setup.generatePush());
   app.post("/api/setup/model/probe", async (req) => setup.probeModel(req.body));

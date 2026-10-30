@@ -16,8 +16,10 @@ export const Config = z.object({
     .object({
       data: z.string().default(join(homedir(), ".local/share/contextlanes")),
       lanes: z.string().default(join(homedir(), "lanes")),
+      /** Where Add repositories → GitHub clones to. */
+      code: z.string().default(join(homedir(), "code")),
     })
-    .default({ data: join(homedir(), ".local/share/contextlanes"), lanes: join(homedir(), "lanes") }),
+    .default({ data: join(homedir(), ".local/share/contextlanes"), lanes: join(homedir(), "lanes"), code: join(homedir(), "code") }),
   access: z
     .object({
       /** Tailnet login allowed to use this machine. Null while unclaimed. */
