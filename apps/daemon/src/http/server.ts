@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
+import { PushSubscription, AskOwnerRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -35,6 +36,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.addHook("onRequest", async (req, reply) => {
     const login = req.headers["tailscale-user-login"];
     const owner = config.access.owner;
+    if (typeof login === "string" && owner && login !== owner) return reply.code(403).send({ error: "not the owner of this machine" });
+    const bearer = req.headers.authorization?.replace(/^Bearer /, "");
+    if (req.method === "POST" && req.url.split("?")[0] === "/api/answers" && bearer?.startsWith("cl-action-")) {
+      if (!store.notificationAction(bearer)) return reply.code(401).send({ error: "invalid notification action" });
+      return;
+    }
     if (typeof login === "string") {
       if (owner && login !== owner) return reply.code(403).send({ error: "not the owner of this machine" });
       return;
@@ -49,6 +56,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
+  app.get("/api/notifications", async () => ({ publicKey: config.notifications.webPush?.publicKey ?? null,
+    channels: { ntfy: !!config.notifications.ntfy, telegram: !!config.notifications.telegram, webpush: !!config.notifications.webPush }, quiet: config.notifications.quiet ?? null }));
+  app.post("/api/push/subscriptions", async (req, reply) => {
+    store.saveSubscription(PushSubscription.parse(req.body));
+    return reply.code(201).send({ subscribed: true });
+  });
+  app.delete("/api/push/subscriptions", async (req) => {
+    const { endpoint } = PushSubscription.pick({ endpoint: true }).parse(req.body);
+    store.removeSubscription(endpoint);
+    return { subscribed: false };
+  });
 
   // ── projects ──
   app.get("/api/projects", async () => store.listProjects());
@@ -116,14 +134,28 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.
   app.post<{ Params: { project: string; n: string; tool: string } }>("/api/lanes/:project/:n/tools/:tool", async (req, reply) => {
-    laneParam(req.params);
+    const lane = laneParam(req.params);
+    if (req.params.tool === "ask_owner") {
+      if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
+      const body = AskOwnerRequest.parse(req.body);
+      if (!store.permission(lane, body.requestId)) {
+        bus.publish(store.appendEvent(lane, { type: "permission.requested", payload: { requestId: body.requestId, title: body.question, kind: "question", options: body.options.map((label, i) => ({ id: String(i), label, kind: "allow_once" })) } }));
+        if (store.getLane(lane)!.state === "working") bus.publish(store.setLaneState(lane, "needs_you"));
+      }
+      const original = store.permission(lane, body.requestId)!;
+      if (original.kind !== "question" || original.title !== body.question || JSON.stringify(original.options.map((o) => o.label)) !== JSON.stringify(body.options)) return reply.code(409).send({ error: "question ID already has different content" });
+      const answer = store.answer(lane, body.requestId);
+      return answer ? { optionId: answer.optionId, label: original.options.find((o) => o.id === answer.optionId)?.label ?? null } : reply.code(202).send({ pending: true, requestId: body.requestId });
+    }
     return reply.code(501).send({ error: `${req.params.tool} is not available yet; see docs/IMPLEMENTATION.md` });
   });
 
   // ── inbox ──
   app.get("/api/inbox", async () => store.inbox());
   app.post("/api/answers", async (req, reply) => {
-    const body = z.object({ lane: LaneId, requestId: z.string() }).and(AnswerRequest).parse(req.body);
+    const bearer = req.headers.authorization?.replace(/^Bearer /, "");
+    const action = bearer?.startsWith("cl-action-") ? store.notificationAction(bearer) : null;
+    const body = z.object({ lane: LaneId, requestId: z.string() }).and(AnswerRequest).parse(action ?? req.body);
     const request = store.permission(body.lane, body.requestId);
     if (!request) return reply.code(404).send({ error: "no such permission" });
     if (store.answered(body.lane, body.requestId)) return reply.code(409).send({ error: "permission already answered" });
@@ -131,25 +163,26 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const commandId = randomUUID();
     const command = { kind: "answer" as const, requestId: body.requestId, optionId: body.optionId };
     const events = store.tx(() => {
-      const events = [store.appendEvent(body.lane, { type: "permission.answered", payload: { requestId: body.requestId, optionId: body.optionId, by: body.via } }),
-        store.appendEvent(body.lane, { type: "agent.command", payload: { commandId, command } })];
-      if (store.getLane(body.lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === body.lane && i.kind === "permission")) events.push(store.setLaneState(body.lane, "working"));
+      const events = [store.appendEvent(body.lane, { type: "permission.answered", payload: { requestId: body.requestId, optionId: body.optionId, by: body.via } })];
+      if (request.kind !== "question") events.push(store.appendEvent(body.lane, { type: "agent.command", payload: { commandId, command } }));
+      if (store.getLane(body.lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === body.lane && ["permission", "question"].includes(i.kind))) events.push(store.setLaneState(body.lane, "working"));
       return events;
     });
     for (const event of events) bus.publish(event);
-    return reply.code(202).send({ commandId, delivered: deps.hosts.send(body.lane, { commandId, command }) });
+    return reply.code(202).send({ commandId, delivered: request.kind === "question" || deps.hosts.send(body.lane, { commandId, command }) });
   });
 
   // ── live stream: one SSE connection per project screen ──
-  app.get<{ Params: { project: string } }>("/api/projects/:project/stream", (req, reply) => {
-    const project = ProjectId.parse(req.params.project);
+  for (const path of ["/api/projects/:project/stream", "/api/stream"]) app.get<{ Params: { project?: string } }>(path, (req, reply) => {
+    const project = req.params.project ? ProjectId.parse(req.params.project) : null;
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     res.write("retry: 2000\n\n");
-    const off = bus.subscribe(project, (e) => res.write(`event: lane\ndata: ${JSON.stringify(e)}\n\n`));
+    const write = (e: import("@contextlanes/protocol").LaneEvent) => { res.write(`event: lane\ndata: ${JSON.stringify(e)}\n\n`); };
+    const off = project ? bus.subscribe(project, write) : bus.subscribeAll(write);
     const beat = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
-    req.raw.on("close", () => {
+    res.on("close", () => {
       clearInterval(beat);
       off();
     });

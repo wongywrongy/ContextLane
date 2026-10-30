@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { chmodSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import {
   canTransition,
   type InboxItem,
@@ -10,6 +12,8 @@ import {
   type EventPayload,
   type Project,
   type ProjectId,
+  type PushSubscription,
+  type NotificationChannel,
   parsePayload,
 } from "@contextlanes/protocol";
 import { MIGRATIONS } from "./migrations.js";
@@ -28,6 +32,7 @@ export class Store {
   /** Open (or create) the database and bring it to the latest schema. Use ":memory:" in tests. */
   static open(file: string): Store {
     const db = new DatabaseSync(file);
+    if (file !== ":memory:") chmodSync(file, 0o600);
     db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     const store = new Store(db);
     for (let i = store.schemaVersion(); i < MIGRATIONS.length; i++) {
@@ -160,6 +165,11 @@ export class Store {
     return !!this.db.prepare("SELECT 1 FROM event WHERE lane = ? AND type = 'permission.answered' AND json_extract(payload, '$.requestId') = ? LIMIT 1").get(lane, requestId);
   }
 
+  answer(lane: LaneId, requestId: string): EventPayload<"permission.answered"> | null {
+    const row = this.db.prepare("SELECT payload FROM event WHERE lane = ? AND type = 'permission.answered' AND json_extract(payload, '$.requestId') = ? LIMIT 1").get(lane, requestId) as Row | undefined;
+    return row ? JSON.parse(String(row.payload)) : null;
+  }
+
   events(lane: LaneId, afterSeq = 0, limit = 500): LaneEvent[] {
     const rows = this.db.prepare("SELECT * FROM event WHERE lane = ? AND seq > ? ORDER BY seq LIMIT ?").all(lane, afterSeq, limit) as Row[];
     return rows.map(toEvent);
@@ -169,7 +179,7 @@ export class Store {
   inbox(): InboxItem[] {
     const asks = this.db
       .prepare(
-        `SELECT q.lane, q.at, json_extract(q.payload, '$.requestId') AS rid, json_extract(q.payload, '$.title') AS title
+        `SELECT q.lane, q.at, json_extract(q.payload, '$.requestId') AS rid, json_extract(q.payload, '$.title') AS title, json_extract(q.payload, '$.options') AS options, json_extract(q.payload, '$.kind') AS kind
          FROM event q
          WHERE q.type = 'permission.requested'
            AND NOT EXISTS (
@@ -180,10 +190,39 @@ export class Store {
       .all() as Row[];
     const reviews = this.db.prepare("SELECT id, task FROM lane WHERE state = 'in_review' ORDER BY created_at").all() as Row[];
     return [
-      ...asks.map((r) => ({ id: `${r.lane}#${r.rid}`, lane: String(r.lane), kind: "permission" as const, title: String(r.title), since: String(r.at) })),
-      ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: now() })),
+      ...asks.map((r) => ({ id: `${r.lane}#${r.rid}`, lane: String(r.lane), kind: r.kind === "question" ? "question" as const : "permission" as const, title: String(r.title), since: String(r.at), options: JSON.parse(String(r.options)) })),
+      ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: now(), options: [] })),
     ];
   }
+
+  saveSubscription(subscription: PushSubscription): void {
+    this.db.prepare("INSERT INTO push_subscription VALUES (?, ?) ON CONFLICT(endpoint) DO UPDATE SET subscription = excluded.subscription").run(subscription.endpoint, JSON.stringify(subscription));
+  }
+
+  subscriptions(): PushSubscription[] {
+    return (this.db.prepare("SELECT subscription FROM push_subscription").all() as Row[]).map((r) => JSON.parse(String(r.subscription)));
+  }
+
+  removeSubscription(endpoint: string): void { this.db.prepare("DELETE FROM push_subscription WHERE endpoint = ?").run(endpoint); }
+
+  action(lane: string, requestId: string, optionId: string, channel: NotificationChannel): string {
+    const token = `cl-action-${randomBytes(32).toString("base64url")}`;
+    this.db.prepare("INSERT INTO notification_action VALUES (?, ?, ?, ?, ?)").run(createHash("sha256").update(token).digest("hex"), lane, requestId, optionId, channel);
+    return token;
+  }
+
+  notificationAction(token: string): { lane: string; requestId: string; optionId: string; via: "phone" | "telegram" } | null {
+    if (!/^cl-action-[\w-]{43}$/.test(token)) return null;
+    const row = this.db.prepare("SELECT * FROM notification_action WHERE hash = ?").get(createHash("sha256").update(token).digest("hex")) as Row | undefined;
+    return row ? { lane: String(row.lane), requestId: String(row.request_id), optionId: String(row.option_id), via: row.channel === "telegram" ? "telegram" : "phone" } : null;
+  }
+
+  notified(lane: string, requestId: string, channel: NotificationChannel, target = ""): boolean {
+    return !!this.db.prepare("SELECT 1 FROM event WHERE lane = ? AND type = 'notification.sent' AND json_extract(payload, '$.requestId') = ? AND json_extract(payload, '$.channel') = ? AND COALESCE(json_extract(payload, '$.target'), '') = ? LIMIT 1").get(lane, requestId, channel, target);
+  }
+
+  telegramOffset(): number { return Number((this.db.prepare("SELECT offset FROM notification_cursor WHERE id = 1").get() as Row | undefined)?.offset ?? 0); }
+  setTelegramOffset(offset: number): void { this.db.prepare("INSERT INTO notification_cursor VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET offset = excluded.offset").run(offset); }
 }
 
 function toEvent(r: Row): LaneEvent {

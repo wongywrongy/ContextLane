@@ -47,6 +47,13 @@ a { color: var(--ink); }
 .sec-h + .sec-r, .sec-r:first-child { border-top: 0; }
 .sec-f { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 18px; border-top: 1px solid var(--line-soft); background: var(--surface-2); }
 .empty { padding: 28px 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.permission-card { padding: 18px; background: var(--you-bg); border-bottom: 1px solid var(--you-line); }
+.permission-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.permission-title a { margin-left: auto; font-size: 12px; }
+.permission-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.permission-actions .btn { min-height: 44px; }
+.btn:disabled { opacity: .55; cursor: wait; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--lc1); outline-offset: 3px; }
 
 /* buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 0 12px; border-radius: 6px; font: 600 13px var(--font); border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; text-decoration: none; }

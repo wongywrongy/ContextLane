@@ -3,6 +3,9 @@
 ## Needs Kyle
 
 - **Real agents (1.1 acceptance):** install the registry adapters with `npm install --global --prefix "$HOME/.local" @agentclientprotocol/claude-agent-acp@0.99.1 @agentclientprotocol/codex-acp@2.5.0`. Put their absolute executables under `[agents.claude-code].command` and `[agents.codex].command` in `~/.config/contextlanes/config.toml` if they are not on the daemon's PATH. Authenticate Claude interactively with `claude-agent-acp --cli` then `/login` (headless/SSH flow); authenticate Codex with your normal Codex CLI login. Run one lane of each and restart the daemon. Both adapter executables are absent on the development machine, so the two-lane restart check used SDK fake agents in real systemd units.
+- **ntfy:** in `~/.config/contextlanes/config.toml`, set `[notifications].publicUrl` to the HTTPS tailnet URL this phone can reach and `[notifications.ntfy].topic` to a private, unguessable topic; optionally set `.url` for your own server and `.token` for publishing. Subscribe to that topic on the phone. Action buttons post one scoped answer to `/api/answers`; their capabilities must be kept private like the topic.
+- **Telegram:** set `[notifications.telegram].botToken`, `.chatId` and `.ownerId` in the same config. Start a conversation with the bot and use the numeric chat/user IDs. No public webhook is needed; the daemon polls outbound. Actual bot credentials and delivery have not been tested.
+- **Web Push:** set `[notifications.webPush].subject` (`mailto:you@example.com`), `.publicKey` and `.privateKey` once, or generate them through Setup in 1.5. Open the HTTPS app on the phone, install it on the home screen and choose **Inbox → Enable push on this device**. Browser permission and real provider delivery need Kyle; encryption/transport calls and service-worker clicks use fakes in tests.
 - **Real phone acceptance:** set `[access].owner` to your Tailscale login in `~/.config/contextlanes/config.toml` before remote use. Through your tailnet proxy, open `/p/<project>/work`, select **Terminal**, try the phone keyboard, close the tab and reattach. Chromium at a 390px viewport passed; a physical phone has not been tested. Remote-access setup remains milestone 1.5.
 
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
@@ -14,7 +17,7 @@ The current goal is **finish phase 1**, first isolating native terminal loading,
 | Milestone | Status | Evidence / next step |
 |---|---|---|
 | 1.1 Lane hosts for real | Implemented; real-agent acceptance needs Kyle | Complete systemd arguments, agent overrides, MCP toolbox, live steps, durable command/event replay, permission held across restart; SDK fake-agent and real systemd two-lane restart tests pass |
-| 1.2 Permission round trip | Pending | Scaffold only; notifiers and phone acceptance still needed |
+| 1.2 Permission round trip | Implemented; provider/device acceptance needs Kyle | ntfy HTTP actions, owner-checked Telegram keyboards/polling, Web Push + service worker, quiet hours, live Inbox, single-use answers and durable ask_owner; 56 tests and phone-sized browser round trip pass |
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
 | 1.4 Work page | Pending | After 1.2 |
 | 1.5 Setup and install | Pending | After 1.4 |
@@ -30,7 +33,7 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients | Most toolbox calls return 501 until their phase |
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
 | `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer` | `arch` and `setup` print where they land |
-| `packages/toolbox` | The eight MCP tools declared with input schemas and served over stdio | Every tool returns 501 until its phase |
+| `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice | Other tools await their phases |
 | `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Other pages show their final sections with empty states |
 
 ## Principles
@@ -69,6 +72,14 @@ Real Claude/Codex acceptance is blocked only on the installs/logins above; imple
 - Inbox from events (done); `POST /api/answers` (done) delivers to the host (done for connected hosts).
 - Notifier: ntfy action buttons and a Telegram bot with inline keyboards both call `/api/answers`; Web Push for the installed web app. Quiet hours from config.
 - Done when: a permission asked by an agent can be answered from the phone in one tap and the agent continues; unanswered requests wait indefinitely.
+
+Implemented. The Inbox updates live and shows single-use buttons. ntfy sends scoped POST actions; Telegram uses inline keyboards and an outbound long poll restricted to both configured owner ID and chat ID; Web Push uses VAPID, persisted device subscriptions and a service worker. Notification capabilities are hashed in SQLite, bind one lane/request/option and remain usable only while that request is pending. All three channels reach `/api/answers`, which rejects stale, invented or repeated choices. No timer resolves a permission.
+
+Quiet hours use `[notifications.quiet] start = "22:00", end = "08:00", timeZone = "Europe/London"`; equal start/end disables quiet hours. Pending notifications are checked again each minute and on startup. Delivery failures leave the permission pending and retry; sent events prevent ordinary duplicate delivery after daemon restart. Delivery is at least once if a process dies between an external send and its recorded event. Only single-use options are sent as notification actions; open the app for other question choices.
+
+`ask_owner` is live in the toolbox. It posts/polls the same question ID, survives daemon unavailability, respects MCP cancellation, and never substitutes an answer. `checkpoint` remains phase 2 alongside checker/review work.
+
+Validation: all 56 tests pass with the real systemd/tmux fixtures enabled. Provider transports are faked; tests cover quiet-hour deferral, authorization, duplicate actions, expired subscriptions, failures, question polling and service-worker clicks. Chromium at 390px answered **Allow once** and **Deny** through the real systemd daemon, the SDK fake agent continued, and the next request arrived through SSE without reloading. Real phone/provider acceptance is the remaining external dependency above, so work continues to 1.4.
 
 **1.3 Terminals**
 - tmux session per lane (done). Add `GET /api/lanes/:p/:n/terminal` as a WebSocket that spawns `tmux attach-session -t <session>` under `node-pty`; xterm.js in the Work page's Terminal view.

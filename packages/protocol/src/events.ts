@@ -2,6 +2,7 @@ import { z } from "zod";
 import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
 import { LaneCommand } from "./commands.js";
+import { NotificationChannel } from "./notifications.js";
 
 /**
  * Everything that happens is an event in one append-only log. Pages, the inbox, the CLI
@@ -51,9 +52,11 @@ const payloads = {
   }),
   "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional() }),
   "agent.error": z.object({ message: z.string() }),
+  "notification.sent": z.object({ requestId: z.string(), channel: NotificationChannel, target: z.string().default("") }),
+  "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),
   "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]) }),
   "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]), summary: z.string().optional() }),
-  "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption) }),
+  "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional() }),
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional() }),
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),

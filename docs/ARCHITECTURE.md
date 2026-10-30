@@ -45,7 +45,7 @@ flowchart TB
 
 ## Data
 
-Six tables in SQLite (`node:sqlite`, WAL). Everything else is a query over `event`.
+The six core tables and three notification transport tables live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
 
 | Table | Holds |
 |---|---|
@@ -55,6 +55,9 @@ Six tables in SQLite (`node:sqlite`, WAL). Everything else is a query over `even
 | `checkpoint` | A change ready for review: base, head, checks, screenshots, decision |
 | `environment` | A lane's running services: units, ports, hostnames, health |
 | `approval` | Recipes approved by the owner, by hash |
+| `push_subscription` | Private browser push endpoints and encryption keys |
+| `notification_action` | Hashed, single-choice notification capabilities |
+| `notification_cursor` | Last processed Telegram polling offset |
 
 ### Lane lifecycle
 
@@ -106,6 +109,9 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
 | `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
 | `GET /api/inbox`, `POST /api/answers` | What waits on you, and your answer |
+| `GET /api/stream` | Global event stream for the Inbox |
+| `GET /api/notifications` | Public notification configuration and VAPID public key, with no credentials |
+| `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | Register or remove this browser's push endpoint |
 
 **Lane host socket** (`<data>/lanes.sock`, JSON lines):
 - host → daemon: `{"hello":"<lane>"}`, then `{"eventId":"<uuid>","event":{"type":"...","payload":{...}}}`.
@@ -128,8 +134,11 @@ The native PTY module loads only inside `Runner.terminal`, when attachment is re
 - The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Requests without the header are accepted only from loopback when `access.allowLocal` is on.
 - Terminal upgrades run through the same identity checks. Browser origins must match the request host; non-local browser hostnames additionally require the configured owner's Tailscale identity. This rejects cross-origin shell access and DNS rebinding. Non-browser clients may omit Origin. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
 - Agents never approve their own permissions or recipes. Answers come only through `/api/answers`.
+- Notification action bearers grant exactly one recorded lane/request/option, not general API access. A conflicting Tailscale owner is still refused. Telegram callbacks additionally require the configured sender and chat. Replays cannot answer twice; no action expiration, quiet-hour timer or delivery retry supplies an answer. Push subscriptions and action hashes are private; database files use mode 0600.
 - Previews are reachable on the tailnet only; nothing listens on `0.0.0.0`.
 - Cleanup never deletes unpushed commits.
+
+**Notifications:** the daemon observes pending request events, records `notification.sent` / `notification.failed`, and retries deferred work after quiet hours and on restart. ntfy and Telegram use injected HTTP fetch; Web Push uses an injected VAPID transport. Telegram polls outbound and persists its cursor; it never needs an inbound public bot webhook. Provider credentials remain in configuration and are excluded from public status routes.
 
 ## Decisions
 

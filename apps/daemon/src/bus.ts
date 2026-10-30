@@ -7,6 +7,12 @@ export class EventBus {
 
   publish(event: LaneEvent): void {
     this.emitter.emit(projectOf(event.lane), event);
+    this.emitter.emit("*", event);
+  }
+
+  subscribeAll(fn: (event: LaneEvent) => void): () => void {
+    this.emitter.on("*", fn);
+    return () => this.emitter.off("*", fn);
   }
 
   subscribe(project: ProjectId, fn: (e: LaneEvent) => void): () => void {

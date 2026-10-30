@@ -73,4 +73,7 @@ export const MIGRATIONS: readonly string[] = [
   `,
   /* 2 */ `ALTER TABLE event ADD COLUMN source_id TEXT;
   CREATE UNIQUE INDEX event_source ON event(lane, source_id) WHERE source_id IS NOT NULL;`,
+  /* 3 */ `CREATE TABLE push_subscription (endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL);
+  CREATE TABLE notification_action (hash TEXT PRIMARY KEY, lane TEXT NOT NULL REFERENCES lane(id), request_id TEXT NOT NULL, option_id TEXT NOT NULL, channel TEXT NOT NULL);
+  CREATE TABLE notification_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), offset INTEGER NOT NULL);`,
 ];

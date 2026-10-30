@@ -29,7 +29,7 @@ export const TOOLS = {
   ask_owner: {
     phase: 1,
     description: "Ask the owner a question with buttons. It reaches their inbox and phone; you get the chosen option back.",
-    input: z.object({ question: z.string(), options: z.array(z.string()).min(2).max(4) }),
+    input: z.object({ question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) }),
   },
   checkpoint: {
     phase: 1,

@@ -32,6 +32,8 @@ The mockups live on the design canvas, page v4 ("Full site"), with a **Legend** 
 
 **Work terminal:** the Steps / Terminal controls sit in the existing section header. Terminal shows a connection status in words, an xterm shell that fits the available width, a Reconnect action on disconnection, and a footer explaining persistence and `contextlanes term`. Keyboard focus is visible; xterm's screen-reader mode is enabled. Switching away detaches the browser without ending the shell. Phone layout is verified in Chromium at 390px; physical keyboard behavior still needs device acceptance.
 
+**Inbox:** live requests sit in the Waiting section, with a diamond, the full request title, lane link and named single-use choices. Answer targets are at least 44px tall; no choice is selected or answered automatically. Busy controls disable only while sending, and failures remain visible with the request. The Phone notifications section enables this device after explicit browser permission. A web manifest and push-only service worker support installation; there is no cached approval state.
+
 ## Legend
 
 Meaning is never carried by colour alone: every state has a shape, every step kind an icon, every lane a number.
