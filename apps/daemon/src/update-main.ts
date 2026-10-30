@@ -29,7 +29,7 @@ const updater = new Updater({
 });
 try {
   process.exitCode = values.rollback ? await updater.rollback({ yes: values.yes ?? false })
-    : values.adopt ? await updater.adopt(await realpath(values.adopt))
+    : values.adopt ? await updater.adopt(await realpath(values.adopt), values.branch ?? process.env.CONTEXTLANES_BRANCH)
     : await updater.update({ check: values.check ?? false, ...(values.branch ? { branch: values.branch } : {}) });
 } catch (err) {
   console.error(err instanceof UpdateError ? err.message : `The update stopped unexpectedly: ${err instanceof Error ? err.message : String(err)}`);

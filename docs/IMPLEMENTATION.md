@@ -21,7 +21,7 @@ This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system
 
 ## Milestone status
 
-Phases 1 and 2 are implemented. On 2026-10-30 the web app was rebuilt from the mockups (see below) and phase 2 landed on top. External credentials, a real merge and device acceptance remain in Needs Kyle. The next goal is phase 3.
+Phases 1 and 2 are implemented. On 2026-10-30 the web app was rebuilt from the mockups (see below) and phase 2 landed on top. External credentials, a real merge and device acceptance remain in Needs Kyle. What is left is planned milestone by milestone under Remaining work.
 
 | Milestone | Status | Evidence / next step |
 |---|---|---|
@@ -67,14 +67,14 @@ The earlier pages were written from DESIGN.md without the boards and drifted fro
 - **Agents get only working tools.** `LIVE_TOOLS` in `packages/toolbox` lists the tools whose daemon routes work (after phase 2: `ask_owner` and the five environment and checkpoint tools); `get_brief` and `delegate` join in phase 3.
 - `GET /api/lanes` lists every project's lanes for the home page and ⌘K.
 
-Not built from the boards yet (left out rather than faked): the "Ask" part of ⌘K, composer chips (@ file, / command, attach image), Watching only / Take over, context compaction count and "fresh session from handoff", the usage line on Projects, picking repositories from GitHub in Add repositories, per-project branch in the band. Fonts still load from Google Fonts.
+What the boards show but the app does not yet is planned milestone by milestone under Remaining work. Fonts still load from Google Fonts.
 
 ## Updating (2026-10-30)
 
 `contextlanes update` (`apps/daemon/src/update.ts`, run through `update-main.js` so the CLI stays light):
 
 1. Refuses if tracked files in the running copy were edited, and names them. One update runs at a time (`update.lock`).
-2. Fetches every branch and lists what is new. It follows the branch recorded in `update.json`, else the clone's upstream, else `main`; if that branch is gone it follows the repository's default branch. A remote still pointing at `wongywrongy/rootlane` is switched to `wongywrongy/contextlane`.
+2. Fetches every branch and lists what is new. It follows the repository's default branch (`main`), or the branch chosen with `--branch` or `CONTEXTLANES_BRANCH` at install time, which is saved in `update.json`; if a chosen branch is gone it goes back to the default. The branch a copy was first cloned from does not count, so installs made from the old `contextlanes` branch move to `main`. A remote still pointing at `wongywrongy/rootlane` is switched to `wongywrongy/contextlane`.
 3. Builds the new commit in `releases/<commit>`, a git worktree of the original clone (`app/`), with the same steps as the installer. A failed build changes nothing. A finished build is marked with `.contextlanes-built` and reused on a retry.
 4. Copies the database with `VACUUM INTO` (newest five kept in `<data>/backups`) and records its format version.
 5. The first time, points the service file and the `contextlanes` commands at `current` instead of the clone. It replaces only files that carry the installer's marker line.
@@ -264,20 +264,217 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/abso
 
 Left out because the data or feature does not exist yet: Adopt into a lane and the watched list, Ask Codex to review, Shares a file with 02 (phase 3), changed-area highlights on screenshots, test counts such as 44 / 44, certificate days. Approval items in the Inbox open the lane, not the Run page.
 
-## Phase 3 — Shared context
+## Remaining work: finish the boards, phase 3, phase 4
 
-Gate: 30% fewer cloud tokens on the same tasks.
+Everything not yet built from the boards and the brief, split into milestones small enough for one agent run each. Work in the order of the table.
 
-- **Code map:** CodeGraph index per project, refreshed by a file watcher on each worktree. Layers from config or inferred from paths.
-- **Architecture page and `contextlanes arch`:** layered dependency view, lane overlay, modules two lanes edit, modules that use a changed module, main paths; `--json` and `--mermaid`.
-- **Collision warnings:** within a minute of two lanes editing one module, warn both lanes and suggest a merge order.
-- **Module briefs:** written by the local model, cached by file hash; `get_brief` goes live.
-- **Local helper:** `delegate` (read, edit, check) runs a small agent on Ollama in the worktree; one job per GPU at a time; tokens saved and redo rate per kind, with automatic switch-off above a redo threshold.
-- **Insights:** nightly and after each merge, the local model reads the event log, git, CodeGraph and test results and writes a weekly summary plus typed suggestions, each citing evidence and offering one action.
+### How to work through this
 
-## Phase 4 — Later
+- Take the first milestone whose status is **Next**. Build it, run `pnpm check`, commit and push to main. Then set its row to **Done** with evidence (tests, what you checked by hand, what needs Kyle) and set the following row to **Next**. If `git push` is rejected, run `git pull --rebase` and push again; never force-push.
+- Build only what the milestone lists. **Not here** lines are hard limits. If you need something the milestone does not list, add it to Open questions and stop there rather than inventing it.
+- The board named in the milestone is the spec for its UI (`docs/mockups/`). Where no board exists, use a section in an existing page with existing classes, and add a line to Needs Kyle asking for a board.
+- Show only real data. If a number has no real source, leave it off the page and say so in the milestone row. Never fill a board's example numbers.
+- Change `packages/protocol` first; every state change is an event; commands go through `Runner`; tests sit next to the package.
+- Local models: never hard-code a model name. Read `localModels` from config. Tests use a fake Ollama/OpenAI-compatible HTTP server.
+- Work that needs Kyle's accounts, GPU time or money is built against fakes, and the real check is added to Needs Kyle.
+- A **Decided** line records a choice already made. Follow it; do not reopen it.
 
-Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes, Gemini, Goose), routing rules, second-agent review, learned skills shared across lanes.
+| Milestone | Board | Status |
+|---|---|---|
+| S. Credentials and lane sandbox (security) | — | In progress (separate run) |
+| 3.0 Usage and cost | work-lane, models | Next |
+| B1 This machine and Data | settings | Not started |
+| B2 Run and Projects facts | run, projects | Not started |
+| B3 Per-lane databases | run | Not started |
+| B4 Review packet gaps | review | Not started |
+| B5 Composer, editor link, watching only | work-lane | Not started |
+| B6 Add from GitHub, branch in the band | projects | Not started |
+| 3.1 Code map | architecture | Not started |
+| 3.2 Architecture page and `contextlanes arch` | architecture | Not started |
+| 3.3 Collision warnings | architecture, review | Not started |
+| 3.4 Local model runtime | models | Not started |
+| 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Not started |
+| 3.6 Local helper (`delegate`) | models, work-lane | Not started |
+| 3.7 Insights | insights | Not started |
+| 3.8 ⌘K Ask | top bar | Not started |
+| 3.9 Measure the phase 3 gate | — | Not started |
+| 4.1 Hand off, fork, fresh session | work-lane | Not started |
+| 4.2 Second-agent review | review | Not started |
+| 4.3 More agents | models | Not started |
+| 4.4 Routing | models | Not started |
+| 4.5 Scheduled lanes | — (needs a board) | Not started |
+| 4.6 Shared skills | insights | Not started |
+| 4.7 Final board pass | all | Not started |
+
+### 3.0 Usage and cost
+
+Comes first so real token numbers pile up before the phase 3 tools exist; 3.9 compares against them.
+
+- Record tokens per turn per lane: input, output, cache read, cache write, and cost when given. Source, in this order:
+  1. ACP: the prompt response's usage and `usage_update` cost, when the adapter sends them.
+  2. The agent's own session log, matched by worktree path and session id: Claude Code `~/.claude/projects/<cwd slug>/<session>.jsonl` (`message.usage`), Codex `~/.codex/sessions/**/rollout-*.jsonl` (`token_count`).
+  Record which source was used on each event.
+- Add the event in protocol (extend `usage` or add `usage.turn`). `GET /api/usage?project=&since=` sums per lane and per day.
+- Work inspector Context block (work-lane): percent used, used of size. Show the compaction count only if the adapter reports compactions; check both adapters' source and write down what you found.
+- Models, agent row (models): show "5h · 7d" limits only if the agent reports them; otherwise "limits not reported", as the board does for Codex.
+- **Done when:** a fake agent and fixture session logs give the right totals. Kyle checks a real Claude lane against Claude Code's own usage report.
+- **Not here:** the per-category context breakdown (3.7), the Projects usage line (B2).
+
+### B1 This machine and Data (settings)
+
+- This machine: host, OS, always on (linger), version (the commit), runs as (systemd user service and address). **Check for updates** runs the same check as `contextlanes update --check` (fetch only), lists the new commits and shows the command to install. Installing stays in the CLI.
+- Data: **Backups** become nightly (systemd user timer running the same `VACUUM INTO` as the updater, keep 7) and the row shows the last run and its result. **Export** downloads everything as JSON with secrets masked (reuse `redactedSettings`).
+- Access, Public internet: a read-only row that says it is off. No toggle.
+- **Not here:** lane history retention and summaries (needs 3.4), installing updates from the browser.
+
+### B2 Run and Projects facts (run, projects)
+
+- Run: **Disk** per lane (size of the worktree, cached, refreshed every few minutes). **Certificate** days left for the preview mode in use, read from a TLS handshake to the preview host.
+- Run, **Not started by ContextLanes**: listening sockets (`ss -ltnpH` through Runner) whose process folder is inside a project or lane folder and that are not lane units. Show the name, port, pid, folder, and whether it listens on localhost only or on all addresses.
+- **Adopt into a lane**, decided: never stop the outside process. Adopt opens New lane for that project and proposes the command and port as a recipe service through the usual recipe approval. The row then says to stop the outside copy once the lane's copy runs.
+- Projects tiles: services up or down per project. Usage line: GPU use and memory from `nvidia-smi` through Runner, plus agent limits only where 3.0 found a source.
+
+### B3 Per-lane databases (run)
+
+- Decided: recipe field `database`, one of `{ "kind": "postgres", "url": "<admin url env name>", "template": "<db>" }` (creates `<template>_<lane>` with `CREATE DATABASE … TEMPLATE`) or `{ "kind": "sqlite", "file": "<path>" }` (copies the file into the worktree). The lane's services get the database through an env variable named in the recipe.
+- Setup creates it, cleanup drops it (Postgres) or deletes the copy (SQLite), and the Run page shows the Database fact. Commands go through Runner (`psql`), and the admin URL comes from config, never from the recipe.
+- Answer the open question about per-lane databases with this.
+
+### B4 Review packet gaps (review)
+
+- Test counts and tool names in Result: parse the reporters you can identify (vitest, jest, pytest, go test, tsc, mypy, ruff, eslint). If the format is unknown, show pass or fail only. The Work trail's test bar (41 / 44) uses the same counts.
+- Changed areas on the after screenshot: a pixel diff of before and after, merged into at most five boxes, and the caption "N changed areas". Pin `pixelmatch` (or similar) to an exact version.
+- Plan vs done, "Not in the plan": changed files no plan entry mentions. Counting callers waits for 3.1.
+- **Not here:** "Shares a file with 02" (3.3), Ask Codex to review (4.2).
+
+### B5 Composer, editor link, watching only (work-lane)
+
+- Composer: **@ file** picks a file in the worktree and sends it as an ACP resource link. **/ command** lists the agent's `available_commands_update`. **Attach image** appears only when the agent's prompt capabilities include images.
+- **Open in editor**, decided: config `editor.url` with `{host}` and `{path}`, defaulting to the VS Code Remote-SSH URL. Used on Work, Architecture and Review.
+- **Watching only:** list Claude Code and Codex processes whose working folder is inside a project and that no lane started (process list and `/proc/<pid>/cwd` through Runner). Show the agent, pid, folder and start time.
+- **Take over**, decided: never kill. The button stays disabled ("Close it first") while the process runs. Once it has exited, Take over starts a lane in a new worktree from that folder's HEAD, carries uncommitted changes over as a patch, and tries ACP `session/load` with the session id from the agent's log. If loading fails, it starts fresh with a handoff written from the end of the log. Write down which way worked for each adapter.
+
+### B6 Add from GitHub, branch in the band (projects)
+
+- Add repositories, GitHub tab: `gh repo list --json` through Runner, clone the chosen repository into the configured code folder, then register it as Add does now. Hide the tab when `gh` is missing or signed out, and say why.
+- Project band: the main checkout's current branch.
+
+### 3.1 Code map (architecture)
+
+Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
+
+- Use CodeGraph: `@colbymchenry/codegraph`, MIT licence, `CodeGraph.init/open`, `indexAll`, `searchNodes`, `getCallers`, `getImpactRadius`, `watch`. It needs Node ≥22.5 and uses `node:sqlite`. Pin the exact version.
+- One index per project, on the main checkout. Keep the index in the data folder if CodeGraph allows it; otherwise add `.codegraph/` to the repo's `.git/info/exclude`. Never write to a tracked file.
+- Lanes get no index of their own. Their overlay comes from `git diff` against the base, uncommitted changes and the files in `tool.call` events.
+- Modules and layers: `.contextlanes.json` `architecture.layers` (`[{ name, tech?, paths: [globs] }]`) when present. Otherwise infer them: `packages/*` and `apps/*` in a monorepo, else folders under `src`, `app` or `lib`, at most about 30 modules. Edges are import and call edges summed between modules. A module is **covered by** the test files that import it.
+- `GET /api/projects/:p/map` and a `map.synced` event.
+- **Done when:** fixture repos (a TypeScript monorepo and a Python app) give the expected modules and edges, and a file change shows up in the map within 5 seconds. Record index time and size for this repository and Kyle's largest one; that answers the open question.
+
+### 3.2 Architecture page and `contextlanes arch` (architecture)
+
+- Match the board:
+  - layers as columns with their tech, module boxes with file counts, lane badges;
+  - markers for "new" (added by a lane), dashed edges added by a lane, "a lane edits it", "two lanes edit it" and "uses a change";
+  - filters Show all, Lanes, Changes and Tests;
+  - the header "N of M modules · CodeGraph, synced X ago".
+- Inspector: the selected module's layer, files and lines; Used by (with the symbol); Covered by; Start a lane here; Open in editor. The collision box and the brief arrive in 3.3 and 3.5.
+- Main paths: entry points CodeGraph finds (routes, pages, CLI commands) traced through to the data layer, named from the route or entry symbol, at most 5, chosen by how many modules they touch. Selecting one traces it on the diagram.
+- `contextlanes arch [project] [--json | --mermaid]`: layers, modules and edges as text, with the lane overlay.
+- Show real layers and dependencies, not lanes and files. Set `READY.architecture`.
+
+### 3.3 Collision warnings (architecture, review)
+
+- Within a minute of two open lanes changing the same module: a `collision.detected` event with the module, lanes, files and suggested order, and `collision.cleared` once one of them merges or reverts.
+- Order, decided: if one lane's change is used by the other's (map edges), that lane goes first. Otherwise the lane nearer review goes first, and after that the smaller diff.
+- Shown in Needs you, both lanes' Work headers, the Architecture inspector box (with its action, e.g. "Rebase 02 after checkpoint 1", which queues that message to lane 02 for after lane 01 merges) and the Review result "Shares a file with 02".
+- Agents hear about a collision only when the owner presses the action.
+- **Done when:** a two-lane fixture fires once, does not repeat, and clears on merge.
+
+### 3.4 Local model runtime (models)
+
+- Endpoints from `localModels` (Ollama, and llama.cpp or any other OpenAI-compatible server), with an **Add endpoint** button.
+- Per endpoint: health, the loaded model and memory use from Ollama `/api/ps`, and the GPU name and memory from `nvidia-smi` when the endpoint is on this machine. Remote endpoints show only what their API reports.
+- A job queue, one job per GPU (each endpoint is one GPU), with the waiting count shown on Models.
+- Kyle picks the models and checks that they fit (neo has 24 GB).
+
+### 3.5 Module briefs, `get_brief`, project notes (architecture, insights)
+
+- Briefs: the local model writes one per module from CodeGraph facts and the files' opening lines. A brief is cached by a hash of the module's files and rebuilt on first request after they change. An owner edit is kept until the files change, and the inspector marks it as edited.
+- `get_brief({ module | path })` returns the brief plus facts (public symbols, used by, covered by) under a size cap. Without a local model it returns the facts only and says so.
+- Inspector line: "this brief Nk tokens · reading the files instead ≈ Mk tokens", both counted with the same tokenizer estimate.
+- Project notes: short owner-edited facts in `<data>/notes/<project>.md`, added to the start of every new lane's first prompt and counted. They appear in Insights under "What every lane starts with", with an Edit button.
+- Add `get_brief` to `LIVE_TOOLS`.
+
+### 3.6 Local helper (`delegate`) (models, work-lane)
+
+- Kinds: read (logs, test output, big files), edit (renames, fixtures, small specs) and check (run tests, sort failures).
+- Decided: the helper is OpenCode over ACP using the configured local model (borrow, don't build). It runs in the lane's worktree inside the lane's sandbox. read and check run read-only. edit returns a patch, and the lead applies it with its own tools, so the owner's permissions still apply. The helper never writes.
+- `helper.delegated` event: kind, model, tokens the lead did not read (content the helper read), result tokens, duration.
+- Redone means:
+  - read: the lead reads the same files itself in the same turn;
+  - edit: the patch is not applied, or the same lines change again within 10 minutes;
+  - check: the lead reruns the same command in the same turn.
+- A kind turns off per project when its redo rate over the last 20 uses is above the threshold (default 25%), with the reason shown. "Near the limit" shows within 5 points of it. The owner can turn a kind back on.
+- UI: the Models Local helper section; the Work step "Local helper read …, saved Nk cloud tokens"; "N by the local helper" in Review's How it got here.
+- `delegate` goes into `LIVE_TOOLS` only while at least one kind is on and a model is serving.
+
+### 3.7 Insights (insights)
+
+- Runs nightly (a systemd user timer) and after each merge, plus a Regenerate button.
+- Numbers are computed in code, never by the model: merges, cloud tokens, share of work on your GPUs (local tokens over all tokens), and median wait for you (time from `permission.requested` to `permission.answered`).
+- The model writes the summary sentences and suggestions as JSON checked by zod:
+  - each suggestion has a type (process, code, tokens, next or notes), a title, a body, a metric, and evidence (event ids, commits, lanes, files);
+  - each offers one action from a fixed list: add to notes, start a lane, fresh session, allow a helper kind, fix note, review.
+- Drop any suggestion whose evidence does not exist or whose numbers differ from the computed ones. Nothing is applied without a click, and suggestions can be dismissed.
+- Usage today: per-lane totals and cache share from 3.0. Show the breakdown by harness, rules, MCP tools, files and conversation only if you find a real source; write down what you checked.
+- Lane history retention (from B1) can now summarise old lanes before trimming them.
+- Set `READY.insights`.
+
+### 3.8 ⌘K Ask (top bar)
+
+- Answers questions about a project from the map, briefs, notes and event log with the local model, citing each source it used.
+- Read only. Starting a lane from an answer goes through the normal New lane form.
+
+### 3.9 Measure the phase 3 gate
+
+- `contextlanes bench <tasks.json>`: each task names a repository, a commit, a task and a check command. Each task runs twice in fresh lanes from the same commit with the same agent and model: once with notes, `get_brief` and `delegate` off, once with them on. Record tokens (3.0), time, and whether the check passed, and write a table into this document.
+- Test it with the fake agent. The real run costs tokens and is Kyle's.
+- Gate: at least 30% fewer cloud tokens, with checks passing at the same rate.
+
+### 4.1 Hand off, fork, fresh session (work-lane)
+
+- Hand off to another agent: the current agent writes a handoff summary. A new ACP session for the chosen agent then starts in the same worktree with the handoff as its first prompt, and the old session closes.
+- Fresh session: the same, keeping the same agent. The Context block shows the handoff's size.
+- Fork into a new lane: a new lane from this lane's HEAD, with the task and handoff copied.
+- Handoffs are saved and listed in Insights. Set `READY.handoff`.
+
+### 4.2 Second-agent review (review)
+
+- **Ask Codex to review** (or another signed-in agent): a read-only session given the checkpoint diff and packet. Its findings become a section of the packet. The estimated cost comes from the diff size and is shown before starting.
+
+### 4.3 More agents (models)
+
+- Hermes, Gemini CLI and Goose over ACP, plus **Add from ACP registry**. Install and sign-in detection work as they do for the current agents.
+- Each starts in a mode where a human approves; modes that approve on their own are excluded. Record each adapter's modes with a source link, as for Codex.
+
+### 4.4 Routing (models)
+
+- Rules map a kind of task (keywords the owner writes) to an agent, a model and a label. New lane pre-fills from the first rule that matches, and the owner can change it.
+- Insights can suggest a rule. It is added only with a click.
+
+### 4.5 Scheduled lanes
+
+- A lane template (project, task, agent, model, mode, base) plus a schedule, run as a systemd user timer with `Persistent=true`. Each run starts a lane, and its result lands in the Inbox. A scheduled lane never merges.
+- No board: use a section in Settings, Lanes, with existing classes, and ask for a board in Needs Kyle.
+
+### 4.6 Shared skills (insights)
+
+- Accepted Insights suggestions of type notes go into project notes.
+- Skills: per-project files linked into each new lane in the place that lane's agent reads them, excluded from git. Check per agent (Claude Code, Codex, OpenCode) and write down where each one looks.
+
+### 4.7 Final board pass
+
+- Compare every page with its board at 1440px and 390px. Fix the differences, or list each one that remains with its reason in `docs/mockups/README.md`.
 
 ## Testing
 
@@ -296,7 +493,7 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - **Resolved from current Tailscale docs:** named [Tailscale Services](https://tailscale.com/docs/features/tailscale-services) can give separate `name.<tailnet>.ts.net` addresses through `serve --service=svc:name`; they require a tagged host plus admin service definition/host approval. The phase-1 wizard uses the user-owned device address and an unused HTTPS port. Phase 2 may use Services as a named fallback; custom wildcard domains still need the planned DNS/certificate integration. This was documentation research, not a change to Kyle’s tailnet.
 - **OpenCode login detection limit:** its [CLI docs](https://opencode.ai/docs/cli/#list-1) document `auth list` as a provider list, without a stable JSON login-status API. The wizard accepts a recognized positive credential count in its human-readable output; otherwise it shows Sign in. It never treats command success alone as a login. Local-model and environment-provided credentials can also work without an interactive provider login.
 - How long does CodeGraph take to index the largest repo, and how big is the index?
-- Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe? Not built in phase 2.
+- Per-lane databases: decided in B3 (Postgres template databases or copied SQLite files, chosen in the recipe).
 - Which delegate kinds clear the redo-rate bar on the local GPU, and how many local jobs can run before lanes wait?
 - `node:sqlite` still emits an experimental warning on the tested Node 24.11.0. The Store tests and full local check pass, so it remains behind the existing `Store` API; long-running production durability is not established by this milestone.
 - Licence for the open-source release.

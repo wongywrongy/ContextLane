@@ -16,6 +16,10 @@ if (process.env.CONTEXTLANES_MANAGED === "1") {
   const layout = await layoutOf(release, homedir());
   await writeFile(join(layout.base, MANAGED_MARKER), "");
   await setLink(layout.current, release);
+  // A branch chosen at install time is the one `contextlanes update` follows; otherwise it follows
+  // the repository's default branch.
+  const branch = process.env.CONTEXTLANES_BRANCH;
+  if (branch) await writeFile(join(layout.base, "update.json"), `${JSON.stringify({ branch, history: [] }, null, 2)}\n`, { mode: 0o600 });
   root = layout.current;
 }
 await installService({ root, home: homedir(), node: process.execPath, run: runCommand });

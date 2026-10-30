@@ -72,16 +72,17 @@ export class Updater {
       if (dirty) throw new UpdateError(`Files in the running copy were changed by hand, so nothing was updated:\n${dirty}\nUndo or commit them in ${running}, then run contextlanes update again.`);
       const release = join(this.l.releases, shortSha(to));
       await this.build(release, to);
-      state.branch = branch;
-      await this.saveState(state);
+      if (options.branch || state.branch) { state.branch = branch; await this.saveState(state); }
       return this.switchTo(release, { from, fromPath: running, to });
     });
   }
 
   /** install.sh on an existing copy: the new release is already built. */
-  async adopt(release: string): Promise<number> {
+  /** Switch to a release install.sh already built; `branch` is the one the installer was told to follow. */
+  async adopt(release: string, branch?: string): Promise<number> {
     if (!this.l.managed) return this.unmanaged();
     return this.locked(async () => {
+      if (branch) { const state = await this.state(); state.branch = branch; await this.saveState(state); }
       const running = await runningRelease(this.l);
       const from = await this.git(running, ["rev-parse", "HEAD"]);
       const to = await this.git(release, ["rev-parse", "HEAD"]);
@@ -197,17 +198,21 @@ export class Updater {
     await writeFile(join(release, BUILT_MARKER), `${JSON.stringify({ sha, at: new Date().toISOString() })}\n`);
   }
 
+  /**
+   * The branch to follow: one chosen with --branch or CONTEXTLANES_BRANCH (saved in update.json), else
+   * the repository's default branch. The clone's own upstream is ignored: it is whatever branch the
+   * copy was first installed from, which may since have been retired.
+   */
   private async branch(state: State, override?: string): Promise<string> {
     const has = (b: string) => this.git(this.l.repo, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${b}`]).then(() => true, () => false);
     if (override) {
       if (!/^[\w./-]+$/.test(override) || override.startsWith("-") || !(await has(override))) throw new UpdateError(`There is no branch ${override} in the repository.`);
       return override;
     }
-    const upstream = await this.git(this.l.repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).then((u) => u.replace(/^origin\//, ""), () => null);
-    const preferred = state.branch ?? upstream ?? "main";
-    if (await has(preferred)) return preferred;
     const head = await this.git(this.l.repo, ["ls-remote", "--symref", "origin", "HEAD"]).catch(() => "");
     const fallback = /ref: refs\/heads\/(\S+)\s+HEAD/.exec(head)?.[1] ?? "main";
+    const preferred = state.branch ?? fallback;
+    if (await has(preferred)) return preferred;
     if (!(await has(fallback))) throw new UpdateError(`Neither ${preferred} nor ${fallback} exists in the repository.`);
     this.log(`The ${preferred} branch is gone; following ${fallback} from now on.`);
     return fallback;

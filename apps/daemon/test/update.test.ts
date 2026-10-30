@@ -150,6 +150,34 @@ describe("contextlanes update", () => {
     expect(f.logs).toContain("The contextlanes branch is gone; following main from now on.");
   });
 
+  it("follows the repository's default branch, not the branch the copy was cloned from", async () => {
+    const f = await fixture();
+    await git(f.work, "push", "-q", "origin", "HEAD:contextlanes");
+    await git(f.app, "fetch", "-q", "origin");
+    await git(f.app, "branch", "-q", "--set-upstream-to=origin/contextlanes");
+    await commit(f.work, "Only on main");
+    expect(await (await f.updater()).update({ check: true })).toBe(0);
+    expect(f.logs).toContain("1 new change on main:");
+  });
+
+  it("keeps following a branch chosen at install time", async () => {
+    const f = await fixture();
+    await commit(f.work, "Second version");
+    const release = join(f.base, "releases", "chosen");
+    await git(f.app, "fetch", "-q", "origin");
+    await git(f.app, "worktree", "add", "-q", "--detach", release, "origin/main");
+    await writeFile(join(release, ".contextlanes-built"), "{}");
+    await mkdir(join(release, "apps/daemon/dist"), { recursive: true }); await writeFile(join(release, "apps/daemon/dist/main.js"), "// built");
+    await git(f.work, "push", "-q", "origin", "HEAD:next");
+    expect(await (await f.updater()).adopt(release, "next")).toBe(0);
+    expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).branch).toBe("next");
+    await writeFile(join(f.work, "NEXT.md"), "next\n");
+    await git(f.work, "add", "-A"); await git(f.work, "commit", "-q", "-m", "Only on next"); await git(f.work, "push", "-q", "origin", "HEAD:next");
+    f.logs.length = 0;
+    await (await f.updater()).update({ check: true });
+    expect(f.logs).toContain("1 new change on next:");
+  });
+
   it("follows the repository to its new name", async () => {
     const f = await fixture();
     await git(f.app, "remote", "set-url", "origin", "https://github.com/wongywrongy/rootlane");

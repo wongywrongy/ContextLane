@@ -27,7 +27,7 @@ contextlanes update --check    # list what is new, change nothing
 contextlanes update --rollback # go back one version
 ```
 
-Each version is built in its own folder (`releases/<commit>`) next to the running one, so a failed build changes nothing. The database is copied first. If the new version does not come up healthy within 30 seconds, it switches back by itself. Lanes run as their own services and keep going through the restart. Running the install line again on an installed machine does the same update, which is how an install from before `contextlanes update` existed gets it.
+Each version is built in its own folder (`releases/<commit>`) next to the running one, so a failed build changes nothing. The database is copied first. If the new version does not come up healthy within 30 seconds, it switches back by itself. Lanes run as their own services and keep going through the restart. Running the install line again on an installed machine does the same update, which is how an install from before `contextlanes update` existed gets it. Updates follow the repository's default branch; to follow another, install with `curl -fsSL … | CONTEXTLANES_BRANCH=<branch> sh` or run `contextlanes update --branch <branch>` once.
 
 ## From source
 
