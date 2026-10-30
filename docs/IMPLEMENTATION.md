@@ -19,7 +19,7 @@ The current goal is **headless onboarding in under five minutes**: terminal setu
 | 1.2 Permission round trip | Implemented; provider/device acceptance needs Kyle | ntfy HTTP actions, owner-checked Telegram keyboards/polling, Web Push + service worker, quiet hours, live Inbox, single-use answers and durable ask_owner; 56 tests and phone-sized browser round trip pass |
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
 | 1.4 Work page | Done against DESIGN.md | Six families, measured diffs/tests, inline answers, composer and inspector, React Flow + ELK overview and two-hour timeline; desktop/phone browser flow passes |
-| 1.5 Setup and install | Implemented; fresh-machine/device acceptance needs Kyle | Shell claim, automatic Serve, expiring sign-in link/QR, three gated steps, repo discovery, browser login and optional post-lane setup; 84 tests and both Chromium widths pass |
+| 1.5 Setup and install | Implemented; fresh-machine/device acceptance needs Kyle | Shell claim, automatic Serve, expiring sign-in link/QR, three gated steps, repo discovery, browser login and optional post-lane setup; 85 tests and both Chromium widths pass |
 | Phase 2 | Pending | Outside the current goal |
 
 ## Current capabilities
@@ -130,7 +130,7 @@ Serve preserves other routes, reuses this app’s existing route, and otherwise 
 
 The source installer still checks prerequisites, refuses existing install destinations/unrelated unit or bin files, builds esbuild separately, tolerates an unavailable native terminal build and writes the user service. Built web assets are served directly by the daemon. `qrcode-terminal@0.12.0` (no runtime dependencies, types pinned to 0.12.2) was added because Node and the repo have no QR encoder. WebAuthn continues to use `@simplewebauthn/server@14.0.3`. CLI install versions are pinned in `apps/daemon/src/setup.ts`.
 
-Validation: **84 tests pass** with real systemd/tmux fixtures enabled. API tests cover shell proof, link origin/expiry/concurrent replay, owner and browser-origin guards, fixed login commands, native failure containment, config persistence, home traversal, depth/count limits and default branch selection. The real terminal fixture now starts a clean bash so user prompt hooks cannot erase captured proof; all persistence assertions remain.
+Validation: **85 tests pass** with real systemd/tmux fixtures enabled. API tests cover shell proof, link origin/expiry/concurrent replay, owner and browser-origin guards, fixed login commands, native failure containment, config persistence, home traversal, depth/count limits and default branch selection. The real terminal fixture now starts a clean bash so user prompt hooks cannot erase captured proof; all persistence assertions remain.
 
 `scripts/check-setup.mjs` starts fresh configurations at **1440px and 390px**. It runs the actual CLI, follows its URL (including when Setup was already open), signs in through a fixed fake browser login terminal, selects an initially unchecked repository, checks a non-main default branch, starts a real systemd host with the SDK fake agent, and explicitly answers its permission. Both reached a running lane in **about 2.6 seconds from CLI invocation** on this machine. It then verifies post-lane cards, automatic public URL, real WebAuthn registration at the fixture HTTPS address and link replay rejection. Tailscale is faked exclusively through the injected Runner; fixture HTTPS binds 127.0.0.1. This is not a timing claim for real downloads/provider sign-in.
 
@@ -144,7 +144,7 @@ CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-setup.mjs
 ```
 
-External acceptance remains in Needs Kyle. Phase 2 was not started.
+After rebuilding an existing source checkout, restart its daemon before using the new CLI. Setup detects an older status response and prints a specific restart instruction instead of a generic failure. External acceptance remains in Needs Kyle. Phase 2 was not started.
 
 ## Phase 2 — Apps and review
 

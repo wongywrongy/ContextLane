@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import qr from "qrcode-terminal";
+import { ClientError } from "../src/client.js";
 import { setupOutput, addProject } from "../src/setup.js";
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); for (const c of cleanups.splice(0)) await c(); });
@@ -28,4 +29,11 @@ it("adds the current folder by default and preserves an explicit ~ path for the 
 });
 it("refuses to use remote HTTP as proof of shell access", async () => {
   vi.stubEnv("CONTEXTLANES_URL", "https://neo.test.ts.net"); await expect(setupOutput()).rejects.toThrow("SSH session");
+});
+
+it("explains that an older daemon must restart instead of hiding its incompatible status behind a generic error", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ claimed: true, authorized: true, hasPasskey: false, tailnetLogin: null, publicUrl: "https://neo.test.ts.net" })));
+  vi.stubEnv("CONTEXTLANES_URL", "http://127.0.0.1:4600");
+  await expect(setupOutput()).rejects.toBeInstanceOf(ClientError);
+  await expect(setupOutput()).rejects.toThrow("Restart the ContextLanes daemon, then run contextlanes setup again.");
 });
