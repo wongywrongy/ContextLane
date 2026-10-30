@@ -6,7 +6,7 @@ for command in node npm git bwrap tmux systemctl python3; do
 done
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error("Node >=22.13 is required; Node 24 is recommended."); process.exit(1); }'
 systemctl --user show-environment >/dev/null 2>&1 || { echo 'A running systemd user manager is required. Sign in through a normal user session and try again.' >&2; exit 1; }
-contextlanes_repo="${CONTEXTLANES_REPO:-https://github.com/wongywrongy/contextlane.git}"
+contextlanes_repo="${CONTEXTLANES_REPO:-https://github.com/wongywrongy/ContextLane.git}"
 contextlanes_branch="${CONTEXTLANES_BRANCH:-main}"
 contextlanes_root="${CONTEXTLANES_INSTALL_DIR:-$HOME/.local/share/contextlanes/app}"
 contextlanes_base="$(dirname "$contextlanes_root")"

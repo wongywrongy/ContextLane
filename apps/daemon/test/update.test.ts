@@ -185,11 +185,11 @@ describe("contextlanes update", () => {
     const f = await fixture();
     await git(f.app, "remote", "set-url", "origin", "https://github.com/wongywrongy/rootlane");
     // Keep the test offline: the new address resolves to the fixture's remote.
-    await git(f.app, "config", `url.${f.remote}.insteadOf`, "https://github.com/wongywrongy/contextlane.git");
+    await git(f.app, "config", `url.${f.remote}.insteadOf`, "https://github.com/wongywrongy/ContextLane.git");
     await commit(f.work, "Renamed");
     expect(await (await f.updater()).update({ check: true })).toBe(0);
-    expect(f.logs[0]).toBe("The repository moved to wongywrongy/contextlane; following it there.");
-    expect(await git(f.app, "config", "--get", "remote.origin.url")).toBe("https://github.com/wongywrongy/contextlane.git");
+    expect(f.logs[0]).toBe("The repository moved to wongywrongy/ContextLane; following it there.");
+    expect(await git(f.app, "config", "--get", "remote.origin.url")).toBe("https://github.com/wongywrongy/ContextLane.git");
   });
 
   it("keeps current, previous, the newest releases and any a running lane still uses", async () => {

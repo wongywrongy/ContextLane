@@ -36,7 +36,7 @@ const SERVICE = "contextlanes.service";
 const KEEP_RELEASES = 3;
 const KEEP_BACKUPS = 5;
 const OLD_REPO = /github\.com[/:]wongywrongy\/rootlane(\.git)?\/?$/i;
-const NEW_REPO = "https://github.com/wongywrongy/contextlane.git";
+const NEW_REPO = "https://github.com/wongywrongy/ContextLane.git";
 const ACTIVE = ["setting_up", "working", "needs_you", "in_review"];
 
 /**
@@ -232,7 +232,7 @@ export class Updater {
     const url = await this.git(this.l.repo, ["remote", "get-url", "origin"]).catch(() => "");
     if (!OLD_REPO.test(url)) return;
     await this.git(this.l.repo, ["remote", "set-url", "origin", NEW_REPO]);
-    this.log("The repository moved to wongywrongy/contextlane; following it there.");
+    this.log("The repository moved to wongywrongy/ContextLane; following it there.");
   }
 
   private async isAncestor(a: string, b: string): Promise<boolean> {

@@ -1,108 +1,55 @@
 # ContextLanes
 
-Run several coding agents in parallel **lanes** on an always-on machine, steer them from your browser, phone or terminal, and review their work with evidence.
+Run several coding agents at once, each in its own lane, on a Linux machine that stays on. Steer them from your browser, phone or terminal, review their work with evidence, and merge.
 
-Each lane is a branch and worktree, a persistent terminal, a running copy of your app with its own private link, and an agent session (Claude Code, Codex, OpenCode and other ACP agents) that keeps going when you close your laptop. Everything waiting on you lands in one inbox you can answer from your phone.
+![A lane in ContextLanes: the agent's steps, the message box and the lane's branch and folder](docs/screenshot.webp)
 
-> Phases 1 and 2 are built: lanes you steer from the browser, phone or terminal, a running copy of your app per lane, review packets and merge. Real agent logins, a real merge with `gh`, providers and a physical phone still need checking on a real machine; see [Needs Kyle](docs/IMPLEMENTATION.md#needs-kyle).
+- **Lanes.** Each agent gets its own branch, checkout, terminal and running copy of your app, and keeps going when you close your laptop.
+- **One inbox.** Questions and permission requests from every lane in one place, answerable from your phone. Agents never approve themselves.
+- **Review with evidence.** Checks, before and after screenshots, the plan and the diff, then merge.
+- **Your agents.** Claude Code, Codex, OpenCode and other [ACP](https://agentclientprotocol.com) agents, each with its own login.
+- **Architecture.** A map of your code from [CodeGraph](https://github.com/colbymchenry/codegraph) shows where lanes work and warns before two collide.
+- **Local models.** Ollama or llama.cpp take small jobs (reading logs, module briefs, insights) off the cloud agents.
+- **Self-hosted.** The daemon listens on 127.0.0.1 only; reach it through Tailscale or an SSH tunnel. Lane commands run in a sandbox.
+
+## Requirements
+
+Linux with a systemd user session, Node 22.13 or newer (24 recommended), git, tmux, bubblewrap and python3. Tailscale is optional.
 
 ## Install
 
-On Linux with a running systemd user manager, Node ≥22.13 (24 recommended), npm, Git, tmux and bubblewrap:
-
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wongywrongy/contextlane/main/install.sh | sh
-~/.local/bin/contextlanes setup
+curl -fsSL https://raw.githubusercontent.com/wongywrongy/ContextLane/main/install.sh | sh
+contextlanes setup
 ```
 
-Open the printed sign-in link or scan its QR code. Shell access claims ownership; there is no setup code to type. The link works once and expires after ten minutes. Setup checks linger and turns on Tailscale Serve when signed in; otherwise it prints an install link and SSH tunnel fallback. Then connect an agent, add repositories (the ones your agents already use are listed) and start your first lane.
-
-Configuration lives in `~/.config/contextlanes/config.toml` and everything else in `~/.local/share/contextlanes`. The daemon binds 127.0.0.1. To keep services running after logout: `sudo loginctl enable-linger "$USER"`.
+`setup` prints a one-time sign-in link and a QR code. Open it, then connect an agent, add a project and start a lane. If the machine should keep lanes running after you log out: `sudo loginctl enable-linger "$USER"`.
 
 ## Update
 
 ```sh
-contextlanes update            # install the newest version and restart; lanes keep running
-contextlanes update --check    # list what is new, change nothing
-contextlanes update --rollback # go back one version
+contextlanes update             # newest version; lanes keep running
+contextlanes update --check     # list what is new
+contextlanes update --rollback  # back one version
 ```
 
-Each version is built in its own folder (`releases/<commit>`) next to the running one, so a failed build changes nothing. The database is copied first. If the new version does not come up healthy within 30 seconds, it switches back by itself. Lanes run as their own services and keep going through the restart. Running the install line again on an installed machine does the same update, which is how an install from before `contextlanes update` existed gets it. Updates follow the repository's default branch; to follow another, install with `curl -fsSL … | CONTEXTLANES_BRANCH=<branch> sh` or run `contextlanes update --branch <branch>` once.
+Each version is built beside the running one and the database is copied first. If the new version does not start, it switches back by itself.
 
-## Recipes
-
-A lane runs your app from `.contextlanes.json` at the repository root. Nothing in it runs until you approve its exact contents on the Run page, and an agent that edits it needs approval again. Commands are argument lists, never shell strings.
-
-```json
-{
-  "cache": ["node_modules"],
-  "database": { "kind": "postgres", "template": "shop_dev" },
-  "setup": [{ "name": "Migrate", "command": ["pnpm", "migrate"] }],
-  "services": [
-    { "name": "api", "command": ["pnpm", "dev:api", "--port", "$PORT"], "health": { "path": "/health" } },
-    { "name": "web", "command": ["pnpm", "dev:web", "--port=$PORT"] }
-  ],
-  "checks": [{ "name": "Tests", "command": ["pnpm", "test"] }],
-  "screenshots": ["/"]
-}
-```
-
-- **Ignored `.env*` files** are copied from your main checkout; `cache` folders are hard-linked.
-- **Each service** gets a free port in `$PORT` (and every service's port as `$PORT_<NAME>`), runs as its own systemd unit on 127.0.0.1, and gets a private link on your tailnet.
-- **`database`** gives each lane its own scratch copy, created before setup and dropped on clean up. SQLite: `{ "kind": "sqlite", "file": "data/dev.db" }` copies the file, and services get its path in `DATABASE_PATH`. Postgres copies a template database, and services get a URL in `DATABASE_URL`. It needs two logins in `~/.config/contextlanes/config.toml`:
-
-  ```toml
-  [databases.postgres]
-  admin = "postgres://contextlanes_admin:…@localhost/postgres"  # CREATEDB; never given to lanes
-  app = "postgres://shop_app:…@localhost/postgres"               # what lane services connect as
-  ```
-
-  Once, as a superuser: `CREATE ROLE contextlanes_admin LOGIN CREATEDB PASSWORD '…'; GRANT shop_app TO contextlanes_admin;`. Each copy is owned by the app login, and tables the admin login owned in the template are handed to it. Nothing may be connected to the template while a copy is made.
-- **Checks** run for every checkpoint; **screenshots** are taken before and after on those paths.
-- Lane commands run in a sandbox that cannot see ContextLanes' data, its settings, Docker or the systemd user bus.
-
-## From source
+## Use
 
 ```sh
-pnpm install
-pnpm check
-pnpm build
-node apps/daemon/dist/main.js
-# In another terminal:
-node apps/cli/dist/main.js setup
-# Open the sign-in link printed above.
+contextlanes lane start <project> "Add a health check"   # or New lane in the browser
+contextlanes inbox                                       # what waits on you
+contextlanes term <project>/01                           # the lane's shell (tmux)
+contextlanes help
 ```
 
-To install this built checkout as a service, run `node apps/daemon/dist/install-main.js`. A source checkout updates with `git pull`, `pnpm install`, `pnpm build` and a restart; `contextlanes update` manages only copies made by the install line. Add `~/.local/bin` to your PATH for the `contextlanes` commands. `pnpm dev` runs the daemon and Vite for development; build host/toolbox entry points first.
-
-```sh
-~/.local/bin/contextlanes status
-~/.local/bin/contextlanes add                   # current repository
-~/.local/bin/contextlanes add ~/code/project
-~/.local/bin/contextlanes lanes
-~/.local/bin/contextlanes lane start <project> "Add a health check" --agent codex
-~/.local/bin/contextlanes term <project>/01
-systemctl --user restart contextlanes
-journalctl --user -u contextlanes -n 50
-```
-
-Closing a terminal tab keeps its tmux shell running. Reattach in **Work → Terminal** or with the CLI. Older history is in tmux copy mode: **Ctrl+B**, then **[**; **q** to leave. Each terminal runs in its own small process (`apps/daemon/bin/pty-host.py`, Python's standard library), so no native module needs building and a crashed terminal never takes the app down.
-
-## Validate
-
-```sh
-pnpm check
-# This machine has tmux and systemd --user, so also run:
-CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
-# With an existing Playwright installation and Chromium:
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-setup.mjs
-```
-
-Real checks use disposable repositories, tmux sessions and systemd units. The setup browser check uses the SDK fake agent, a fake login terminal, Runner-faked Tailscale and Chromium’s virtual authenticator; no model or user credentials are needed. It follows actual CLI output to a running lane at 1440px and 390px, without typing a path or setup code, and checks passkey creation and link replay. It does not provision a fresh OS or replace physical-phone/provider acceptance.
+Settings live in `~/.config/contextlanes/config.toml`, data in `~/.local/share/contextlanes`. Logs: `journalctl --user -u contextlanes`.
 
 ## Docs
 
-- [Brief](docs/BRIEF.md): what it is, for whom, and how we will know it works
-- [Architecture](docs/ARCHITECTURE.md): processes, data, interfaces, security
-- [Implementation plan](docs/IMPLEMENTATION.md): phases, milestones and gates
-- [Design](docs/DESIGN.md): visual system, page jobs and legend
+- [Recipes](docs/RECIPES.md): run your app in each lane with `.contextlanes.json`
+- [Architecture](docs/ARCHITECTURE.md): processes, data and security
+- [Design](docs/DESIGN.md): principles, words and the visual system
+- [Developing](docs/DEVELOPING.md): build, test and run from source
+- [Brief](docs/BRIEF.md) and [implementation plan](docs/IMPLEMENTATION.md)

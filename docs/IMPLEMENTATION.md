@@ -79,7 +79,7 @@ What the boards show but the app does not yet is planned milestone by milestone 
 `contextlanes update` (`apps/daemon/src/update.ts`, run through `update-main.js` so the CLI stays light):
 
 1. Refuses if tracked files in the running copy were edited, and names them. One update runs at a time (`update.lock`).
-2. Fetches every branch and lists what is new. It follows the repository's default branch (`main`), or the branch chosen with `--branch` or `CONTEXTLANES_BRANCH` at install time, which is saved in `update.json`; if a chosen branch is gone it goes back to the default. The branch a copy was first cloned from does not count, so installs made from the old `contextlanes` branch move to `main`. A remote still pointing at `wongywrongy/rootlane` is switched to `wongywrongy/contextlane`.
+2. Fetches every branch and lists what is new. It follows the repository's default branch (`main`), or the branch chosen with `--branch` or `CONTEXTLANES_BRANCH` at install time, which is saved in `update.json`; if a chosen branch is gone it goes back to the default. The branch a copy was first cloned from does not count, so installs made from the old `contextlanes` branch move to `main`. A remote still pointing at `wongywrongy/rootlane` is switched to `wongywrongy/ContextLane`.
 3. Builds the new commit in `releases/<commit>`, a git worktree of the original clone (`app/`), with the same steps as the installer. A failed build changes nothing. A finished build is marked with `.contextlanes-built` and reused on a retry.
 4. Copies the database with `VACUUM INTO` (newest five kept in `<data>/backups`) and records its format version.
 5. The first time, points the service file and the `contextlanes` commands at `current` instead of the clone. It replaces only files that carry the installer's marker line.
@@ -252,7 +252,7 @@ Validation: **86 tests pass** with real systemd/tmux fixtures enabled. API tests
 `scripts/check-setup.mjs` starts fresh configurations at **1440px and 390px**. It runs the actual CLI, follows its URL (including when Setup was already open), signs in through a fixed fake browser login terminal, selects an initially unchecked repository, checks a non-main default branch, starts a real systemd host with the SDK fake agent, and explicitly answers its permission. Both reached a running lane in **about 2.6 seconds from CLI invocation** on this machine. It then verifies post-lane cards, automatic public URL, real WebAuthn registration at the fixture HTTPS address and link replay rejection. Tailscale is faked exclusively through the injected Runner; fixture HTTPS binds 127.0.0.1. This is not a timing claim for real downloads/provider sign-in.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wongywrongy/contextlane/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wongywrongy/ContextLane/main/install.sh | sh
 ~/.local/bin/contextlanes setup
 # Open the link or scan the QR; then Agent → Project → First lane.
 ~/.local/bin/contextlanes add          # optional: add the current repository
