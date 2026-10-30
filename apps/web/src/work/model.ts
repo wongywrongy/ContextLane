@@ -1,4 +1,4 @@
-import { STEP_FAMILY, type Lane, type LaneEvent, type EventPayload } from "@contextlanes/protocol";
+import { STEP_FAMILY, type Lane, type LaneEvent, type EventPayload, type ServiceState } from "@contextlanes/protocol";
 
 export function mergeEvents(...groups: LaneEvent[][]): LaneEvent[] {
   const unique = new Map<string, LaneEvent>();
@@ -70,6 +70,20 @@ export function isIdle(lane: Lane, events: LaneEvent[]): boolean {
 export function queuedPrompts(events: LaneEvent[]) {
   const started = new Set(events.flatMap((e) => e.type === "agent.turn" && e.payload.commandId ? [e.payload.commandId] : e.type === "agent.command.result" && !e.payload.ok ? [e.payload.commandId] : []));
   return events.filter((e): e is Extract<LaneEvent, { type: "agent.command" }> => e.type === "agent.command" && e.payload.command.kind === "prompt" && !started.has(e.payload.commandId));
+}
+
+export const SERVICE_GLYPH: Record<ServiceState, string> = { starting: "think", healthy: "done", failed: "fail", stopped: "idle" };
+
+/** A lane's services as the event log last reported them, and whether a recipe waits on the owner. */
+export function environmentFrom(events: LaneEvent[]): { services: EventPayload<"env.status">[]; recipeWaiting: boolean } {
+  const services = new Map<string, EventPayload<"env.status">>();
+  const waiting = new Set<string>();
+  for (const event of events) {
+    if (event.type === "env.status" && event.payload.service !== "setup") services.set(event.payload.service, event.payload);
+    if (event.type === "recipe.requested") waiting.add(event.payload.hash);
+    if (event.type === "recipe.approved") waiting.delete(event.payload.hash);
+  }
+  return { services: [...services.values()], recipeWaiting: waiting.size > 0 };
 }
 
 export type ActivitySegment = { from: number; to: number; state: string };

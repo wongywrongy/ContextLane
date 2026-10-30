@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { READY } from "../features";
 import { Glyph, Tile, laneNumber } from "../components/ui";
+import { environmentFrom, SERVICE_GLYPH } from "./model";
 
 /** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
 export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: LaneEvent[]; openTerminal: () => void }) {
@@ -33,7 +35,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <div className="ps-h"><span className="lbl">Checkout</span></div>
       <dl className="kv2"><dt>Branch</dt><dd className="mono">{lane.branch}</dd><dt>Folder</dt><dd className="mono">{lane.worktree}</dd><dt>Started</dt><dd>{new Date(lane.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd></dl>
     </section>
-    {READY.run ? <section className="ps"><div className="ps-h"><span className="lbl">Environment</span></div>{/* Phase 2: services with glyphs and private links, from env.status events. */}</section> : null}
+    {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
       <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Lane</span></div>
       <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the terminal</button>
@@ -45,6 +47,16 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>
   </aside>;
+}
+
+/** Services with their state and private links, from env.status events. */
+function EnvironmentBlock({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
+  const { services, recipeWaiting } = environmentFrom(events);
+  return <section className="ps">
+    <div className="ps-h"><span className="lbl">Environment</span><div className="e"><Link className="lnk" to={`/p/${lane.project}/run`} style={{ fontSize: 12.5 }}>Run →</Link></div></div>
+    {services.length ? <div className="plan">{services.map((s) => <Glyph key={s.service} g={SERVICE_GLYPH[s.state ?? (s.up ? "healthy" : "stopped")]}>{s.service}{s.port ? <span className="mono muted" style={{ fontSize: 12, fontWeight: 400 }}>:{s.port}</span> : null}{s.url ? <a className="lnk mono" style={{ fontSize: 12 }} href={s.url} target="_blank" rel="noreferrer">open ↗</a> : null}</Glyph>)}</div>
+      : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{recipeWaiting ? "The recipe needs your approval before this lane can start." : "Not started."}</p>}
+  </section>;
 }
 
 function compact(n: number): string {

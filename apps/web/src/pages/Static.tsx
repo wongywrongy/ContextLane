@@ -10,16 +10,6 @@ export function ReviewPage() {
   );
 }
 
-export function RunPage() {
-  return (
-    <main className="pg">
-      <PageHeader title="Run" meta="each lane's copy of the app, from the approved recipe" />
-      <Section title="Environments"><Empty>Lane setup, services, private links and logs (phase 2).</Empty></Section>
-      <Section title="Recipe and housekeeping"><Empty>Recipe approval, cleanup and exposure (phase 2).</Empty></Section>
-    </main>
-  );
-}
-
 export function ArchitecturePage() {
   return (
     <main className="pg">

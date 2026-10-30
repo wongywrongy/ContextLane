@@ -17,7 +17,7 @@ import type { Store } from "../db/store.js";
 import type { HostLinks } from "../hosts.js";
 import { NotFound, Refused, type LaneManager } from "../lanes/manager.js";
 import { slugify } from "../lanes/naming.js";
-import { readRecipe } from "../recipes.js";
+import { laneRecipe, readRecipe } from "../recipes.js";
 import { Runtime } from "../runtime.js";
 import { refuseUnlessOwner } from "./owner.js";
 import { runCommand, type Runner } from "../run.js";
@@ -154,6 +154,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   }
 
   // ── environments ──
+  app.get<{ Params: { project: string } }>("/api/projects/:project/environments", async (req) => {
+    const project = store.getProject(ProjectId.parse(req.params.project));
+    if (!project) throw new NotFound("no such project");
+    const lanes = store.listLanes(project.id).filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
+    return { recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
+  });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/stop", async (req) => runtime.stop(laneParam(req.params)));

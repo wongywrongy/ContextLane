@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
-import type { Health, Lane, Project } from "@contextlanes/protocol";
+import type { Health, Lane, Project, ProjectEnvironments } from "@contextlanes/protocol";
 import { useJson, useLiveInbox, InboxContext, useInbox } from "../api";
 import { useWork } from "../work/useWork";
 import { READY } from "../features";
@@ -70,7 +70,7 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
   </Dialog>;
 }
 
-export type WorkContext = ReturnType<typeof useWork>;
+export type WorkContext = ReturnType<typeof useWork> & { environments: ProjectEnvironments | null; reloadEnvironments: () => void };
 export function useProjectWork(): WorkContext { return useOutletContext<WorkContext>(); }
 
 const TABS = [
@@ -86,11 +86,16 @@ export function ProjectShell() {
   const { project = "" } = useParams();
   const [projects] = useJson<Project[]>("/api/projects");
   const work = useWork(project);
+  const [environments, , reloadEnvironments] = useJson<ProjectEnvironments>(READY.run ? `/api/projects/${project}/environments` : null);
+  const changes = useMemo(() => work.events.filter((e) => e.type === "env.status" || e.type === "recipe.approved" || e.type === "recipe.requested").length, [work.events]);
+  const reload = useCallback(() => reloadEnvironments(), [reloadEnvironments]);
+  useEffect(reload, [reload, changes]);
   const [inbox] = useInbox();
   const info = projects?.find((p) => p.id === project);
   const active = work.lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const waiting = inbox?.filter((i) => i.lane.startsWith(`${project}/`)).length ?? 0;
   const tabs = TABS.filter(([, , ready]) => ready);
+  const up = [...new Set(environments?.lanes.flatMap((l) => l.environment?.services.filter((s) => s.state === "healthy").map((s) => s.name) ?? []) ?? [])];
   return (
     <>
       <section className="band" aria-label="Project">
@@ -101,13 +106,14 @@ export function ProjectShell() {
           <div className="facts">
             <Glyph g="work">{active.length} {active.length === 1 ? "lane" : "lanes"}</Glyph>
             {waiting ? <Glyph g="wait">{waiting} need{waiting === 1 ? "s" : ""} you</Glyph> : null}
+            {up.length ? <Glyph g="done">{up.join(" · ")} up</Glyph> : null}
           </div>
         </div>
       </section>
       {tabs.length > 1 ? <nav className="tabs" aria-label="Project">
         {tabs.map(([path, label]) => <NavLink key={path} to={`/p/${project}/${path}`}>{label}</NavLink>)}
       </nav> : null}
-      <Outlet context={work} />
+      <Outlet context={{ ...work, environments, reloadEnvironments } satisfies WorkContext} />
     </>
   );
 }

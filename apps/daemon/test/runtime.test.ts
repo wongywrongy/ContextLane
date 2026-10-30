@@ -200,6 +200,16 @@ describe("services", () => {
     expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/env_start", payload: {} })).statusCode).toBe(409);
   });
 
+  it("lists each open lane's recipe and environment for the Run page", async () => {
+    const { app, runtime, store, approve } = await setup();
+    await approve();
+    await runtime.start("shop/01");
+    const page = (await app.inject({ url: "/api/projects/shop/environments" })).json();
+    expect(page.lanes).toMatchObject([{ lane: "shop/01", recipe: { approved: true }, environment: { services: [{ name: "api" }, { name: "web" }] } }]);
+    store.setLaneState("shop/01", "archived");
+    expect((await app.inject({ url: "/api/projects/shop/environments" })).json().lanes).toEqual([]);
+  });
+
   it("gives env_status through the toolbox route", async () => {
     const { app, runtime, approve } = await setup();
     await approve();

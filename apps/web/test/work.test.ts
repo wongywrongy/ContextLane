@@ -1,8 +1,8 @@
 import { expect, it, vi } from "vitest";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { isIdle, loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
+import { environmentFrom, isIdle, loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
 
-const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
+const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", hostUnit: null, state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
 const event = (seq: number, type: LaneEvent["type"], payload: unknown, at = "2026-01-01T11:00:00Z") => ({ lane: base.id, seq, at, type, payload }) as LaneEvent;
 
 it("merges reconnect history once and loads beyond the first 500 events", async () => {
@@ -57,4 +57,13 @@ it("shows a working lane as idle once its agent has finished its turn", () => {
   expect(isIdle(base, [event(1, "agent.turn", { active: true })])).toBe(false);
   expect(isIdle(base, [event(1, "agent.turn", { active: true }), event(2, "agent.turn", { active: false, stopReason: "end_turn" })])).toBe(true);
   expect(isIdle({ ...base, state: "needs_you" }, [event(1, "agent.turn", { active: false })])).toBe(false);
+});
+
+it("reads a lane's services and recipe wait from its events", () => {
+  const event = (seq: number, type: string, payload: unknown) => ({ lane: "demo/01", seq, at: "2026-10-30T00:00:00.000Z", type, payload }) as LaneEvent;
+  const started = [event(1, "recipe.requested", { hash: "a" })];
+  expect(environmentFrom(started)).toEqual({ services: [], recipeWaiting: true });
+  const after = environmentFrom([...started, event(2, "recipe.approved", { hash: "a" }), event(3, "env.status", { service: "web", up: false, state: "starting" }), event(4, "env.status", { service: "setup", up: false, state: "failed" }), event(5, "env.status", { service: "web", up: true, state: "healthy", port: 20100 })]);
+  expect(after.recipeWaiting).toBe(false);
+  expect(after.services).toEqual([{ service: "web", up: true, state: "healthy", port: 20100 }]);
 });
