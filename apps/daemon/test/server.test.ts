@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 
-function setup(opts: { fail?: boolean; owner?: string } = {}) {
+function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[] } = {}) {
   const calls: string[] = [];
   const run: Runner = async (cmd, args) => {
     calls.push([cmd, ...args].join(" "));
+    if (cmd === "git" && args[0] === "branch" && opts.taken?.includes(args[2]!)) return { stdout: `  ${args[2]}\n` };
+    if (cmd === "tmux" && args[0] === "list-sessions") return { stdout: (opts.sessions ?? []).join("\n") };
     if (opts.fail && cmd === "git") throw new Error("not a git repository");
     return { stdout: "" };
   };
@@ -30,11 +32,29 @@ describe("http api", () => {
     const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shuttleworks", task: "Billing phase 0" } });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ id: "shuttleworks/01", state: "working", terminal: "cl-shuttleworks-01", colour: "lc1" });
-    expect(calls[0]).toMatch(/^git worktree add -b lane\/01-billing-phase-0 /);
-    expect(calls[1]).toMatch(/^tmux new-session -d -s cl-shuttleworks-01 /);
+    const setupCalls = calls.filter((c) => /^(git worktree|tmux new-session)/.test(c));
+    expect(setupCalls[0]).toMatch(/^git worktree add -b lane\/01-billing-phase-0 /);
+    expect(setupCalls[1]).toMatch(/^tmux new-session -d -s cl-shuttleworks-01 /);
 
     const events = (await app.inject({ url: "/api/lanes/shuttleworks/01/events" })).json() as { type: string }[];
     expect(events.map((e) => e.type)).toEqual(["lane.created", "lane.state", "lane.state"]);
+  });
+
+  it("lists every project's lanes in one request for the home page", async () => {
+    const { app } = setup();
+    for (const path of ["/code/ara", "/code/shop"]) await app.inject({ method: "POST", url: "/api/projects", payload: { path } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "ara", task: "Wake word" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } });
+    expect((await app.inject({ url: "/api/lanes" })).json().map((l: { id: string }) => l.id).sort()).toEqual(["ara/01", "shop/01"]);
+  });
+
+  it("picks the next free branch and terminal when an old lane's branch or tmux session is still there", async () => {
+    const { app, calls } = setup({ taken: ["lane/01-billing", "lane/01-billing-2"], sessions: ["cl-shop-01", "other"] });
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing" } })).json();
+    expect(lane).toMatchObject({ state: "working", branch: "lane/01-billing-3", terminal: "cl-shop-01-3" });
+    expect(lane.worktree).toMatch(/01-billing-3$/);
+    expect(calls.find((c) => c.startsWith("git worktree"))).toMatch(/^git worktree add -b lane\/01-billing-3 /);
   });
 
   it("marks the lane failed when setup breaks", async () => {

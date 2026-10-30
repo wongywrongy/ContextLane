@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { laneColour, laneId, StartLaneRequest, type Lane } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
@@ -21,6 +21,26 @@ export class LaneManager {
     this.terminals = new Terminals(deps.run);
   }
 
+  /**
+   * Lane numbers restart with a fresh database, and branches and tmux sessions outlive their lanes,
+   * so lane/01-x or cl-project-01 may already exist. Add -2, -3… until the branch, the checkout
+   * folder and the terminal session are all free. Existing shells are never killed. A failed check
+   * counts as free; the setup step then reports the real problem.
+   */
+  private async freeNames(repo: string, project: string, id: Lane["id"], n: number, task: string): Promise<{ branch: string; worktree: string; terminal: string }> {
+    const sessions = new Set((await this.deps.run("tmux", ["list-sessions", "-F", "#{session_name}"]).then((r) => r.stdout, () => "")).split("\n").map((s) => s.trim()).filter(Boolean));
+    for (let i = 1; i <= 50; i++) {
+      const suffix = i === 1 ? "" : `-${i}`;
+      const branch = `${branchName(n, task)}${suffix}`;
+      const worktree = `${worktreePath(this.deps.config.paths.lanes, project, n, task)}${suffix}`;
+      const terminal = `${terminalSession(id)}${suffix}`;
+      const listed = await this.deps.run("git", ["branch", "--list", branch], { cwd: repo }).then((r) => r.stdout.trim(), () => "");
+      const used = await access(worktree).then(() => true, () => false);
+      if (!listed && !used && !sessions.has(terminal)) return { branch, worktree, terminal };
+    }
+    throw new Error(`Branches lane/${String(n).padStart(2, "0")}-… are all taken in this repository; delete old lane branches and try again.`);
+  }
+
   async start(input: unknown): Promise<Lane> {
     const req = StartLaneRequest.parse(input);
     const { store, config } = this.deps;
@@ -31,6 +51,7 @@ export class LaneManager {
 
     const n = store.nextLaneNumber(project.id);
     const id = laneId(project.id, n);
+    const names = await this.freeNames(project.path, project.id, id, n, req.task);
     const lane = store.insertLane({
       id,
       n,
@@ -40,9 +61,9 @@ export class LaneManager {
       agent: req.agent,
       model: req.model ?? null,
       mode: req.mode,
-      branch: branchName(n, req.task),
-      worktree: worktreePath(config.paths.lanes, project.id, n, req.task),
-      terminal: terminalSession(id),
+      branch: names.branch,
+      worktree: names.worktree,
+      terminal: names.terminal,
       state: "draft",
       colour: laneColour(n),
     });

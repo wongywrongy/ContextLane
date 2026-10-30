@@ -93,6 +93,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     reply.code(201);
     return store.addProject({ id, name: body.name ?? basename(body.path), path: body.path });
   });
+  app.get("/api/lanes", async () => store.listLanes());
   app.get<{ Params: { project: string } }>("/api/projects/:project/lanes", async (req) => store.listLanes(ProjectId.parse(req.params.project)));
   app.get<{ Params: { project: string } }>("/api/projects/:project/activity", async (req) => {
     const { since } = ActivityQuery.parse(req.query);
