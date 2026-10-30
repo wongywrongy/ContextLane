@@ -2,7 +2,6 @@
 
 ## Needs Kyle
 
-- **B3 Postgres application credentials:** the decided recipe identifies the daemon's admin URL for creating/dropping copies, but does not define the login given to lane services. Choose an owner-configured non-admin application login shared by scratch databases (smallest), or managed non-admin logins per lane. Passing the admin login into agent-written services would pass that role's privileges too; creating databases requires `CREATEDB` or superuser privileges ([PostgreSQL](https://www.postgresql.org/docs/current/sql-createdatabase.html)). This choice is also recorded under Open questions; B3 has not been implemented pending it.
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
 - **Terminals crash on neo (found 2026-10-30, not caused by the credentials work).** `node-pty` 1.1.0 segfaults on `spawn` on neo with Node 24.11, in the installed release as well as a clean checkout of main. Opening a browser terminal or an agent login terminal can take the daemon down with it, and `terminal.real.test.ts` cannot run. Needs a rebuild or a version change, checked on neo.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
@@ -321,7 +320,9 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.0 Usage and cost | work-lane, models | Done — 5047be0; `pnpm check`: 183 passed, 8 opt-in checks skipped; fake ACP + JSONL + API totals; Chromium at 1440px/390px; real account comparison in Needs Kyle; see Usage implementation and adapter evidence |
 | B1 This machine and Data | settings | Done — 3296c7d; `pnpm check`: 187 passed, 8 opt-in checks skipped; real SQLite retention/redaction tests; Settings Chromium 1440px/390px; see Machine and data implementation evidence |
 | B2 Run and Projects facts | run, projects | Done — ed0168c; `pnpm check`: 194 passed, 8 opt-in checks skipped; ownership/cache/TLS/adoption tests; Run and Projects Chromium 1440px/390px; see Run and Projects facts implementation evidence |
-| B3 Per-lane databases | run | Next — needs Kyle's Postgres application-credential policy; see Needs Kyle and Open questions |
+| T. Terminals survive a node-pty crash | work-lane | Next |
+| S2. Daemon git runs in the sandbox | — | Not started |
+| B3 Per-lane databases | run | Not started (credential policy decided below) |
 | B4 Review packet gaps | review | Not started |
 | B5 Composer, editor link, watching only | work-lane | Not started |
 | B6 Add from GitHub, branch in the band | projects | Not started |
@@ -395,11 +396,28 @@ Comes first so real token numbers pile up before the phase 3 tools exist; 3.9 co
 - Project tiles count recorded healthy and non-healthy services. The usage line shows measured `nvidia-smi` GPU utilization/memory and only reported, unexpired agent limits from 3.0. Missing GPU/limit data is omitted.
 - Resource tests cover parsing, sibling-directory and owned-unit exclusion, cache expiry, unavailable probes, port/PID reuse, proposal persistence and approval boundaries. TLS tests verify peer-expiry math, exact host/port and handshake failure. Chromium at 1440px and 390px checked Run facts, adoption through New lane, the retained outside-copy reminder, service counts and GPU/limit facts, with no page errors or horizontal scrolling. Process/GPU/TLS browser data use fakes; real provider adoption and real preview certificates remain unverified.
 
+### T. Terminals survive a node-pty crash (work-lane)
+
+`node-pty` 1.1.0 segfaults on `spawn` on neo (Node 24.11), and because it runs inside the daemon, opening a terminal can take the daemon down.
+
+- Move every PTY out of the daemon into a small child process per terminal (or one shared helper), talking over a pipe. A crash ends that terminal with a plain message ("The terminal stopped; open it again") and the daemon keeps running. Login terminals use the same path.
+- Then make the PTY itself work on neo: rebuild against the running Node's headers, or move to a node-pty version that works with Node 24, pinned exactly. Record what fixed it.
+- **Done when:** `terminal.real.test.ts` passes on neo, and a test that kills the PTY helper with SIGSEGV shows the daemon still answering `/api/health`.
+
+### S2. Daemon git runs in the sandbox
+
+From Credentials and sandbox: the daemon runs git outside the sandbox in lane checkouts, so an agent can plant `.git/hooks`, `.git/config` entries (`core.fsmonitor`, `core.hooksPath`, `core.sshCommand`, filter and diff drivers, `includeIf`) or a `.gitattributes` filter, and the daemon's next `git status`, diff, rebase or push runs it as Kyle with no action from him. This is the shortest way out of the sandbox.
+
+- Every git command the daemon runs in a lane worktree, or in a repository a lane can write to, goes through `sandbox()` like other lane commands, with the network allowed only where the command needs it (fetch, push). Commands that need Kyle's credentials (push, `gh`) run outside the sandbox, with hooks off (`-c core.hooksPath=/dev/null`), `GIT_CONFIG_NOSYSTEM=1`, and the repository's config checked against an allow-list of keys first; refuse with a plain sentence if anything else is set.
+- Merge and review keep working: checks, diff, rebase onto the base, push and `gh pr create`.
+- **Done when:** tests plant each of the entries above in a lane checkout and show that no daemon-side git command runs them; the real-sandbox suite passes on neo.
+
 ### B3 Per-lane databases (run)
 
 - Decided: recipe field `database`, one of `{ "kind": "postgres", "url": "<admin url env name>", "template": "<db>" }` (creates `<template>_<lane>` with `CREATE DATABASE … TEMPLATE`) or `{ "kind": "sqlite", "file": "<path>" }` (copies the file into the worktree). The lane's services get the database through an env variable named in the recipe.
 - Setup creates it, cleanup drops it (Postgres) or deletes the copy (SQLite), and the Run page shows the Database fact. Commands go through Runner (`psql`), and the admin URL comes from config, never from the recipe.
 - Answer the open question about per-lane databases with this.
+- Decided (2026-10-30), lane login: one owner-configured, non-admin application role (`LOGIN`, no `CREATEDB`, no superuser), set in config next to the admin URL. Setup creates each lane database owned by that role; services get a URL with that role only. The admin URL never leaves the daemon. Lanes sharing one role can reach each other's scratch databases; that is accepted for scratch copies. Per-lane roles are not built.
 
 ### B4 Review packet gaps (review)
 
