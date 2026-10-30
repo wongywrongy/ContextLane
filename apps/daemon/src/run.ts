@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { spawn as spawnPty, type IPty } from "node-pty";
+import { createRequire } from "node:module";
+import type { IPty } from "node-pty";
 import type { TerminalSize } from "@contextlanes/protocol";
 
 const exec = promisify(execFile);
+const require = createRequire(import.meta.url);
 
 /** Runs a command without a shell. Injected everywhere so tests never touch git or tmux. */
 export type TerminalProcess = Pick<IPty, "write" | "resize" | "kill" | "onData" | "onExit">;
@@ -17,4 +19,8 @@ export const runCommand: Runner = async (cmd, args, opts) => {
   return { stdout };
 };
 
-runCommand.terminal = (cmd, args, opts) => spawnPty(cmd, args, { ...opts, name: "xterm-256color", env: process.env });
+runCommand.terminal = (cmd, args, opts) => {
+  // A missing native build must affect only terminal attachment, never daemon startup.
+  const { spawn } = require("node-pty") as typeof import("node-pty");
+  return spawn(cmd, args, { ...opts, name: "xterm-256color", env: process.env });
+};

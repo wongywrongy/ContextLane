@@ -116,6 +116,8 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 
 **Terminal wire:** browser messages are validated `TerminalInput` values: `{"type":"input","data":"..."}` or `{"type":"resize","cols":100,"rows":30}`. Output is raw UTF-8 terminal text. The server starts at 80×24 and xterm sends its fitted size on connection and resize (1–500 columns, 1–200 rows). Input messages are bounded; a slow browser is disconnected rather than buffering indefinitely. Reconnect attaches to the existing session; tmux copy mode retains older history. Terminal I/O does not mutate lane state or create agent events.
 
+The native PTY module loads only inside `Runner.terminal`, when attachment is requested. Its build or load failures are contained by the terminal route and cannot prevent daemon startup.
+
 ## Security
 
 - The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Requests without the header are accepted only from loopback when `access.allowLocal` is on.

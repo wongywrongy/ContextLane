@@ -8,15 +8,15 @@ This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system
 
 ## Milestone status
 
-The current requested goal is **milestone 1.3 only**. Earlier milestones remain pending; the terminal works independently of agent sessions and logins.
+The current goal is **finish phase 1**, first isolating native terminal loading, then implementing 1.1, 1.2, 1.4 and 1.5 in order. External credentials and physical device acceptance are listed above rather than blocking implementation.
 
 | Milestone | Status | Evidence / next step |
 |---|---|---|
 | 1.1 Lane hosts for real | Pending | Scaffold only; launch/reconnect/control work still needed |
 | 1.2 Permission round trip | Pending | Scaffold only; notifiers and phone acceptance still needed |
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
-| 1.4 Work page | Pending | Outside the current goal |
-| 1.5 Setup and install | Pending | Outside the current goal |
+| 1.4 Work page | Pending | After 1.2 |
+| 1.5 Setup and install | Pending | After 1.4 |
 | Phase 2 | Pending | Outside the current goal |
 
 ## Where the scaffold stands
@@ -65,6 +65,8 @@ Gate: three lanes a day for a week, answered from the phone.
 - Done when: closing the browser tab leaves the shell running and `contextlanes term` shows the same scrollback.
 
 Completed: closing the tab, switching views or stopping the daemon releases only that PTY's `tmux attach-session` client. The tmux session is never killed by the terminal route. Older history stays in tmux copy mode (**Ctrl+B**, then **[**); use **q** to leave it. There is no cleanup endpoint yet; killing lane sessions belongs to phase 2 cleanup.
+
+Native `node-pty` loading is deferred until a terminal opens. A missing native build closes that terminal connection with an attach error; the daemon, health endpoint and other API routes keep working. A regression test simulates the native module load failure.
 
 Validation: `pnpm check`; opt-in real tmux/fixture-repo test (including CLI attach after daemon recreation); built Vite app in Chromium at 1440×1000 and 390×844 against a transient systemd user service, including an actual daemon restart. Browser input, close/reopen and Steps/Terminal switching passed with no page errors. Only fixture sessions, services and repositories were removed.
 
