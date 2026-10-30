@@ -191,7 +191,6 @@ export class Updater {
     try {
       await step(["install", "--frozen-lockfile", "--ignore-scripts"]);
       await step(["-r", "rebuild", "esbuild"]);
-      await step(["--filter", "@contextlanes/daemon", "rebuild", "node-pty"]).catch(() => this.log("The browser terminal's native module did not build; lanes still run. Install C++ build tools to get browser terminals back."));
       await step(["build"]);
     } catch (err) {
       throw new UpdateError(`${shortSha(sha)} did not build, so nothing changed and the running version keeps going.\n${lastLines(err)}`);

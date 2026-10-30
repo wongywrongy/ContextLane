@@ -21,11 +21,13 @@ export function connectTerminal(socket: WebSocket, pty: TerminalProcess): void {
     }
     socket.send(text);
   });
-  const exit = pty.onExit(() => {
+  const exit = pty.onExit((e) => {
     detached = true;
     data.dispose();
     exit.dispose();
-    socket.close(1000, "Terminal detached.");
+    // Close reasons are limited to 123 bytes.
+    if (e?.error) socket.close(1011, e.error.slice(0, 120));
+    else socket.close(1000, "Terminal detached.");
   });
   socket.on("message", (raw, binary) => {
     if (detached) return;

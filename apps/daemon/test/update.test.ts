@@ -73,7 +73,7 @@ describe("contextlanes update", () => {
     const release = join(f.base, "releases", second.slice(0, 12));
     expect(await realpath(join(f.base, "current"))).toBe(release);
     expect(await realpath(join(f.base, "previous"))).toBe(f.app);
-    expect(f.calls.filter((c) => c.startsWith("npm")).map((c) => c.split(" -- pnpm ")[1])).toEqual(["install --frozen-lockfile --ignore-scripts", "-r rebuild esbuild", "--filter @contextlanes/daemon rebuild node-pty", "build"]);
+    expect(f.calls.filter((c) => c.startsWith("npm")).map((c) => c.split(" -- pnpm ")[1])).toEqual(["install --frozen-lockfile --ignore-scripts", "-r rebuild esbuild", "build"]);
     expect(f.calls).toContain("systemctl --user restart contextlanes.service");
     const unit = await readFile(join(f.home, ".config/systemd/user/contextlanes.service"), "utf8");
     expect(unit).toContain(`WorkingDirectory=${join(f.base, "current")}`);

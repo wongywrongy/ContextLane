@@ -54,7 +54,7 @@ systemctl --user restart contextlanes
 journalctl --user -u contextlanes -n 50
 ```
 
-Closing a terminal tab keeps its tmux shell running. Reattach in **Work → Terminal** or with the CLI. Older history is in tmux copy mode: **Ctrl+B**, then **[**; **q** to leave. The native terminal module loads only on attachment. On Debian/Ubuntu, `sudo apt install python3 build-essential` supplies the native build tools; after installing them, run `pnpm --filter @contextlanes/daemon rebuild node-pty` in the installed checkout if needed.
+Closing a terminal tab keeps its tmux shell running. Reattach in **Work → Terminal** or with the CLI. Older history is in tmux copy mode: **Ctrl+B**, then **[**; **q** to leave. Each terminal runs in its own small process (`apps/daemon/bin/pty-host.py`, Python's standard library), so no native module needs building and a crashed terminal never takes the app down.
 
 ## Validate
 

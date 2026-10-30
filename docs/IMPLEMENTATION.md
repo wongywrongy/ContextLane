@@ -3,7 +3,7 @@
 ## Needs Kyle
 
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
-- **Terminals crash on neo (found 2026-10-30, not caused by the credentials work).** `node-pty` 1.1.0 segfaults on `spawn` on neo with Node 24.11, in the installed release as well as a clean checkout of main. Opening a browser terminal or an agent login terminal can take the daemon down with it, and `terminal.real.test.ts` cannot run. Needs a rebuild or a version change, checked on neo.
+- **Terminals on neo:** the native terminal module is gone (see T). Open a lane terminal and an agent login terminal once on neo to confirm; the real tmux test passes in the build container with Python 3.13.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
 - **bubblewrap on other machines:** lanes refuse to start without a working `bwrap`. neo has it. `install.sh` now requires it, and a fresh machine needs `sudo apt install bubblewrap`. Ubuntu 24.04 needs its AppArmor profile for `bwrap`, which neo has at `/etc/apparmor.d/bwrap`; other distributions have not been tried.
 - **Real agent accounts:** run `contextlanes setup`, open its sign-in link, and use **Agent → Install / Sign in**. Sign in runs the provider’s fixed command in the browser terminal (`claude auth login`, `codex login --device-auth`, or `opencode auth login`). Complete the provider’s account flow, then choose **Check again** if needed. Real Claude/Codex acceptance still needs your accounts; tests use the SDK fake agent and a fake login terminal. No model call or credential is supplied automatically.
@@ -320,8 +320,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.0 Usage and cost | work-lane, models | Done — 5047be0; `pnpm check`: 183 passed, 8 opt-in checks skipped; fake ACP + JSONL + API totals; Chromium at 1440px/390px; real account comparison in Needs Kyle; see Usage implementation and adapter evidence |
 | B1 This machine and Data | settings | Done — 3296c7d; `pnpm check`: 187 passed, 8 opt-in checks skipped; real SQLite retention/redaction tests; Settings Chromium 1440px/390px; see Machine and data implementation evidence |
 | B2 Run and Projects facts | run, projects | Done — ed0168c; `pnpm check`: 194 passed, 8 opt-in checks skipped; ownership/cache/TLS/adoption tests; Run and Projects Chromium 1440px/390px; see Run and Projects facts implementation evidence |
-| T. Terminals survive a node-pty crash | work-lane | Next |
-| S2. Daemon git runs in the sandbox | — | Not started |
+| T. Terminals survive a node-pty crash | work-lane | Done: PTY host process on the standard POSIX pty, node-pty removed; see T |
+| S2. Daemon git runs in the sandbox | — | Next |
 | B3 Per-lane databases | run | Not started (credential policy decided below) |
 | B4 Review packet gaps | review | Not started |
 | B5 Composer, editor link, watching only | work-lane | Not started |
@@ -403,6 +403,15 @@ Comes first so real token numbers pile up before the phase 3 tools exist; 3.9 co
 - Move every PTY out of the daemon into a small child process per terminal (or one shared helper), talking over a pipe. A crash ends that terminal with a plain message ("The terminal stopped; open it again") and the daemon keeps running. Login terminals use the same path.
 - Then make the PTY itself work on neo: rebuild against the running Node's headers, or move to a node-pty version that works with Node 24, pinned exactly. Record what fixed it.
 - **Done when:** `terminal.real.test.ts` passes on neo, and a test that kills the PTY helper with SIGSEGV shows the daemon still answering `/api/health`.
+
+#### What was done (2026-10-30)
+
+Other Linux software settles both halves of this. VS Code moved node-pty into a separate pty host process because "node-pty crashes will take down the entire window" ([microsoft/vscode#74620](https://github.com/microsoft/vscode/issues/74620)). ttyd, script(1) and tmux itself use the plain POSIX calls: `openpty`, a new session with the pty as controlling terminal, and `TIOCSWINSZ` for the size. So:
+
+- Each terminal is its own process, `apps/daemon/bin/pty-host.py`, using only Python's standard library (`os.openpty`, `fork`, `setsid`, `TIOCSCTTY`, `TIOCSWINSZ`). Typed input goes in on stdin, output comes out on stdout, and resizes arrive as "COLS ROWS" lines on fd 3. The daemon loads no native module.
+- A crash or a missing `python3` closes that one terminal with a plain message; the daemon keeps running. Closing a browser tab hangs up the attach client, as before, and the tmux session stays.
+- `node-pty` is removed, with its native build: `install.sh` and the updater no longer need C++ build tools, and `install.sh` now checks for `python3` (present on Ubuntu by default).
+- Tests: `pty-host.test.ts` runs real terminals (tty detection, input, resize, UTF-8 split across reads, hang-up, a SIGSEGV'd host while `/api/health` keeps answering, a missing interpreter). `CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts` passes from the repo root with real tmux, the browser WebSocket and the CLI. Not yet run on neo.
 
 ### S2. Daemon git runs in the sandbox
 

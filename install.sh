@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs ContextLanes, or updates an existing install to the newest version.
 set -eu
-for command in node npm git bwrap tmux systemctl; do
+for command in node npm git bwrap tmux systemctl python3; do
   command -v "$command" >/dev/null 2>&1 || { echo "Install $command, then run this installer again." >&2; exit 1; }
 done
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error("Node >=22.13 is required; Node 24 is recommended."); process.exit(1); }'
@@ -14,9 +14,6 @@ pnpm_run() { npm exec --yes --package=pnpm@10.28.0 -- pnpm "$@"; }
 build_here() {
   pnpm_run install --frozen-lockfile --ignore-scripts
   pnpm_run -r rebuild esbuild
-  if ! pnpm_run --filter @contextlanes/daemon rebuild node-pty; then
-    echo 'Native terminal build unavailable. The daemon can run; install C++ build tools and rebuild node-pty to enable terminals.' >&2
-  fi
   pnpm_run build
 }
 
