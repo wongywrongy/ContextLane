@@ -6,6 +6,7 @@ export { LaneManager, hostCommand, Refused } from "./lanes/manager.js";
 export { branchName, slugify, terminalSession, worktreePath, hostUnit } from "./lanes/naming.js";
 export { Terminals, attachArgs } from "./terminal/tmux.js";
 export { buildServer } from "./http/server.js";
+export { Previews, previewLabel } from "./previews.js";
 export { Runtime, publicBindings, serviceArgs } from "./runtime.js";
 export { runCommand, type Runner, type TerminalProcess } from "./run.js";
 export { Notifier, quietNow } from "./notifications/notifier.js";

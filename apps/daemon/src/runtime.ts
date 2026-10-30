@@ -8,6 +8,7 @@ import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { NotFound, Refused } from "./lanes/manager.js";
+import { Previews } from "./previews.js";
 import { laneRecipe } from "./recipes.js";
 import type { Runner } from "./run.js";
 
@@ -15,7 +16,7 @@ const PROBES = 24;
 const LOOPBACK = /^(127\.\d+\.\d+\.\d+|\[::1\]|\[::ffff:127\.\d+\.\d+\.\d+\])$/;
 const RUNS_IN = ["working", "needs_you", "in_review", "paused", "failed"];
 
-export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Runner; fetch?: typeof fetch; freePort?: () => Promise<number> };
+export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Runner; fetch?: typeof fetch; freePort?: () => Promise<number>; previews?: Previews };
 
 /** systemd reads $ in a command; recipes mean a literal one, after our own substitution. */
 const literal = (args: string[]) => args.map((a) => a.replaceAll("$", "$$$$"));
@@ -69,8 +70,13 @@ export class Runtime {
   private readonly starting = new Map<string, Promise<EnvironmentView>>();
   private readonly fetch: typeof fetch;
   private timer: NodeJS.Timeout | null = null;
+  private readonly previews: Previews;
+  private readonly previewRetry = new Map<string, number>();
 
-  constructor(private readonly deps: RuntimeDeps) { this.fetch = deps.fetch ?? fetch; }
+  constructor(private readonly deps: RuntimeDeps) {
+    this.fetch = deps.fetch ?? fetch;
+    this.previews = deps.previews ?? new Previews(deps);
+  }
 
   status(id: string): EnvironmentView | null {
     this.lane(id);
@@ -91,8 +97,16 @@ export class Runtime {
     const env = this.deps.store.environment(id);
     if (!env) return null;
     await Promise.allSettled(env.services.filter((s) => s.state !== "stopped").map((s) => this.deps.run("systemctl", ["--user", "stop", s.unit])));
-    for (const service of env.services) this.update(env, service, { state: "stopped", detail: null, ms: null });
+    await Promise.allSettled(env.services.flatMap((s) => s.url ? [this.previews.unpublish(s.url)] : []));
+    for (const service of env.services) this.update(env, service, { state: "stopped", detail: null, ms: null, url: null });
     return this.deps.store.environment(id);
+  }
+
+  previewUrl(id: string, name: string): { service: string; url: string } {
+    this.lane(id);
+    const service = this.deps.store.environment(id)?.services.find((s) => s.name === name);
+    if (!service?.url) throw new Refused(`${name} has no link yet. Start it with env_start and wait until it is healthy.`);
+    return { service: name, url: service.url };
   }
 
   async logs(id: string, name: string, lines: number): Promise<LogLine[]> {
@@ -240,6 +254,7 @@ export class Runtime {
         this.update(env, service, { state: "failed", probes, lastFailure: now, detail: `Stopped: it listened on ${seen.publicAddress}. Services must bind 127.0.0.1 ($HOST).` });
       } else if (seen.ok) {
         this.update(env, service, { state: "healthy", probes, ms: seen.ms, detail: null });
+        await this.link(id, service);
       } else if (service.state === "starting") {
         if (!deadline || Date.now() >= deadline) this.update(env, service, { state: "failed", probes, lastFailure: now, detail: seen.detail });
       } else {
@@ -264,6 +279,22 @@ export class Runtime {
     } catch { return { ok: false, ms: 0, detail: `Nothing answered on ${service.healthPath}.` }; }
   }
 
+  /** A healthy service gets its link. A failed link never stops the app; it says why and retries. */
+  private async link(id: string, service: ServiceStatus): Promise<void> {
+    if (service.url || Date.now() < (this.previewRetry.get(service.unit) ?? 0)) return;
+    const { store } = this.deps;
+    this.previewRetry.set(service.unit, Date.now() + 60_000);
+    try {
+      const url = await this.previews.publish(this.lane(id), service.name, service.port);
+      this.update(store.environment(id)!, service, { url });
+      const env = store.environment(id)!;
+      if (env.error?.startsWith(`Preview link for ${service.name}`)) store.saveEnvironment({ ...env, error: null });
+    } catch (err) {
+      const env = store.environment(id)!;
+      store.saveEnvironment({ ...env, error: `Preview link for ${service.name} failed. ${err instanceof Refused ? err.message : "Check that Tailscale is signed in and this user may use Serve."}` });
+    }
+  }
+
   /** Save a service's new status; say so in the event log only when its state really changed. */
   private update(env: EnvironmentView, service: ServiceStatus, change: Partial<ServiceStatus>): void {
     const { store, bus } = this.deps;
@@ -271,6 +302,6 @@ export class Runtime {
     const current = before.services.find((s) => s.name === service.name) ?? service;
     const next = { ...current, ...change };
     store.saveEnvironment({ ...before, services: before.services.map((s) => s.name === service.name ? next : s) });
-    if (current.state !== next.state || current.detail !== next.detail) bus.publish(store.appendEvent(env.lane, { type: "env.status", payload: { service: next.name, up: next.state === "healthy", port: next.port, ...(next.url ? { url: next.url } : {}), state: next.state, ...(next.detail ? { detail: next.detail } : {}) } }));
+    if (current.state !== next.state || current.detail !== next.detail || current.url !== next.url) bus.publish(store.appendEvent(env.lane, { type: "env.status", payload: { service: next.name, up: next.state === "healthy", port: next.port, ...(next.url ? { url: next.url } : {}), state: next.state, ...(next.detail ? { detail: next.detail } : {}) } }));
   }
 }

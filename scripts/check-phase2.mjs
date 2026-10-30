@@ -33,7 +33,9 @@ const store = Store.open(join(config.paths.data, 'db.sqlite'));
 const bus = new EventBus();
 const hosts = new HostLinks({ store, bus });
 const manager = new LaneManager({ store, bus, config, run: runCommand });
-const runtime = new Runtime({ store, bus, config, run: runCommand });
+// Real systemd, fake links: a fixture must never add routes to the machine's tailnet.
+const previews = { publish: async (lane, service) => `https://${service}-fixture.invalid:4700`, unpublish: async () => {} };
+const runtime = new Runtime({ store, bus, config, run: runCommand, previews });
 const setup = new SetupManager(config, store, runCommand, { changed: async () => {} });
 const app = buildServer({ store, bus, lanes: manager, hosts, config, version: 'check', setup, runtime });
 await app.listen({ host: '127.0.0.1', port: 0 });

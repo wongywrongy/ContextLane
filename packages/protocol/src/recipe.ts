@@ -67,7 +67,7 @@ export type EnvironmentView = z.infer<typeof EnvironmentView>;
 
 /** The Run page: the project's recipe, and each open lane's own recipe and environment. */
 export type LaneEnvironment = { lane: string; recipe: RecipeView | null; environment: EnvironmentView | null };
-export type ProjectEnvironments = { recipe: RecipeView | null; lanes: LaneEnvironment[] };
+export type ProjectEnvironments = { previews: "serve" | "services" | "caddy"; domain: string | null; recipe: RecipeView | null; lanes: LaneEnvironment[] };
 
 export const StartEnvRequest = z.object({ services: z.array(z.string()).optional() });
 export const LogsQuery = z.object({ service: z.string().min(1), lines: z.coerce.number().int().positive().max(500).default(100) });

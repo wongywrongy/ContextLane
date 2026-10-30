@@ -158,7 +158,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
     const lanes = store.listLanes(project.id).filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
-    return { recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
+    return { previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
@@ -217,6 +217,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (req.params.tool === "env_status") return runtime.status(lane);
     if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
+    if (req.params.tool === "preview_url") return runtime.previewUrl(lane, z.object({ service: z.string().default("web") }).parse(req.body ?? {}).service);
     if (req.params.tool === "get_logs") {
       const { service, lines } = LogsQuery.parse(req.body);
       return runtime.logs(lane, service, lines);

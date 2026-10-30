@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
 import { RECIPE_FILE } from "@contextlanes/protocol";
-import { Config, EventBus, Runtime, runCommand, Store } from "@contextlanes/daemon";
+import { Config, EventBus, Runtime, runCommand, Store, type Previews } from "@contextlanes/daemon";
 import { readRecipe } from "../src/recipes.js";
 
 const exec = promisify(execFile);
@@ -18,7 +18,9 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("runs a lane's service as 
   const repo = join(root, "repo"); const worktree = join(root, "lane");
   const git = (...args: string[]) => exec("git", ["-c", "user.name=CL", "-c", "user.email=cl@example.invalid", ...args], { cwd: repo });
   const store = Store.open(":memory:");
-  const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: root, lanes: root } }), run: runCommand });
+  // Real systemd, fake links: a fixture must never add routes to the machine's tailnet.
+  const previews = { publish: async () => "https://fixture.invalid:4700", unpublish: async () => {} } as unknown as Previews;
+  const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: root, lanes: root } }), run: runCommand, previews });
   try {
     await mkdir(repo);
     await git("init", "-b", "main");

@@ -20,6 +20,7 @@ function size(bytes: number): string {
 export function RunPage() {
   const { lanes, environments, reloadEnvironments } = useProjectWork();
   const [viewing, setViewing] = useState<RecipeView | null>(null);
+  const exposure = environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
   const live = environments?.lanes.filter((l) => running(l.environment)).length ?? 0;
   useEffect(() => {
     if (!live) return;
@@ -29,7 +30,7 @@ export function RunPage() {
   const open = environments?.lanes ?? [];
   const recipe = environments?.recipe ?? null;
   return <main className="pg stack">
-    <PageHeader title="Run" meta="each lane's copy of the app, from the approved recipe" end={<Glyph g="done">Tailnet only</Glyph>} />
+    <PageHeader title="Run" meta="each lane's copy of the app, from the approved recipe" end={<Glyph g="done">{exposure}</Glyph>} />
     <Section title="Environments" meta={environments ? `${live} running · ${open.length - live} not started` : ""}>
       {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} /> : null; })}
       {environments && !open.length ? <Empty>No open lanes. Start a lane from Work, then run its copy of the app here.</Empty> : null}
@@ -45,6 +46,7 @@ export function RunPage() {
         </div>
         <div>
           <h4>Exposure</h4>
+          <Glyph g="done">{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews reachable on your tailnet only"}</Glyph>
           <Glyph g="done">Nothing listening on 0.0.0.0; a service that tries is stopped</Glyph>
         </div>
       </div>

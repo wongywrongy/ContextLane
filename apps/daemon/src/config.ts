@@ -32,6 +32,16 @@ export const Config = z.object({
   notifications: NotificationConfig.prefault({}),
   localModels: z.array(LocalModel).default([]),
   projects: z.array(AddProjectRequest).default([]),
+  previews: z.object({
+    mode: z.enum(["serve", "services", "caddy"]).default("serve"),
+    /** HTTPS ports on the device for serve mode. */
+    ports: z.object({ from: z.number().int().min(1).max(65535).default(4700), to: z.number().int().min(1).max(65535).default(4799) }).prefault({}),
+    caddy: z.object({
+      domain: z.string().regex(/^[a-z0-9.-]+$/),
+      admin: z.url().refine((url) => ["127.0.0.1", "localhost"].includes(new URL(url).hostname), "Caddy's admin API must stay on loopback").default("http://127.0.0.1:2019"),
+      server: z.string().regex(/^[\w-]+$/).default("srv0"),
+    }).optional(),
+  }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
   lanes: z.object({
     maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),

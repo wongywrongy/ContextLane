@@ -25,6 +25,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
     calls.push([cmd, ...args]);
     if (cmd === "git" && args[0] === "ls-files") return { stdout: (opts.ignored ?? []).join("\0") };
     if (cmd === "systemctl" && args[1] === "show") return { stdout: `ActiveState=${state.active}\nControlGroup=/user.slice/x\n` };
+    if (cmd === "tailscale") return { stdout: args[0] === "status" ? JSON.stringify({ BackendState: "Running", Self: { DNSName: "neo.tail1.ts.net." } }) : "{}" };
     if (cmd === "cat") return { stdout: "4242\n" };
     if (cmd === "ss") return { stdout: state.ss };
     if (cmd === "du") return { stdout: `2048\t${worktree}\n` };
