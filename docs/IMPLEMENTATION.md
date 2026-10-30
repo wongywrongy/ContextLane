@@ -732,6 +732,15 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
 - Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
 
+#### Stability, clarity and the CLI (2026-10-30)
+
+Two independent reviews, one of the daemon's reliability over weeks of running and one of the UI as a first-time user, led to:
+
+- **Daemon.** A failed COMMIT no longer breaks every later write. Collisions, helper stats, Insights and handoffs query events by type in SQL (migration 10 adds `event(lane, type, seq)` and `event(at)`) instead of reading the whole log every pass. Lane numbers are reserved one start at a time. `recover.ts` runs at startup: lanes caught mid-setup become working (host running) or failed, leftover "before" services and checkouts go, stale worktrees are pruned. Commands default to a 5 minute timeout; collision passes never overlap; shutdown cuts open requests and exits within 10 s; unhandled rejections and 500s are logged; one failing event listener no longer stops the others; slow SSE clients are dropped at 1 MB; archive stops a lane's agent, services and terminal. Still open (low): pruning old checkpoint screenshots and attachments, a wait limit on the local-model queue, notification tokens piling up while a channel is down.
+- **UI.** DESIGN.md has eight principles and a word list. Ask for review is the lane's main action; access and hand-off actions are grouped and named plainly; unmeasured values are left out; nothing-needs-you is quiet; Run explains a recipe once; no invented goal on the overview; tool names left Setup.
+- **CLI.** `contextlanes update` shows steps with a spinner and times on a terminal (plain when piped, `NO_COLOR` respected) and ends with where to open it and how to undo. Help is grouped by task; status, setup, add and errors say what to do next.
+- **Repository.** README is short; recipes and developing moved to `docs/`.
+
 #### After the first run on neo (2026-10-30)
 
 Kyle ran it on a 48-module repository; Architecture became a wall of boxes and lines. Changes:
