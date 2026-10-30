@@ -1,0 +1,39 @@
+/* ContextLanes design tokens. Light first; mirrors the v4 canvas (docs/DESIGN.md). */
+:root {
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --surface-2: #FCFAF6;
+  --sunk: #F4EFE7;
+  --line: #E6E0D6;
+  --line-soft: #EFE9DF;
+  --ink: #0D0C0B;
+  --text: #1A1A1A;
+  --text-2: #4A463F;
+  --muted: #6B665E;
+  --faint: #8C857A;
+
+  --you: #E08A00;        /* needs you: amber, always with the diamond glyph */
+  --you-ink: #8A5A00;
+  --you-bg: #FFF6E3;
+  --you-line: #F1D9A6;
+  --ok: #1F8A55;
+  --ok-ink: #1F7A4D;
+  --bad: #D2452B;
+  --bad-ink: #B4361F;
+  --think: #6D4AFF;
+
+  /* lane colours */
+  --lc1: #4C5BD4; --lc2: #0E8A8A; --lc3: #B0458C; --lc4: #7A7F2A; --lc5: #55657A; --lc6: #9A5B2E;
+
+  /* step families */
+  --k-look: #EFE8DC; --k-change: #E3EAF8; --k-run: #E3F0E6; --k-mind: #ECE7FD; --k-you: #FCEBC9; --k-team: #F5E3EE;
+
+  --font: "Hanken Grotesk", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius: 12px;
+  --gutter: 32px;
+}
+
+@media (max-width: 900px) {
+  :root { --gutter: 20px; }
+}

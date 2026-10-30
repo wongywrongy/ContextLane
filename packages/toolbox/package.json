@@ -1,0 +1,23 @@
+{
+  "name": "@contextlanes/toolbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP tools every lane's agent gets: run and inspect the lane's app, ask the owner, checkpoint, module briefs, delegate to a local model.",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": { "contextlanes-toolbox": "./dist/main.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "zod": "4.6.5"
+  }
+}

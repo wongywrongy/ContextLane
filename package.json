@@ -1,0 +1,24 @@
+{
+  "name": "contextlanes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Run several coding agents in parallel lanes on an always-on machine, and review their work with evidence.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "dev": "pnpm --parallel --filter @contextlanes/daemon --filter @contextlanes/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.4"
+  }
+}
