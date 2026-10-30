@@ -163,7 +163,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string } }>("/api/projects/:project/environments", async (req) => {
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
-    const lanes = store.listLanes(project.id).filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
+    // A merged lane still shows while its services run, so they can be stopped before cleanup.
+    const lanes = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state) && (l.state !== "merged" || store.environment(l.id)?.services.some((s) => s.state !== "stopped")));
     return { cleanup: await review.cleanable(project.id), previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));

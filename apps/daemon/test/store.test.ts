@@ -60,4 +60,12 @@ describe("store", () => {
     store.appendEvent("shuttleworks/01", { type: "permission.answered", payload: { requestId: "r1", optionId: "allow", by: "phone" } });
     expect(store.inbox()).toEqual([]);
   });
+  it("asks for each lane's latest recipe only, since an edit replaces the earlier one", () => {
+    const store = seeded();
+    store.appendEvent("shuttleworks/01", { type: "recipe.requested", payload: { hash: "aaaaaaa1" } });
+    store.appendEvent("shuttleworks/01", { type: "recipe.requested", payload: { hash: "bbbbbbb2" } });
+    expect(store.inbox().map((i) => i.id)).toEqual(["shuttleworks/01#recipe-bbbbbbb2"]);
+    store.approveRecipe("shuttleworks", "bbbbbbb2");
+    expect(store.inbox()).toEqual([]);
+  });
 });

@@ -125,6 +125,17 @@ describe("approve and merge", () => {
     expect((await git(worktree, "merge-base", "--is-ancestor", first, await onRemote("lane/01-billing"))).stdout).toBe("");
   });
 
+  it("finishes the job on a second approve even after the first one rebased onto a moved main", async () => {
+    const { store, state, approve, moveMain } = await fixture({ ghFails: true });
+    await moveMain("other.txt", "from main\n");
+    expect((await approve()).statusCode).toBe(409);
+    expect(store.events("shop/01").some((e) => e.type === "checkpoint.updated")).toBe(true);
+    state.ghFails = false;
+    const res = await approve();
+    expect(res.statusCode).toBe(200);
+    expect(store.getLane("shop/01")!.state).toBe("merged");
+  });
+
   it("keeps the review open when gh fails, and approving again finishes the job", async () => {
     const { store, state, approve, onRemote } = await fixture({ ghFails: true });
     const res = await approve();

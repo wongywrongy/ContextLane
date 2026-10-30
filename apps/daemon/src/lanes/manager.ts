@@ -41,7 +41,7 @@ export class LaneManager {
       const used = await access(worktree).then(() => true, () => false);
       if (!listed && !used && !sessions.has(terminal) && !units.has(unit)) return { branch, worktree, terminal, hostUnit: unit };
     }
-    throw new Error(`Branches lane/${String(n).padStart(2, "0")}-… are all taken in this repository; delete old lane branches and try again.`);
+    throw new Refused(`Branches lane/${String(n).padStart(2, "0")}-… are all taken in this repository; delete old lane branches and try again.`);
   }
 
   async start(input: unknown): Promise<Lane> {
@@ -50,7 +50,7 @@ export class LaneManager {
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
     const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
-    if (active.length >= config.lanes.maxConcurrent) throw new Error("maximum concurrent lanes reached");
+    if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
 
     const n = store.nextLaneNumber(project.id);
     const id = laneId(project.id, n);
@@ -99,10 +99,11 @@ export function hostCommand(lane: Lane, config: Config): string[] {
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
   return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
     `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
-    config.lanes.host.command, ...config.lanes.host.args, "--lane", lane.id, "--task", lane.task, "--agent", lane.agent,
-    "--socket", join(config.paths.data, "lanes.sock"), "--mode", lane.mode,
-    "--toolbox", JSON.stringify(toolbox), ...(lane.model ? ["--model", lane.model] : []),
-    ...(config.agents[lane.agent] ? ["--agent-spec", JSON.stringify(config.agents[lane.agent])] : [])];
+    // name=value keeps a task that starts with "-" a value; $$ keeps systemd from expanding $ in the task or JSON.
+    ...[config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, `--task=${lane.task}`, `--agent=${lane.agent}`,
+      `--socket=${join(config.paths.data, "lanes.sock")}`, `--mode=${lane.mode}`,
+      `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []),
+      ...(config.agents[lane.agent] ? [`--agent-spec=${JSON.stringify(config.agents[lane.agent])}`] : [])].map((arg) => arg.replaceAll("$", "$$$$"))];
 }
 
 export class NotFound extends Error {}

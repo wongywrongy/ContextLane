@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { setupOutput, addProject } from "./setup.js";
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { Health, InboxItem, Lane, Project } from "@contextlanes/protocol";
+import type { Health, InboxItem, Lane, Project, ProjectBranches } from "@contextlanes/protocol";
 import { api, daemonUrl, ClientError } from "./client.js";
 import { formatInbox, formatLanes } from "./format.js";
 
@@ -10,21 +12,27 @@ const HELP = `contextlanes — run coding agents in parallel lanes
 
   contextlanes status                         is the daemon up
   contextlanes lanes [project]                every lane, its state and what it waits on
-  contextlanes lane start <project> "<task>"  start a lane  [--agent claude-code|codex|opencode] [--model m]
+  contextlanes lane start <project> "<task>"  start a lane  [--agent claude-code|codex|opencode] [--model m] [--base branch]
   contextlanes term <lane>                    your persistent shell in the lane's worktree (tmux)
   contextlanes inbox                          what is waiting on you
   contextlanes answer <id> <option>           answer a permission or question
-  contextlanes arch [module]                  the architecture view as text  (phase 3)
   contextlanes setup                          claim, enable remote access, print sign-in link and QR
   contextlanes add [path]                     add a repository (defaults to the current folder)
+  contextlanes update                         install the newest version and restart; lanes keep running
+                                              [--check] only list what's new   [--rollback] go back one version
 
 Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
 
 async function main(argv: string[]): Promise<number> {
+  // The updater ships with the daemon; run the copy from the release this command belongs to.
+  if (argv[0] === "update") {
+    const release = fileURLToPath(new URL("../../../", import.meta.url));
+    return spawnSync(process.execPath, [join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1)], { stdio: "inherit" }).status ?? 1;
+  }
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { agent: { type: "string" }, model: { type: "string" }, help: { type: "boolean", short: "h" } },
+    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, help: { type: "boolean", short: "h" } },
   });
   const [cmd, ...rest] = positionals;
 
@@ -46,7 +54,8 @@ async function main(argv: string[]): Promise<number> {
     }
     case "lane": {
       if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage();
-      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model } });
+      const base = values.base ?? (await api<ProjectBranches>(`/api/projects/${rest[1]}/branches`)).defaultBranch ?? undefined;
+      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model, base } });
       console.log(`Started ${lane.id} on ${lane.branch} (${lane.state}). Shell: contextlanes term ${lane.id}`);
       return 0;
     }
@@ -56,7 +65,8 @@ async function main(argv: string[]): Promise<number> {
       const lanes = await api<Lane[]>(`/api/projects/${project}/lanes`);
       const lane = lanes.find((l) => l.id === `${project}/${n}`);
       if (!lane) throw new Error(`no lane ${rest[0]}`);
-      return spawnSync("tmux", ["attach-session", "-t", lane.terminal], { stdio: "inherit" }).status ?? 1;
+      // "=" makes tmux match the exact session, never cl-shop-010 for cl-shop-01.
+      return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
     }
     case "inbox":
       console.log(formatInbox(await api<InboxItem[]>("/api/inbox")));
@@ -69,9 +79,6 @@ async function main(argv: string[]): Promise<number> {
       console.log("Answered.");
       return 0;
     }
-    case "arch":
-      console.log("The architecture view arrives with the code map in phase 3 (docs/IMPLEMENTATION.md).");
-      return 0;
     case "setup":
       console.log(await setupOutput());
       return 0;

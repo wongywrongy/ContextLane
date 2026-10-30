@@ -34,7 +34,7 @@ export const TOOLS = {
   checkpoint: {
     phase: 2,
     description: "Say this lane is ready for review. Commit your work first. Starts the checks and builds the review packet in the background; the owner reviews it.",
-    input: z.object({ summary: z.string() }),
+    input: z.object({ summary: z.string().trim().min(1).max(2000) }),
   },
   get_brief: {
     phase: 3,

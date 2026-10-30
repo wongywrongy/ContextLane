@@ -30,7 +30,7 @@ describe("lane terminal", () => {
     const { app, store, run, pty, events, lane } = await setup();
     const before = store.events(lane.id);
     const ws = await app.injectWS("/api/lanes/demo/01/terminal", { headers: { host: "contextlanes.test", origin: "https://contextlanes.test", "tailscale-user-login": "kyle@example.com" } });
-    expect(run.terminal).toHaveBeenCalledWith("tmux", ["attach-session", "-t", lane.terminal], { cwd: lane.worktree, cols: 80, rows: 24 });
+    expect(run.terminal).toHaveBeenCalledWith("tmux", ["attach-session", "-t", `=${lane.terminal}`], { cwd: lane.worktree, cols: 80, rows: 24 });
     const output = once(ws, "message");
     events.emit("data", "hello\r\n");
     expect(String((await output)[0])).toBe("hello\r\n");

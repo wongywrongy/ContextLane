@@ -120,6 +120,19 @@ describe("lane setup", () => {
 });
 
 describe("services", () => {
+  it("restarts every service under a newly approved recipe, keeping ports and dropping removed services", async () => {
+    const { runtime, calls, worktree, approve } = await setup();
+    await approve();
+    const first = await runtime.start("shop/01");
+    await writeFile(join(worktree, RECIPE_FILE), JSON.stringify({ ...RECIPE, services: [RECIPE.services[0]] }));
+    await approve();
+    const before = started(calls).length;
+    const env = await runtime.start("shop/01");
+    expect(started(calls).length - before).toBe(1);
+    expect(calls).toContainEqual(["systemctl", "--user", "stop", first.services.find((s) => s.name === "web")!.unit]);
+    expect(env.services.map((s) => [s.name, s.port, s.state])).toEqual([["api", 20100, "healthy"]]);
+  });
+
   it("runs each service as a user unit on a free loopback port, with units unique per start", async () => {
     const { runtime, calls, seen, approve } = await setup();
     await approve();

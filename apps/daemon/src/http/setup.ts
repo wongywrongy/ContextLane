@@ -43,9 +43,7 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
     const token = await setup.login(req.body, requestOrigin(req));
     return reply.header("set-cookie", session(req, token)).send({ authorized: true });
   });
-  app.get("/api/setup/settings", async () => ({ host: setup.config.host, access: { owner: setup.config.access.owner },
-    agents: setup.config.agents, notifications: setup.config.notifications, localModels: setup.config.localModels,
-    lanes: { maxConcurrent: setup.config.lanes.maxConcurrent, launchHosts: setup.config.lanes.launchHosts } }));
+  app.get("/api/setup/settings", async () => setup.redactedSettings());
   app.post("/api/setup/settings", async (req) => { await setup.settings(req.body); return { saved: true }; });
   app.get("/api/setup/agents", async () => setup.detectAgents());
   app.post("/api/setup/agents/install", async (req) => setup.installAgent(req.body));

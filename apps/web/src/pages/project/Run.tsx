@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus } from "@contextlanes/protocol";
+import { useParams } from "react-router";
 import { errorMessage, getJson, postJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { Dialog, Empty, Glyph, LaneBadge, PageHeader, Section } from "../../components/ui";
@@ -48,7 +49,7 @@ export function RunPage() {
         <div>
           <h4>Exposure</h4>
           <Glyph g="done">{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews reachable on your tailnet only"}</Glyph>
-          <Glyph g="done">Nothing listening on 0.0.0.0; a service that tries is stopped</Glyph>
+          <Glyph g="done">A service found listening beyond this machine is stopped within seconds</Glyph>
         </div>
       </div>
     </Section>
@@ -59,8 +60,9 @@ export function RunPage() {
 function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]; changed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const safe = entries.filter((e) => !e.unpushed);
-  const unpushed = entries.reduce((sum, e) => sum + e.unpushed, 0);
+  const safe = entries.filter((e) => e.unpushed === 0);
+  const unpushed = entries.reduce((sum, e) => sum + (e.unpushed ?? 0), 0);
+  const unknown = entries.filter((e) => e.unpushed === null).length;
   const disk = entries.reduce((sum, e) => sum + (e.disk ?? 0), 0);
   const clean = async () => {
     setBusy(true); setMessage("");
@@ -73,17 +75,16 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
   return <div>
     <h4>Clean up{entries.length ? <span className="e mono muted" style={{ fontSize: 12, fontWeight: 500 }}>{entries.length} merged {entries.length === 1 ? "lane" : "lanes"}{disk ? ` · ${size(disk)}` : ""}</span> : null}</h4>
     <Glyph g="done">Stops services and the agent</Glyph>
-    <Glyph g="done">Removes checkouts, keeps branches</Glyph>
-    <Glyph g={unpushed ? "wait" : "done"}>Skips anything unpushed ({unpushed} now)</Glyph>
+    <Glyph g="done">Removes checkouts, including ignored files such as .env; keeps branches</Glyph>
+    <Glyph g={unpushed || unknown ? "wait" : "done"}>Skips anything unpushed ({unpushed} now{unknown ? `; ${unknown} could not be checked` : ""})</Glyph>
     {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
     {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{message}</p> : null}
   </div>;
 }
 
 function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: () => void; changed: () => void }) {
-  const { lanes } = useProjectWork();
+  const { project } = useParams();
   const [error, setError] = useState("");
-  const project = lanes[0]?.project;
   const approve = async () => {
     try { await postJson(`/api/projects/${project}/recipe/approve`, { hash: view.hash }); changed(); onClose(); }
     catch (err) { setError(errorMessage(err)); }
@@ -115,7 +116,7 @@ function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: L
       <LaneBadge id={lane.id} colour={lane.colour} /><b>{lane.task}</b>
       <span className="m">{lane.branch} · {isRunning && env?.startedAt ? `up ${duration(env.startedAt)}` : "not started"}</span>
       <div className="e">
-        {isRunning ? <><button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button><button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
+        {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
           : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Review recipe</button>
             : recipe ? <button className="btn sm" disabled={!!busy} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start environment"}</button> : null}
       </div>

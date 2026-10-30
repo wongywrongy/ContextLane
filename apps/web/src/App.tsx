@@ -1,3 +1,4 @@
+import { READY } from "./features";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { SetupPage, ClaimGuard } from "./pages/Setup";
 import { SettingsPage, ModelsPage } from "./pages/Settings";
@@ -27,8 +28,8 @@ const router = createBrowserRouter([
           { path: "work", element: <WorkPage /> },
           { path: "review", element: <ReviewPage /> },
           { path: "run", element: <RunPage /> },
-          { path: "architecture", element: <ArchitecturePage /> },
-          { path: "insights", element: <InsightsPage /> },
+          { path: "architecture", element: READY.architecture ? <ArchitecturePage /> : <Navigate to="../work" replace /> },
+          { path: "insights", element: READY.insights ? <InsightsPage /> : <Navigate to="../work" replace /> },
         ],
       },
     ],

@@ -209,7 +209,16 @@ export class Runtime {
     if (unknown) throw new Refused(`The recipe has no service called ${unknown}.`, 404);
 
     const previous = store.environment(id);
-    const env: EnvironmentView = previous?.recipeHash === view!.hash ? { ...previous, error: null } : { lane: id, recipeHash: view!.hash, services: previous?.services ?? [], setup: null, startedAt: null, error: null };
+    // A newly approved recipe replaces what runs: stop the old units (keeping each service's port, so links stay the same) and drop services it no longer has.
+    const changed = !!previous && previous.recipeHash !== view!.hash;
+    if (changed) {
+      for (const s of previous.services.filter((s) => s.state !== "stopped")) {
+        await this.deps.run("systemctl", ["--user", "stop", s.unit]).catch(() => {});
+        this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: s.name, up: false, port: s.port, state: "stopped", detail: "Stopped because the recipe changed." } }));
+      }
+    }
+    const carried = changed ? previous.services.filter((s) => recipe.services.some((r) => r.name === s.name)).map((s) => ({ ...s, state: "stopped" as const })) : previous?.services ?? [];
+    const env: EnvironmentView = previous && !changed ? { ...previous, error: null } : { lane: id, recipeHash: view!.hash, services: carried, setup: null, startedAt: null, error: null };
     const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, env.services.find((x) => x.name === s.name)?.port ?? await (this.deps.freePort ?? freePort)()] as const)));
     const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: id, ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
 

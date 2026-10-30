@@ -221,6 +221,20 @@ describe("headless setup", () => {
   });
 });
 
+describe("settings secrets", () => {
+  it("never sends tokens or keys to the page, and saving the mask keeps them", async () => {
+    const f = await fixture();
+    await f.setup.settings({ notifications: { publicUrl: "https://neo.test.ts.net", telegram: { botToken: "123:secret", chatId: "-1", ownerId: "2" }, ntfy: { topic: "t", token: "tk_secret" } }, agents: { codex: { command: "codex-acp", args: [], env: { OPENAI_API_KEY: "sk-secret" } } } });
+    const shown = JSON.stringify(f.setup.redactedSettings());
+    for (const secret of ["123:secret", "tk_secret", "sk-secret"]) expect(shown).not.toContain(secret);
+    const page = f.setup.redactedSettings();
+    await f.setup.settings({ notifications: { ...page.notifications, telegram: { ...page.notifications.telegram!, chatId: "-5" } }, agents: page.agents });
+    expect(f.config.notifications.telegram).toEqual({ botToken: "123:secret", chatId: "-5", ownerId: "2" });
+    expect(f.config.notifications.ntfy?.token).toBe("tk_secret");
+    expect(f.config.agents.codex?.env).toEqual({ OPENAI_API_KEY: "sk-secret" });
+  });
+});
+
 describe("project discovery", () => {
   it("finds repos up to depth five, skips hidden/node_modules/symlinks, and reports branches", async () => {
     const f = await fixture();

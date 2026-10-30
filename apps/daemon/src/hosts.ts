@@ -82,6 +82,8 @@ export class HostLinks {
           const state = store.getLane(lane)!.state;
           if (event.type === "permission.requested" && state === "working") bus.publish(store.setLaneState(lane, "needs_you"));
           if (event.type === "agent.error" && ["working", "needs_you", "setting_up"].includes(state)) bus.publish(store.setLaneState(lane, "failed", event.payload.message));
+          // One failed turn (a rate limit, a dropped connection) is not the end: when the agent takes a new turn, the lane is working again.
+          if (event.type === "agent.turn" && event.payload.active && state === "failed") bus.publish(store.setLaneState(lane, "working", "The agent started a new turn"));
         }
         this.send(lane, { ack: body.eventId });
       } catch (err) {

@@ -68,6 +68,13 @@ describe("http api", () => {
     expect(calls.join("\n")).not.toMatch(/systemctl --user (stop|kill|reset-failed)/);
   });
 
+  it("refuses a base branch that git would read as an option", async () => {
+    const { app, calls } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    for (const base of ["--force", "-b", "a..b", "main branch"]) expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", base } })).statusCode).toBe(400);
+    expect(calls.some((c) => c.startsWith("git worktree"))).toBe(false);
+  });
+
   it("marks the lane failed when setup breaks", async () => {
     const { app } = setup({ fail: true });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/ara" } });

@@ -256,7 +256,7 @@ export class Store {
     return rows.map(toEvent);
   }
 
-  /** Everything waiting on the owner: unanswered permission requests and lanes in review. */
+  /** Everything waiting on the owner: unanswered permission requests, lanes in review, and each lane's latest unapproved recipe (an older one was replaced by the edit). */
   inbox(): InboxItem[] {
     const asks = this.db
       .prepare(
@@ -272,6 +272,7 @@ export class Store {
     const reviews = this.db.prepare("SELECT l.id, l.task, (SELECT MAX(c.created_at) FROM checkpoint c WHERE c.lane = l.id) AS at FROM lane l WHERE l.state = 'in_review' ORDER BY l.created_at").all() as Row[];
     const recipes = this.db.prepare(`SELECT r.lane, MIN(r.at) AS at, json_extract(r.payload, '$.hash') AS hash FROM event r JOIN lane l ON l.id = r.lane
       WHERE r.type = 'recipe.requested' AND l.state NOT IN ('merged', 'cleaned', 'archived')
+        AND r.seq = (SELECT MAX(r2.seq) FROM event r2 WHERE r2.lane = r.lane AND r2.type = 'recipe.requested')
         AND NOT EXISTS (SELECT 1 FROM approval a WHERE a.project = l.project AND a.recipe_hash = json_extract(r.payload, '$.hash'))
       GROUP BY r.lane, hash ORDER BY at`).all() as Row[];
     return [

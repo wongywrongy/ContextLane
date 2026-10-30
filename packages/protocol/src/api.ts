@@ -41,7 +41,8 @@ export const StartLaneRequest = z.object({
   model: z.string().optional(),
   mode: z.enum(["ask", "edits", "plan"]).default("ask"),
   goal: z.string().optional(),
-  base: z.string().default("main"),
+  /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */
+  base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
 });
 export type StartLaneRequest = z.input<typeof StartLaneRequest>;
 

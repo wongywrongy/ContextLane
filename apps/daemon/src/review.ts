@@ -37,11 +37,20 @@ export class Review {
     try {
       const base = lane.base ?? "main";
       if (lane.branch === base) throw new Refused(`This lane is on ${base} itself, so there is nothing to merge.`);
-      if ((await this.git(lane, "rev-parse", "HEAD")).stdout.trim() !== checkpoint.head) throw new Refused("The lane has new commits since this checkpoint. Ask for a new checkpoint so review covers them.");
+      // A retry after a failed push or gh starts from the head the earlier attempt rebased to.
+      const updated = this.deps.store.events(id).findLast((e) => e.type === "checkpoint.updated" && e.payload.checkpointId === checkpoint.id);
+      const head = (await this.git(lane, "rev-parse", "HEAD")).stdout.trim();
+      const resumed = updated?.type === "checkpoint.updated" && updated.payload.head === head;
+      if (head !== checkpoint.head && !resumed) throw new Refused("The lane has new commits since this checkpoint. Ask for a new checkpoint so review covers them.");
       if ((await this.git(lane, "status", "--porcelain")).stdout.trim()) throw new Refused("The lane has uncommitted changes. Ask the agent to commit or discard them first.");
       await this.git(lane, "remote", "get-url", "origin").catch(() => { throw new Refused("This repository has no origin remote to push to."); });
-      await this.git(lane, "fetch", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
-      await this.update(lane, base);
+      if (!resumed) {
+        await this.git(lane, "fetch", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`)
+          .catch(() => { throw new Refused(`${base} could not be fetched from origin. Check that the branch exists there, then approve again.`); });
+        await this.update(lane, base);
+        const after = (await this.git(lane, "rev-parse", "HEAD")).stdout.trim();
+        if (after !== checkpoint.head) this.deps.bus.publish(this.deps.store.appendEvent(id, { type: "checkpoint.updated", payload: { checkpointId: checkpoint.id, head: after } }));
+      }
       await this.git(lane, "push", "--set-upstream", "origin", `HEAD:refs/heads/${lane.branch}`).catch(() => { throw new Refused(`git push of ${lane.branch} was refused. Nothing was forced; check the remote and try again.`); });
       const prUrl = await this.openPullRequest(lane, base, checkpoint.summary);
       const { store, bus } = this.deps;
@@ -78,10 +87,11 @@ export class Review {
   }
 
   /** What Clean up would do for each merged lane, for the Run page. A lane git cannot read counts as unsafe. */
-  async cleanable(project: ProjectId): Promise<{ lane: string; unpushed: number; disk: number | null }[]> {
+  /** unpushed is null when git could not count, so the page says "could not be checked" instead of a made-up number. */
+  async cleanable(project: ProjectId): Promise<{ lane: string; unpushed: number | null; disk: number | null }[]> {
     const { store } = this.deps;
     const repo = store.getProject(project)!.path;
-    return Promise.all(store.listLanes(project).filter((l) => l.state === "merged").map(async (lane) => ({ lane: lane.id, unpushed: await this.unpushed(lane, repo).catch(() => 1), disk: store.environment(lane.id)?.setup?.disk ?? null })));
+    return Promise.all(store.listLanes(project).filter((l) => l.state === "merged").map(async (lane) => ({ lane: lane.id, unpushed: await this.unpushed(lane, repo).catch(() => null), disk: store.environment(lane.id)?.setup?.disk ?? null })));
   }
 
   /** Stop the lane's units and remove its checkout; branches stay. Refuses before touching anything if work would be lost. */

@@ -158,8 +158,17 @@ export class SetupManager {
     this.writing = write.catch(() => {});
     return write;
   }
+  /** Settings for the page, with tokens and keys replaced by a mask. Saving the mask keeps the stored value. */
+  redactedSettings() {
+    const n = this.config.notifications;
+    const agentsView = Object.fromEntries(Object.entries(this.config.agents).map(([id, spec]) => [id, { ...spec, ...(spec.env ? { env: Object.fromEntries(Object.keys(spec.env).map((k) => [k, SECRET_MASK])) } : {}) }]));
+    return { host: this.config.host, access: { owner: this.config.access.owner }, agents: agentsView, localModels: this.config.localModels,
+      notifications: { ...n, ...(n.ntfy ? { ntfy: { ...n.ntfy, ...(n.ntfy.token ? { token: SECRET_MASK } : {}) } } : {}),
+        ...(n.telegram ? { telegram: { ...n.telegram, botToken: SECRET_MASK } } : {}), ...(n.webPush ? { webPush: { ...n.webPush, privateKey: SECRET_MASK } } : {}) },
+      lanes: { maxConcurrent: this.config.lanes.maxConcurrent, launchHosts: this.config.lanes.launchHosts } };
+  }
   async settings(body: unknown): Promise<void> {
-    const { lanes, ...b } = SetupSettings.parse(body);
+    const { lanes, ...b } = SetupSettings.parse(keepSecrets(body, this.config));
     await this.update({ ...b, ...(lanes ? { lanes: { ...this.config.lanes, ...lanes } } : {}) });
   }
   async addProject(body: unknown) {
@@ -263,4 +272,17 @@ async function portFree(port: number): Promise<boolean> {
     probe.once("error", () => resolve(false));
     probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
   });
+}
+
+export const SECRET_MASK = "••••••••";
+/** A masked value sent back unchanged means "keep what is stored". */
+function keepSecrets(body: unknown, config: Config): unknown {
+  if (!body || typeof body !== "object") return body;
+  const b = structuredClone(body) as { notifications?: Record<string, Record<string, unknown> | undefined>; agents?: Record<string, { env?: Record<string, string> }> };
+  const n = b.notifications; const stored = config.notifications;
+  if (n?.ntfy?.token === SECRET_MASK) n.ntfy.token = stored.ntfy?.token;
+  if (n?.telegram?.botToken === SECRET_MASK) n.telegram.botToken = stored.telegram?.botToken;
+  if (n?.webPush?.privateKey === SECRET_MASK) n.webPush.privateKey = stored.webPush?.privateKey;
+  for (const [id, spec] of Object.entries(b.agents ?? {})) for (const [k, v] of Object.entries(spec.env ?? {})) if (v === SECRET_MASK) spec.env![k] = config.agents[id]?.env?.[k] ?? "";
+  return b;
 }

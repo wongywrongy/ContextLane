@@ -29,5 +29,6 @@ export class Terminals {
 
 /** What `contextlanes term <lane>` execs on the machine. */
 export function attachArgs(session: string): string[] {
-  return ["attach-session", "-t", session];
+  // "=" matches the exact session name; plain names also prefix-match cl-shop-010 for cl-shop-01.
+  return ["attach-session", "-t", `=${session}`];
 }
