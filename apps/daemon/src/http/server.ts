@@ -1,5 +1,6 @@
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { serveWeb } from "./static.js";
+import { ProjectError } from "../projects.js";
 import { SetupError, type SetupManager } from "../setup.js";
 import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
@@ -51,9 +52,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
     if (deps.setup) {
       const path = req.url.split("?")[0]!;
-      const publicApi = ["/api/health", "/api/setup/status", "/api/setup/claim/tailnet", "/api/setup/claim/options", "/api/setup/claim/passkey", "/api/setup/login/options", "/api/setup/login"];
+      const publicApi = ["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"];
       if (!path.startsWith("/api/") || publicApi.includes(path)) return;
-      if (!deps.setup.authorized(login, req.headers.cookie, req.hostname)) return reply.code(401).send({ error: deps.setup.claimed ? "Sign in through Setup" : "Claim this machine through Setup" });
+      if (!deps.setup.authorized(login, req.headers.cookie, req.hostname)) return reply.code(401).send({ error: "Run contextlanes setup in this machine’s SSH session, then open its sign-in link." });
       return;
     }
     if (typeof login === "string") return;
@@ -61,13 +62,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof z.ZodError) return reply.code(400).send({ error: "invalid request", issues: err.issues });
-    if (err instanceof SetupError) return reply.code(err.statusCode).send({ error: err.message });
-    if (err instanceof NotFound) return reply.code(404).send({ error: err.message });
-    return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
+    if (err instanceof SetupError || err instanceof ProjectError) return reply.code(err.statusCode).send({ error: err.message });
+    if (err instanceof NotFound) return reply.code(404).send({ error: "That project or lane could not be found; return to Projects and choose it again." });
+    return reply.code(500).send({ error: "This action could not finish; check the daemon logs and try again." });
   });
 
-  if (deps.setup) setupRoutes(app, deps.setup);
+  if (deps.setup) setupRoutes(app, deps.setup, store, run);
   serveWeb(app);
 
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));

@@ -25,6 +25,7 @@ export const Config = z.object({
       /** Accept requests without identity headers from loopback (development, CLI on the box). */
       allowLocal: z.boolean().default(true),
       passkey: Passkey.optional(),
+      shellOwner: z.string().optional(),
     })
     .default({ owner: null, allowLocal: true }),
   agents: z.record(z.string(), AgentSpec).default({}),

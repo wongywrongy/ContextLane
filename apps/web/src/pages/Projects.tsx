@@ -1,10 +1,12 @@
+import { LocalModelsSection, NotificationsSection, PasskeySection } from "./Setup";
 import { Link } from "react-router";
-import type { Project } from "@contextlanes/protocol";
+import type { Project, SetupStatus } from "@contextlanes/protocol";
 import { useJson, useInbox } from "../api";
 import { Empty, PageHeader, Section } from "../components/ui";
 
 export function ProjectsPage() {
   const [projects] = useJson<Project[]>("/api/projects");
+  const [status] = useJson<SetupStatus>("/api/setup/status");
   const [inbox] = useInbox();
   return (
     <main className="page">
@@ -34,6 +36,7 @@ export function ProjectsPage() {
           <Empty>No projects yet. Add your first repository in Settings.</Empty>
         )}
       </Section>
+      {status?.hasLane && <><PasskeySection /><NotificationsSection /><LocalModelsSection /></>}
     </main>
   );
 }

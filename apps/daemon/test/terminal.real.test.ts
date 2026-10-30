@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { expect, it, vi } from "vitest";
-import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, runCommand } from "@contextlanes/daemon";
+import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, runCommand, type Runner } from "@contextlanes/daemon";
 
 // Opt in on a machine with tmux and a PTY; the ordinary suite fakes every command.
 it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell and tmux history across browser and daemon disconnects, then attaches the CLI", async () => {
@@ -12,7 +12,10 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
-  const lanes = new LaneManager({ store, bus, config, run: runCommand });
+  // Keep the owner's shell startup and prompt hooks out of the fixture.
+  const fixtureRunner: Runner = Object.assign((cmd: string, args: string[], opts?: Parameters<Runner>[2]) =>
+    runCommand(cmd, cmd === "tmux" && args[0] === "new-session" ? [...args, "bash", "--noprofile", "--norc"] : args, opts), { terminal: runCommand.terminal });
+  const lanes = new LaneManager({ store, bus, config, run: fixtureRunner });
   let app = buildServer({ store, bus, lanes, hosts, config, version: "test" });
   let session: string | undefined;
   try {

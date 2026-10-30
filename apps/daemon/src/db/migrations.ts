@@ -78,4 +78,5 @@ export const MIGRATIONS: readonly string[] = [
   CREATE TABLE notification_action (hash TEXT PRIMARY KEY, lane TEXT NOT NULL REFERENCES lane(id), request_id TEXT NOT NULL, option_id TEXT NOT NULL, channel TEXT NOT NULL);
   CREATE TABLE notification_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), offset INTEGER NOT NULL);`,
   /* 4 */ `CREATE TABLE owner_session (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);`,
+  /* 5 */ `CREATE TABLE setup_link (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL, origin TEXT NOT NULL);`,
 ];

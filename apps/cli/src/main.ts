@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { setupOutput, addProject } from "./setup.js";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import type { Health, InboxItem, SetupStatus, Lane, Project } from "@contextlanes/protocol";
-import { api, daemonUrl } from "./client.js";
+import type { Health, InboxItem, Lane, Project } from "@contextlanes/protocol";
+import { api, daemonUrl, ClientError } from "./client.js";
 import { formatInbox, formatLanes } from "./format.js";
 
 const HELP = `contextlanes — run coding agents in parallel lanes
@@ -15,7 +15,8 @@ const HELP = `contextlanes — run coding agents in parallel lanes
   contextlanes inbox                          what is waiting on you
   contextlanes answer <id> <option>           answer a permission or question
   contextlanes arch [module]                  the architecture view as text  (phase 3)
-  contextlanes setup                          open setup and show the claim code
+  contextlanes setup                          claim, enable remote access, print sign-in link and QR
+  contextlanes add [path]                     add a repository (defaults to the current folder)
 
 Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
 
@@ -71,12 +72,12 @@ async function main(argv: string[]): Promise<number> {
     case "arch":
       console.log("The architecture view arrives with the code map in phase 3 (docs/IMPLEMENTATION.md).");
       return 0;
-    case "setup": {
-      const status = await api<SetupStatus>("/api/setup/status");
-      const url = new URL(daemonUrl());
-      if (["127.0.0.1", "localhost"].includes(url.hostname)) url.hostname = "localhost";
-      console.log(`Open ${status.publicUrl ?? url.origin}/setup`);
-      if (!status.claimed && status.claimFile && ["127.0.0.1", "localhost"].includes(new URL(daemonUrl()).hostname)) console.log(`Claim code: ${(await readFile(status.claimFile, "utf8")).trim()}`);
+    case "setup":
+      console.log(await setupOutput());
+      return 0;
+    case "add": {
+      const project = await addProject(rest[0]);
+      console.log(`Added ${project.name}.`);
       return 0;
     }
     default:
@@ -92,7 +93,7 @@ function usage(): number {
 main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (err: unknown) => {
-    console.error(`contextlanes: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`contextlanes: ${err instanceof ClientError ? err.message : "This command could not finish; check the daemon logs and try again."}`);
     process.exit(1);
   },
 );

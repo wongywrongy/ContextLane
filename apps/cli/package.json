@@ -11,12 +11,18 @@
       "default": "./dist/index.js"
     }
   },
-  "bin": { "contextlanes": "./dist/main.js" },
+  "bin": {
+    "contextlanes": "./dist/main.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@contextlanes/protocol": "workspace:*"
+    "@contextlanes/protocol": "workspace:*",
+    "qrcode-terminal": "0.12.0"
+  },
+  "devDependencies": {
+    "@types/qrcode-terminal": "0.12.2"
   }
 }

@@ -45,7 +45,7 @@ flowchart TB
 
 ## Data
 
-The six core tables, three notification transport tables and hashed owner-session table live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
+The six core tables, three notification transport tables, hashed owner-session table and expiring setup-link table live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
 
 | Table | Holds |
 |---|---|
@@ -150,7 +150,11 @@ The daemon serves the built `apps/web/dist` SPA as well as `/api`; unknown API r
 
 `SetupManager` writes validated configuration atomically with mode 0600, then applies it to the running managers. Saved projects are re-registered idempotently at startup, and notifier changes close the old transport before starting the new one. Commands remain injected through `Runner`, including agent status/install, Git validation and Tailscale Serve. Model probes are loopback-only and reject redirects.
 
-A random code in `<data>/claim-code` (0600) authorizes the first owner claim. The public API never returns the code; the local CLI prints it. Claim is serialized and consumes the code after saving an owner identity or verified passkey. WebAuthn verification uses pinned SimpleWebAuthn, single-use five-minute challenges bound to origin/RP, user verification and persisted counters. Counters cannot move backwards. Thirty-day random session cookies are HttpOnly/SameSite Strict and Secure over HTTPS; only hashes are stored. These authentication expirations never answer agent permissions. Passkeys registered on localhost work on that RP only; the wizard links the Tailscale node owner for phone access.
+The CLI proves local shell access by reading `<data>/setup-token` (0600) automatically. The local control endpoint additionally requires a loopback peer and hostname and refuses Origin/Tailscale headers. It persists the shell owner, checks linger, enables/reuses Serve through Runner, then mints an origin-bound ten-minute sign-in link. Only link hashes are persisted; one atomic delete consumes a link, including under concurrent requests. Secrets are carried in URL fragments, removed on landing, and never sent in request URLs or referrers. Initial typed-code/passkey claim endpoints no longer exist. A shell owner is distinct from the optional Tailscale owner identity; no application API opens before one is established.
+
+Browser setup has three gates: a Ready agent, an added project, and a working lane. Home scanning is bounded to four levels/2,000 folders and skips hidden/node_modules/symlinks. Folder browsing canonicalizes paths and confines them to home. Explicit path registration accepts `~`, verifies Git through Runner, and remains owner-only, as do scan/browse/branch and fixed-command login-terminal endpoints. Login terminals use the lazy native PTY bridge and never accept a shell command from a request. Closing one stops the login command, not any lane.
+
+Passkeys can be added only to the owner’s configured HTTPS address after sign-in. WebAuthn uses single-use five-minute challenges bound to origin/RP, required user verification and persisted counters, which cannot move backwards. Thirty-day random session cookies are HttpOnly/SameSite Strict and Secure over HTTPS; only hashes are stored. These authentication expirations never answer agent permissions. Existing passkeys remain valid at their original RP. Notifications/local endpoint setup appears on Projects after the first working lane. Serve’s URL is persisted for notification links; existing routes are preserved.
 
 `install.sh` bootstraps a new checkout, builds and invokes the installer entry point. The installer writes an absolute-Node user unit and executable wrappers; it refuses to replace unrelated files and never stops lane hosts. Normal installation needs systemd user services, Node, npm, Git and tmux. A failed optional native terminal build does not prevent the daemon from starting.
 

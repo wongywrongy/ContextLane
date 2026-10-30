@@ -231,6 +231,23 @@ export class Store {
   telegramOffset(): number { return Number((this.db.prepare("SELECT offset FROM notification_cursor WHERE id = 1").get() as Row | undefined)?.offset ?? 0); }
   setTelegramOffset(offset: number): void { this.db.prepare("INSERT INTO notification_cursor VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET offset = excluded.offset").run(offset); }
 
+  hasStartedLane(): boolean {
+    return !!this.db.prepare("SELECT 1 FROM event WHERE type = 'lane.state' AND json_extract(payload, '$.to') = 'working' LIMIT 1").get();
+  }
+
+  setupLink(origin: string): { token: string; expiresAt: string } {
+    const token = randomBytes(32).toString("base64url");
+    const expires = Date.now() + 600_000;
+    this.db.prepare("DELETE FROM setup_link WHERE expires <= ?").run(Date.now());
+    this.db.prepare("INSERT INTO setup_link VALUES (?, ?, ?)").run(createHash("sha256").update(token).digest("hex"), expires, origin);
+    return { token, expiresAt: new Date(expires).toISOString() };
+  }
+
+  consumeSetupLink(token: string, origin: string): boolean {
+    return !!this.db.prepare("DELETE FROM setup_link WHERE hash = ? AND expires > ? AND origin = ? RETURNING hash")
+      .get(createHash("sha256").update(token).digest("hex"), Date.now(), origin);
+  }
+
   ownerSession(): string {
     const token = randomBytes(32).toString("base64url");
     this.db.prepare("DELETE FROM owner_session WHERE expires < ?").run(Date.now());

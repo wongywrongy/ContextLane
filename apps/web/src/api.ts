@@ -1,34 +1,42 @@
 import { createContext, useContext, useCallback, useEffect, useState } from "react";
 import type { LaneEvent, InboxItem } from "@contextlanes/protocol";
 
-export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return (await res.json()) as T;
+export class RequestError extends Error {}
+export function errorMessage(error: unknown): string {
+  if (error instanceof RequestError) return error.message;
+  if (error instanceof DOMException && error.name === "NotAllowedError") return "Sign-in was cancelled or not allowed; try again when you are ready.";
+  return "This action could not finish; check your connection and try again.";
 }
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try { response = await fetch(path, init); } catch { throw new RequestError("The daemon could not be reached; check your connection and try again."); }
+  let result;
+  try { result = await response.json(); } catch { throw new RequestError("The daemon returned an incomplete response; reload and try again."); }
+  if (!response.ok) throw new RequestError(typeof result.error === "string" ? result.error : "This action could not finish; reload and try again.");
+  return result as T;
+}
+export async function getJson<T>(path: string): Promise<T> { return request<T>(path); }
 
 /** Load once; returns [data, error]. Screens re-render from the live stream, not by polling. */
 export function useJson<T>(path: string | null): [T | null, Error | null, () => void] {
   const [data, setData] = useState<T | null>(null);
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((n) => n + 1), []);
   useEffect(() => {
     if (!path) return;
     let live = true;
-    getJson<T>(path).then((d) => { if (live) { setData(d); setError(null); } }, (e: Error) => live && setError(e));
+    getJson<T>(path).then((d) => { if (live) { setData(d); setLoadedPath(path); setError(null); } }, (e: Error) => live && setError(e));
     return () => {
       live = false;
     };
   }, [path, version]);
-  return [data, error, reload];
+  return [loadedPath === path ? data : null, error, reload];
 }
 
 export async function postJson<T>(path: string, body: unknown, method = "POST"): Promise<T> {
-  const response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? `Request failed (${response.status})`);
-  return result as T;
+  return request<T>(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
 /** One server-sent-event stream per project; every lane event arrives here. */

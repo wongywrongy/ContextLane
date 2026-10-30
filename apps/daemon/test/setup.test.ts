@@ -1,5 +1,6 @@
+import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, type Runner } from "@contextlanes/daemon";
@@ -11,112 +12,188 @@ import Fastify from "fastify";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => { for (const clean of cleanups.splice(0).reverse()) await clean(); });
+const tailscaleStatus = { BackendState: "Running", Self: { DNSName: "neo.test.ts.net.", UserID: 12 }, User: { "12": { LoginName: "kyle@example.com" } } };
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "cl-setup-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home"); await mkdir(home);
   const calls: { cmd: string; args: string[] }[] = [];
-  const run = vi.fn<Runner>(async (cmd, args) => { calls.push({ cmd, args }); return { stdout: cmd === "git" ? "/fixture/repo\n" : "" }; });
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") } });
+  const run = vi.fn<Runner>(async (cmd, args, opts) => {
+    calls.push({ cmd, args });
+    if (cmd === "tailscale") return { stdout: args[0] === "status" ? JSON.stringify(tailscaleStatus) : "{}" };
+    if (cmd === "loginctl") return { stdout: "yes\n" };
+    if (cmd === "git") return { stdout: args[0] === "rev-parse" ? opts!.cwd! : args[0] === "symbolic-ref" ? "origin/trunk\n" : args[0] === "for-each-ref" ? "feature\ntrunk\n" : "feature\n" };
+    return { stdout: cmd.endsWith("claude") ? '{"loggedIn":true,"token":"never-return-this"}' : cmd.endsWith("opencode") ? "2 credentials" : "" };
+  });
+  const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
   const store = Store.open(":memory:"); cleanups.push(() => store.close());
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus }); const lanes = new LaneManager({ store, bus, config, run });
   const path = join(root, "config.toml");
   const changed = vi.fn(async () => {});
-  const find = vi.fn(async (name: string) => `/fixture/bin/${name}`);
+  const find = vi.fn(async (name: string): Promise<string | null> => `/fixture/bin/${name}`);
   const http = vi.fn<typeof fetch>(async () => new Response("{}"));
-  const setup = new SetupManager(config, store, run, { path, changed, find, fetch: http }); await setup.initialize();
+  const setup = new SetupManager(config, store, run, { path, changed, find, fetch: http, home, user: "kyle", portFree: async () => true }); await setup.initialize();
   const app = buildServer({ config, store, bus, hosts, lanes, setup, run, version: "test" }); cleanups.push(() => app.close());
-  const code = await readFile(setup.claimFile, "utf8");
-  const claim = () => app.inject({ method: "POST", url: "/api/setup/claim/tailnet", headers: { host: "neo.test.ts.net", origin: "https://neo.test.ts.net", "tailscale-user-login": "kyle@example.com" }, payload: { code } });
-  return { root, path, config, store, app, setup, code, claim, run, calls, changed, find, http, bus };
+  const secret = await readFile(setup.controlFile, "utf8");
+  const claim = () => app.inject({ method: "POST", url: "/api/setup/local", headers: { host: "localhost", authorization: `Bearer ${secret}` }, payload: {} });
+  const remote = { host: "neo.test.ts.net", origin: "https://neo.test.ts.net", "tailscale-user-login": "kyle@example.com" };
+  return { root, home, path, config, store, app, setup, secret, claim, run, calls, changed, find, http, bus, remote };
 }
 
-describe("setup and owner claim", () => {
-  it("requires a private code before APIs, claims only once, and persists a private config", async () => {
+describe("headless setup", () => {
+  it("requires shell proof, claims locally without a typed code and persists a private config", async () => {
     const f = await fixture();
-    expect((await stat(f.setup.claimFile)).mode & 0o777).toBe(0o600);
-    expect((await f.app.inject("/api/projects")).statusCode).toBe(401);
-    expect((await f.app.inject("/api/health")).statusCode).toBe(200);
-    expect((await f.app.inject("/api/setup/status")).body).not.toContain(f.code);
-    expect((await f.app.inject({ method: "POST", url: "/api/setup/claim/tailnet", headers: { "tailscale-user-login": "kyle@example.com", host: "localhost" }, payload: { code: "wrong-code-long-enough" } })).statusCode).toBe(403);
-    const claimed = await f.claim();
-    expect(claimed.statusCode).toBe(200); expect(claimed.headers["set-cookie"]).toContain("HttpOnly; SameSite=Strict");
-    expect(claimed.headers["set-cookie"]).toContain("Secure");
+    expect((await stat(f.setup.controlFile)).mode & 0o777).toBe(0o600);
+    for (const path of ["/api/projects", "/api/setup/projects/scan", "/api/setup/projects/folders", "/api/projects/unknown/branches"]) expect((await f.app.inject(path)).statusCode).toBe(401);
+    expect((await f.app.inject("/api/setup/status")).body).not.toContain(f.secret);
+    expect((await f.app.inject({ method: "POST", url: "/api/setup/local", payload: {} })).statusCode).toBe(403);
+    for (const headers of [{ origin: "http://localhost" }, { "tailscale-user-login": "kyle@example.com" }, { host: "rebind.example" }]) expect((await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}`, ...headers }, payload: {} })).statusCode).toBe(403);
+    const result = await f.claim(); expect(result.statusCode).toBe(200);
+    expect(result.json().url).toMatch(/^https:\/\/neo.test.ts.net\/setup#signin=/);
+    expect(f.setup.claimed).toBe(true); expect(loadConfig(f.path).access.shellOwner).toBe("kyle");
     expect(loadConfig(f.path).access.owner).toBe("kyle@example.com");
+    expect(loadConfig(f.path).notifications.publicUrl).toBe("https://neo.test.ts.net");
     expect((await stat(f.path)).mode & 0o777).toBe(0o600);
-    await expect(readFile(f.setup.claimFile)).rejects.toMatchObject({ code: "ENOENT" });
-    expect((await f.claim()).statusCode).toBe(409);
-    expect((await f.app.inject({ url: "/api/projects", headers: { "tailscale-user-login": "other@example.com" } })).statusCode).toBe(403);
-    expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: "/fixture/repo" } })).statusCode).toBe(403);
+    expect(f.calls.some((c) => c.cmd === "tailscale" && c.args.includes("--https=443"))).toBe(true);
+  });
+  it("redeems sign-in links exactly once, binds origin and expires after ten minutes", async () => {
+    const f = await fixture(); const link = (await f.claim()).json(); const token = new URL(link.url).hash.slice(8);
+    const redeem = (headers = f.remote) => f.app.inject({ method: "POST", url: "/api/setup/sign-in", headers, payload: { token } });
+    expect((await redeem({ ...f.remote, host: "elsewhere.test.ts.net", origin: "https://elsewhere.test.ts.net" })).statusCode).toBe(401);
+    const results = await Promise.all([redeem(), redeem()]); expect(results.map((r) => r.statusCode).sort()).toEqual([200, 401]);
+    const accepted = results.find((r) => r.statusCode === 200)!;
+    expect(accepted.headers["set-cookie"]).toContain("HttpOnly; SameSite=Strict"); expect(accepted.headers["set-cookie"]).toContain("Secure");
     f.config.access.allowLocal = false;
     expect((await f.app.inject("/api/projects")).statusCode).toBe(401);
-    const cookie = String(claimed.headers["set-cookie"]).split(";")[0]!;
+    const cookie = String(accepted.headers["set-cookie"]).split(";")[0]!;
     expect((await f.app.inject({ url: "/api/projects", headers: { cookie } })).statusCode).toBe(200);
+    expect((await f.app.inject({ url: "/api/projects", headers: { "tailscale-user-login": "other@example.com" } })).statusCode).toBe(403);
     expect((await f.app.inject({ url: "/api/projects", headers: { cookie: "cl-owner=invented" } })).statusCode).toBe(401);
+    const expiring = await f.setup.shellSetup();
+    expect(Date.parse(expiring.expiresAt) - Date.now()).toBeGreaterThan(599000);
+    f.store.db.prepare("UPDATE setup_link SET expires = ?").run(Date.now() - 1);
+    expect(() => f.setup.signIn(new URL(expiring.url).hash.slice(8), new URL(expiring.url).origin)).toThrow("used or expired");
     f.config.access.allowLocal = true;
     expect((await f.app.inject({ url: "/api/setup/settings", headers: { host: "rebind.example" } })).statusCode).toBe(401);
+    expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: f.home } })).statusCode).toBe(403);
   });
-  it("binds passkey challenges to origin, consumes them on failure and refuses 127.0.0.1 registration", async () => {
+  it("prints the exact linger command and gives one missing-Tailscale line plus SSH fallback", async () => {
     const f = await fixture();
-    await expect(f.setup.registration({ code: f.code }, "http://127.0.0.1:4600")).rejects.toThrow("Passkeys need");
-    const challenge = await f.setup.registration({ code: f.code }, "http://localhost:4600");
+    f.find.mockResolvedValue(null);
+    f.run.mockResolvedValue({ stdout: "no\n" });
+    const result = (await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}` }, payload: { sshHost: "192.0.2.42" } })).json();
+    expect(result.messages).toEqual(["Keep ContextLanes running after logout: sudo loginctl enable-linger kyle", "Tailscale is not installed: https://tailscale.com/download"]);
+    expect(result.tunnel).toBe("ssh -N -L 4600:127.0.0.1:4600 kyle@192.0.2.42");
+    expect(result.url).toMatch(/^http:\/\/localhost:4600\/setup#signin=/);
+    expect(f.config.access.shellOwner).toBe("kyle");
+  });
+  it("falls back for signed-out/denied Tailscale without exposing command errors", async () => {
+    const f = await fixture();
+    f.run.mockImplementation(async (cmd) => { if (cmd === "tailscale") throw new Error("secret raw exec stack"); return { stdout: "yes" }; });
+    const result = (await f.claim()).json(); expect(result.tunnel).toContain("ssh -N -L");
+    expect(result.messages[0]).toContain("tailscale up"); expect(JSON.stringify(result)).not.toContain("secret raw");
+  });
+  it("adds passkeys only after sign-in at the configured HTTPS address and consumes challenges", async () => {
+    const f = await fixture();
+    expect((await f.app.inject({ method: "POST", url: "/api/setup/passkey/options", payload: {} })).statusCode).toBe(401);
+    await f.claim();
+    await expect(f.setup.registration("http://localhost:4600")).rejects.toThrow("HTTPS Tailscale");
+    const challenge = await f.setup.registration("https://neo.test.ts.net");
     expect(challenge.options.authenticatorSelection?.userVerification).toBe("required");
-    const body = { code: f.code, challengeId: challenge.challengeId, response: { id: "abc", rawId: "abc", type: "public-key", response: { clientDataJSON: "abc", attestationObject: "abc" }, clientExtensionResults: {} } };
-    await expect(f.setup.register(body, "http://localhost:4601")).rejects.toThrow("another origin");
-    await expect(f.setup.register(body, "http://localhost:4600")).rejects.toThrow("expired");
-    expect(f.setup.claimed).toBe(false); expect(await readFile(f.setup.claimFile, "utf8")).toBe(f.code);
-    f.config.access.passkey = { id: "abc", publicKey: "abc", counter: 0, rpId: "localhost" };
-    f.config.access.allowLocal = false;
-    expect(f.setup.authorized("invented@example.com", undefined)).toBe(false);
-    f.config.access.passkey.counter = 3;
+    const body = { challengeId: challenge.challengeId, response: { id: "abc", rawId: "abc", type: "public-key", response: { clientDataJSON: "abc", attestationObject: "abc" }, clientExtensionResults: {} } };
+    await expect(f.setup.register(body, "https://elsewhere.test.ts.net")).rejects.toThrow("another origin");
+    await expect(f.setup.register(body, "https://neo.test.ts.net")).rejects.toThrow("expired");
+    f.config.access.passkey = { id: "abc", publicKey: "abc", counter: 3, rpId: "neo.test.ts.net" };
     await expect(f.setup.update({ access: { ...f.config.access, passkey: { ...f.config.access.passkey, counter: 2 } } })).rejects.toThrow("counter moved backwards");
     await expect(f.setup.authentication("https://elsewhere.example")).rejects.toThrow("registered");
   });
-  it("serializes config writes, retains old values on validation failure, and reloads projects once", async () => {
+  it("serializes config writes, retains old values on failure, expands ~ and reloads projects once", async () => {
     const f = await fixture(); await f.claim();
     await f.setup.settings({ lanes: { maxConcurrent: 3, launchHosts: true } });
     const before = await readFile(f.path, "utf8");
     for (const flag of ["--dangerously-skip-permissions", "--auto", "--full-auto"]) await expect(f.setup.settings({ agents: { claude: { command: "cli", args: [flag] } } })).rejects.toThrow();
     expect(await readFile(f.path, "utf8")).toBe(before);
     expect(f.config.lanes.maxConcurrent).toBe(3); expect(f.config.lanes.host.command).toBe(process.execPath);
-    await expect(f.setup.addProject({ path: "relative" })).rejects.toThrow("absolute");
-    await f.setup.addProject({ path: "/fixture/repo", name: "Example" });
-    await f.setup.addProject({ path: "/fixture/repo", name: "Example" });
+    await expect(f.setup.addProject({ path: "relative" })).rejects.toThrow("Choose a folder");
+    await f.setup.addProject({ path: "~/repo", name: "Example" }); await f.setup.addProject({ path: "~/repo", name: "Example" });
     await f.setup.initialize();
     expect(f.store.listProjects()).toHaveLength(1); expect(loadConfig(f.path).projects).toHaveLength(1);
-    expect(f.calls.some((c) => c.cmd === "git" && c.args.join(" ") === "rev-parse --show-toplevel")).toBe(true);
+    expect(f.run).toHaveBeenCalledWith("git", ["rev-parse", "--show-toplevel"], { cwd: join(f.home, "repo"), timeout: 5000 });
     expect(f.changed).toHaveBeenCalled();
-    const reloaded = new SetupManager(loadConfig(f.path), f.store, f.run, { path: f.path }); await reloaded.initialize();
-    expect(reloaded.claimed).toBe(true);
-    f.run.mockRejectedValueOnce(new Error("not a git repository"));
-    await expect(f.setup.addProject({ path: "/other/repo" })).rejects.toThrow("not a git");
+    const reloaded = new SetupManager(loadConfig(f.path), f.store, f.run, { path: f.path, home: f.home }); await reloaded.initialize(); expect(reloaded.claimed).toBe(true);
+    f.run.mockRejectedValueOnce(new Error("raw git exec failure"));
+    await expect(f.setup.addProject({ path: "/other/repo" })).rejects.toThrow("not a Git repository");
     expect(loadConfig(f.path).projects).toHaveLength(1);
   });
-  it("detects logins without returning auth output and installs only pinned adapters through Runner", async () => {
+  it("adds same-named repositories without asking for a name and keeps first-lane completion after later failure", async () => {
+    const f = await fixture(); await f.claim();
+    const first = await f.setup.addProject({ path: "~/one/repo" });
+    const second = await f.setup.addProject({ path: "~/two/repo" });
+    expect(first.id).not.toBe(second.id);
+    expect((await f.setup.addProject({ path: "~/two/repo" })).id).toBe(second.id);
+    await f.setup.initialize(); expect(f.store.listProjects()).toHaveLength(2);
+    const lane = (await f.app.inject({ method: "POST", url: "/api/lanes", payload: { project: first.id, task: "First task" } })).json();
+    expect(lane.state).toBe("working"); expect(f.store.hasStartedLane()).toBe(true);
+    f.store.setLaneState(lane.id, "failed", "Fixture later failure");
+    expect((await f.app.inject("/api/setup/status")).json().hasLane).toBe(true);
+  });
+  it("reports Ready/Install/Sign in, installs pinned packages and returns only fixed login commands", async () => {
     const f = await fixture();
-    f.run.mockImplementation(async (cmd) => ({ stdout: cmd.endsWith("claude") ? '{"loggedIn":true,"token":"never-return-this"}' : "" }));
-    const detected = await f.setup.detectAgents();
-    expect(detected.find((a) => a.id === "claude-code")?.login).toBe("ready");
-    expect(detected.find((a) => a.id === "codex")?.login).toBe("ready");
-    expect(detected.find((a) => a.id === "opencode")?.login).toBe("unknown");
+    const detected = await f.setup.detectAgents(); expect(detected.map((a) => a.status)).toEqual(["Ready", "Ready", "Ready"]);
     expect(JSON.stringify(detected)).not.toContain("never-return-this");
+    f.find.mockImplementation(async (name) => name === "codex-acp" || name === "opencode" ? null : `/fixture/bin/${name}`);
+    expect((await f.setup.detectAgents()).map((a) => a.status)).toEqual(["Ready", "Install", "Install"]);
+    f.run.mockRejectedValueOnce(new Error("not signed in")); expect((await f.setup.detectAgents())[0]?.status).toBe("Sign in");
     await f.setup.installAgent({ id: "codex" });
-    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", expect.stringMatching(/\.local$/), "@agentclientprotocol/codex-acp@2.5.0"], { timeout: 180000 });
+    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "@agentclientprotocol/codex-acp@2.5.0"], { timeout: 180000 });
     expect(loadConfig(f.path).agents.codex?.command).toMatch(/codex-acp$/);
+    await f.setup.installAgent({ id: "opencode" });
+    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "opencode-ai@1.19.5"], { timeout: 180000 });
+    expect(await f.setup.loginCommand("codex")).toEqual({ command: "/fixture/bin/codex", args: ["login", "--device-auth"], cwd: f.home });
+    await expect(f.setup.loginCommand("codex;bad")).rejects.toThrow();
     await expect(f.setup.installAgent({ id: "invented" })).rejects.toThrow();
   });
-  it("preserves occupied Tailscale routes and links only the node owner", async () => {
-    const f = await fixture(); await f.claim();
-    f.run.mockImplementation(async (_cmd, args) => ({ stdout: args[0] === "status" ? JSON.stringify({ BackendState: "Running", Self: { DNSName: "neo.test.ts.net.", UserID: 12 }, User: { "12": { LoginName: "kyle@example.com" } } }) : args[1] === "status" ? '{"TCP":{"443":{}}}' : "" }));
-    expect(await f.setup.enableTailnet()).toEqual({ publicUrl: "https://neo.test.ts.net:8443" });
-    expect(f.run).toHaveBeenCalledWith("tailscale", ["serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:4600"], { timeout: 30000 });
-    expect(loadConfig(f.path).notifications.publicUrl).toBe("https://neo.test.ts.net:8443");
-    f.run.mockImplementation(async (_cmd, args) => ({ stdout: args[0] === "status" ? JSON.stringify({ BackendState: "Running", Self: { DNSName: "neo.test.ts.net.", UserID: 12 }, User: { "12": { LoginName: "kyle@example.com" } } }) : '{"TCP":{"443":{},"8443":{}}}' }));
-    await expect(f.setup.enableTailnet()).rejects.toThrow("already in use");
-    f.config.access.owner = "another@example.com";
-    await expect(f.setup.enableTailnet()).rejects.toThrow("different owner");
+  it("keeps login terminals owner-only, launches fixed commands and maps native build failures", async () => {
+    const f = await fixture();
+    const events = new EventEmitter();
+    const pty = { write: vi.fn(), resize: vi.fn(), kill: vi.fn(),
+      onData: (fn: (text: string) => void) => { events.on("data", fn); return { dispose: () => events.off("data", fn) }; },
+      onExit: (fn: (exit: { exitCode: number }) => void) => { events.on("exit", fn); return { dispose: () => events.off("exit", fn) }; } };
+    f.run.terminal = vi.fn(() => pty);
+    await f.app.ready();
+    await expect(f.app.injectWS("/api/setup/agents/codex/terminal")).rejects.toThrow("401");
+    await f.claim();
+    await expect(f.app.injectWS("/api/setup/agents/codex/terminal", { headers: { ...f.remote, "tailscale-user-login": "another@example.com" } })).rejects.toThrow("403");
+    await expect(f.app.injectWS("/api/setup/agents/codex/terminal", { headers: { ...f.remote, origin: "https://evil.example" } })).rejects.toThrow("403");
+    await expect(f.app.injectWS("/api/setup/agents/bash/terminal", { headers: { host: "localhost" } })).rejects.toThrow("400");
+    const ws = await f.app.injectWS("/api/setup/agents/codex/terminal?command=bash", { headers: { host: "localhost" } });
+    ws.send(JSON.stringify({ type: "input", data: "login-input" }));
+    await vi.waitFor(() => expect(pty.write).toHaveBeenCalledWith("login-input"));
+    expect(f.run.terminal).toHaveBeenCalledWith("/fixture/bin/codex", ["login", "--device-auth"], { cwd: f.home, cols: 80, rows: 24 });
+    const output = once(ws, "message"); events.emit("data", "Follow this login URL"); expect(String((await output)[0])).toBe("Follow this login URL");
+    const closed = once(ws, "close"); ws.terminate(); await closed;
+    await vi.waitFor(() => expect(pty.kill).toHaveBeenCalledOnce());
+    vi.mocked(f.run.terminal).mockImplementation(() => { throw new Error("secret raw PTY failure"); });
+    const failed = await f.app.injectWS("/api/setup/agents/claude-code/terminal", { headers: { host: "localhost" } });
+    const [code, reason] = await once(failed, "close"); expect(code).toBe(1011); expect(String(reason)).toContain("install the native terminal build"); expect(String(reason)).not.toContain("secret raw");
+  });
+  it("preserves occupied routes, reuses this app’s route and keeps the node owner", async () => {
+    const f = await fixture();
+    f.run.mockImplementation(async (cmd, args) => ({ stdout: cmd === "tailscale" && args[0] === "status" ? JSON.stringify(tailscaleStatus) : cmd === "tailscale" && args[1] === "status" ? '{"TCP":{"443":{},"8443":{}}}' : "yes" }));
+    expect(await f.setup.enableTailnet()).toEqual({ publicUrl: "https://neo.test.ts.net:4601" });
+    expect(f.run).toHaveBeenCalledWith("tailscale", ["serve", "--bg", "--https=4601", "--yes", "http://127.0.0.1:4600"], { timeout: 30000 });
+    f.run.mockImplementation(async (_cmd, args) => ({ stdout: args[0] === "status" ? JSON.stringify(tailscaleStatus) : '{"TCP":{"4601":{"HTTPS":true}},"Web":{"neo.test.ts.net:4601":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4600"}}}}}' }));
+    const count = f.run.mock.calls.length; await f.setup.enableTailnet(); expect(f.run.mock.calls.slice(count)).toHaveLength(2);
+    f.config.access.owner = "another@example.com"; await expect(f.setup.enableTailnet()).rejects.toThrow("machine’s owner");
     expect(f.run.mock.calls.some(([, args]) => args.includes("reset"))).toBe(false);
   });
-  it("keeps generated push keys, validates local-only model endpoints, and rejects redirects", async () => {
+  it("does not reuse or enable a port marked public by an existing Funnel configuration", async () => {
+    const f = await fixture();
+    f.run.mockImplementation(async (_cmd, args) => ({ stdout: args[0] === "status" ? JSON.stringify(tailscaleStatus) : args[1] === "status" ? '{"AllowFunnel":{"neo.test.ts.net:443":true}}' : "" }));
+    expect(await f.setup.enableTailnet()).toEqual({ publicUrl: "https://neo.test.ts.net:8443" });
+    expect(f.run).toHaveBeenCalledWith("tailscale", ["serve", "--bg", "--https=8443", "--yes", "http://127.0.0.1:4600"], { timeout: 30000 });
+  });
+  it("keeps generated push keys and validates local-only model endpoints without redirects", async () => {
     const f = await fixture(); await f.claim();
     const keys = await f.setup.generatePush(); expect(await f.setup.generatePush()).toEqual(keys);
     expect(loadConfig(f.path).notifications.webPush?.publicKey).toBe(keys.publicKey);
@@ -125,52 +202,64 @@ describe("setup and owner claim", () => {
     expect(f.http).toHaveBeenCalledWith(new URL("http://127.0.0.1:11434/api/tags"), expect.objectContaining({ redirect: "error" }));
     await expect(f.setup.probeModel({ ...model, url: "http://external.example" })).rejects.toThrow();
     await f.setup.settings({ localModels: [model] }); expect(loadConfig(f.path).localModels).toHaveLength(1);
-    f.http.mockResolvedValue(new Response("", { status: 503 })); await expect(f.setup.probeModel(model)).rejects.toThrow("503");
+    f.http.mockResolvedValue(new Response("", { status: 503 })); await expect(f.setup.probeModel(model)).rejects.toThrow();
   });
-  it("ends live event streams before closing the daemon", async () => {
+  it("maps unexpected failures to a recovery sentence and ends live streams before shutdown", async () => {
     const f = await fixture(); await f.claim();
-    const subscribe = vi.spyOn(f.bus, "subscribeAll");
-    const response = f.app.inject({ url: "/api/stream" }).then((r) => r);
-    await vi.waitFor(() => expect(subscribe).toHaveBeenCalled());
-    await f.app.close();
-    expect((await response).body).toContain("retry: 2000");
+    f.run.mockRejectedValueOnce(new Error("raw secret stack"));
+    const failed = await f.app.inject({ method: "POST", url: "/api/projects", payload: { path: "~/missing" } });
+    expect(failed.body).not.toContain("raw secret"); expect(failed.json().error).toContain("choose another folder");
+    const subscribe = vi.spyOn(f.bus, "subscribeAll"); const response = f.app.inject({ url: "/api/stream" }).then((r) => r);
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalled()); await f.app.close(); expect((await response).body).toContain("retry: 2000");
   });
-  it("serves the built app for SPA routes, never unknown API routes or path traversal", async () => {
+  it("serves SPA routes but not unknown API routes or traversal", async () => {
     const f = await fixture(); await writeFile(join(f.root, "index.html"), "<h1>Setup</h1>"); await writeFile(join(f.root, "sw.js"), "// push");
     const app = Fastify(); serveWeb(app, f.root); cleanups.push(() => app.close());
-    expect((await app.inject("/setup")).body).toContain("Setup");
-    expect((await app.inject("/sw.js")).headers["cache-control"]).toBe("no-cache");
-    expect((await app.inject("/api/invented")).statusCode).toBe(404);
-    expect((await app.inject("/%2e%2e%2fsecret.txt")).statusCode).toBe(403);
-    expect((await app.inject("/missing.js")).statusCode).toBe(404);
+    expect((await app.inject("/setup")).body).toContain("Setup"); expect((await app.inject("/sw.js")).headers["cache-control"]).toBe("no-cache");
+    expect((await app.inject("/api/invented")).statusCode).toBe(404); expect((await app.inject("/%2e%2e%2fsecret.txt")).statusCode).toBe(403); expect((await app.inject("/missing.js")).statusCode).toBe(404);
   });
 });
 
-it("installs an absolute user service and wrappers through Runner without replacing unrelated files", async () => {
-  const f = await fixture();
-  const options = { root: join(f.root, "app with spaces%$"), home: f.root, node: process.execPath, run: f.run };
-  await installService(options);
-  const unit = await readFile(join(f.root, ".config/systemd/user/contextlanes.service"), "utf8");
-  expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
-  expect(f.calls.slice(-2)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }]);
-  expect((await stat(join(f.root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755);
-  await installService(options);
-  await writeFile(join(f.root, ".local/bin/contextlanes"), "user work");
-  await expect(installService(options)).rejects.toThrow("Refusing to overwrite");
-  expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");
+describe("project discovery", () => {
+  it("finds repos at depth four, skips hidden/node_modules/symlinks, and reports branches", async () => {
+    const f = await fixture();
+    for (const path of ["code/one", "a/b/c/four", "a/b/c/d/five", ".secret/repo", "node_modules/repo"]) await mkdir(join(f.home, path, ".git"), { recursive: true });
+    await mkdir(join(f.home, "worktree")); await writeFile(join(f.home, "worktree/.git"), "gitdir: elsewhere");
+    await symlink(join(f.home, "code"), join(f.home, "link"));
+    const result = await f.setup.projects.scan();
+    expect(result.repositories.map((p) => p.name)).toEqual(["four", "one", "worktree"]);
+    expect(result.repositories.every((p) => p.branch === "feature")).toBe(true);
+    expect(result.limited).toBe(false);
+  });
+  it("stops after 2,000 folders", async () => {
+    const f = await fixture(); await Promise.all(Array.from({ length: 2020 }, (_, i) => mkdir(join(f.home, `folder-${i}`))));
+    const result = await f.setup.projects.scan(); expect(result.scanned).toBe(2000); expect(result.limited).toBe(true);
+  });
+  it("confines the folder browser to canonical home paths, including symlinks and ..", async () => {
+    const f = await fixture(); const outside = join(f.root, "outside"); await mkdir(outside); await mkdir(join(f.home, "code"));
+    await symlink(outside, join(f.home, "escape")); await symlink(join(f.home, "code"), join(f.home, "inside"));
+    const listing = await f.setup.projects.folders("~"); expect(listing.parent).toBeNull(); expect(listing.folders.map((p) => p.name)).toEqual(["code", "inside"]);
+    expect((await f.setup.projects.folders("~/inside")).path).toBe(join(f.home, "code"));
+    for (const path of ["~/escape", "~/..", outside, "relative"]) await expect(f.setup.projects.folders(path)).rejects.toThrow();
+  });
+  it("reads registered repo branches and selects remote HEAD rather than the current feature branch", async () => {
+    const f = await fixture(); await f.claim(); const project = await f.setup.addProject({ path: "~/repo" });
+    const branches = (await f.app.inject(`/api/projects/${project.id}/branches`)).json(); expect(branches).toEqual({ branches: ["feature", "trunk"], defaultBranch: "trunk" });
+    f.config.access.allowLocal = false;
+    for (const path of ["/api/setup/projects/scan", "/api/setup/projects/folders", `/api/projects/${project.id}/branches`]) expect((await f.app.inject(path)).statusCode).toBe(401);
+  });
 });
 
-it("refuses to unlink another daemon socket or a file at the socket path", async () => {
-  const f = await fixture();
-  const path = join(f.root, "lanes.sock");
-  const hosts = new HostLinks({ store: f.store, bus: f.bus });
-  cleanups.push(() => hosts.close());
-  await writeFile(path, "user file");
-  await expect(hosts.listen(path)).rejects.toThrow("not a socket");
-  expect(await readFile(path, "utf8")).toBe("user file");
-  await rm(path);
-  await hosts.listen(path);
-  const other = new HostLinks({ store: f.store, bus: f.bus });
-  await expect(other.listen(path)).rejects.toThrow("already using");
-  expect((await stat(path)).isSocket()).toBe(true);
+it("installs an absolute user service without replacing unrelated files", async () => {
+  const f = await fixture(); const options = { root: join(f.root, "app with spaces%$"), home: f.root, node: process.execPath, run: f.run };
+  await installService(options); const unit = await readFile(join(f.root, ".config/systemd/user/contextlanes.service"), "utf8");
+  expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
+  expect(f.calls.slice(-2)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }]);
+  expect((await stat(join(f.root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755); await installService(options);
+  await writeFile(join(f.root, ".local/bin/contextlanes"), "user work"); await expect(installService(options)).rejects.toThrow("Refusing to overwrite"); expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");
+});
+it("refuses to unlink another daemon socket or a file at its path", async () => {
+  const f = await fixture(); const path = join(f.root, "lanes.sock"); const hosts = new HostLinks({ store: f.store, bus: f.bus }); cleanups.push(() => hosts.close());
+  await writeFile(path, "user file"); await expect(hosts.listen(path)).rejects.toThrow("not a socket"); expect(await readFile(path, "utf8")).toBe("user file"); await rm(path); await hosts.listen(path);
+  await expect(new HostLinks({ store: f.store, bus: f.bus }).listen(path)).rejects.toThrow("already using"); expect((await stat(path)).isSocket()).toBe(true);
 });

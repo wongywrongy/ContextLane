@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import type { TerminalInput } from "@contextlanes/protocol";
+import type { AgentId, TerminalInput } from "@contextlanes/protocol";
 import "@xterm/xterm/css/xterm.css";
 
-export function Terminal({ lane }: { lane: string }) {
+export function Terminal(props: ({ lane: string; login?: never } | { login: AgentId; lane?: never }) & { onExit?: () => void }) {
+  const { lane, login } = props;
+  const onExit = useRef(props.onExit); onExit.current = props.onExit;
   const container = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState("Connecting to the shell…");
@@ -20,7 +22,7 @@ export function Terminal({ lane }: { lane: string }) {
     term.loadAddon(fit);
     term.open(container.current!);
     fit.fit();
-    const url = new URL(`/api/lanes/${lane}/terminal`, window.location.href);
+    const url = new URL(login ? `/api/setup/agents/${login}/terminal` : `/api/lanes/${lane}/terminal`, window.location.href);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(url);
     const send = (message: TerminalInput) => {
@@ -30,14 +32,15 @@ export function Terminal({ lane }: { lane: string }) {
     setStatus("Connecting to the shell…");
     socket.onopen = () => {
       setConnected(true);
-      setStatus("Connected · Keeps running when you close this tab");
+      setStatus(login ? "Connected · Follow the login instructions below" : "Connected · Keeps running when you close this tab");
       send({ type: "resize", cols: term.cols, rows: term.rows });
       term.focus();
     };
     socket.onmessage = (event: MessageEvent<string>) => term.write(event.data);
     socket.onclose = (event) => {
       setConnected(false);
-      setStatus(event.reason || "Connection closed. Reconnect to return to your shell.");
+      setStatus(login && event.code === 1000 ? "Login command finished. Choose Check again to confirm sign-in." : event.reason || "Connection closed. Reconnect to return to your shell.");
+      if (login) onExit.current?.();
     };
     socket.onerror = () => setStatus("Could not connect. Check the daemon, then reconnect.");
     const input = term.onData((data) => {
@@ -58,7 +61,7 @@ export function Terminal({ lane }: { lane: string }) {
       socket.close();
       term.dispose();
     };
-  }, [lane, attempt]);
+  }, [lane, login, attempt]);
 
   return (
     <>
@@ -66,8 +69,8 @@ export function Terminal({ lane }: { lane: string }) {
         <span>{status}</span>
         {!connected ? <button className="btn ghost" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button> : null}
       </div>
-      <div className="tty" ref={container} aria-label={`Shell for lane ${lane}`} />
-      <div className="sec-f terminal-help">Same shell: <code>contextlanes term {lane}</code>. Older history: Ctrl+B, then [.</div>
+      <div className="tty" ref={container} aria-label={login ? `Login terminal for ${login}` : `Shell for lane ${lane}`} />
+      {!login && <div className="sec-f terminal-help">Same shell: <code>contextlanes term {lane}</code>. Older history: Ctrl+B, then [.</div>}
     </>
   );
 }

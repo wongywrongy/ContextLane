@@ -15,8 +15,9 @@ curl -fsSL https://raw.githubusercontent.com/wongywrongy/rootlane/contextlanes/i
 ~/.local/bin/contextlanes setup
 ```
 
-Open the printed `http://localhost:4600/setup` URL and enter the claim code. The wizard handles ownership, remote access, agent adapter installs, projects, notifications and your first lane without editing a file. Agent logins remain interactive terminal commands displayed in the wizard. Use localhost for a local passkey; passkeys cannot be registered at an IP address. Remote access uses the owner’s Tailscale identity and HTTPS.
+Open the printed sign-in link or scan its QR code. Shell access claims ownership; there is no setup code to type. The link works once and expires after ten minutes. Setup checks linger and turns on Tailscale Serve when signed in; otherwise it prints an install link and SSH tunnel fallback. Follow **Agent → Project → First lane**. Agent sign-in opens in a browser terminal; repositories are discovered in home without typing a path. Each step must be done before continuing.
 
+After the first lane, Projects offers Web Push and optional notification/local-model settings. ntfy and Telegram are under **Other ways**. You can optionally add a passkey for the HTTPS tailnet address after signing in.
 The installer refuses existing destinations and unrelated service/bin files. Configuration lives in `~/.config/contextlanes/config.toml`, data in `~/.local/share/contextlanes`, and lane worktrees in `~/lanes`. Both daemon and development UI bind 127.0.0.1. To keep services running after logout: `sudo loginctl enable-linger "$USER"`.
 
 ## From source
@@ -28,13 +29,15 @@ pnpm build
 node apps/daemon/dist/main.js
 # In another terminal:
 node apps/cli/dist/main.js setup
-# Open http://localhost:4600/setup
+# Open the sign-in link printed above.
 ```
 
 To install this built checkout as a service, run `node apps/daemon/dist/install-main.js`. Add `~/.local/bin` to your PATH for the `contextlanes` commands. `pnpm dev` runs the daemon and Vite for development; build host/toolbox entry points first.
 
 ```sh
 ~/.local/bin/contextlanes status
+~/.local/bin/contextlanes add                   # current repository
+~/.local/bin/contextlanes add ~/code/project
 ~/.local/bin/contextlanes lanes
 ~/.local/bin/contextlanes lane start <project> "Add a health check" --agent codex
 ~/.local/bin/contextlanes term <project>/01
@@ -54,7 +57,7 @@ CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-setup.mjs
 ```
 
-Real checks use disposable repositories, tmux sessions and systemd units. The setup browser check uses the SDK fake agent and Chromium’s virtual authenticator; no model or user credentials are needed. It exercises claim, config, first lane, permission and restart end to end. It does not provision a fresh OS or replace physical-phone/provider acceptance.
+Real checks use disposable repositories, tmux sessions and systemd units. The setup browser check uses the SDK fake agent, a fake login terminal, Runner-faked Tailscale and Chromium’s virtual authenticator; no model or user credentials are needed. It follows actual CLI output to a running lane at 1440px and 390px, without typing a path or setup code, and checks passkey creation and link replay. It does not provision a fresh OS or replace physical-phone/provider acceptance.
 
 ## Docs
 
