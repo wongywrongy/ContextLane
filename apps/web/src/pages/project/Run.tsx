@@ -86,7 +86,7 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
   };
   return <div>
     <h4>Clean up{entries.length ? <span className="e mono muted" style={{ fontSize: 12, fontWeight: 500 }}>{entries.length} merged {entries.length === 1 ? "lane" : "lanes"}{disk ? ` · ${size(disk)}` : ""}</span> : null}</h4>
-    <Glyph g="done">Stops services and the agent</Glyph>
+    <Glyph g="done">Stops services and the agent, and drops lane databases</Glyph>
     <Glyph g="done">Removes checkouts, including ignored files such as .env; keeps branches</Glyph>
     <Glyph g={unpushed || unknown ? "wait" : "done"}>Skips anything unpushed ({unpushed} now{unknown ? `; ${unknown} could not be checked` : ""})</Glyph>
     {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
@@ -137,7 +137,8 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}
     {(env?.setup && isRunning) || facts?.diskBytes != null ? <div className="envfacts">
       {env?.setup && isRunning ? <><div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
-      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div></> : null}
+      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div>
+      {env.setup.database ? <div><Glyph g="done">Database</Glyph><small>{env.setup.database.kind === "postgres" ? `${env.setup.database.name} from ${env.setup.database.template}` : `${env.setup.database.name} copied`}</small></div> : null}</> : null}
       {facts?.diskBytes != null ? <div><Glyph g="done">Disk</Glyph><small>{size(facts.diskBytes)} in this lane</small></div> : null}
     </div> : null}
     {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? null : service.name)} />) : null}

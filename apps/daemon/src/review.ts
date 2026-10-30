@@ -109,6 +109,7 @@ export class Review {
       const present = await access(lane.worktree).then(() => true, () => false);
       if (present && (await this.git(lane, "status", "--porcelain")).stdout.trim()) throw new Refused(`${lane.worktree} has uncommitted changes, so this lane was kept. Commit and push them, or remove them yourself.`);
       await runtime.stop(id);
+      await runtime.dropDatabase(lane);
       await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(id)]).catch(() => {});
       // Never --force: git itself refuses if anything unsaved appeared since the check above.
       if (present) await run("git", ["worktree", "remove", lane.worktree], { cwd: repo });

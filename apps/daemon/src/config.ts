@@ -42,6 +42,11 @@ export const Config = z.object({
   }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
   /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
   checker: z.object({ chromium: z.string().optional() }).prefault({}),
+  /**
+   * Per-lane Postgres databases: `admin` creates and drops copies (needs CREATEDB) and never leaves
+   * the daemon; `app` is a non-admin login that owns each copy and is what lane services get.
+   */
+  databases: z.object({ postgres: z.object({ admin: z.string().regex(/^postgres(ql)?:\/\//), app: z.string().regex(/^postgres(ql)?:\/\//) }).optional() }).prefault({}),
   lanes: z.object({
     maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),

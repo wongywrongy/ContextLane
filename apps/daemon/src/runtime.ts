@@ -1,3 +1,4 @@
+import { createLaneDatabase, databaseEnv, dropLaneDatabase, laneDatabaseName } from "./databases.js";
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, lstat, mkdir } from "node:fs/promises";
@@ -108,6 +109,20 @@ export class Runtime {
     const service = this.deps.store.environment(id)?.services.find((s) => s.name === name);
     if (!service?.url) throw new Refused(`${name} has no link yet. Start it with env_start and wait until it is healthy.`);
     return { service: name, url: service.url };
+  }
+
+  /**
+   * Clean up drops the lane's Postgres copy. The name is derived from the lane, so a copy made by a setup
+   * that failed later is found too. A failure is reported rather than leaving the copy silently.
+   */
+  async dropDatabase(lane: Lane): Promise<void> {
+    const made = this.deps.store.environment(lane.id)?.setup?.database;
+    const recipe = made ? null : await this.recipeFor(lane).catch(() => null);
+    const target = made ?? (recipe?.database?.kind === "postgres" ? { kind: "postgres" as const, name: laneDatabaseName(recipe.database.template, lane.id), template: recipe.database.template } : null);
+    if (!target) return;
+    await dropLaneDatabase(this.deps.run, this.deps.config, target).catch((err: { stderr?: string; message?: string }) => {
+      throw new Refused(`The lane's database ${target.name} could not be dropped, so the lane was kept. ${String(err.stderr ?? err.message ?? "").trim().split("\n").at(-1) ?? ""}`);
+    });
   }
 
   async logs(id: string, name: string, lines: number): Promise<LogLine[]> {
@@ -235,6 +250,7 @@ export class Runtime {
     }
     env.startedAt ??= new Date().toISOString();
     store.saveEnvironment(env);
+    if (recipe.database && env.setup.database) Object.assign(shared, databaseEnv(this.deps.config, recipe.database, env.setup.database, lane.worktree));
 
     const chosen = recipe.services.filter((s) => (!only || only.includes(s.name)) && env.services.find((x) => x.name === s.name)?.state !== "healthy");
     for (const service of chosen) {
@@ -284,13 +300,16 @@ export class Runtime {
       try { await run("cp", ["-al", source, target]); cache = cache === "copied" ? cache : "linked"; }
       catch { await run("cp", ["-a", "--reflink=auto", source, target]); cache = "copied"; }
     }
+    // The database comes before setup steps, which often migrate it.
+    const database = recipe.database ? await createLaneDatabase(run, this.deps.config, recipe.database, lane, project.path) : null;
+    const stepEnv = recipe.database && database ? { ...env, ...databaseEnv(this.deps.config, recipe.database, database, lane.worktree) } : env;
     const seconds = Math.round((Date.now() - started) / 100) / 10;
     for (const step of recipe.setup) {
-      const result = await oneshot(run, lane.worktree, step.command, env, step.timeoutSeconds, sandbox(this.deps.config));
+      const result = await oneshot(run, lane.worktree, step.command, stepEnv, step.timeoutSeconds, sandbox(this.deps.config));
       if (!result.ok) throw new Error(`${step.name} failed: ${result.output.trim().slice(-600)}`);
     }
     const disk = await run("du", ["-sb", lane.worktree]).then((r) => Number(r.stdout.split(/\s/)[0]), () => null);
-    return { ignored, cache, seconds, steps: recipe.setup.length, disk: Number.isFinite(disk) ? disk : null };
+    return { ignored, cache, seconds, steps: recipe.setup.length, disk: Number.isFinite(disk) ? disk : null, database };
   }
 
   private async probe(id: string, deadline?: number): Promise<void> {

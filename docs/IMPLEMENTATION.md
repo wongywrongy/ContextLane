@@ -322,8 +322,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B2 Run and Projects facts | run, projects | Done — ed0168c; `pnpm check`: 194 passed, 8 opt-in checks skipped; ownership/cache/TLS/adoption tests; Run and Projects Chromium 1440px/390px; see Run and Projects facts implementation evidence |
 | T. Terminals survive a node-pty crash | work-lane | Done: PTY host process on the standard POSIX pty, node-pty removed; see T |
 | S2. Daemon git runs in the sandbox | — | Done: every daemon git and gh runs in the lane sandbox with hooks and fsmonitor off; see S2 |
-| B3 Per-lane databases | run | Next (credential policy decided below) |
-| B4 Review packet gaps | review | Not started |
+| B3 Per-lane databases | run | Done: Postgres template copies and SQLite copies; real Postgres 16 test passes; see B3 |
+| B4 Review packet gaps | review | Next |
 | B5 Composer, editor link, watching only | work-lane | Not started |
 | B6 Add from GitHub, branch in the band | projects | Not started |
 | 3.1 Code map | architecture | Not started |
@@ -437,6 +437,13 @@ The plan's split (sandbox for most commands, a config allow-list for push and `g
 - Setup creates it, cleanup drops it (Postgres) or deletes the copy (SQLite), and the Run page shows the Database fact. Commands go through Runner (`psql`), and the admin URL comes from config, never from the recipe.
 - Answer the open question about per-lane databases with this.
 - Decided (2026-10-30), lane login: one owner-configured, non-admin application role (`LOGIN`, no `CREATEDB`, no superuser), set in config next to the admin URL. Setup creates each lane database owned by that role; services get a URL with that role only. The admin URL never leaves the daemon. Lanes sharing one role can reach each other's scratch databases; that is accepted for scratch copies. Per-lane roles are not built.
+
+#### What was done (2026-10-30)
+
+- `database` in the recipe (`packages/protocol/src/recipe.ts`), `[databases.postgres]` with `admin` and `app` in config, and `apps/daemon/src/databases.ts`. Setup makes the copy before setup steps, so migrations see it. Setup steps and services get `DATABASE_URL` (the app login, pointing at the copy) or `DATABASE_PATH`. The admin login reaches `psql` only through `PG*` environment variables, so it never appears in a process list, and never reaches a lane.
+- Found against a real server: a copy keeps the template's table owners, so the app login could not read its own copy. Setup now runs `REASSIGN OWNED BY CURRENT_USER TO <app>` in the new copy. PostgreSQL 16 also needs the admin login to be a member of the app role to make it the owner; the error says so in one sentence.
+- Clean up drops the copy (`WITH (FORCE)`), finding it by name even if setup failed after creating it; if the drop fails the lane is kept. Run shows the Database fact. README documents recipes, which it did not before.
+- Tests: `databases.test.ts` (names, logins kept out of arguments, recipe validation, setup and service environment, clean up, missing config, SQLite). `databases.real.test.ts` passes against PostgreSQL 16 here with `CONTEXTLANES_REAL_POSTGRES="<admin url> <app url>"`: the app login reads and alters the copied table, cannot create databases, and the copy is gone after clean up.
 
 ### B4 Review packet gaps (review)
 

@@ -24,6 +24,19 @@ export const RecipeService = z.strictObject({
 });
 export type RecipeService = z.infer<typeof RecipeService>;
 
+const EnvName = z.string().regex(/^[A-Z_][A-Z0-9_]*$/);
+/**
+ * A scratch database per lane. Postgres copies a template database through the daemon's admin login
+ * (from config, never from the recipe) and gives services a non-admin login. SQLite copies a file
+ * from the main checkout. The value reaches setup steps and services in `env`.
+ */
+export const RecipeDatabase = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("postgres"), template: z.string().regex(/^[a-z_][a-z0-9_]{0,39}$/, "a lowercase database name"), env: EnvName.default("DATABASE_URL") }),
+  z.strictObject({ kind: z.literal("sqlite"), file: RelativePath, env: EnvName.default("DATABASE_PATH") }),
+]);
+export type RecipeDatabase = z.infer<typeof RecipeDatabase>;
+export type LaneDatabase = { kind: "postgres" | "sqlite"; name: string; template: string | null };
+
 export const Recipe = z.strictObject({
   /** Runs once per lane, after ignored files and dependencies arrive. */
   setup: z.array(RecipeStep).max(20).default([]),
@@ -31,6 +44,7 @@ export const Recipe = z.strictObject({
   cache: z.array(RelativePath).max(20).default([]),
   services: z.array(RecipeService).max(10).default([]).refine((s) => new Set(s.map((x) => x.name)).size === s.length, "service names must be unique"),
   checks: z.array(RecipeStep).max(20).default([]),
+  database: RecipeDatabase.optional(),
   /** Pages for before and after screenshots. */
   screenshots: z.array(z.string().startsWith("/")).max(5).default(["/"]),
 });
@@ -60,7 +74,8 @@ export const EnvironmentView = z.object({
   lane: z.string(),
   recipeHash: z.string(),
   services: z.array(ServiceStatus),
-  setup: z.object({ ignored: z.array(z.string()), cache: z.enum(["none", "linked", "copied"]), seconds: z.number(), steps: z.number().int(), disk: z.number().nullable() }).nullable(),
+  setup: z.object({ ignored: z.array(z.string()), cache: z.enum(["none", "linked", "copied"]), seconds: z.number(), steps: z.number().int(), disk: z.number().nullable(),
+    database: z.object({ kind: z.enum(["postgres", "sqlite"]), name: z.string(), template: z.string().nullable() }).nullable().optional() }).nullable(),
   startedAt: z.string().nullable(),
   error: z.string().nullable(),
 });
