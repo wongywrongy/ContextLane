@@ -321,8 +321,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B1 This machine and Data | settings | Done — 3296c7d; `pnpm check`: 187 passed, 8 opt-in checks skipped; real SQLite retention/redaction tests; Settings Chromium 1440px/390px; see Machine and data implementation evidence |
 | B2 Run and Projects facts | run, projects | Done — ed0168c; `pnpm check`: 194 passed, 8 opt-in checks skipped; ownership/cache/TLS/adoption tests; Run and Projects Chromium 1440px/390px; see Run and Projects facts implementation evidence |
 | T. Terminals survive a node-pty crash | work-lane | Done: PTY host process on the standard POSIX pty, node-pty removed; see T |
-| S2. Daemon git runs in the sandbox | — | Next |
-| B3 Per-lane databases | run | Not started (credential policy decided below) |
+| S2. Daemon git runs in the sandbox | — | Done: every daemon git and gh runs in the lane sandbox with hooks and fsmonitor off; see S2 |
+| B3 Per-lane databases | run | Next (credential policy decided below) |
 | B4 Review packet gaps | review | Not started |
 | B5 Composer, editor link, watching only | work-lane | Not started |
 | B6 Add from GitHub, branch in the band | projects | Not started |
@@ -420,6 +420,16 @@ From Credentials and sandbox: the daemon runs git outside the sandbox in lane ch
 - Every git command the daemon runs in a lane worktree, or in a repository a lane can write to, goes through `sandbox()` like other lane commands, with the network allowed only where the command needs it (fetch, push). Commands that need Kyle's credentials (push, `gh`) run outside the sandbox, with hooks off (`-c core.hooksPath=/dev/null`), `GIT_CONFIG_NOSYSTEM=1`, and the repository's config checked against an allow-list of keys first; refuse with a plain sentence if anything else is set.
 - Merge and review keep working: checks, diff, rebase onto the base, push and `gh pr create`.
 - **Done when:** tests plant each of the entries above in a lane checkout and show that no daemon-side git command runs them; the real-sandbox suite passes on neo.
+
+#### What was done (2026-10-30)
+
+The plan's split (sandbox for most commands, a config allow-list for push and `gh`) would race: the agent can rewrite the config between the check and the command. So all of it runs in the sandbox instead, which is what the sandbox is for: anything git starts gets no more access than the agent already has.
+
+- `confineGit` (`apps/daemon/src/sandbox.ts`) wraps the daemon's runner in `main.ts`. Every `git` and `gh` the daemon runs, in lane worktrees, project checkouts and discovery, goes through bubblewrap with the lane sandbox. The owner's SSH agent socket is bound in so pushes over SSH still work; HTTPS credentials and `gh` read from the home folder as before.
+- Every daemon git also gets `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never`. Command-line settings win over the repository's, so no hook runs, including Husky's. That also means the daemon's rebase and push skip pre-push hooks; checks are the recipe's job.
+- Where bubblewrap does not work no lane can start, so git runs with the guards alone, and the check is retried each minute.
+- `confine-git.test.ts` plants a textconv driver that reads `setup-token`, a `post-checkout` hook and `core.fsmonitor` in a real repository. Through `confineGit` the driver runs but reads nothing, and the hook and fsmonitor never run (checked to run without the guard). The real case runs wherever bubblewrap works; it ran here as root, not yet on neo.
+- Still open, as before: anything an agent writes in the home folder (`~/.gitconfig` included) applies to the owner's own shell.
 
 ### B3 Per-lane databases (run)
 

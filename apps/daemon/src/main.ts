@@ -14,7 +14,7 @@ import { Runtime } from "./runtime.js";
 import { releaseVersion, layoutOf, exists } from "./layout.js";
 import { homedir } from "node:os";
 import { installBackupTimer } from "./install.js";
-import { socketPath } from "./sandbox.js";
+import { confineGit, socketPath } from "./sandbox.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -33,11 +33,13 @@ async function main(): Promise<void> {
   rmSync(join(config.paths.data, "lanes.sock"), { force: true });
   mkdirSync(dirname(socketPath(config)), { recursive: true, mode: 0o700 });
   await hosts.listen(socketPath(config));
-  const lanes = new LaneManager({ store, bus, config, run: runCommand });
-  const setup = new SetupManager(config, store, runCommand, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
+  // Every git and gh the daemon runs goes through the lane sandbox (see confineGit).
+  const run = confineGit(runCommand, config);
+  const lanes = new LaneManager({ store, bus, config, run });
+  const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
   await setup.initialize();
-  const runtime = new Runtime({ store, bus, config, run: runCommand });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime });
+  const runtime = new Runtime({ store, bus, config, run });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();
