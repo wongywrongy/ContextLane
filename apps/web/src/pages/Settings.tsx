@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { DetectedAgent, Project, SetupSettings, SetupStatus } from "@contextlanes/protocol";
+import type { DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary } from "@contextlanes/protocol";
 import { errorMessage, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
@@ -95,12 +95,13 @@ function LaneLimit({ settings, reload }: { settings: SetupSettings | null; reloa
 export function ModelsPage() {
   const [agents, error, reload] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [settings, , reloadSettings] = useJson<SetupSettings>("/api/setup/settings");
+  const [usage, usageError, reloadUsage] = useJson<UsageSummary>("/api/usage");
   const models = settings?.localModels ?? [];
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
     <PageHeader title="Models" meta="who does the work" />
-    <Section title="Agents" meta="each keeps its own login" end={<button className="btn ghost sm" onClick={reload}>Check again</button>}>
-      <div className="sec-b"><AgentRows agents={agents} error={error} reload={reload} /></div>
+    <Section title="Agents" meta="each keeps its own login" end={<button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button>}>
+      <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
     <Section title="Local models" meta="Ollama or llama.cpp on this machine">
       {models.map((m) => <div className="sec-r" key={m.name}><AgentMark agent={m.provider} /><b>{m.name}</b><span className="mono muted" style={{ fontSize: 12 }}>{m.url}</span></div>)}

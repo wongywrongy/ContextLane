@@ -1,15 +1,16 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type McpServer, type SessionConfigOption } from "@agentclientprotocol/sdk";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type McpServer, type SessionConfigOption, type Usage } from "@agentclientprotocol/sdk/unstable";
 import { SafeMode, type CommandEnvelope, type NewLaneEvent } from "@contextlanes/protocol";
 import type { AgentSpec } from "./agents.js";
 import { Coalescer, mapPermission } from "./map.js";
 import { DaemonLink } from "./link.js";
+import { SessionUsage, usageDelta, reportedLimits } from "./usage.js";
 
 export type LaneHostOptions = {
   lane: string; cwd: string; task: string; agent: AgentSpec; socketPath: string; token: string;
-  mcpServers?: McpServer[]; mode?: string; model?: string; signal?: AbortSignal;
+  mcpServers?: McpServer[]; mode?: string; model?: string; signal?: AbortSignal; agentId?: string;
   /** The production transport is stdio; tests connect to an in-process SDK agent app. */
   connect?: (app: ClientApp) => ClientConnection;
 };
@@ -39,10 +40,13 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
   const ctx = connection.agent;
   try {
     await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
     let builder = ctx.buildSession({ cwd: opts.cwd, mcpServers: [], _meta: { claudeCode: { options: { allowDangerouslySkipPermissions: false, permissionMode: "default" } } } });
     for (const server of opts.mcpServers ?? []) builder = builder.withMcpServer(server);
     const session = await builder.start();
+    const logs = new SessionUsage(opts.agentId, opts.cwd, session.sessionId, { ...process.env, ...opts.agent.env });
+    let sessionCost = 0;
+    const compactions = new Set<string>();
     let currentMode = session.modes?.currentModeId;
     let configOptions = session.newSessionResponse.configOptions ?? [];
     const modelOption = () => configOptions.find((o) => o.type === "select" && (o.category === "model" || o.id === "model"));
@@ -84,6 +88,11 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       try {
         while (prompts.length && !stopped) {
           const { text, commandId } = prompts.shift()!;
+          const turnId = randomUUID();
+          const before = await logs.read();
+          const costBefore = sessionCost;
+          let reportedCost = false;
+          let promptUsage: Usage | null | undefined;
           emit({ type: "agent.turn", payload: { active: true, commandId } });
           const tick = setInterval(() => coalescer.flush(), 100);
           try {
@@ -94,14 +103,34 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
               if (message.kind === "stop") break;
               if (message.update.sessionUpdate === "current_mode_update") { currentMode = message.update.currentModeId; reportSession(); }
               if (message.update.sessionUpdate === "config_option_update") { configOptions = message.update.configOptions; reportSession(); }
+              if (message.update.sessionUpdate === "usage_update") for (const limit of reportedLimits(message.update._meta)) emit({ type: "usage.limit", payload: limit });
+              if (message.update.sessionUpdate === "usage_update" && message.update.cost?.currency === "USD") {
+                sessionCost = message.update.cost.amount;
+                reportedCost = true;
+              }
+              if (message.update.sessionUpdate === "compaction_update" && message.update.status === "completed" && !compactions.has(message.update.compactionId)) {
+                compactions.add(message.update.compactionId);
+                emit({ type: "usage.compaction", payload: { sessionId: session.sessionId, compactionId: message.update.compactionId, source: "acp" } });
+              }
               coalescer.push(message.update);
             }
             const result = await done;
+            promptUsage = result.usage;
             coalescer.flush();
             emit({ type: "agent.turn", payload: { active: false, stopReason: result.stopReason, commandId } });
           } catch (err) {
             if (!stopped) emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
-          } finally { clearInterval(tick); coalescer.flush(); }
+          } finally {
+            clearInterval(tick); coalescer.flush();
+            const fallback = promptUsage ? null : await logs.read();
+            const tokens = promptUsage ? { inputTokens: promptUsage.inputTokens, outputTokens: promptUsage.outputTokens,
+              cacheReadTokens: promptUsage.cachedReadTokens ?? null, cacheWriteTokens: promptUsage.cachedWriteTokens ?? null }
+              : fallback ? usageDelta(fallback.tokens, before?.tokens) : null;
+            if (tokens || reportedCost) emit({ type: "usage.turn", payload: { turnId, sessionId: session.sessionId,
+              source: promptUsage || !tokens ? "acp" : fallback!.source,
+              ...(tokens ?? { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null }),
+              ...(reportedCost ? { costUsd: sessionCost >= costBefore ? sessionCost - costBefore : sessionCost, costSource: "acp" } : {}) } });
+          }
         }
       } finally { running = false; }
     };

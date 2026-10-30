@@ -1,7 +1,7 @@
-import { agent, methods, PROTOCOL_VERSION, type SessionConfigOption } from "@agentclientprotocol/sdk";
+import { agent, methods, PROTOCOL_VERSION, type SessionConfigOption } from "@agentclientprotocol/sdk/unstable";
 
 /** A real SDK agent app, with no model, filesystem, shell or network side effects. */
-export function fakeAgent() {
+export function fakeAgent(onPrompt?: () => Promise<void>) {
   const turns: string[] = [];
   const choices: unknown[] = [];
   const sessions: unknown[] = [];
@@ -24,6 +24,19 @@ export function fakeAgent() {
     .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
       const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("");
       turns.push(text);
+      await onPrompt?.();
+      if (text === "cost" || text === "foreign-cost") {
+        await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "usage_update", used: 10, size: 100, cost: { amount: .25, currency: text === "cost" ? "USD" : "EUR" } } });
+        return { stopReason: "end_turn" };
+      }
+      if (text === "usage") {
+        const update = (update: import("@agentclientprotocol/sdk/unstable").SessionUpdate) => client.notify(methods.client.session.update, { sessionId: params.sessionId, update });
+        await update({ sessionUpdate: "usage_update", used: 142, size: 200, cost: { amount: turns.length * 0.25, currency: "USD" },
+          _meta: { "_claude/rateLimit": { unifiedWindows: { five_hour: { utilization: .62, resetsAt: Math.floor(Date.now() / 1000) + 3600 }, seven_day: { utilization: .31, resetsAt: Math.floor(Date.now() / 1000) + 86400 } } } } });
+        await update({ sessionUpdate: "compaction_update", compactionId: "compact-1", status: "completed" });
+        await update({ sessionUpdate: "compaction_update", compactionId: "compact-1", status: "completed" });
+        return { stopReason: "end_turn", usage: { totalTokens: 180, inputTokens: 100, outputTokens: 20, cachedReadTokens: 50, cachedWriteTokens: 10 } };
+      }
       await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Started ${text}. ` } } });
       if (text === "showcase") {
         const update = (update: import("@agentclientprotocol/sdk").SessionUpdate) => client.notify(methods.client.session.update, { sessionId: params.sessionId, update });

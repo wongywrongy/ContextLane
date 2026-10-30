@@ -14,6 +14,7 @@ import {
   type EventPayload,
   type Project,
   type ProjectId,
+  type UsageSummary,
   type PushSubscription,
   type NotificationChannel,
   parsePayload,
@@ -247,6 +248,30 @@ export class Store {
   events(lane: LaneId, afterSeq = 0, limit = 500): LaneEvent[] {
     const rows = this.db.prepare("SELECT * FROM event WHERE lane = ? AND seq > ? ORDER BY seq LIMIT ?").all(lane, afterSeq, limit) as Row[];
     return rows.map(toEvent);
+  }
+
+  usage(project?: ProjectId, since?: string): UsageSummary {
+    const sum = `COUNT(*) AS turns,
+      CASE WHEN COUNT(json_extract(e.payload, '$.inputTokens')) = COUNT(*) THEN SUM(json_extract(e.payload, '$.inputTokens')) END AS inputTokens,
+      CASE WHEN COUNT(json_extract(e.payload, '$.outputTokens')) = COUNT(*) THEN SUM(json_extract(e.payload, '$.outputTokens')) END AS outputTokens,
+      CASE WHEN COUNT(json_extract(e.payload, '$.cacheReadTokens')) = COUNT(*) THEN SUM(json_extract(e.payload, '$.cacheReadTokens')) END AS cacheReadTokens,
+      CASE WHEN COUNT(json_extract(e.payload, '$.cacheWriteTokens')) = COUNT(*) THEN SUM(json_extract(e.payload, '$.cacheWriteTokens')) END AS cacheWriteTokens,
+      SUM(json_extract(e.payload, '$.costUsd')) AS costUsd, COUNT(json_extract(e.payload, '$.costUsd')) AS costTurns`;
+    const from = `FROM event e JOIN lane l ON l.id = e.lane WHERE e.type = 'usage.turn'
+      AND (? IS NULL OR l.project = ?) AND (? IS NULL OR e.at >= ?)
+      AND NOT EXISTS (SELECT 1 FROM event earlier WHERE earlier.lane = e.lane AND earlier.type = 'usage.turn'
+        AND earlier.seq < e.seq AND json_extract(earlier.payload, '$.turnId') = json_extract(e.payload, '$.turnId'))`;
+    const args = [project ?? null, project ?? null, since ?? null, since ?? null];
+    return {
+      lanes: this.db.prepare(`SELECT e.lane, ${sum} ${from} GROUP BY e.lane ORDER BY e.lane`).all(...args),
+      days: this.db.prepare(`SELECT substr(e.at, 1, 10) AS day, ${sum} ${from} GROUP BY day ORDER BY day`).all(...args),
+      limits: (this.db.prepare(`SELECT agent, payload FROM (SELECT l.agent, e.payload,
+        ROW_NUMBER() OVER (PARTITION BY l.agent, json_extract(e.payload, '$.window') ORDER BY e.at DESC, e.rowid DESC) AS position
+        FROM event e JOIN lane l ON l.id = e.lane WHERE e.type = 'usage.limit'
+        AND (? IS NULL OR l.project = ?) AND (? IS NULL OR e.at >= ?))
+        WHERE position = 1 AND json_extract(payload, '$.resetsAt') > ? ORDER BY agent, json_extract(payload, '$.window')`)
+        .all(...args, now()) as Row[]).map((r) => ({ agent: String(r.agent), ...JSON.parse(String(r.payload)) })),
+    } as UsageSummary;
   }
 
   activity(project: ProjectId, since: string): LaneEvent[] {

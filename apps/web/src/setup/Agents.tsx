@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import type { AgentId, DetectedAgent } from "@contextlanes/protocol";
+import type { AgentId, DetectedAgent, UsageSummary } from "@contextlanes/protocol";
 import { postJson } from "../api";
 import { AGENT_NAMES, AgentMark, Empty, Glyph } from "../components/ui";
 import { Action } from "./ui";
@@ -8,10 +8,11 @@ const LoginTerminal = lazy(() => import("../components/Terminal").then((module) 
 const STATUS: Record<DetectedAgent["status"], string> = { Ready: "signed in", Install: "not installed", "Sign in": "needs sign-in" };
 
 /** One row per agent: Ready, Install, or Sign in (opens the agent's own login in a terminal here). */
-export function AgentRows({ agents, error, reload }: { agents: DetectedAgent[] | null; error: Error | null; reload: () => void }) {
+export function AgentRows({ agents, error, reload, limits }: { agents: DetectedAgent[] | null; error: Error | null; reload: () => void; limits?: UsageSummary["limits"] }) {
   const [login, setLogin] = useState<AgentId | null>(null);
-  const row = (agent: DetectedAgent) => <div className="sec-r" key={agent.id}>
+  const row = (agent: DetectedAgent) => <div className={`sec-r${limits ? " agent-usage" : ""}`} key={agent.id}>
     <AgentMark agent={agent.id} /><b>{AGENT_NAMES[agent.id]}</b><span className="st">· {STATUS[agent.status]}</span>
+    {limits ? <span className="agent-limits mono muted" style={{ fontSize: 12 }}>{limits.filter((limit) => limit.agent === agent.id && Date.parse(limit.resetsAt) > Date.now()).map((limit) => `${limit.window} ${Math.round(limit.usedPct)}%`).join(" · ") || "limits not reported"}</span> : null}
     <div className="e">{agent.status === "Ready" ? <Glyph g="done">Ready</Glyph>
       : agent.status === "Install" ? <Action small ghost run={() => postJson("/api/setup/agents/install", { id: agent.id })} done={reload}>Install</Action>
       : <button className="btn sm" onClick={() => setLogin(agent.id)}>Sign in</button>}</div>

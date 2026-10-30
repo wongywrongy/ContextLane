@@ -2,6 +2,7 @@
 
 ## Needs Kyle
 
+- **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
 - **Terminals crash on neo (found 2026-10-30, not caused by the credentials work).** `node-pty` 1.1.0 segfaults on `spawn` on neo with Node 24.11, in the installed release as well as a clean checkout of main. Opening a browser terminal or an agent login terminal can take the daemon down with it, and `terminal.real.test.ts` cannot run. Needs a rebuild or a version change, checked on neo.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
 - **bubblewrap on other machines:** lanes refuse to start without a working `bwrap`. neo has it. `install.sh` now requires it, and a fresh machine needs `sudo apt install bubblewrap`. Ubuntu 24.04 needs its AppArmor profile for `bwrap`, which neo has at `/etc/apparmor.d/bwrap`; other distributions have not been tried.
@@ -353,6 +354,15 @@ Comes first so real token numbers pile up before the phase 3 tools exist; 3.9 co
 - Models, agent row (models): show "5h · 7d" limits only if the agent reports them; otherwise "limits not reported", as the board does for Codex.
 - **Done when:** a fake agent and fixture session logs give the right totals. Kyle checks a real Claude lane against Claude Code's own usage report.
 - **Not here:** the per-category context breakdown (3.7), the Projects usage line (B2).
+
+#### Usage implementation and adapter evidence (2026-10-30)
+
+- `usage.turn` records one prompt's fresh input, output, cache reads/writes and reported USD cost, with session/turn IDs and source. The pinned ACP SDK's unstable entry point preserves prompt usage; its stable response schema drops that field. USD cost is the difference between reported session totals, never a price estimate. A missing token counter is `null`; cost-only reports keep unknown tokens. `costSource` identifies ACP costs even when tokens came from a log.
+- Fallbacks read the exact session JSONL and verify both session ID and worktree path. Claude message IDs replace streaming duplicates. Codex uses cumulative totals, subtracts cached input from fresh input, and differences the pre/post-prompt snapshots. A counter reset is omitted rather than charged as new history. Logs over 64 MiB are omitted; no transcript contents enter events.
+- `/api/usage?project=&since=` validates filters and returns lane/day totals, deduplicating turn IDs without the history endpoint's 500-event cap. Cache/token totals stay `null` if incomplete; `costUsd` sums only reported costs and `costTurns` says how many turns supplied one. Days use UTC event time.
+- Both current adapters support completed compaction notifications: [Claude lifecycle](https://github.com/agentclientprotocol/claude-agent-acp/blob/main/src/acp-agent.ts), [Codex handler](https://github.com/agentclientprotocol/codex-acp/blob/main/src/CodexEventHandler.ts). The client advertises compaction support and counts each completed session/compaction ID once. No notification means no count on Work.
+- Claude forwards `_claude/rateLimit`; the optional `utilization` and `unifiedWindows` shapes are [reported upstream](https://github.com/anthropics/claude-code/issues/91857). Only validated 5h/7d percentages with future reset times appear on Models. Codex keeps account limits inside the adapter rather than forwarding them in usage updates; its row says "limits not reported". No account endpoint is queried. [Claude prompt counters](https://github.com/agentclientprotocol/claude-agent-acp/blob/main/src/acp-agent.ts) and [Codex prompt counters](https://github.com/agentclientprotocol/codex-acp/blob/main/src/TokenCount.ts) are per prompt and keep fresh input separate from cache tokens.
+- Verification: SDK fake-agent turns cover ACP precedence, per-turn cost, compaction deduplication, optional limits, log fallback and missing counters; generated Claude/Codex JSONL fixtures cover duplicate messages, path/session mismatches, malformed lines and counter resets. API tests cover project/date filters, UTC days, duplicate turns, expired limits and missing costs. Chromium against a temporary fake-agent daemon checked Work and Models at 1440px and 390px, including screenshots, no page errors and no horizontal scrolling. The real account comparison is in Needs Kyle.
 
 ### B1 This machine and Data (settings)
 

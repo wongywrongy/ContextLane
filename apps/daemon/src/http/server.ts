@@ -6,7 +6,7 @@ import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
+import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
@@ -90,6 +90,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post("/api/tickets", async (req) => ({ ticket: auth.ticket(TicketRequest.parse(req.body).path) }));
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
+  app.get("/api/usage", async (req) => {
+    const { project, since } = UsageQuery.parse(req.query);
+    return store.usage(project, since);
+  });
   app.get("/api/notifications", async () => ({ publicKey: config.notifications.webPush?.publicKey ?? null,
     channels: { ntfy: !!config.notifications.ntfy, telegram: !!config.notifications.telegram, webpush: !!config.notifications.webPush }, quiet: config.notifications.quiet ?? null }));
   app.post("/api/push/subscriptions", async (req, reply) => {

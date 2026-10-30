@@ -1,4 +1,4 @@
-import type { RequestPermissionRequest, SessionUpdate, ToolKind, ToolCallContent } from "@agentclientprotocol/sdk";
+import type { RequestPermissionRequest, SessionUpdate, ToolKind, ToolCallContent } from "@agentclientprotocol/sdk/unstable";
 import { diffLines } from "diff";
 import { stripVTControlCharacters } from "node:util";
 import type { NewLaneEvent, StepKind } from "@contextlanes/protocol";
@@ -60,7 +60,7 @@ export function mapUpdate(u: SessionUpdate): NewLaneEvent | null {
     case "tool_call_update":
       return { type: "tool.update", payload: { callId: u.toolCallId, ...(u.status ? { status: u.status } : {}), ...(u.title ? { title: u.title } : {}), ...(u.kind ? { kind: KIND[u.kind] } : {}), ...(u.locations ? { files: u.locations.map((l) => l.path) } : {}), ...toolEvidence(u.content) } };
     case "usage_update":
-      return { type: "usage", payload: { contextUsed: u.used, contextSize: u.size } };
+      return { type: "usage", payload: { contextUsed: u.used, contextSize: u.size, source: "acp", ...(u.cost?.currency === "USD" ? { costUsd: u.cost.amount } : {}) } };
     default:
       return null;
   }

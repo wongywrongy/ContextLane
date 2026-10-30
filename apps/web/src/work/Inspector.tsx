@@ -9,6 +9,7 @@ import { environmentFrom, SERVICE_GLYPH } from "./model";
 /** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
 export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: LaneEvent[]; openTerminal: () => void }) {
   const usage = events.findLast((e) => e.type === "usage");
+  const compactions = new Set(events.filter((e) => e.type === "usage.compaction").map((e) => `${e.payload.sessionId}/${e.payload.compactionId}`)).size;
   const plan = events.findLast((e) => e.type === "agent.plan");
   const [copied, setCopied] = useState("");
   const copy = async (text: string, what: string) => {
@@ -32,7 +33,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
         : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows the agent’s plan when it writes one.</p>}
     </section>
     <section className="ps">
-      <div className="ps-h"><span className="lbl">Context</span></div>
+      <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
       {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>

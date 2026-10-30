@@ -24,6 +24,6 @@ const toolbox = values.toolbox ? JSON.parse(values.toolbox) : null;
 toolbox?.env.push({ name: "CONTEXTLANES_LANE_TOKEN", value: token });
 // MCP schema is validated by the ACP SDK when session/new is sent.
 runLaneHost({ lane: LaneId.parse(values.lane), task: values.task, socketPath: values.socket, token, cwd: process.cwd(),
-  agent: values["agent-spec"] ? AgentSpec.parse(JSON.parse(values["agent-spec"])) : resolveAgent(values.agent!),
+  agent: values["agent-spec"] ? AgentSpec.parse(JSON.parse(values["agent-spec"])) : resolveAgent(values.agent!), agentId: values.agent,
   mode: SafeMode.parse(values.mode), model: values.model, mcpServers: toolbox ? [toolbox] : [], signal: stop.signal,
 }).catch((err) => { console.error(err); process.exitCode = 1; });

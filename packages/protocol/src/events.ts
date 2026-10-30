@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TurnUsage, UsageLimit } from "./usage.js";
 import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
 import { LaneCommand } from "./commands.js";
@@ -70,7 +71,10 @@ const payloads = {
   "checkpoint.updated": z.object({ checkpointId: z.string(), head: z.string() }),
   "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
   "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative() }),
-  "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional() }),
+  "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional(), source: z.literal("acp").default("acp") }),
+  "usage.turn": TurnUsage,
+  "usage.limit": UsageLimit,
+  "usage.compaction": z.object({ sessionId: z.string().min(1), compactionId: z.string().min(1), source: z.literal("acp") }),
 } as const;
 
 export type EventType = keyof typeof payloads;

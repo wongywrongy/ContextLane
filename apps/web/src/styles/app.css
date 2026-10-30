@@ -504,4 +504,7 @@ input.in.mono { font: 400 14px var(--mono); }
   .timeline-row .timeline-track { grid-column: 1 / -1; grid-row: 2; }
   .setup { padding: 24px var(--gutter) 40px; }
   .setup .hero .wm, .setup .hero .w2 { font-size: 28px; }
+  .agents .agent-usage { flex-wrap: wrap; }
+  .agents .agent-usage b { white-space: nowrap; }
+  .agents .agent-usage .st, .agent-usage .agent-limits { flex-basis: 100%; margin-left: 38px; order: 1; }
 }
