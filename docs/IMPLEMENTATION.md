@@ -11,6 +11,7 @@
 - **Real merge:** `gh` is signed in on neo, but approve and merge has only run against a throwaway bare repository with `gh` faked. Try it first on a repository you do not mind. `Approve and merge` opens the pull request; merging it on GitHub stays with you.
 - **Phone and timing:** open Review and Run on a real phone, and time a real checkpoint against the five-minute gate. The browser check covers 390px in Chromium; nobody has timed a review.
 - **Browser on a fresh machine:** checkpoint screenshots use Playwright's Chromium 1248, already on neo. Elsewhere run `pnpm --filter @contextlanes/daemon exec playwright-core install chromium`, or set `[checker] chromium = "/path/to/chrome"`. Without a browser a checkpoint still works and says why it has no pictures.
+- **GitHub Actions billing:** CI has not run on this branch since at least 4197ca7; GitHub refuses to start the job because of a failed payment or spending limit. Fix it under Billing & plans. Every result in this document comes from this machine.
 
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
 
