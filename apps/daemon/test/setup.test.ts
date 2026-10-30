@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, type Runner } from "@contextlanes/daemon";
+import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, runCommand, type Runner } from "@contextlanes/daemon";
 import { loadConfig } from "../src/config.js";
 import { SetupManager } from "../src/setup.js";
 import { installService } from "../src/install.js";
@@ -253,10 +253,17 @@ describe("project discovery", () => {
 it("installs an absolute user service without replacing unrelated files", async () => {
   const f = await fixture(); const options = { root: join(f.root, "app with spaces%$"), home: f.root, node: process.execPath, run: f.run };
   await installService(options); const unit = await readFile(join(f.root, ".config/systemd/user/contextlanes.service"), "utf8");
-  expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
+  expect(unit).toContain(`WorkingDirectory=${options.root.replace(/%/g, "%%")}\n`); expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
   expect(f.calls.slice(-2)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }]);
   expect((await stat(join(f.root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755); await installService(options);
+  await expect(installService({ ...options, root: "bad\npath" })).rejects.toThrow("line breaks");
   await writeFile(join(f.root, ".local/bin/contextlanes"), "user work"); await expect(installService(options)).rejects.toThrow("Refusing to overwrite"); expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");
+});
+it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("passes the generated installer unit through systemd's real parser, including spaces and specifiers", async () => {
+  const f = await fixture();
+  const root = join(f.root, "app with spaces%$"); await mkdir(root);
+  await installService({ root, home: f.root, node: process.execPath, run: f.run });
+  await runCommand("systemd-analyze", ["--user", "verify", join(f.root, ".config/systemd/user/contextlanes.service")]);
 });
 it("refuses to unlink another daemon socket or a file at its path", async () => {
   const f = await fixture(); const path = join(f.root, "lanes.sock"); const hosts = new HostLinks({ store: f.store, bus: f.bus }); cleanups.push(() => hosts.close());
