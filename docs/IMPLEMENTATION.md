@@ -8,12 +8,15 @@
 - **Fresh machine / physical phone / timing:** run the one-line installer over SSH, scan the terminal QR code on a real phone and complete a real provider login. Check install-to-running-lane time under five minutes, including downloads and provider interaction; the measured Chromium fixture time starts at CLI setup and uses fakes for provider login and Tailscale. Check phone terminal input and reattach, then the phase-1 gate of three lanes daily for a week. Fresh OS provisioning, real QR scanning, provider delivery and the week-long gate have not been verified.
 - **Previews on named Tailscale Services (optional):** the default works today: each lane service gets its own HTTPS port on this device (4700–4799, tailnet only). For named links, tag this machine, define the `svc:` names in the Tailscale admin console and approve the host, then set `[previews] mode = "services"`. neo has no tag now, so this path is built and tested with a fake only.
 - **Previews through Caddy (optional):** install Caddy, point a wildcard DNS name at this machine's tailnet address, give Caddy a DNS-provider token for the wildcard certificate, bind it to the tailnet address only, then set `[previews] mode = "caddy"` and `[previews.caddy] domain = "root.example.dev"`. Tested with a fake admin API; no real certificate or DNS has been tried.
+- **Real merge:** `gh` is signed in on neo, but approve and merge has only run against a throwaway bare repository with `gh` faked. Try it first on a repository you do not mind. `Approve and merge` opens the pull request; merging it on GitHub stays with you.
+- **Phone and timing:** open Review and Run on a real phone, and time a real checkpoint against the five-minute gate. The browser check covers 390px in Chromium; nobody has timed a review.
+- **Browser on a fresh machine:** checkpoint screenshots use Playwright's Chromium 1248, already on neo. Elsewhere run `pnpm --filter @contextlanes/daemon exec playwright-core install chromium`, or set `[checker] chromium = "/path/to/chrome"`. Without a browser a checkpoint still works and says why it has no pictures.
 
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
 
 ## Milestone status
 
-Phase 1 is implemented. On 2026-10-30 the web app was rebuilt from the mockups (see below); the next goal is phase 2. External credentials and device acceptance remain in Needs Kyle.
+Phases 1 and 2 are implemented. On 2026-10-30 the web app was rebuilt from the mockups (see below) and phase 2 landed on top. External credentials, a real merge and device acceptance remain in Needs Kyle. The next goal is phase 3.
 
 | Milestone | Status | Evidence / next step |
 |---|---|---|
@@ -23,7 +26,14 @@ Phase 1 is implemented. On 2026-10-30 the web app was rebuilt from the mockups (
 | 1.4 Work page | Done against DESIGN.md | Six families, measured diffs/tests, inline answers, composer and inspector, React Flow + ELK overview and two-hour timeline; desktop/phone browser flow passes |
 | 1.5 Setup and install | Implemented; fresh-machine/device acceptance needs Kyle | Shell claim, automatic Serve, expiring sign-in link/QR, three gated steps, repo discovery, browser login and optional post-lane setup; 86 tests and both Chromium widths pass |
 | UI to the mockups | Done | Every phase-1 page ported from `docs/mockups/` with the canvas class names; later-phase tabs and actions hidden behind `apps/web/src/features.ts`; walkthrough at 1440px and 390px with no page errors or sideways scrolling; `scripts/check-setup.mjs` passes at both widths |
-| Phase 2 | Pending | Next. Flip `READY.review` and `READY.run` as each part works |
+| 2.1 Lane host units | Done | Free unit names alongside branches, checkouts and tmux sessions; stored in `lane.host_unit` |
+| 2.2 Recipes | Done | `.contextlanes.json` schema in `packages/protocol`; approval by hash of the exact bytes, owner session only |
+| 2.3 Setup and runtime | Done | Ignored `.env*`, dependency cache, setup steps, one systemd unit per service on a free port, health loop, journald; real systemd fixture passes, including a killed service recovering |
+| 2.4 Run page | Done | `READY.run`; compared with `run.webp` at 1440px and 390px; Environment block in the lane inspector |
+| 2.5 Previews | Done on Serve; Services and Caddy need Kyle | One real Serve link checked through the tailnet and removed; Services and Caddy tested with fakes |
+| 2.6 Checker | Done | Real checks, diff and before/after screenshots in a real fixture; Playwright core pinned at 1.64.1 |
+| 2.7 Review page | Done; real merge needs Kyle | `READY.review`; compared with `review.webp`; merge tested with real git against a throwaway bare remote and fake `gh` |
+| 2.8 Cleanup | Done | Refuses unpushed or uncommitted work before touching anything; keeps branches; kills tmux only here |
 
 ## Current capabilities
 
@@ -32,11 +42,11 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | Package | What works now | What is stubbed |
 |---|---|---|
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
-| `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients | Most toolbox calls return 501 until their phase |
+| `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients, recipes, runtime, previews, checker, review and cleanup | `get_brief` and `delegate` return 501 until phase 3 |
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
 | `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer`, `setup`, `add` | `arch` waits for phase 3 |
-| `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice | Other tools await their phases |
-| `apps/web` | Ported from `docs/mockups/`: top bar with inbox count and ⌘K jump; Projects (Needs you with inline answers, project tiles, Add repositories dialog with discovery and a contained folder browser); Work (lanes grouped by goal, controls, step trail, permission card, message box, inspector, overview graph, terminal); Inbox (list and detail with what led here); Setup (machine and browser columns, Done / Now / Next steps); Settings; Models | Review, Run, Architecture and Insights tabs and their lane actions are built but hidden until their phase (`features.ts`) |
+| `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice; `env_status`, `env_start`, `get_logs`, `preview_url` and `checkpoint` are live | `get_brief` and `delegate` await phase 3 |
+| `apps/web` | Ported from `docs/mockups/`: top bar with inbox count and ⌘K jump; Projects (Needs you with inline answers, project tiles, Add repositories dialog with discovery and a contained folder browser); Work (lanes grouped by goal, controls, step trail, permission card, message box, inspector, overview graph, terminal); Inbox (list and detail with what led here); Setup (machine and browser columns, Done / Now / Next steps); Settings; Models; Run; Review | Architecture and Insights tabs and their lane actions are built but hidden until their phase (`features.ts`) |
 
 ## UI rebuilt to the mockups (2026-10-30)
 
@@ -165,16 +175,45 @@ Generated installer units are also validated by the real `systemd-analyze --user
 
 ## Phase 2 — Apps and review
 
-Gate: review a checkpoint in under five minutes.
+Gate: review a checkpoint in under five minutes. Implemented; the timing itself has not been measured with a person (see Needs Kyle).
 
-- **Recipes:** `.contextlanes.json` schema (services, ports, health checks, setup steps, checks). Approval by hash in the `approval` table.
-- **Lane setup:** copy ignored files (`.env*`), link or copy the dependency cache, create a per-lane database (Postgres template database or copied SQLite file), record disk use.
-- **Runtime:** each service as a systemd user unit with its own port; health checks; journald logs in Run.
-- **Previews:** one subdomain per lane service (`web-billing.root.example.dev`) through Caddy with a wildcard certificate on the tailnet address; Tailscale Serve as the fallback. Never path-based.
-- **Checker:** on `checkpoint`, run the recipe's checks, take before and after screenshots with Playwright, compare the plan with what was done (flag unplanned changes), size the diff. Store as a `checkpoint` row.
-- **Review page:** result, process signal, plan vs done, before and after, steps, files; approve and merge (rebase, push, PR via `gh`), request changes (back to the same agent), ask a second agent.
-- **Cleanup:** stop units, drop lane databases, remove worktrees, keep branches, never delete unpushed work.
-- Toolbox: `env_status`, `env_start`, `get_logs`, `preview_url`, `checkpoint` go live.
+**Recipes.** `.contextlanes.json` in the repository, validated strictly, so a typo cannot silently drop a health check:
+
+```json
+{
+  "cache": ["node_modules"],
+  "setup": [{ "name": "Migrate", "command": ["pnpm", "migrate"] }],
+  "services": [
+    { "name": "api", "command": ["pnpm", "api", "--port", "$PORT"], "health": { "path": "/status" } },
+    { "name": "web", "command": ["pnpm", "dev", "--port", "$PORT", "--host", "$HOST"], "env": { "API_PORT": "$PORT_API" } }
+  ],
+  "checks": [{ "name": "Tests", "command": ["pnpm", "test"] }],
+  "screenshots": ["/"]
+}
+```
+
+Commands are argument arrays. `$PORT`, `$PORT_<SERVICE>` and `$HOST` are filled in inside arguments and set in the environment; `service.port.env` names another variable for the port. The hash covers the file's exact bytes, so any edit needs approval again, and agents can edit the copy in their lane. Only bytes present right now, in the project or an open lane, can be approved, and only if they parse. Refused starts create one `recipe.requested` event, which shows in the Inbox.
+
+**Who can decide.** Recipe approval, approve and merge, request changes and cleanup need `ownerSession`: a signed-in cookie, or the owner's Tailscale identity on a non-loopback host. The general `authorized()` check is not enough, because it accepts any local request and agents run on this machine. Limit: agents run as the same Unix user, so an agent deliberately forging headers or reading the data folder is not stopped by this; that takes a separate user or sandbox. No tool or token path gives an agent approval.
+
+**Lane setup and runtime** (`apps/daemon/src/runtime.ts`). Ignored `.env*` files are copied (symlinks skipped, existing files kept), `cache` folders are hard-linked with `cp -al`, falling back to a copy across filesystems, then setup steps run once per recipe hash. Hard links share files with the main checkout, so a tool that edits a dependency in place changes both. Each service is a `systemd-run --user` unit with a new random name, `Restart=on-failure` and journald logs. Units outlive the daemon; the `environment` row is how a restarted daemon finds them. The health loop reads the unit, its listeners and an HTTP probe every 5 seconds and writes `env.status` only when something changes. A service listening beyond loopback is stopped and stays stopped, with the reason shown. Per-lane databases were left out of this round, so the board's Database column is not shown.
+
+**Previews** (`apps/daemon/src/previews.ts`). `[previews] mode` is `serve` (default), `services` or `caddy`. Serve gives each service its own HTTPS port on the device from `[previews.ports]` (4700–4799), which is a separate origin, so single-page apps and hot reload work. Named Tailscale Services need a tagged host and an admin definition per name, and neo has no tag. Only our own routes are added or removed; `serve reset` is never used. A failed link never stops the app: it shows on the Run page and retries each minute.
+
+**Checker** (`apps/daemon/src/checker.ts`). `checkpoint` refuses a lane that is not working, uncommitted work, an empty branch or an unapproved recipe, then runs in the background: recipe checks, `git diff --numstat`, plan comparison, screenshots, a `checkpoint` row, `lane.state`. Failed checks are stored, not hidden. New commits during the run cancel it. "After" comes from the lane's running app, "before" from a temporary checkout of the base commit run with the same recipe; a failed picture leaves a note and does not block review. The process signal is computed from events only. Plan comparison is word overlap between file paths and plan text, so it can over-flag until the local model arrives in phase 3.
+
+**Review and merge** (`apps/daemon/src/review.ts`). Approve refuses commits the checkpoint did not cover and uncommitted work, then fetches, rebases, pushes the lane branch without force and opens a PR. A branch already on the remote is merged with the base instead of rebased, so a force-push is never needed. Conflicts abort and leave the lane as it was. If `gh` fails after the push, approving again finishes the job. The lane state `merged` means the PR is open; merging it on GitHub stays with the owner. Failed checks do not block approval, but the page says so next to the button. Request changes sends the note to the same agent as a queued message.
+
+**Cleanup.** Merged lanes only. It refuses unpushed commits and uncommitted files before touching anything, then stops the services and lane host, runs `git worktree remove` without force, and kills the tmux session. Branches stay. tmux targets use `=name`, because a plain name also matches `cl-shop-01-2`.
+
+Validation: `pnpm check` with both real fixture flags. `scripts/check-phase2.mjs` runs real systemd units, real git against a throwaway bare remote and Chromium at 1440px and 390px: recipe approval, environment, logs, checkpoint from the inspector, review from Needs you and Inbox, request changes, second checkpoint, approve and merge, cleanup. `main` on the fixture remote does not move. Fixtures fake `gh` and previews, so they can never reach a real repository or add a tailnet route.
+
+```sh
+CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-phase2.mjs
+```
+
+Left out because the data or feature does not exist yet: Adopt into a lane and the watched list, Ask Codex to review, Shares a file with 02 (phase 3), changed-area highlights on screenshots, test counts such as 44 / 44, certificate days. Approval items in the Inbox open the lane, not the Run page.
 
 ## Phase 3 — Shared context
 
@@ -207,7 +246,7 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - **Resolved from current Tailscale docs:** named [Tailscale Services](https://tailscale.com/docs/features/tailscale-services) can give separate `name.<tailnet>.ts.net` addresses through `serve --service=svc:name`; they require a tagged host plus admin service definition/host approval. The phase-1 wizard uses the user-owned device address and an unused HTTPS port. Phase 2 may use Services as a named fallback; custom wildcard domains still need the planned DNS/certificate integration. This was documentation research, not a change to Kyle’s tailnet.
 - **OpenCode login detection limit:** its [CLI docs](https://opencode.ai/docs/cli/#list-1) document `auth list` as a provider list, without a stable JSON login-status API. The wizard accepts a recognized positive credential count in its human-readable output; otherwise it shows Sign in. It never treats command success alone as a login. Local-model and environment-provided credentials can also work without an interactive provider login.
 - How long does CodeGraph take to index the largest repo, and how big is the index?
-- Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe?
+- Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe? Not built in phase 2.
 - Which delegate kinds clear the redo-rate bar on the local GPU, and how many local jobs can run before lanes wait?
 - `node:sqlite` still emits an experimental warning on the tested Node 24.11.0. The Store tests and full local check pass, so it remains behind the existing `Store` API; long-running production durability is not established by this milestone.
 - Licence for the open-source release.

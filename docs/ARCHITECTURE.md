@@ -88,7 +88,8 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `agent.plan`, `agent.thought`, `agent.message` | ACP plan updates and streamed text, joined into one step per run |
 | `tool.call`, `tool.update` | ACP tool calls with kind, title and files |
 | `permission.requested`, `permission.answered` | An agent asks; you answer from web, phone, Telegram or CLI |
-| `env.status`, `check.result`, `checkpoint.created` | Runtime and checker |
+| `recipe.requested`, `recipe.approved` | A lane needs a recipe approved; the owner approved it |
+| `env.status`, `check.result`, `checkpoint.created`, `checkpoint.decided` | Runtime, checker and the owner's decision |
 | `helper.delegated` | The local helper did work, with tokens saved |
 | `usage` | Context window use reported by the agent |
 | `agent.command`, `agent.command.result` | Durable owner controls and host acknowledgements |
@@ -112,6 +113,12 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `POST /api/lanes/:project/:n/cancel`, `/mode`, `/model` | Interrupt or change an agent setting; commands survive daemon restart |
 | `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
 | `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
+| `GET /api/projects/:project/recipe`, `POST …/recipe/approve` | The project's recipe; approve by hash (owner session only) |
+| `GET /api/projects/:project/environments` | Run page: recipes, environments and what can be cleaned up |
+| `GET /api/lanes/:project/:n/env`, `POST …/env/start`, `/stop`, `/restart`, `GET …/logs` | A lane's services and journald logs |
+| `POST /api/lanes/:project/:n/checkpoint` | Start the checker |
+| `GET /api/projects/:project/checkpoints`, `GET /api/checkpoints/:id/shots/:file`, `GET /api/checkpoints/:id/diff` | Review packets |
+| `POST /api/lanes/:project/:n/approve`, `/request-changes`, `/cleanup` | The owner's decisions (owner session only) |
 | `GET /api/inbox`, `POST /api/answers` | What waits on you, and your answer |
 | `GET /api/stream` | Global event stream for the Inbox |
 | `GET /api/notifications` | Public notification configuration and VAPID public key, with no credentials |
@@ -137,10 +144,10 @@ The native PTY module loads only inside `Runner.terminal`, when attachment is re
 
 - The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Before claim, application APIs are closed. After claim, requests without identity headers need a valid owner session or loopback hostname with `access.allowLocal` on. Unrelated hostnames cannot use local authorization.
 - Terminal upgrades run through the same identity checks. Browser origins must match the request host; non-local browser hostnames additionally require owner authorization. This rejects cross-origin shell access and DNS rebinding. Non-browser clients may omit Origin. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
-- Agents never approve their own permissions or recipes. Answers come only through `/api/answers`.
+- Agents never approve their own permissions or recipes. Answers come only through `/api/answers`. Recipe approval, merge, request changes and cleanup additionally refuse plain loopback requests, because agents run on this machine; they need the owner's cookie or Tailscale identity on a non-loopback host. Agents share the owner's Unix user, so this stops tools and casual requests, not a process deliberately forging headers.
 - Notification action bearers grant exactly one recorded lane/request/option, not general API access. A conflicting Tailscale owner is still refused. Telegram callbacks additionally require the configured sender and chat. Replays cannot answer twice; no action expiration, quiet-hour timer or delivery retry supplies an answer. Push subscriptions and action hashes are private; database files use mode 0600.
-- Previews are reachable on the tailnet only; nothing listens on `0.0.0.0`.
-- Cleanup never deletes unpushed commits.
+- Previews are reachable on the tailnet only; nothing listens on `0.0.0.0`, and a lane service that does is stopped.
+- Cleanup never deletes unpushed commits or uncommitted files, and nothing force-pushes.
 
 **Notifications:** the daemon observes pending request events, records `notification.sent` / `notification.failed`, and retries deferred work after quiet hours and on restart. ntfy and Telegram use injected HTTP fetch; Web Push uses an injected VAPID transport. Telegram polls outbound and persists its cursor; it never needs an inbound public bot webhook. Provider credentials remain in configuration and are excluded from public status routes.
 

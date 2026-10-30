@@ -4,9 +4,9 @@
  * phase lands, then wire the action. See docs/IMPLEMENTATION.md.
  */
 export const READY = {
-  /** Phase 2: Review tab, "Send checkpoint to review", review rows in Needs you. */
+  /** Review tab, "Send checkpoint to review", review rows in Needs you. */
   review: true,
-  /** Phase 2: Run tab and the Environment block in the lane inspector. */
+  /** Run tab and the Environment block in the lane inspector. */
   run: true,
   /** Phase 3: Architecture tab. */
   architecture: false,
