@@ -135,8 +135,9 @@ function Shot({ checkpoint, file, tag, label, changes }: { checkpoint: Checkpoin
 
 function Trail({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
   const steps = useMemo(() => stepsFor(events).filter((s) => s.type === "tool" || s.type === "plan" || s.type === "check"), [events]);
+  const helped = events.filter((e) => e.type === "helper.delegated").length;
   if (!steps.length) return null;
-  return <Section title="How it got here" meta={`${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${duration(steps[0]!.at, steps.at(-1)!.at)}`} end={<Link className="lnk" to={`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`}>All steps in Work →</Link>}>
+  return <Section title="How it got here" meta={`${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${duration(steps[0]!.at, steps.at(-1)!.at)}${helped ? ` · ${helped} by the local helper` : ""}`} end={<Link className="lnk" to={`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`}>All steps in Work →</Link>}>
     <div className="trail">
       {steps.slice(-40).map((s) => { const tile = <Tile key={s.seq} family={s.family} icon={s.tool ? iconFor(s.tool.kind) : s.type === "plan" ? "plan" : "test"} small label={s.title} />; return s.tool?.failedBefore ? <span key={s.seq} className="bad">{tile}</span> : tile; })}
       {steps.some((s) => s.tool?.failedBefore) ? <span className="key"><i aria-hidden="true" />failed, then fixed</span> : null}

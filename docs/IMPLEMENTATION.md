@@ -332,8 +332,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.3 Collision warnings | architecture, review | Done: see 3.3 |
 | 3.4 Local model runtime | models | Done with a fake server; real models need Kyle; see 3.4 |
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Done: see 3.5 |
-| 3.6 Local helper (`delegate`) | models, work-lane | Next |
-| 3.7 Insights | insights | Not started |
+| 3.6 Local helper (`delegate`) | models, work-lane | Done with a fake model; see 3.6 (decision changed) |
+| 3.7 Insights | insights | Next |
 | 3.8 ⌘K Ask | top bar | Not started |
 | 3.9 Measure the phase 3 gate | — | Not started |
 | 4.1 Hand off, fork, fresh session | work-lane | Not started |
@@ -588,6 +588,18 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - A kind turns off per project when its redo rate over the last 20 uses is above the threshold (default 25%), with the reason shown. "Near the limit" shows within 5 points of it. The owner can turn a kind back on.
 - UI: the Models Local helper section; the Work step "Local helper read …, saved Nk cloud tokens"; "N by the local helper" in Review's How it got here.
 - `delegate` goes into `LIVE_TOOLS` only while at least one kind is on and a model is serving.
+
+#### What was done (2026-10-30)
+
+- **Changed decision:** the plan said the helper would be OpenCode over ACP running the local model. It is instead one bounded request per call to the local model (`apps/daemon/src/helper.ts`). An agent loop needs a model that handles long tool use well, which the small models that fit next to a lane on one GPU do not, and it adds a second agent install and login to keep working. Each kind is a single job a small model does well:
+  - **read**: the lead names files and a question; the daemon reads them from the lane's checkout (refusing paths outside it, 200 KB per file) and the model answers with the lines that matter, cited.
+  - **check**: the daemon runs the approved recipe's checks in the sandbox, exactly as a checkpoint does, and the model sorts the failures. No other command can be run this way, so delegate cannot run anything the owner has not approved.
+  - **edit**: the model returns a unified diff; the daemon checks it with `git apply --check`, saves it under `<lanes>/.attachments/<lane>/`, and returns it for the lead to review and apply. The helper never writes to the checkout.
+- `helper.delegated` records the kind, model, files, an estimate of the cloud tokens saved (what the helper read minus what it returned, at four characters per token) and the time. `helper.redone` is recorded when, before its turn ends, the lead reads the same files itself (read) or runs the same check command (check), or when the patch was never applied (edit, checked with `git apply --reverse --check`).
+- A kind turns itself off when over 25% of its last 20 uses (at least 5) were redone (`[helper] redoLimit`), shows "Near the limit" within 5 points, and the owner can turn any kind on or off. There is one helper per machine, as on the board.
+- Agents are offered `delegate` only while some kind is on: the toolbox asks `GET /api/lanes/:p/:n/tools` (lane token) when it starts.
+- Models → Local helper (models.webp), the Work step "Local helper read test.log · came back as 120 tokens · saved ≈ 6k cloud tokens", and Review's "N by the local helper".
+- Tests: `helper.test.ts` (each kind with a fake model and real files and git; redo detection; switching off; owner toggle; nothing offered without a model). Not run against a real model.
 
 ### 3.7 Insights (insights)
 

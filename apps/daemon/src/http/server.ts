@@ -7,12 +7,16 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
 import { Collisions } from "../collisions.js";
 import { LocalModels } from "../localmodels.js";
 import { Briefs } from "../briefs.js";
+import { Helper } from "../helper.js";
+
+/** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
+const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -36,10 +40,12 @@ import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
+/** The lane token may also ask which tools its lane has. */
+const TOOLS_ROUTE = "/api/lanes/:project/:n/tools";
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -78,7 +84,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
     if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
     if ((!deps.setup || deps.setup.claimed) && bearer && await auth.owner(bearer)) return;
-    if (route === TOOL_ROUTE && bearer) {
+    if ((route === TOOL_ROUTE || route === TOOLS_ROUTE) && bearer) {
       const { project, n } = req.params as { project: string; n: string };
       if (store.laneForToken(bearer) === `${project}/${n}`) return;
     }
@@ -202,6 +208,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   app.get<{ Params: { project: string } }>("/api/projects/:project/notes", async (req) => ({ text: await briefs.notes(ProjectId.parse(req.params.project)) }));
   app.put<{ Params: { project: string } }>("/api/projects/:project/notes", async (req) => { await briefs.saveNotes(ProjectId.parse(req.params.project), ProjectNotes.parse(req.body).text); return { saved: true }; });
+  const helper = deps.helper ?? new Helper({ config, store, bus, models: localModels, run, runtime });
+  app.get("/api/helper", async () => helper.status());
+  app.post("/api/helper", async (req) => { const b = HelperToggle.parse(req.body); await helper.setKind(b.kind, b.on); return helper.status(); });
+  app.get<{ Params: { project: string; n: string } }>(TOOLS_ROUTE, async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no such lane");
+    return { tools: await helper.available() ? [...LANE_TOOLS, "delegate"] : LANE_TOOLS };
+  });
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));
@@ -296,6 +310,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (req.params.tool === "checkpoint") return reply.code(202).send(await checker.begin(lane, CheckpointRequest.parse(req.body).summary));
     if (req.params.tool === "env_status") return runtime.status(lane);
+    if (req.params.tool === "delegate") return helper.delegate(store.getLane(lane)!, DelegateRequest.parse(req.body));
     if (req.params.tool === "get_brief") return { brief: await briefs.forAgent(store.getLane(lane)!.project, BriefQuery.parse(req.body ?? {})) };
     if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
     if (req.params.tool === "preview_url") return runtime.previewUrl(lane, z.object({ service: z.string().default("web") }).parse(req.body ?? {}).service);

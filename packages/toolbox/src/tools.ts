@@ -43,7 +43,7 @@ export const TOOLS = {
   },
   delegate: {
     phase: 3,
-    description: "Hand work to a local model: read (logs, big files -> the lines that matter), edit (a tightly specified change), check (run tests, sort failures).",
+    description: "Hand bounded work to a local model on this machine, to save your context: read (name the files and the question; get back the lines that matter), check (run the recipe's checks; get back the failures, sorted), edit (name the files and an exact change; get back a patch to review and apply yourself).",
     input: z.object({ kind: z.enum(["read", "edit", "check"]), task: z.string(), files: z.array(z.string()).default([]) }),
   },
 } as const;

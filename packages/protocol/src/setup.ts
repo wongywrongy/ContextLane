@@ -65,3 +65,10 @@ export type GithubRepo = z.infer<typeof GithubRepo>;
 export type GithubListing = { available: true; folder: string; repos: GithubRepo[] } | { available: false; reason: string };
 export const CloneRequest = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "owner/name").refine((r) => !r.split("/").some((p) => p === "." || p === ".."), "owner/name") });
 export type ProjectBranches = z.infer<typeof ProjectBranches>;
+
+export const HelperKind = z.enum(["read", "edit", "check"]);
+export type HelperKind = z.infer<typeof HelperKind>;
+/** Models page, Local helper: each kind's use, how often the lead redid it, what it saved, and whether it is on. */
+export type HelperStatus = { kind: HelperKind; model: string | null; uses: number; redoneRate: number | null; savedThisWeek: number; state: "on" | "near" | "off"; reason: string | null };
+export const DelegateRequest = z.object({ kind: HelperKind, task: z.string().min(1).max(4000), files: z.array(z.string().min(1).max(500)).max(20).default([]) });
+export const HelperToggle = z.object({ kind: HelperKind, on: z.boolean() });

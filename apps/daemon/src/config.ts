@@ -44,6 +44,8 @@ export const Config = z.object({
   }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
   /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
   checker: z.object({ chromium: z.string().optional() }).prefault({}),
+  /** The local helper (delegate): which local model, and the redo rate above which a kind turns itself off. */
+  helper: z.object({ model: z.string().optional(), redoLimit: z.number().min(0).max(1).default(0.25) }).prefault({}),
   /** Open in editor: {host} is this machine's name, {path} the folder. Default: VS Code over Remote-SSH. */
   editor: z.object({ url: z.string().min(1).max(500).default("vscode://vscode-remote/ssh-remote+{host}{path}") }).prefault({}),
   /**

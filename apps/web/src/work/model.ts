@@ -53,7 +53,11 @@ export function stepsFor(events: LaneEvent[]): Step[] {
     } else if (event.type === "agent.plan") steps.push({ seq: event.seq, at: event.at, family: "mind", title: "Plan", type: "plan", event });
     else if (event.type === "permission.requested") steps.push({ seq: event.seq, at: event.at, family: "you", title: event.payload.title, type: "permission", event });
     else if (event.type === "check.result") steps.push({ seq: event.seq, at: event.at, family: "run", title: event.payload.name, type: "check", event });
-    else if (event.type === "helper.delegated") steps.push({ seq: event.seq, at: event.at, family: "team", title: `Local helper · ${event.payload.kind}`, type: "status", text: `${event.payload.model} · ${event.payload.tokensSaved} tokens saved`, event });
+    else if (event.type === "helper.delegated") {
+      const p = event.payload;
+      const what = p.kind === "read" ? `read ${p.files?.length ? p.files.map((f) => f.split("/").at(-1)).join(", ") : "files"}` : p.kind === "check" ? "ran the checks" : `wrote a patch for ${p.files?.map((f) => f.split("/").at(-1)).join(", ") ?? "files"}`;
+      steps.push({ seq: event.seq, at: event.at, family: "team", title: `Local helper ${what}`, type: "status", text: `${p.model}${p.resultTokens ? ` · came back as ${p.resultTokens} tokens` : ""} · saved ≈ ${p.tokensSaved >= 1000 ? `${Math.round(p.tokensSaved / 1000)}k` : p.tokensSaved} cloud tokens`, event });
+    }
     else if (event.type === "agent.error") steps.push({ seq: event.seq, at: event.at, family: "run", title: "Agent stopped", type: "status", text: event.payload.message, event });
     else if (event.type === "agent.command.result" && !event.payload.ok) steps.push({ seq: event.seq, at: event.at, family: "you", title: "Control could not be applied", type: "status", text: event.payload.error, event });
     else if (event.type === "notification.failed") steps.push({ seq: event.seq, at: event.at, family: "you", title: "Notification could not be sent", type: "status", text: event.payload.message, event });

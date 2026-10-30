@@ -83,7 +83,10 @@ const payloads = {
   /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */
   "collision.planned": z.object({ module: z.string(), first: z.string(), message: z.string() }),
   "collision.told": z.object({ module: z.string(), first: z.string() }),
-  "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative() }),
+  "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative(),
+    task: z.string().optional(), files: z.array(z.string()).optional(), resultTokens: z.number().int().optional(), ms: z.number().optional() }),
+  /** The lead redid a delegation's work (read the files itself, reran the checks, or never applied the patch). */
+  "helper.redone": z.object({ seq: z.number().int(), kind: z.enum(["read", "edit", "check"]) }),
   "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional(), source: z.literal("acp").default("acp") }),
   "usage.turn": TurnUsage,
   "usage.limit": UsageLimit,
