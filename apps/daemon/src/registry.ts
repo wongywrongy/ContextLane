@@ -23,8 +23,13 @@ const Registry = z.object({ agents: z.array(z.unknown()) });
 /** The three agents ContextLanes sets up itself, with their own sign-in flows. */
 const BUILT_IN = new Set(["claude-acp", "codex-acp", "opencode", "opencode-v2"]);
 const PLATFORM = `linux-${process.arch === "arm64" ? "aarch64" : "x86_64"}`;
-/** Approval-bypassing switches some agents take; never passed, whatever the registry says. */
-const UNSAFE = /^--?(yolo|dangerously|bypass|full-auto|auto-approve|approval-policy=never)/i;
+/**
+ * Switches and settings that turn off an agent's permission prompts. Agents never approve (AGENTS.md), so an
+ * entry whose arguments or environment contain one is refused outright rather than installed with it dropped:
+ * the words are matched across all arguments and environment variables together, so split forms such as
+ * `--permission-mode bypassPermissions` or `-c approval_policy="never"` are caught too.
+ */
+export const UNSAFE = /yolo|dangerous|bypass|full[-_]?auto|auto[-_]?approve|approval[-_]?policy|ask[-_]for[-_]approval|permission[-_]?mode|skip[-_]?permissions|sandbox[-_]?mode|danger/i;
 
 /** Installs registry agents beside the user's other tools (not in the data folder, which lanes cannot see). */
 export class AgentRegistry {
@@ -48,7 +53,10 @@ export class AgentRegistry {
     const entry = Registry.parse(await res.json()).agents.map((a) => Entry.safeParse(a)).find((e) => e.success && e.data.id === agentId);
     if (!entry?.success) throw new Refused(`There is no agent ${agentId} in the ACP registry.`);
     const e = entry.data;
-    const safe = (args: string[]) => args.filter((a) => !UNSAFE.test(a));
+    const settings = [e.distribution.npx, e.distribution.uvx, e.distribution.binary?.[PLATFORM]].flatMap((d) => d ? [...d.args, ...Object.entries(d.env ?? {}).flat()] : []);
+    const unsafe = settings.find((a) => UNSAFE.test(a));
+    if (unsafe) throw new Refused(`${e.name}'s registry entry starts it with "${unsafe}", which can turn off permission prompts, so it was not installed. Add it by hand under Settings if you trust it.`);
+    const safe = (args: string[]) => args;
     if (e.distribution.npx) {
       const { package: pkg, args, env } = e.distribution.npx;
       const prefix = join(this.home(), ".local");

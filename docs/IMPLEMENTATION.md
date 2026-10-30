@@ -7,6 +7,7 @@
 - **Local models (phase 3):** add Ollama (or llama.cpp) under Models → Local models, pull the model you want (`ollama pull <name>`), and check it shows Serving after a brief or Insights run. Nothing in phase 3 has run against a real model yet; the code is tested against a fake OpenAI-compatible server. On neo's 24 GB card a 30B coder model fits only quantized (Q4).
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
 - **Skills over ACP:** add one project skill in Insights, start one lane each with Claude Code, Codex and OpenCode, and ask each to list its skills. They read the files from the checkout (see 4.6); what is unchecked is whether each ACP adapter turns skill loading on.
+- **gh and git sign-in on neo:** the daemon's own git and gh run in the sandbox, which hides `/run` and with it the D-Bus session bus. A gh token kept in a desktop keyring then looks signed out. On a headless machine gh keeps the token in `~/.config/gh/hosts.yml`, which works; if Setup shows GitHub as signed out while `gh auth status` says otherwise, run `gh auth login --insecure-storage` once.
 - **Terminals on neo:** the native terminal module is gone (see T). Open a lane terminal and an agent login terminal once on neo to confirm; the real tmux test passes in the build container with Python 3.13.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
 - **bubblewrap on other machines:** lanes refuse to start without a working `bwrap`. neo has it. `install.sh` now requires it, and a fresh machine needs `sudo apt install bubblewrap`. Ubuntu 24.04 needs its AppArmor profile for `bwrap`, which neo has at `/etc/apparmor.d/bwrap`; other distributions have not been tried.
@@ -729,6 +730,10 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Insights → What every lane starts with → Skills: add, edit and remove, with where they go.
 - Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
 - Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
+
+#### Review of the phase 3–4 work (2026-10-30)
+
+An independent read of `773e700..a0a3f2b` found that the daemon, which runs outside the sandbox, followed symlinks in lane checkouts. Fixed with `apps/daemon/src/safefs.ts` (real path inside the checkout, no final symlink, no FIFO or device, size cap), used by `delegate`, module briefs, fork, take over and skills. Also fixed: registry entries whose arguments or environment would turn off permission prompts are refused rather than trimmed; a bench baseline lane is refused `get_brief` and `delegate`, not only hidden from them; hand off checks the agent name with `Object.hasOwn`; local model URLs keep their base path. Schedules, the new routes' auth, database names, the PTY host and attachments were checked and left as they were. Tests: `safefs.test.ts`, and additions to `helper.test.ts` and `registry.test.ts`.
 
 ### 4.7 Final board pass
 

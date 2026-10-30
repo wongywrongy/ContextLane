@@ -4,6 +4,7 @@ import { ProjectSkill, type Lane, type ProjectId } from "@contextlanes/protocol"
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { NotFound } from "./lanes/manager.js";
+import { writeInside } from "./safefs.js";
 import type { Runner } from "./run.js";
 
 /**
@@ -50,14 +51,14 @@ export class Skills {
     const skills = await this.list(lane.project);
     if (!skills.length) return 0;
     const dirs = SKILL_DIRS[lane.agent] ?? [".agents/skills"];
-    for (const d of dirs) for (const s of skills) {
-      const target = join(lane.worktree, d, `${PREFIX}${s.name}`);
-      await mkdir(target, { recursive: true });
-      await writeFile(join(target, "SKILL.md"), this.render(s));
-    }
-    // info/exclude lives in the repository's common git folder, shared by all its worktrees.
-    const common = (await this.deps.run("git", ["rev-parse", "--git-common-dir"], { cwd: lane.worktree })).stdout.trim();
-    const exclude = join(isAbsolute(common) ? common : resolve(lane.worktree, common), "info", "exclude");
+    // Through writeInside: the checkout may come from an agent's branch, so a committed .claude symlink is refused, not followed.
+    for (const d of dirs) for (const s of skills) await writeInside(lane.worktree, `${d}/${PREFIX}${s.name}/SKILL.md`, this.render(s));
+    // info/exclude lives in the repository's common git folder, shared by all its worktrees. Asked of the
+    // project's own checkout, not the lane's, whose .git file and commondir the agent can rewrite.
+    const project = this.deps.store.getProject(lane.project);
+    if (!project) throw new NotFound("no such project");
+    const common = (await this.deps.run("git", ["rev-parse", "--git-common-dir"], { cwd: project.path })).stdout.trim();
+    const exclude = join(isAbsolute(common) ? common : resolve(project.path, common), "info", "exclude");
     const current = await readFile(exclude, "utf8").catch(() => "");
     const missing = [".claude/skills", ".agents/skills"].map((d) => `${d}/${PREFIX}*/`).filter((l) => !current.split("\n").includes(l));
     if (missing.length) { await mkdir(join(exclude, ".."), { recursive: true }); await appendFile(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}# ContextLanes project skills\n${missing.join("\n")}\n`); }

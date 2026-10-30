@@ -218,12 +218,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const helper = deps.helper ?? new Helper({ config, store, bus, models: localModels, run, runtime });
   app.get("/api/helper", async () => helper.status());
   app.post("/api/helper", async (req) => { const b = HelperToggle.parse(req.body); await helper.setKind(b.kind, b.on); return helper.status(); });
+  const isBaseline = (lane: string) => { const created = store.events(lane, 0).find((e) => e.type === "lane.created"); return created?.type === "lane.created" && !!created.payload.baseline; };
   app.get<{ Params: { project: string; n: string } }>(TOOLS_ROUTE, async (req) => {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
     // A bench baseline lane gets phase 2's tools only, so the comparison measures phase 3.
-    const created = store.events(lane.id, 0).find((e) => e.type === "lane.created");
-    if (created?.type === "lane.created" && created.payload.baseline) return { tools: LANE_TOOLS.filter((t) => t !== "get_brief") };
+    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => t !== "get_brief") };
     return { tools: await helper.available() ? [...LANE_TOOLS, "delegate"] : LANE_TOOLS };
   });
   const insights = deps.insights ?? new Insights({ config, store, bus, models: localModels, codemaps, briefs });
@@ -332,6 +332,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.
   app.post<{ Params: { project: string; n: string; tool: string } }>(TOOL_ROUTE, async (req, reply) => {
     const lane = laneParam(req.params);
+    if (["get_brief", "delegate"].includes(req.params.tool) && isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without phase 3 tools.");
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);

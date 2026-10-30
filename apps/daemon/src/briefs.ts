@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assign, estimateTokens, type CodeMap, type ModuleBrief, type ProjectId } from "@contextlanes/protocol";
+import { readInside } from "./safefs.js";
 import type { CodeMaps } from "./codemap.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -77,7 +78,7 @@ export class Briefs {
     if (!job) {
       job = (async () => {
         const heads = await Promise.all((module.paths ?? []).slice(0, 8).map(async (f) => {
-          const text = await readFile(join(root, f), "utf8").catch(() => "");
+          const text = (await readInside(root, f, 64_000).catch(() => null))?.text ?? "";
           return `--- ${f}\n${text.split("\n").slice(0, MAX_HEAD).join("\n").slice(0, 4000)}`;
         }));
         const result = await this.deps.models.chat(model, [

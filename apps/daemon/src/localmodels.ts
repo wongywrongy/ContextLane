@@ -4,6 +4,9 @@ import { Refused } from "./lanes/manager.js";
 import { parseGpus } from "./resources.js";
 import type { Runner } from "./run.js";
 
+/** A path under the endpoint's configured URL, keeping any base path it has (http://host/llm/ + v1/models). */
+export const endpoint = (base: string, path: string) => new URL(path.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`);
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export type ChatResult = { text: string; inputTokens: number | null; outputTokens: number | null; model: string; ms: number };
 
@@ -22,7 +25,7 @@ export class LocalModels {
   async reachable(model: LocalModel): Promise<boolean> {
     const hit = this.seen.get(model.url);
     if (hit && Date.now() - hit.at < 60_000) return hit.ok;
-    const ok = await (this.deps.fetch ?? fetch)(new URL(model.provider === "ollama" ? "/api/tags" : "/health", model.url), { signal: AbortSignal.timeout(2000), redirect: "error" }).then((r) => r.ok, () => false);
+    const ok = await (this.deps.fetch ?? fetch)(endpoint(model.url, model.provider === "ollama" ? "/api/tags" : "/health"), { signal: AbortSignal.timeout(2000), redirect: "error" }).then((r) => r.ok, () => false);
     this.seen.set(model.url, { at: Date.now(), ok });
     return ok;
   }
@@ -48,7 +51,7 @@ export class LocalModels {
   async chat(model: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
     return this.exclusive(model, async () => {
       const started = Date.now();
-      const res = await (this.deps.fetch ?? fetch)(new URL("/v1/chat/completions", model.url), {
+      const res = await (this.deps.fetch ?? fetch)(endpoint(model.url, "/v1/chat/completions"), {
         method: "POST", headers: { "content-type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(opts.timeoutMs ?? 300_000),
         body: JSON.stringify({ model: model.name, messages, temperature: 0.2, stream: false, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}), ...(opts.json ? { response_format: { type: "json_object" } } : {}) }),
       }).catch((err: Error) => { throw new Refused(`${model.name} at ${new URL(model.url).host} did not answer: ${err.message}`, 503); });
@@ -63,7 +66,7 @@ export class LocalModels {
   /** For the Models page: what each endpoint serves, what is loaded, and how full this machine's GPU is. */
   async status(): Promise<LocalModelStatus[]> {
     const f = this.deps.fetch ?? fetch;
-    const get = (m: LocalModel, path: string) => f(new URL(path, m.url), { signal: AbortSignal.timeout(4000), redirect: "error" }).then(async (r) => r.ok ? r.json() as Promise<Record<string, unknown>> : null, () => null);
+    const get = (m: LocalModel, path: string) => f(endpoint(m.url, path), { signal: AbortSignal.timeout(4000), redirect: "error" }).then(async (r) => r.ok ? r.json() as Promise<Record<string, unknown>> : null, () => null);
     const gpus = await this.deps.run("nvidia-smi", ["--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"], { timeout: 5000 }).then((r) => parseGpus(r.stdout), () => []);
     return Promise.all(this.list().map(async (m): Promise<LocalModelStatus> => {
       const local = ["127.0.0.1", "localhost"].includes(new URL(m.url).hostname);
@@ -79,7 +82,7 @@ export class LocalModels {
         return { ...base, state: loaded.some((x) => x.name === m.name || x.name === `${m.name}:latest`) ? "serving" : "idle", loaded: loaded.map((x) => x.name), memory: vram || null,
           detail: has ? null : `${m.name} is not pulled. Run: ollama pull ${m.name}` };
       }
-      const health = await f(new URL("/health", m.url), { signal: AbortSignal.timeout(4000), redirect: "error" }).then((r) => r.ok, () => false);
+      const health = await f(endpoint(m.url, "/health"), { signal: AbortSignal.timeout(4000), redirect: "error" }).then((r) => r.ok, () => false);
       if (!health) return { ...base, state: "down", loaded: [], memory: null, detail: "The server did not answer." };
       const models = await get(m, "/v1/models");
       return { ...base, state: q.running ? "serving" : "idle", loaded: ((models?.data ?? []) as { id: string }[]).map((x) => x.id), memory: null, detail: null };

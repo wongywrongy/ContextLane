@@ -1,4 +1,4 @@
-import { mkdir, writeFile, copyFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
@@ -8,6 +8,7 @@ import type { HostLinks } from "./hosts.js";
 import { hostCommand, NotFound, Refused, type LaneManager } from "./lanes/manager.js";
 import { hostUnit } from "./lanes/naming.js";
 import { handoffFrom } from "./outside.js";
+import { copyInside } from "./safefs.js";
 import type { Runner } from "./run.js";
 
 const ASK = `Write a handoff for a fresh session that will continue this lane's work in the same checkout. Plain text, under 400 words: the task, what is done (files and decisions), what is left in order, anything that failed and why, and rules the next session must keep. Do not use tools; reply with the handoff only.`;
@@ -57,7 +58,7 @@ export class Handoffs {
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
     if (!["working", "needs_you"].includes(lane.state)) throw new Refused("Only a working lane can start a fresh session.");
-    if (to.agent && !config.agents[to.agent] && !["claude-code", "codex", "opencode"].includes(to.agent)) throw new Refused(`There is no agent called ${to.agent}.`);
+    if (to.agent && !Object.hasOwn(config.agents, to.agent) && !["claude-code", "codex", "opencode"].includes(to.agent)) throw new Refused(`There is no agent called ${to.agent}.`);
     if (this.busy.has(id)) throw new Refused("A handoff is already being written for this lane.");
     this.busy.add(id);
     void (async () => {
@@ -94,7 +95,8 @@ export class Handoffs {
         const patch = (await run("git", ["diff", "--binary", "HEAD"], { cwd: lane.worktree })).stdout;
         // The patch goes where the sandboxed git can read it (the lanes folder), not the data folder.
         if (patch.trim()) { const dir = join(this.deps.config.paths.lanes, ".attachments", "fork"); await mkdir(dir, { recursive: true, mode: 0o700 }); const p = join(dir, `${l.id.replace("/", "-")}.patch`); await writeFile(p, patch, { mode: 0o600 }); await run("git", ["apply", "--whitespace=nowarn", p], { cwd: l.worktree }); }
-        for (const f of (await run("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: lane.worktree })).stdout.split("\0").filter(Boolean)) { await mkdir(dirname(join(l.worktree, f)), { recursive: true }); await copyFile(join(lane.worktree, f), join(l.worktree, f)); }
+        // copyInside keeps symlinks as symlinks: copying through one would hand the fork whatever it points at.
+        for (const f of (await run("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: lane.worktree })).stdout.split("\0").filter(Boolean)) await copyInside(lane.worktree, l.worktree, f);
       },
     });
     bus.publish(store.appendEvent(id, { type: "lane.forked", payload: { from: id, to: fork.id } }));

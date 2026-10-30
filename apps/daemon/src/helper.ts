@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { estimateTokens, type HelperKind, type HelperStatus, type Lane, type LaneEvent } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
@@ -9,6 +9,7 @@ import type { LocalModels } from "./localmodels.js";
 import type { Runner } from "./run.js";
 import type { Runtime } from "./runtime.js";
 import { oneshot } from "./runtime.js";
+import { readInside } from "./safefs.js";
 import { sandbox } from "./sandbox.js";
 
 const KINDS: HelperKind[] = ["read", "edit", "check"];
@@ -63,19 +64,15 @@ export class Helper {
   /** Whether delegate is worth offering to agents at all. */
   async available(): Promise<boolean> { return (await this.status()).some((s) => s.state !== "off"); }
 
-  private inside(lane: Lane, file: string): string {
-    const full = resolve(lane.worktree, file);
-    if (full !== lane.worktree && !full.startsWith(lane.worktree + sep)) throw new Refused(`${file} is outside this lane's checkout.`);
-    return full;
-  }
   private async read(lane: Lane, files: string[]): Promise<string> {
     const parts: string[] = [];
     for (const f of files.slice(0, 20)) {
-      const full = this.inside(lane, f);
-      const size = await stat(full).then((s) => s.size, () => -1);
-      if (size < 0) { parts.push(`--- ${f}\n(not found)`); continue; }
-      const text = await readFile(full, "utf8");
-      parts.push(`--- ${relative(lane.worktree, full)}\n${size > MAX_FILE ? `${text.slice(0, MAX_FILE / 2)}\n[… ${size - MAX_FILE} bytes left out …]\n${text.slice(-MAX_FILE / 2)}` : text}`);
+      const textual = resolve(lane.worktree, f);
+      if (textual !== lane.worktree && !textual.startsWith(lane.worktree + sep)) throw new Refused(`${f} is outside this lane's checkout.`);
+      // Through readInside: the agent controls the checkout, so a symlink to the data folder or a FIFO is refused.
+      const file = await readInside(lane.worktree, f, MAX_FILE + 1);
+      if (!file) { parts.push(`--- ${f}\n(not found, outside this checkout, or not a regular file)`); continue; }
+      parts.push(`--- ${f}\n${file.size > MAX_FILE ? `${file.text.slice(0, MAX_FILE / 2)}\n[… ${file.size - MAX_FILE / 2} bytes left out …]` : file.text}`);
     }
     return parts.join("\n\n");
   }

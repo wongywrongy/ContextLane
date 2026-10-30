@@ -29,6 +29,7 @@ pnpm dev              # daemon on :4600 and the web app with /api proxied
 - **Everything is an event.** Write through `Store.appendEvent` or `Store.setLaneState`; never update lane state without the matching event.
 - **Validate at the edge.** Request bodies and event payloads go through the zod schemas in `packages/protocol`.
 - **No shell strings.** Run commands through the injected `Runner` with argument arrays, so tests can fake git, tmux and systemd.
+- **Lane checkouts are agent-controlled.** The daemon runs outside the sandbox, so it reads, copies and writes files in a lane checkout only through `apps/daemon/src/safefs.ts` (no following symlinks out, no FIFOs or devices).
 - **Agents never approve.** Only `/api/answers` resolves a permission. Never add auto-allow timers.
 - **Loopback only, credentials always.** The daemon binds `127.0.0.1`, so every request looks local. Only a token says who is asking (`apps/daemon/src/http/auth.ts`); never trust an address or header.
 - **Lane commands run in the sandbox.** Anything started for a lane goes through `sandbox()` (`apps/daemon/src/sandbox.ts`). The daemon's own git and gh go through `confineGit`; never build a runner for them without it.

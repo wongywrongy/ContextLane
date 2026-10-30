@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,6 +37,11 @@ describe("local helper", () => {
     expect(r.tokensSaved).toBeGreaterThan(5000);
     expect(f.store.events(f.lane.id).at(-1)).toMatchObject({ type: "helper.delegated", payload: { kind: "read", model: "qwen3-coder", files: ["test.log"] } });
     await expect(f.helper.delegate(f.lane, { kind: "read", task: "x", files: ["../../etc/passwd"] })).rejects.toThrow(/outside this lane's checkout/);
+    // A symlink the agent planted to a file outside its checkout is not read.
+    await symlink("/etc/hostname", join(f.worktree, "host.txt"));
+    const before = f.prompts.length;
+    await f.helper.delegate(f.lane, { kind: "read", task: "quote it", files: ["host.txt"] });
+    expect(f.prompts.slice(before).join("")).toContain("not a regular file");
     f.bus.publish(f.store.appendEvent(f.lane.id, { type: "tool.call", payload: { callId: "c", kind: "read", title: "Read test.log", files: [join(f.worktree, "test.log")] } }));
     f.turnEnd(); await flush();
     expect(f.store.events(f.lane.id).filter((e) => e.type === "helper.redone")).toHaveLength(1);

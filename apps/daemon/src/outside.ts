@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile, copyFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { copyInside } from "./safefs.js";
 import type { Lane, OutsideAgent, ProjectId } from "@contextlanes/protocol";
 import type { Store } from "./db/store.js";
 import { NotFound, Refused, type LaneManager } from "./lanes/manager.js";
@@ -148,7 +149,7 @@ export class OutsideAgents {
           await run("git", ["apply", "--whitespace=nowarn", file], { cwd: l.worktree });
         }
         const untracked = (await run("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: s.cwd })).stdout.split("\0").filter(Boolean);
-        for (const f of untracked) { await mkdir(dirname(join(l.worktree, f)), { recursive: true }); await copyFile(join(s.cwd, f), join(l.worktree, f)); }
+        for (const f of untracked) await copyInside(s.cwd, l.worktree, f);
       },
     });
     this.seen.delete(`${s.pid}@${s.startedAt.slice(0, 16)}`);
