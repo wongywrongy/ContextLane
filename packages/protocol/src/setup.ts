@@ -35,11 +35,22 @@ export type SetupStatus = z.infer<typeof SetupStatus>;
 export const DetectedAgent = z.object({ id: AgentId, installed: z.boolean(), status: z.enum(["Ready", "Install", "Sign in"]) });
 export type DetectedAgent = z.infer<typeof DetectedAgent>;
 export const FolderQuery = z.object({ path: z.string().min(1).max(4096).default("~") });
-export const Repository = z.object({ name: z.string(), path: z.string(), branch: z.string().nullable() });
+export const Repository = z.object({ name: z.string(), path: z.string(), branch: z.string().nullable(),
+  /** Agents whose session history shows work in this repository. */
+  usedBy: z.array(z.enum(["claude-code", "codex"])).default([]),
+  lastUsed: z.iso.datetime().nullable().default(null),
+  /** Why this repository cannot be used yet, in one sentence, or null. */
+  note: z.string().nullable().default(null),
+});
 export type Repository = z.infer<typeof Repository>;
-export const RepositoryScan = z.object({ repositories: z.array(Repository), scanned: z.number().int(), limited: z.boolean() });
+export const RepositoryScan = z.object({ repositories: z.array(Repository), scanned: z.number().int(), limited: z.boolean(),
+  /** Large folders the walk did not enter (treated as data). The folder browser still opens them. */
+  skipped: z.array(z.string()).default([]),
+});
 export type RepositoryScan = z.infer<typeof RepositoryScan>;
-export const FolderListing = z.object({ path: z.string(), parent: z.string().nullable(), folders: z.array(z.object({ name: z.string(), path: z.string() })) });
+export const FolderListing = z.object({ path: z.string(), parent: z.string().nullable(), repo: z.boolean().default(false),
+  folders: z.array(z.object({ name: z.string(), path: z.string(), repo: z.boolean().default(false) })),
+});
 export type FolderListing = z.infer<typeof FolderListing>;
 export const ProjectBranches = z.object({ branches: z.array(z.string()), defaultBranch: z.string().nullable() });
 export type ProjectBranches = z.infer<typeof ProjectBranches>;

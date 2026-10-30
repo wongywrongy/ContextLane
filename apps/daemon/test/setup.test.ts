@@ -1,11 +1,12 @@
 import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, runCommand, type Runner } from "@contextlanes/daemon";
 import { loadConfig } from "../src/config.js";
 import { SetupManager } from "../src/setup.js";
+import { ProjectDiscovery } from "../src/projects.js";
 import { installService } from "../src/install.js";
 import { serveWeb } from "../src/http/static.js";
 import Fastify from "fastify";
@@ -22,7 +23,7 @@ async function fixture() {
     calls.push({ cmd, args });
     if (cmd === "tailscale") return { stdout: args[0] === "status" ? JSON.stringify(tailscaleStatus) : "{}" };
     if (cmd === "loginctl") return { stdout: "yes\n" };
-    if (cmd === "git") return { stdout: args[0] === "rev-parse" ? opts!.cwd! : args[0] === "symbolic-ref" ? "origin/trunk\n" : args[0] === "for-each-ref" ? "feature\ntrunk\n" : "feature\n" };
+    if (cmd === "git") return { stdout: args[1] === "--list" ? "" : args[0] === "rev-parse" ? opts!.cwd! : args[0] === "symbolic-ref" ? "origin/trunk\n" : args[0] === "for-each-ref" ? "feature\ntrunk\n" : "feature\n" };
     return { stdout: cmd.endsWith("claude") ? '{"loggedIn":true,"token":"never-return-this"}' : cmd.endsWith("opencode") ? "2 credentials" : "" };
   });
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
@@ -221,24 +222,67 @@ describe("headless setup", () => {
 });
 
 describe("project discovery", () => {
-  it("finds repos at depth four, skips hidden/node_modules/symlinks, and reports branches", async () => {
+  it("finds repos up to depth five, skips hidden/node_modules/symlinks, and reports branches", async () => {
     const f = await fixture();
-    for (const path of ["code/one", "a/b/c/four", "a/b/c/d/five", ".secret/repo", "node_modules/repo"]) await mkdir(join(f.home, path, ".git"), { recursive: true });
+    for (const path of ["code/one", "a/b/c/d/five", "a/b/c/d/e/six", ".secret/repo", "node_modules/repo"]) await mkdir(join(f.home, path, ".git"), { recursive: true });
     await mkdir(join(f.home, "worktree")); await writeFile(join(f.home, "worktree/.git"), "gitdir: elsewhere");
     await symlink(join(f.home, "code"), join(f.home, "link"));
     const result = await f.setup.projects.scan();
-    expect(result.repositories.map((p) => p.name)).toEqual(["four", "one", "worktree"]);
-    expect(result.repositories.every((p) => p.branch === "feature")).toBe(true);
+    expect(result.repositories.map((p) => p.name)).toEqual(["five", "one", "worktree"]);
+    expect(result.repositories.every((p) => p.branch === "feature" && p.note === null)).toBe(true);
     expect(result.limited).toBe(false);
   });
-  it("stops after 2,000 folders", async () => {
-    const f = await fixture(); await Promise.all(Array.from({ length: 2020 }, (_, i) => mkdir(join(f.home, `folder-${i}`))));
-    const result = await f.setup.projects.scan(); expect(result.scanned).toBe(2000); expect(result.limited).toBe(true);
+  it("does not let one wide data folder hide repositories elsewhere", async () => {
+    const f = await fixture();
+    await Promise.all(Array.from({ length: 320 }, (_, i) => mkdir(join(f.home, "data", `set-${i}`), { recursive: true })));
+    await mkdir(join(f.home, "work/code/shop/.git"), { recursive: true });
+    const result = await f.setup.projects.scan();
+    expect(result.repositories.map((p) => p.name)).toEqual(["shop"]);
+    expect(result.skipped).toEqual([join(f.home, "data")]);
+  });
+  it("stops at a repository instead of walking inside it", async () => {
+    const f = await fixture();
+    await mkdir(join(f.home, "code/outer/.git"), { recursive: true }); await mkdir(join(f.home, "code/outer/packages/inner/.git"), { recursive: true });
+    expect((await f.setup.projects.scan()).repositories.map((p) => p.name)).toEqual(["outer"]);
+  });
+  it("stops at the folder budget and says so", async () => {
+    const f = await fixture(); await Promise.all(Array.from({ length: 80 }, (_, i) => mkdir(join(f.home, `folder-${i}`))));
+    const result = await new ProjectDiscovery(f.home, f.run, { limits: { folders: 50 } }).scan();
+    expect(result.scanned).toBe(50); expect(result.limited).toBe(true);
+  });
+  it("lists repositories from Claude Code and Codex history first, including ones outside home, but never lane worktrees", async () => {
+    const f = await fixture();
+    const elsewhere = join(f.root, "srv/app"); await mkdir(join(elsewhere, ".git"), { recursive: true });
+    const lane = join(f.config.paths.lanes, "app/01-task"); await mkdir(lane, { recursive: true }); await writeFile(join(lane, ".git"), "gitdir: x");
+    await mkdir(join(f.home, "code/one/.git"), { recursive: true });
+    await mkdir(join(f.home, ".claude/projects/-srv-app"), { recursive: true });
+    await writeFile(join(f.home, ".claude/projects/-srv-app/s.jsonl"), `{"type":"summary"}\n{"type":"user","cwd":${JSON.stringify(elsewhere)}}\n`);
+    await mkdir(join(f.home, ".claude/projects/-lane"), { recursive: true });
+    await writeFile(join(f.home, ".claude/projects/-lane/s.jsonl"), `{"cwd":${JSON.stringify(lane)}}\n`);
+    await mkdir(join(f.home, ".codex/sessions/2026/10/29"), { recursive: true });
+    await writeFile(join(f.home, ".codex/sessions/2026/10/29/rollout-1.jsonl"), `{"type":"session_meta","payload":{"cwd":${JSON.stringify(join(f.home, "code/one"))}}}\n`);
+    const old = new Date("2026-01-01T00:00:00Z"); await utimes(join(f.home, ".codex/sessions/2026/10/29/rollout-1.jsonl"), old, old);
+    const result = await f.setup.projects.scan();
+    expect(result.repositories.map((p) => [p.name, p.usedBy])).toEqual([["app", ["claude-code"]], ["one", ["codex"]]]);
+    expect(result.repositories[0]!.lastUsed! > result.repositories[1]!.lastUsed!).toBe(true);
+  });
+  it("explains repositories git refuses or that have no commits instead of hiding them", async () => {
+    const f = await fixture();
+    await mkdir(join(f.home, "code/theirs/.git"), { recursive: true }); await mkdir(join(f.home, "code/empty/.git"), { recursive: true });
+    const run: Runner = async (cmd, args, opts) => {
+      if (opts?.cwd?.endsWith("theirs")) throw new Error("fatal: detected dubious ownership in repository");
+      if (opts?.cwd?.endsWith("empty") && args[0] === "rev-parse") throw new Error("exit 1");
+      return f.run(cmd, args, opts);
+    };
+    const result = await new ProjectDiscovery(f.home, run).scan();
+    expect(result.repositories.find((p) => p.name === "theirs")!.note).toContain(`git config --global --add safe.directory ${join(f.home, "code/theirs")}`);
+    expect(result.repositories.find((p) => p.name === "empty")!.note).toMatch(/No commits yet/);
   });
   it("confines the folder browser to canonical home paths, including symlinks and ..", async () => {
     const f = await fixture(); const outside = join(f.root, "outside"); await mkdir(outside); await mkdir(join(f.home, "code"));
     await symlink(outside, join(f.home, "escape")); await symlink(join(f.home, "code"), join(f.home, "inside"));
     const listing = await f.setup.projects.folders("~"); expect(listing.parent).toBeNull(); expect(listing.folders.map((p) => p.name)).toEqual(["code", "inside"]);
+    await mkdir(join(f.home, "code/.git")); expect((await f.setup.projects.folders("~")).folders.map((p) => p.repo)).toEqual([true, true]);
     expect((await f.setup.projects.folders("~/inside")).path).toBe(join(f.home, "code"));
     for (const path of ["~/escape", "~/..", outside, "relative"]) await expect(f.setup.projects.folders(path)).rejects.toThrow();
   });

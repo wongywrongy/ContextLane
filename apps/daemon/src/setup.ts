@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { ProjectDiscovery, expandPath } from "./projects.js";
+import { ProjectDiscovery, expandPath, type ScanLimits } from "./projects.js";
 import { createServer } from "node:net";
 import { stripVTControlCharacters } from "node:util";
 import { homedir, userInfo } from "node:os";
@@ -42,9 +42,9 @@ export class SetupManager {
   private starting?: Promise<SetupLink>;
   private get home(): string { return this.options.home ?? homedir(); }
   constructor(readonly config: Config, private store: Store, private run: Runner,
-    private options: { path?: string; find?: typeof findExecutable; fetch?: typeof fetch; changed?: () => Promise<void>; home?: string; user?: string; portFree?: (port: number) => Promise<boolean> } = {}) {
+    private options: { path?: string; find?: typeof findExecutable; fetch?: typeof fetch; changed?: () => Promise<void>; home?: string; user?: string; portFree?: (port: number) => Promise<boolean>; scanLimits?: Partial<ScanLimits> } = {}) {
     this.controlFile = join(config.paths.data, "setup-token");
-    this.projects = new ProjectDiscovery(this.home, run);
+    this.projects = new ProjectDiscovery(this.home, run, { exclude: [config.paths.lanes], ...(options.scanLimits ? { limits: options.scanLimits } : {}) });
   }
   get claimed(): boolean { return !!(this.config.access.owner || this.config.access.passkey || this.config.access.shellOwner); }
   async initialize(): Promise<void> {
