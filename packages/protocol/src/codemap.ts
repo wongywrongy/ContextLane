@@ -155,3 +155,7 @@ export type InsightsView = {
   today: { lane: string; task: string; tokens: number; cacheShare: number | null; local: boolean }[];
   startsWith: { notes: { facts: number; tokens: number }; briefs: number; handoffs: number };
 };
+
+/** ⌘K Ask: an answer from the project's notes, code map, briefs and lanes, with the sources it cited. */
+export type AskAnswer = { answer: string; model: string; sources: { id: string; kind: "notes" | "map" | "brief" | "lane"; label: string }[] };
+export const AskRequest = z.object({ question: z.string().trim().min(3).max(500) });

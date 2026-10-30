@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
-import type { Health, Lane, Project, ProjectBranches, ProjectEnvironments } from "@contextlanes/protocol";
-import { useJson, useLiveInbox, InboxContext, useInbox } from "../api";
+import { Link, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams } from "react-router";
+import type { AskAnswer, Health, Lane, Project, ProjectBranches, ProjectEnvironments } from "@contextlanes/protocol";
+import { errorMessage, postJson, useJson, useLiveInbox, InboxContext, useInbox } from "../api";
 import { useWork } from "../work/useWork";
 import { READY } from "../features";
 import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph, coverFor } from "./ui";
@@ -26,7 +26,7 @@ export function Shell() {
           <NavLink to="/models">Models</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
-        <button className="ask" onClick={() => setJump(true)}>Jump to a project or lane<span className="kbd">⌘K</span></button>
+        <button className="ask" onClick={() => setJump(true)}>Ask, jump or start a lane<span className="kbd">⌘K</span></button>
         <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "…"}</span>
       </header>
       {jump ? <JumpDialog onClose={() => setJump(false)} /> : null}
@@ -35,13 +35,16 @@ export function Shell() {
   );
 }
 
-/** ⌘K: jump to any project or lane, or start one. */
+/** ⌘K: jump to any project or lane, start a lane from what you typed, or ask about a project (local model). */
 function JumpDialog({ onClose }: { onClose: () => void }) {
   const [projects] = useJson<Project[]>("/api/projects");
   const [lanes] = useJson<Lane[]>("/api/lanes");
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [answer, setAnswer] = useState<{ project: string; busy: boolean; result?: AskAnswer; error?: string } | null>(null);
   const navigate = useNavigate();
+  const here = useMatch("/p/:project/*")?.params.project;
+  const ask = (project: string) => { setAnswer({ project, busy: true }); void postJson<AskAnswer>(`/api/projects/${project}/ask`, { question: query }).then((result) => setAnswer({ project, busy: false, result }), (e) => setAnswer({ project, busy: false, error: errorMessage(e) })); };
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     const match = (text: string) => !q || text.toLowerCase().includes(q);
@@ -52,9 +55,15 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
       list.push({ key: `n:${project.id}`, to: `/p/${project.id}/work?new=1`, label: <span>Start a lane in {project.name}</span>, meta: "new lane" });
     }
     if (match("add repository")) list.push({ key: "add", to: "/?add=1", label: <span>Add a repository</span>, meta: "projects" });
+    // A sentence rather than a name: offer to ask about it, or to start a lane with it as the task.
+    if (q.split(/\s+/).length >= 3) {
+      const targets = (projects ?? []).filter((p) => !here || p.id === here).slice(0, 3);
+      for (const p of targets) list.unshift({ key: `ask:${p.id}`, to: `ask:${p.id}`, label: <span>Ask about {p.name}: <b>{query.trim()}</b></span>, meta: "local model" });
+      for (const p of targets) list.push({ key: `start:${p.id}`, to: `/p/${p.id}/work?new=1&task=${encodeURIComponent(query.trim())}`, label: <span>Start a lane in {p.name}: {query.trim()}</span>, meta: "new lane" });
+    }
     return list.slice(0, 30);
-  }, [projects, lanes, query]);
-  const go = (to: string) => { onClose(); navigate(to); };
+  }, [projects, lanes, query, here]);
+  const go = (to: string) => { if (to.startsWith("ask:")) { ask(to.slice(4)); return; } onClose(); navigate(to); };
   return <Dialog title="Jump" onClose={onClose}>
     <div className="pathin"><input className="in" autoFocus aria-label="Jump to a project or lane" placeholder="Type a project, lane or task" value={query}
       onChange={(e) => { setQuery(e.target.value); setActive(0); }}
@@ -65,8 +74,15 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
       }} /></div>
     <div className="jump-list" role="listbox" aria-label="Results">
       {items.map((item, i) => <button key={item.key} role="option" aria-selected={i === active} className={i === active ? "on" : ""} onMouseEnter={() => setActive(i)} onClick={() => go(item.to)}>{item.label}<span className="m">{item.meta}</span></button>)}
-      {!items.length ? <div className="empty">Nothing matches. Try a project name or part of a task.</div> : null}
+      {!items.length ? <div className="empty">Nothing matches. Try a project name or part of a task, or type a question.</div> : null}
     </div>
+    {answer ? <div className="sec-b" role="status" aria-live="polite" style={{ borderTop: "1px solid var(--line-soft)", fontSize: 14, lineHeight: 1.55 }}>
+      {answer.busy ? <span className="muted">Asking the local model…</span> : answer.error ? <span role="alert">{answer.error}</span> : answer.result ? <>
+        <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{answer.result.answer}</p>
+        {answer.result.sources.length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{answer.result.sources.map((src) => <button key={src.id} className="fchip" style={{ border: 0, cursor: "pointer" }} onClick={() => go(src.kind === "lane" ? `/p/${answer.project}/work?lane=${encodeURIComponent(src.id.slice(5))}` : src.kind === "notes" ? `/p/${answer.project}/insights` : `/p/${answer.project}/architecture`)}>{src.label}</button>)}</div> : null}
+        <span className="muted" style={{ display: "block", marginTop: 8, fontSize: 12 }}>{answer.result.model} · from your notes, code map, briefs and lanes</span>
+      </> : null}
+    </div> : null}
   </Dialog>;
 }
 

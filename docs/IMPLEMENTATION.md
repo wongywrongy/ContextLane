@@ -334,8 +334,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Done: see 3.5 |
 | 3.6 Local helper (`delegate`) | models, work-lane | Done with a fake model; see 3.6 (decision changed) |
 | 3.7 Insights | insights | Done with a fake model; see 3.7 |
-| 3.8 ⌘K Ask | top bar | Next |
-| 3.9 Measure the phase 3 gate | — | Not started |
+| 3.8 ⌘K Ask | top bar | Done with a fake model; see 3.8 |
+| 3.9 Measure the phase 3 gate | — | Next |
 | 4.1 Hand off, fork, fresh session | work-lane | Not started |
 | 4.2 Second-agent review | review | Not started |
 | 4.3 More agents | models | Not started |
@@ -627,6 +627,12 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - Answers questions about a project from the map, briefs, notes and event log with the local model, citing each source it used.
 - Read only. Starting a lane from an answer goes through the normal New lane form.
+
+#### What was done (2026-10-30)
+
+- ⌘K is now "Ask, jump or start a lane". Typing three or more words adds "Ask about <project>: …" (the current project, or up to three) and "Start a lane in <project>: …" (New lane with that task).
+- `apps/daemon/src/ask.ts` answers from project notes, the code map (layers, modules and what each uses, main paths), written briefs (those whose module names match the question first, about 6,000 characters) and the open lanes, with the local model, in at most five sentences with a source id after each claim. A citation to a source it was not given is removed; the cited sources show as chips that open the lane, Insights or Architecture. Read only.
+- Tests: `ask.test.ts` (sources sent, invented citation removed).
 
 ### 3.9 Measure the phase 3 gate
 

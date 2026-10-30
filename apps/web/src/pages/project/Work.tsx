@@ -41,7 +41,7 @@ export function WorkPage() {
         </>}
     </main>
     {lane ? <Inspector key={lane.id} lane={lane} events={history.events} openTerminal={() => setView("terminal")} /> : null}
-    {creating && projects ? <NewLaneDialog projects={projects} project={project} onClose={closeNew} /> : null}
+    {creating && projects ? <NewLaneDialog projects={projects} project={project} task={params.get("task") ?? undefined} onClose={closeNew} /> : null}
   </div>;
 }
 

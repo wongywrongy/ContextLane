@@ -7,7 +7,7 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
 import { Collisions } from "../collisions.js";
@@ -15,6 +15,7 @@ import { LocalModels } from "../localmodels.js";
 import { Briefs } from "../briefs.js";
 import { Helper } from "../helper.js";
 import { Insights } from "../insights.js";
+import { Ask } from "../ask.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
 const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
@@ -221,6 +222,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string } }>("/api/projects/:project/insights", async (req) => insights.view(ProjectId.parse(req.params.project)));
   app.post<{ Params: { project: string } }>("/api/projects/:project/insights", async (req) => insights.generate(ProjectId.parse(req.params.project)));
   app.post<{ Params: { project: string; id: string } }>("/api/projects/:project/insights/:id/dismiss", async (req) => { await insights.dismiss(ProjectId.parse(req.params.project), z.uuid().parse(req.params.id)); return { dismissed: true }; });
+  const ask = new Ask({ store, codemaps, briefs, models: localModels });
+  app.post<{ Params: { project: string } }>("/api/projects/:project/ask", async (req) => ask.ask(ProjectId.parse(req.params.project), AskRequest.parse(req.body).question));
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));
