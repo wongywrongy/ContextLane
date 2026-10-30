@@ -48,7 +48,7 @@ describe("http api", () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shuttleworks" } });
     await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shuttleworks", task: "Billing" } });
-    store.appendEvent("shuttleworks/01", { type: "permission.requested", payload: { requestId: "r1", title: "Run npm i", options: [] } });
+    store.appendEvent("shuttleworks/01", { type: "permission.requested", payload: { requestId: "r1", title: "Run npm i", options: [{ id: "allow", label: "Allow once", kind: "allow_once" }] } });
     expect((await app.inject({ url: "/api/inbox" })).json()).toHaveLength(1);
     const res = await app.inject({ method: "POST", url: "/api/answers", payload: { lane: "shuttleworks/01", requestId: "r1", optionId: "allow", via: "phone" } });
     expect(res.statusCode).toBe(202);
@@ -65,5 +65,33 @@ describe("http api", () => {
     const { app } = setup();
     const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "Not Valid!" } });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("records disconnected controls for replay and rejects bypass modes", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Controls" } });
+    for (const [action, payload] of [["prompt", { text: "Next", immediate: true }], ["cancel", {}], ["mode", { mode: "plan" }], ["model", { model: "large" }]] as const) {
+      const response = await app.inject({ method: "POST", url: `/api/lanes/demo/01/${action}`, payload });
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({ delivered: false });
+    }
+    expect(store.pendingCommands("demo/01")).toHaveLength(4);
+    for (const mode of ["auto", "bypassPermissions", "agent", "agent-full-access"]) {
+      expect((await app.inject({ method: "POST", url: "/api/lanes/demo/01/mode", payload: { mode } })).statusCode).toBe(400);
+    }
+  });
+
+  it("only accepts an offered option for a pending permission, once", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Permission" } });
+    store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "request", title: "Continue?", options: [{ id: "once", label: "Allow once", kind: "allow_once" }] } });
+    const answer = (requestId: string, optionId: string) => app.inject({ method: "POST", url: "/api/answers", payload: { lane: "demo/01", requestId, optionId } });
+    expect((await answer("missing", "once")).statusCode).toBe(404);
+    expect((await answer("request", "always")).statusCode).toBe(400);
+    expect((await answer("request", "once")).statusCode).toBe(202);
+    expect((await answer("request", "once")).statusCode).toBe(409);
+    expect(store.events("demo/01").filter((e) => e.type === "permission.answered")).toHaveLength(1);
   });
 });

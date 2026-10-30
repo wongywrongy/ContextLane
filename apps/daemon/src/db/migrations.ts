@@ -71,4 +71,6 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (project, recipe_hash)
   );
   `,
+  /* 2 */ `ALTER TABLE event ADD COLUMN source_id TEXT;
+  CREATE UNIQUE INDEX event_source ON event(lane, source_id) WHERE source_id IS NOT NULL;`,
 ];

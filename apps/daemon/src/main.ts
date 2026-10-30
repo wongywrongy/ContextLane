@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   const stop = async () => {
     await app.close();
-    hosts.close();
+    await hosts.close();
     store.close();
     process.exit(0);
   };

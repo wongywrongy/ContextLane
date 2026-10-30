@@ -15,7 +15,7 @@ function seeded() {
 describe("store", () => {
   it("migrates an empty database", () => {
     const store = Store.open(":memory:");
-    expect(store.schemaVersion()).toBe(1);
+    expect(store.schemaVersion()).toBe(2);
     expect(store.listProjects()).toEqual([]);
   });
 
@@ -25,6 +25,15 @@ describe("store", () => {
     const b = store.appendEvent("shuttleworks/01", { type: "agent.thought", payload: { text: "two" } });
     expect([a.seq, b.seq]).toEqual([1, 2]);
     expect(store.events("shuttleworks/01", 1).map((e) => e.seq)).toEqual([2]);
+  });
+
+  it("deduplicates replayed host observations without gaps", () => {
+    const store = seeded();
+    const event = { type: "agent.message" as const, payload: { text: "stream", role: "agent" as const } };
+    const first = store.appendEvent("shuttleworks/01", event, "stable-id");
+    expect(store.appendEvent("shuttleworks/01", event, "stable-id")).toEqual(first);
+    expect(store.appendEvent("shuttleworks/01", event, "next-id").seq).toBe(2);
+    expect(store.events("shuttleworks/01")).toHaveLength(2);
   });
 
   it("refuses payloads that do not match the event type", () => {

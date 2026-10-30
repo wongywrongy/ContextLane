@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
+import { LaneCommand } from "./commands.js";
 
 /**
  * Everything that happens is an event in one append-only log. Pages, the inbox, the CLI
@@ -41,6 +42,15 @@ const payloads = {
   "agent.plan": z.object({ entries: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })) }),
   "agent.thought": z.object({ text: z.string() }),
   "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]) }),
+  "agent.command": z.object({ commandId: z.uuid(), command: LaneCommand }),
+  "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
+  "agent.session": z.object({
+    sessionId: z.string(), currentMode: z.string().optional(), currentModel: z.string().optional(),
+    modes: z.array(z.object({ id: z.string(), label: z.string() })),
+    models: z.array(z.object({ id: z.string(), label: z.string() })),
+  }),
+  "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional() }),
+  "agent.error": z.object({ message: z.string() }),
   "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]) }),
   "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]), summary: z.string().optional() }),
   "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption) }),
@@ -74,6 +84,16 @@ export type LaneEvent = { [T in EventType]: { lane: LaneId; seq: number; at: str
 
 /** An event before the store assigns seq and time. */
 export type NewLaneEvent = { [T in EventType]: { type: T; payload: EventPayload<T> } }[EventType];
+
+export const NewLaneEvent = z.discriminatedUnion("type", EVENT_TYPES.map((type) =>
+  z.object({ type: z.literal(type), payload: payloads[type] }),
+) as unknown as [z.ZodObject, ...z.ZodObject[]]);
+
+/** Hosts report agent observations; only the daemon may write owner decisions and commands. */
+export const HostEvent = z.object({ eventId: z.uuid(), event: NewLaneEvent }).refine(({ event }) => {
+  return ["agent.plan", "agent.thought", "agent.message", "agent.session", "agent.turn", "agent.error", "agent.command.result", "tool.call", "tool.update", "permission.requested", "usage"].includes(String(event.type)) &&
+    (event.type !== "agent.message" || (event.payload as { role: string }).role === "agent");
+}, "hosts may only report agent observations");
 
 export function parsePayload<T extends EventType>(type: T, payload: unknown): EventPayload<T> {
   return payloads[type].parse(payload) as EventPayload<T>;

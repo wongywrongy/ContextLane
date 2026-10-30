@@ -8,7 +8,7 @@ import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, runComman
 // Opt in on a machine with tmux and a PTY; the ordinary suite fakes every command.
 it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell and tmux history across browser and daemon disconnects, then attaches the CLI", async () => {
   const root = await mkdtemp(join(tmpdir(), "cl-terminal-"));
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") } });
+  const config = Config.parse({ lanes: { launchHosts: false }, paths: { data: root, lanes: join(root, "lanes") } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });

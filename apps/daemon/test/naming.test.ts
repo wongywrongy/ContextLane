@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachArgs, branchName, hostCommand, slugify, terminalSession, worktreePath } from "@contextlanes/daemon";
+import { attachArgs, branchName, Config, hostCommand, slugify, terminalSession, worktreePath } from "@contextlanes/daemon";
 
 describe("lane naming", () => {
   it("slugifies tasks", () => {
@@ -13,6 +13,13 @@ describe("lane naming", () => {
     expect(attachArgs("cl-shuttleworks-01")).toEqual(["attach-session", "-t", "cl-shuttleworks-01"]);
   });
   it("runs lane hosts as their own systemd units", () => {
-    expect(hostCommand("shuttleworks/01", "/w")).toContain("--unit=contextlanes-lane-shuttleworks-01");
+    const config = Config.parse({ agents: { codex: { command: "/bin/fake", args: ["--acp"] } } });
+    const args = hostCommand({ id: "shuttleworks/01", worktree: "/w", task: "Task\nwith spaces", agent: "codex", model: "large", mode: "ask" } as Parameters<typeof hostCommand>[0], config);
+    expect(args).toContain("--unit=contextlanes-lane-shuttleworks-01");
+    expect(args.slice(args.indexOf("--task"), args.indexOf("--task") + 2)).toEqual(["--task", "Task\nwith spaces"]);
+    expect(args).toContain("--socket");
+    expect(args).toContain("--model");
+    expect(JSON.parse(args[args.indexOf("--agent-spec") + 1]!)).toEqual({ command: "/bin/fake", args: ["--acp"] });
+    expect(JSON.parse(args[args.indexOf("--toolbox") + 1]!)).toMatchObject({ name: "contextlanes", env: expect.arrayContaining([{ name: "CONTEXTLANES_LANE", value: "shuttleworks/01" }]) });
   });
 });

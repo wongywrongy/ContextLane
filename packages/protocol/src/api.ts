@@ -18,7 +18,7 @@ export const Lane = z.object({
   task: z.string(),
   agent: z.string(),
   model: z.string().nullable(),
-  mode: z.enum(["ask", "edits", "plan", "auto"]),
+  mode: z.enum(["ask", "edits", "plan"]),
   branch: z.string(),
   worktree: z.string(),
   terminal: z.string(),
@@ -36,7 +36,7 @@ export const StartLaneRequest = z.object({
   task: z.string().min(1),
   agent: z.string().default("claude-code"),
   model: z.string().optional(),
-  mode: z.enum(["ask", "edits", "plan", "auto"]).default("edits"),
+  mode: z.enum(["ask", "edits", "plan"]).default("ask"),
   goal: z.string().optional(),
   base: z.string().default("main"),
 });

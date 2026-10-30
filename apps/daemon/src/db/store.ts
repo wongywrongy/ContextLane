@@ -7,6 +7,7 @@ import {
   type LaneId,
   type LaneState,
   type NewLaneEvent,
+  type EventPayload,
   type Project,
   type ProjectId,
   parsePayload,
@@ -124,19 +125,44 @@ export class Store {
   // ── events ──────────────────────────────────────────────────────────────
 
   /** Append one event; seq is per lane and gap-free. Payloads are validated on the way in. */
-  appendEvent(lane: LaneId, ev: NewLaneEvent): LaneEvent {
+  appendEvent(lane: LaneId, ev: NewLaneEvent, sourceId?: string): LaneEvent {
     const payload = parsePayload(ev.type, ev.payload);
     return this.tx(() => {
+      if (sourceId) {
+        const previous = this.eventBySource(lane, sourceId);
+        if (previous) return previous;
+      }
       const { seq } = this.db.prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM event WHERE lane = ?").get(lane) as { seq: number };
       const at = now();
-      this.db.prepare("INSERT INTO event (lane, seq, at, type, payload) VALUES (?, ?, ?, ?, ?)").run(lane, seq, at, ev.type, JSON.stringify(payload));
+      this.db.prepare("INSERT INTO event (lane, seq, at, type, payload, source_id) VALUES (?, ?, ?, ?, ?, ?)").run(lane, seq, at, ev.type, JSON.stringify(payload), sourceId ?? null);
       return { lane, seq, at, type: ev.type, payload } as LaneEvent;
     });
   }
 
+  eventBySource(lane: LaneId, sourceId: string): LaneEvent | null {
+    const r = this.db.prepare("SELECT * FROM event WHERE lane = ? AND source_id = ?").get(lane, sourceId) as Row | undefined;
+    return r ? toEvent(r) : null;
+  }
+
+  pendingCommands(lane: LaneId): Extract<LaneEvent, { type: "agent.command" }>[] {
+    return (this.db.prepare(`SELECT c.* FROM event c WHERE c.lane = ? AND c.type = 'agent.command'
+      AND NOT EXISTS (SELECT 1 FROM event a WHERE a.lane = c.lane AND a.type = 'agent.command.result'
+      AND json_extract(a.payload, '$.commandId') = json_extract(c.payload, '$.commandId')) ORDER BY c.seq`).all(lane) as Row[])
+      .map(toEvent) as Extract<LaneEvent, { type: "agent.command" }>[];
+  }
+
+  permission(lane: LaneId, requestId: string): EventPayload<"permission.requested"> | null {
+    const row = this.db.prepare("SELECT payload FROM event WHERE lane = ? AND type = 'permission.requested' AND json_extract(payload, '$.requestId') = ? ORDER BY seq DESC LIMIT 1").get(lane, requestId) as Row | undefined;
+    return row ? JSON.parse(String(row.payload)) : null;
+  }
+
+  answered(lane: LaneId, requestId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM event WHERE lane = ? AND type = 'permission.answered' AND json_extract(payload, '$.requestId') = ? LIMIT 1").get(lane, requestId);
+  }
+
   events(lane: LaneId, afterSeq = 0, limit = 500): LaneEvent[] {
     const rows = this.db.prepare("SELECT * FROM event WHERE lane = ? AND seq > ? ORDER BY seq LIMIT ?").all(lane, afterSeq, limit) as Row[];
-    return rows.map((r) => ({ lane: r.lane, seq: r.seq, at: r.at, type: r.type, payload: JSON.parse(String(r.payload)) }) as LaneEvent);
+    return rows.map(toEvent);
   }
 
   /** Everything waiting on the owner: unanswered permission requests and lanes in review. */
@@ -158,6 +184,10 @@ export class Store {
       ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: now() })),
     ];
   }
+}
+
+function toEvent(r: Row): LaneEvent {
+  return { lane: String(r.lane), seq: Number(r.seq), at: String(r.at), type: r.type, payload: JSON.parse(String(r.payload)) } as LaneEvent;
 }
 
 function now(): string {

@@ -2,6 +2,7 @@
 
 ## Needs Kyle
 
+- **Real agents (1.1 acceptance):** install the registry adapters with `npm install --global --prefix "$HOME/.local" @agentclientprotocol/claude-agent-acp@0.99.1 @agentclientprotocol/codex-acp@2.5.0`. Put their absolute executables under `[agents.claude-code].command` and `[agents.codex].command` in `~/.config/contextlanes/config.toml` if they are not on the daemon's PATH. Authenticate Claude interactively with `claude-agent-acp --cli` then `/login` (headless/SSH flow); authenticate Codex with your normal Codex CLI login. Run one lane of each and restart the daemon. Both adapter executables are absent on the development machine, so the two-lane restart check used SDK fake agents in real systemd units.
 - **Real phone acceptance:** set `[access].owner` to your Tailscale login in `~/.config/contextlanes/config.toml` before remote use. Through your tailnet proxy, open `/p/<project>/work`, select **Terminal**, try the phone keyboard, close the tab and reattach. Chromium at a 390px viewport passed; a physical phone has not been tested. Remote-access setup remains milestone 1.5.
 
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
@@ -12,7 +13,7 @@ The current goal is **finish phase 1**, first isolating native terminal loading,
 
 | Milestone | Status | Evidence / next step |
 |---|---|---|
-| 1.1 Lane hosts for real | Pending | Scaffold only; launch/reconnect/control work still needed |
+| 1.1 Lane hosts for real | Implemented; real-agent acceptance needs Kyle | Complete systemd arguments, agent overrides, MCP toolbox, live steps, durable command/event replay, permission held across restart; SDK fake-agent and real systemd two-lane restart tests pass |
 | 1.2 Permission round trip | Pending | Scaffold only; notifiers and phone acceptance still needed |
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
 | 1.4 Work page | Pending | After 1.2 |
@@ -26,8 +27,8 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | Package | What works now | What is stubbed |
 |---|---|---|
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
-| `apps/daemon` | Config from `config.toml`, SQLite store on `node:sqlite` with migrations, event log with gap-free seq per lane, inbox derived from events, lane manager (worktree + tmux), lane-host socket, HTTP API, live stream (SSE), Tailscale identity check, terminal WebSocket with detachable PTY clients | Launching lane hosts is behind `lanes.launchHosts`; toolbox calls return 501 |
-| `apps/lanehost` | ACP client on `@agentclientprotocol/sdk`: spawns the agent, opens a session, runs prompts, coalesces streamed text into steps, maps tool calls and plans to events, relays permission requests and waits for your answer | Not yet launched by the daemon; no reconnect after a daemon restart |
+| `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients | Most toolbox calls return 501 until their phase |
+| `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
 | `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer` | `arch` and `setup` print where they land |
 | `packages/toolbox` | The eight MCP tools declared with input schemas and served over stdio | Every tool returns 501 until its phase |
 | `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Other pages show their final sections with empty states |
@@ -53,6 +54,16 @@ Gate: three lanes a day for a week, answered from the phone.
 - Reconnect: the host keeps the ACP session when the daemon restarts and re-sends `hello`; the daemon resumes the lane.
 - Prompt, cancel, mode and model: `POST /api/lanes/:p/:n/prompt|cancel|mode|model` → host → `session/prompt`, `session/cancel`, `session/set_mode`, `session/set_config_option`.
 - Done when: a real Claude Code lane and a real Codex lane run side by side, survive `systemctl --user restart contextlanes`, and their steps appear live.
+
+Implementation complete. Default commands are `claude-agent-acp`, `codex-acp`, and `opencode acp`; `[agents.<name>]` overrides `command`, `args`, and `env`. `[lanes.host]` and `[lanes.toolbox]` point to the built workspace entry points by default. Hosts launch by default; set `[lanes].launchHosts = false` only to use terminals without agents. Build once before development (`pnpm build`). New lanes default to `ask`; bypass, auto-approval and Codex auto-review modes are rejected.
+
+Validation: an in-process SDK `agent()` covers MCP injection, live output, unresolved permission waiting, controls, prompt ordering and duplicate command suppression. A real systemd daemon plus two separate systemd lane hosts running the SDK fake agent retain their PIDs and permissions across `systemctl --user restart`. The full gate enables both real fixture tests:
+
+```sh
+CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
+```
+
+Real Claude/Codex acceptance is blocked only on the installs/logins above; implementation continues to 1.2 as requested.
 
 **1.2 Permission round trip**
 - Inbox from events (done); `POST /api/answers` (done) delivers to the host (done for connected hosts).
@@ -127,8 +138,9 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 
 ## Open questions
 
-- Do `claude-agent-acp` and `codex-acp` both support `session/resume`, or must the lane host keep the agent process alive for the whole lane?
-- Does a Claude subscription login work through `claude-agent-acp` on a headless machine?
+- **Resolved from adapter code:** both current registry adapters support `session/resume` and `session/load`. Claude advertises `resume: {}` in [`acp-agent.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/2fd46c866d4ff2939fe1b1245b15a536d6de7c0b/src/acp-agent.ts); Codex does so in [`CodexAcpServer.ts`](https://github.com/agentclientprotocol/codex-acp/blob/ac8d9251de43ab8648a89eb0520e0c606ad78be5/src/CodexAcpServer.ts). ContextLanes keeps the existing process/session alive across daemon restarts because resume cannot preserve an outstanding in-process permission handler. Host crashes are reported as failures; they do not silently rerun the task.
+- **Resolved from Claude adapter code, not a login test:** it advertises Claude subscription terminal authentication, and detects SSH/`NO_BROWSER` to select the interactive `--cli` TUI login flow. It is not an unattended ACP login. Kyle still needs to authenticate and verify his subscription on this machine. `--hide-claude-auth` can intentionally disable subscriptions; ContextLanes does not set it. Source: [`acp-agent.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/2fd46c866d4ff2939fe1b1245b15a536d6de7c0b/src/acp-agent.ts).
+- **Safety finding:** Codex's current default `agent` mode delegates approvals to auto review. ContextLanes forces `INITIAL_AGENT_MODE=read-only`, selects a human-approval mode before prompting, and excludes `agent` and full-access modes. Source: [`AgentMode.ts`](https://github.com/agentclientprotocol/codex-acp/blob/ac8d9251de43ab8648a89eb0520e0c606ad78be5/src/AgentMode.ts).
 - Can Tailscale Serve give each lane its own name, or do we always need Caddy with a DNS API token?
 - How long does CodeGraph take to index the largest repo, and how big is the index?
 - Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe?

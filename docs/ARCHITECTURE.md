@@ -102,13 +102,18 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `POST /api/lanes` | Start a lane |
 | `GET /api/lanes/:project/:n/events?after=` | Event history |
 | `POST /api/lanes/:project/:n/prompt` | Message the agent |
+| `POST /api/lanes/:project/:n/cancel`, `/mode`, `/model` | Interrupt or change an agent setting; commands survive daemon restart |
 | `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
 | `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
 | `GET /api/inbox`, `POST /api/answers` | What waits on you, and your answer |
 
 **Lane host socket** (`<data>/lanes.sock`, JSON lines):
-- host → daemon: `{"hello": "<lane>"}`, then events `{"type": "...", "payload": {...}}`
-- daemon → host: `{"prompt": "..."}`, `{"answer": {"requestId", "optionId"}}`, `{"cancel": true}`
+- host → daemon: `{"hello":"<lane>"}`, then `{"eventId":"<uuid>","event":{"type":"...","payload":{...}}}`.
+- daemon → host: `{"ready":true}`, durable `{"commandId":"<uuid>","command":{"kind":"prompt|answer|cancel|mode|model",...}}` and `{"ack":"<eventId>"}`.
+- The host retains observations until acknowledged; `(lane, source_id)` deduplicates replay in SQLite without seq gaps. Commands are `agent.command` events, pending until `agent.command.result`. The surviving host suppresses repeated command IDs. Permission answers are validated against the outstanding request and recorded with their command in one transaction.
+- Only the daemon writes owner decisions and commands. The socket is mode 0600; host observations cannot forge `permission.answered`, user messages or lane transitions. New permission events move the lane to `needs_you`; the final pending answer moves it back with a `lane.state` event.
+
+`[lanes].launchHosts` defaults to true. `[agents.<name>]` overrides the ACP command, argument array and environment; `[lanes.host]` and `[lanes.toolbox]` override workspace entry points. Defaults use absolute Node/script paths, so systemd does not depend on package binaries being globally linked. The host reconnects while holding the same agent process and ACP session. Agent failures become events; the host does not restart the task automatically.
 
 **Agent toolbox** (MCP): `env_status`, `env_start`, `get_logs`, `preview_url`, `ask_owner`, `checkpoint`, `get_brief`, `delegate`.
 

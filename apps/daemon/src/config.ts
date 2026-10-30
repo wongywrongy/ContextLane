@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { AgentSpec } from "@contextlanes/protocol";
 import { parse } from "smol-toml";
 import { z } from "zod";
 
@@ -22,7 +24,12 @@ export const Config = z.object({
       allowLocal: z.boolean().default(true),
     })
     .default({ owner: null, allowLocal: true }),
-  lanes: z.object({ maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(false) }).default({ maxConcurrent: 6, launchHosts: false }),
+  agents: z.record(z.string(), AgentSpec).default({}),
+  lanes: z.object({
+    maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
+    host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),
+    toolbox: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../../packages/toolbox/dist/main.js", import.meta.url))] }),
+  }).prefault({}),
 });
 export type Config = z.infer<typeof Config>;
 

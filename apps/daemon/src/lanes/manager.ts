@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { laneColour, laneId, StartLaneRequest, type Lane } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
@@ -26,6 +26,8 @@ export class LaneManager {
     const { store, config } = this.deps;
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
+    const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
+    if (active.length >= config.lanes.maxConcurrent) throw new Error("maximum concurrent lanes reached");
 
     const n = store.nextLaneNumber(project.id);
     const id = laneId(project.id, n);
@@ -51,8 +53,9 @@ export class LaneManager {
       await mkdir(dirname(lane.worktree), { recursive: true });
       await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, req.base], { cwd: project.path });
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
-      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(id, lane.worktree));
-      this.emit(store.setLaneState(id, "working"));
+      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config));
+      if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
+      if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {
       this.emit(store.setLaneState(id, "failed", err instanceof Error ? err.message : String(err)));
     }
@@ -65,8 +68,15 @@ export class LaneManager {
 }
 
 /** systemd-run arguments for a lane host. Kept separate so it can be tested and documented. */
-export function hostCommand(lane: string, cwd: string): string[] {
-  return ["--user", `--unit=${hostUnit(lane)}`, "--collect", `--working-directory=${cwd}`, "contextlanes-lanehost", "--lane", lane];
+export function hostCommand(lane: Lane, config: Config): string[] {
+  const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
+    env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
+  return ["--user", `--unit=${hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
+    `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
+    config.lanes.host.command, ...config.lanes.host.args, "--lane", lane.id, "--task", lane.task, "--agent", lane.agent,
+    "--socket", join(config.paths.data, "lanes.sock"), "--mode", lane.mode,
+    "--toolbox", JSON.stringify(toolbox), ...(lane.model ? ["--model", lane.model] : []),
+    ...(config.agents[lane.agent] ? ["--agent-spec", JSON.stringify(config.agents[lane.agent])] : [])];
 }
 
 export class NotFound extends Error {}

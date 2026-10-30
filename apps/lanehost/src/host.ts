@@ -1,89 +1,172 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createConnection } from "node:net";
-import { createInterface } from "node:readline";
 import { Readable, Writable } from "node:stream";
-import { client, methods, ndJsonStream, PROTOCOL_VERSION, type McpServer } from "@agentclientprotocol/sdk";
-import type { NewLaneEvent } from "@contextlanes/protocol";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type McpServer, type SessionConfigOption } from "@agentclientprotocol/sdk";
+import { SafeMode, type CommandEnvelope, type NewLaneEvent } from "@contextlanes/protocol";
 import type { AgentSpec } from "./agents.js";
 import { Coalescer, mapPermission } from "./map.js";
+import { DaemonLink } from "./link.js";
 
 export type LaneHostOptions = {
-  lane: string;
-  cwd: string;
-  task: string;
-  agent: AgentSpec;
-  /** Unix socket of the daemon (HostLinks). */
-  socketPath: string;
-  /** The ContextLanes toolbox, handed to the agent so it can use the lane instead of guessing. */
-  mcpServers?: McpServer[];
+  lane: string; cwd: string; task: string; agent: AgentSpec; socketPath: string;
+  mcpServers?: McpServer[]; mode?: string; model?: string; signal?: AbortSignal;
+  /** The production transport is stdio; tests connect to an in-process SDK agent app. */
+  connect?: (app: ClientApp) => ClientConnection;
 };
 
-/**
- * Holds one agent session for one lane. Runs as its own systemd unit, so restarting or upgrading
- * the daemon never stops the agent; it reconnects to the socket and carries on.
- */
-export async function runLaneHost(opts: LaneHostOptions): Promise<void> {
-  const daemon = createConnection(opts.socketPath);
-  const send = (msg: object) => daemon.write(`${JSON.stringify(msg)}\n`);
-  send({ hello: opts.lane });
-  const emit = (e: NewLaneEvent) => send(e);
-
-  const answers = new Map<string, (optionId: string | null) => void>();
-  const prompts: string[] = [];
-  let wake: (() => void) | null = null;
-  createInterface({ input: daemon }).on("line", (line) => {
-    const msg = JSON.parse(line) as { prompt?: string; answer?: { requestId: string; optionId: string | null } };
-    if (msg.answer) answers.get(msg.answer.requestId)?.(msg.answer.optionId);
-    if (msg.prompt) {
-      prompts.push(msg.prompt);
-      wake?.();
-    }
-  });
-
-  const child = spawn(opts.agent.command, opts.agent.args, { cwd: opts.cwd, env: { ...process.env, ...opts.agent.env, CONTEXTLANES_LANE: opts.lane }, stdio: ["pipe", "pipe", "inherit"] });
-  const stream = ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>);
-
+export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">, emit: (event: NewLaneEvent) => void) {
+  const answers = new Map<string, { resolve: (id: string | null) => void; reject: (err: Error) => void; options: Set<string> }>();
+  const coalescer = new Coalescer(emit);
   const app = client({ name: "contextlanes" }).onRequest(methods.client.session.requestPermission, async ({ params }) => {
     const requestId = randomUUID();
+    const answer = new Promise<string | null>((resolve, reject) => answers.set(requestId, { resolve, reject, options: new Set(params.options.map((o) => o.optionId)) }));
+    coalescer.flush();
     emit(mapPermission(requestId, params));
-    // Nothing is allowed on a timer: the request waits until you answer.
-    const optionId = await new Promise<string | null>((resolve) => answers.set(requestId, resolve));
-    answers.delete(requestId);
-    return optionId ? { outcome: { outcome: "selected", optionId } } : { outcome: { outcome: "cancelled" } };
+    try {
+      const optionId = await answer;
+      return optionId === null ? { outcome: { outcome: "cancelled" } } : { outcome: { outcome: "selected", optionId } };
+    } finally { answers.delete(requestId); }
   });
-
-  await app.connectWith(stream, async (ctx) => {
-    await ctx.request(methods.agent.initialize, {
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: "contextlanes", version: "0.1.0" },
-    });
-    let builder = ctx.buildSession(opts.cwd);
+  let child: ReturnType<typeof spawn> | undefined;
+  const connection = opts.connect ? opts.connect(app) : (() => {
+    child = spawn(opts.agent.command, opts.agent.args, { cwd: opts.cwd, env: { ...process.env, ...opts.agent.env, CONTEXTLANES_LANE: opts.lane, INITIAL_AGENT_MODE: "read-only" }, stdio: ["pipe", "pipe", "inherit"] });
+    const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
+    return app.connect(stream);
+  })();
+  child?.on("error", (err) => connection.close(err));
+  const abort = () => { connection.close(); child?.kill(); };
+  opts.signal?.addEventListener("abort", abort, { once: true });
+  const ctx = connection.agent;
+  try {
+    await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
+    let builder = ctx.buildSession({ cwd: opts.cwd, mcpServers: [], _meta: { claudeCode: { options: { allowDangerouslySkipPermissions: false, permissionMode: "default" } } } });
     for (const server of opts.mcpServers ?? []) builder = builder.withMcpServer(server);
     const session = await builder.start();
-    const coalescer = new Coalescer(emit);
-
-    const turn = async (text: string) => {
-      const done = session.prompt(text);
-      for (;;) {
-        const m = await session.nextUpdate();
-        if (m.kind === "stop") break;
-        coalescer.push(m.update);
-      }
-      coalescer.flush();
-      await done;
+    let currentMode = session.modes?.currentModeId;
+    let configOptions = session.newSessionResponse.configOptions ?? [];
+    const modelOption = () => configOptions.find((o) => o.type === "select" && (o.category === "model" || o.id === "model"));
+    const modelValues = (option: SessionConfigOption | undefined) => !option || option.type !== "select" ? [] : option.options.flatMap((o) => "options" in o ? o.options : [o]);
+    const reportSession = () => {
+      const model = modelOption();
+      emit({ type: "agent.session", payload: { sessionId: session.sessionId, currentMode,
+        currentModel: model?.type === "select" ? model.currentValue : undefined,
+        modes: (session.modes?.availableModes ?? []).filter((m) => SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success).map((m) => ({ id: m.id, label: m.name })),
+        models: modelValues(model).map((m) => ({ id: m.value, label: m.name })) } });
     };
-
-    await turn(opts.task);
-    for (;;) {
-      const next = prompts.shift();
-      if (next) {
-        await turn(next);
-        continue;
+    const setMode = async (mode: string) => {
+      SafeMode.parse(mode);
+      if (!session.modes?.availableModes.some((m) => m.id === mode && SafeMode.safeParse(m.name).success)) throw new Error(`agent does not offer mode ${mode}`);
+      await ctx.request(methods.agent.session.setMode, { sessionId: session.sessionId, modeId: mode });
+      currentMode = mode;
+      reportSession();
+    };
+    const setModel = async (model: string) => {
+      const option = modelOption();
+      if (!option || !modelValues(option).some((m) => m.value === model)) throw new Error(`agent does not offer model ${model}`);
+      const result = await ctx.request(methods.agent.session.setConfigOption, { sessionId: session.sessionId, configId: option.id, value: model });
+      configOptions = result.configOptions;
+      reportSession();
+    };
+    // Do not inherit an agent's saved bypass mode, and never select an auto-approval mode.
+    const initialMode = opts.mode === "plan" ? "plan" : opts.mode && !["ask", "edits"].includes(opts.mode) ? opts.mode :
+      session.modes?.availableModes.find((m) => ["default", "read-only", "ask", "on-request"].includes(m.id))?.id;
+    if (initialMode) await setMode(initialMode);
+    else if (currentMode) SafeMode.parse(currentMode);
+    if (opts.model) await setModel(opts.model);
+    reportSession();
+    const prompts = opts.task ? [opts.task] : [];
+    let running = false;
+    let stopped = false;
+    const drain = async () => {
+      if (running || stopped) return;
+      running = true;
+      try {
+        while (prompts.length && !stopped) {
+          const text = prompts.shift()!;
+          emit({ type: "agent.turn", payload: { active: true } });
+          const tick = setInterval(() => coalescer.flush(), 100);
+          try {
+            const done = session.prompt(text);
+            void done.catch(() => {});
+            for (;;) {
+              const message = await session.nextUpdate();
+              if (message.kind === "stop") break;
+              coalescer.push(message.update);
+            }
+            const result = await done;
+            coalescer.flush();
+            emit({ type: "agent.turn", payload: { active: false, stopReason: result.stopReason } });
+          } catch (err) {
+            if (!stopped) emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
+          } finally { clearInterval(tick); coalescer.flush(); }
+        }
+      } finally { running = false; }
+    };
+    const seen = new Set<string>();
+    const command = async ({ commandId, command }: CommandEnvelope) => {
+      if (seen.has(commandId)) return;
+      seen.add(commandId);
+      try {
+        if (command.kind === "answer") {
+          const pending = answers.get(command.requestId);
+          if (!pending) throw new Error("permission is not pending in this host");
+          if (command.optionId !== null && !pending.options.has(command.optionId)) throw new Error("invalid permission option");
+          pending.resolve(command.optionId);
+        } else if (command.kind === "prompt") {
+          if (command.immediate) {
+            prompts.unshift(command.text);
+            if (running) await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
+          } else prompts.push(command.text);
+          void drain();
+        } else if (command.kind === "cancel") {
+          await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
+        } else if (command.kind === "mode") await setMode(command.mode);
+        else await setModel(command.model);
+        emit({ type: "agent.command.result", payload: { commandId, ok: true } });
+      } catch (err) {
+        emit({ type: "agent.command.result", payload: { commandId, ok: false, error: err instanceof Error ? err.message : String(err) } });
       }
-      await new Promise<void>((resolve) => (wake = resolve));
-      wake = null;
+    };
+    void drain();
+    const close = () => {
+      stopped = true;
+      for (const answer of answers.values()) answer.reject(new Error("lane host closed"));
+      session.dispose();
+      connection.close();
+      child?.kill();
+      opts.signal?.removeEventListener("abort", abort);
+    };
+    return { command, close, closed: connection.closed };
+  } catch (err) {
+    connection.close();
+    child?.kill();
+    opts.signal?.removeEventListener("abort", abort);
+    throw err;
+  }
+}
+
+export async function runLaneHost(opts: LaneHostOptions): Promise<void> {
+  let controls: ReturnType<typeof openAgentSession>;
+  const link = new DaemonLink({ lane: opts.lane, path: opts.socketPath, command: (message) => { void controls.then((session) => session.command(message)).catch(() => {}); } });
+  link.start();
+  const stop = () => link.close();
+  opts.signal?.addEventListener("abort", stop, { once: true });
+  try {
+    controls = openAgentSession(opts, (event) => link.emit(event));
+    const session = await controls;
+    try {
+      await Promise.race([session.closed, new Promise<void>((resolve) => opts.signal?.addEventListener("abort", () => resolve(), { once: true }))]);
+      if (!opts.signal?.aborted) throw new Error("agent connection closed; inspect the lane host journal");
+    } finally { session.close(); }
+  } catch (err) {
+    if (!opts.signal?.aborted) {
+      link.emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
+      await link.flush();
+      throw err;
     }
-  });
+  } finally {
+    link.close();
+    opts.signal?.removeEventListener("abort", stop);
+  }
 }

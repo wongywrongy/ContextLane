@@ -4,13 +4,14 @@ Run several coding agents in parallel **lanes** on an always-on machine, steer t
 
 Each lane is a branch and worktree, a persistent terminal, a running copy of your app with its own private link, and an agent session (Claude Code, Codex, OpenCode and other ACP agents) that keeps going when you close your laptop. Everything waiting on you lands in one inbox you can answer from your phone.
 
-> Status: early. The scaffold creates worktrees, tmux sessions and events. Milestone 1.3 adds persistent browser terminals; agent hosting and notifications still need milestones 1.1–1.2. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for status and what needs Kyle.
+> Status: phase 1 in progress. Lanes have persistent browser terminals and independent systemd ACP hosts with reconnect, human permissions and prompt controls. Real adapter installs/logins still need acceptance; notifications and setup are next. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for status and what needs Kyle.
 
 ## Try the scaffold
 
 ```sh
 pnpm install
 pnpm check
+pnpm build               # host and toolbox entry points used by systemd
 pnpm dev                 # daemon on 127.0.0.1:4600, web app on Vite's port
 
 # in another terminal

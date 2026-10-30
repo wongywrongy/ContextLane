@@ -2,6 +2,8 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
@@ -69,11 +71,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/prompt", async (req, reply) => {
     const lane = laneParam(req.params);
-    const { text } = z.object({ text: z.string().min(1) }).parse(req.body);
-    store.appendEvent(lane, { type: "agent.message", payload: { text, role: "user" } });
-    if (!deps.hosts.send(lane, { prompt: text })) return reply.code(202).send({ queued: true, delivered: false });
-    return reply.code(202).send({ queued: true, delivered: true });
+    if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
+    const body = PromptRequest.parse(req.body);
+    bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user" } }));
+    return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...body }) });
   });
+  for (const action of ["cancel", "mode", "model"] as const) {
+    app.post<{ Params: { project: string; n: string } }>(`/api/lanes/:project/:n/${action}`, async (req, reply) => {
+      const lane = laneParam(req.params);
+      if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
+      const command = action === "cancel" ? { kind: "cancel" as const } : action === "mode" ?
+        { kind: "mode" as const, ...ModeRequest.parse(req.body) } : { kind: "model" as const, ...ModelRequest.parse(req.body) };
+      return reply.code(202).send(deps.hosts.command(lane, command));
+    });
+  }
 
   // Register after the websocket plugin has installed its upgrade hook.
   app.register(async (terminal) => {
@@ -113,10 +124,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get("/api/inbox", async () => store.inbox());
   app.post("/api/answers", async (req, reply) => {
     const body = z.object({ lane: LaneId, requestId: z.string() }).and(AnswerRequest).parse(req.body);
-    const event = store.appendEvent(body.lane, { type: "permission.answered", payload: { requestId: body.requestId, optionId: body.optionId, by: body.via } });
-    bus.publish(event);
-    const delivered = deps.hosts.send(body.lane, { answer: { requestId: body.requestId, optionId: body.optionId } });
-    return reply.code(202).send({ delivered });
+    const request = store.permission(body.lane, body.requestId);
+    if (!request) return reply.code(404).send({ error: "no such permission" });
+    if (store.answered(body.lane, body.requestId)) return reply.code(409).send({ error: "permission already answered" });
+    if (body.optionId !== null && !request.options.some((o) => o.id === body.optionId)) return reply.code(400).send({ error: "not an offered permission option" });
+    const commandId = randomUUID();
+    const command = { kind: "answer" as const, requestId: body.requestId, optionId: body.optionId };
+    const events = store.tx(() => {
+      const events = [store.appendEvent(body.lane, { type: "permission.answered", payload: { requestId: body.requestId, optionId: body.optionId, by: body.via } }),
+        store.appendEvent(body.lane, { type: "agent.command", payload: { commandId, command } })];
+      if (store.getLane(body.lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === body.lane && i.kind === "permission")) events.push(store.setLaneState(body.lane, "working"));
+      return events;
+    });
+    for (const event of events) bus.publish(event);
+    return reply.code(202).send({ commandId, delivered: deps.hosts.send(body.lane, { commandId, command }) });
   });
 
   // ── live stream: one SSE connection per project screen ──
