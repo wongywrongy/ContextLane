@@ -17,6 +17,15 @@ export class LocalModels {
   constructor(private deps: { config: Config; run: Runner; fetch?: typeof fetch }) {}
 
   list(): LocalModel[] { return this.deps.config.localModels; }
+  private seen = new Map<string, { at: number; ok: boolean }>();
+  /** Whether the endpoint answers at all, remembered for a minute. */
+  async reachable(model: LocalModel): Promise<boolean> {
+    const hit = this.seen.get(model.url);
+    if (hit && Date.now() - hit.at < 60_000) return hit.ok;
+    const ok = await (this.deps.fetch ?? fetch)(new URL(model.provider === "ollama" ? "/api/tags" : "/health", model.url), { signal: AbortSignal.timeout(2000), redirect: "error" }).then((r) => r.ok, () => false);
+    this.seen.set(model.url, { at: Date.now(), ok });
+    return ok;
+  }
   /** The configured model for a job, or null when there is none to use. */
   pick(name?: string): LocalModel | null { const all = this.list(); return (name ? all.find((m) => m.name === name) : all[0]) ?? null; }
 

@@ -37,6 +37,7 @@ export class Helper {
     const limit = this.deps.config.helper.redoLimit;
     const overrides = await this.overrides();
     const model = this.deps.models.pick(this.deps.config.helper.model);
+    const answering = model ? await this.deps.models.reachable(model) : false;
     const events = this.events();
     const weekAgo = Date.now() - 7 * 86400_000;
     return KINDS.map((kind) => {
@@ -46,9 +47,9 @@ export class Helper {
       const rate = recent.length ? redone / recent.length : 0;
       const auto = recent.length >= 5 && rate > limit ? "off" : recent.length >= 5 && rate > limit - 0.05 ? "near" : "on";
       const owner = overrides[kind];
-      const state = !model ? "off" : owner === false ? "off" : owner === true ? (auto === "off" ? "near" : auto) : auto;
+      const state = !model || !answering ? "off" : owner === false ? "off" : owner === true ? (auto === "off" ? "near" : auto) : auto;
       return { kind, model: model?.name ?? null, uses: uses.length, redoneRate: recent.length ? rate : null, savedThisWeek: uses.filter((u) => Date.parse(u.at) > weekAgo).reduce((n, u) => n + u.payload.tokensSaved, 0),
-        state, reason: !model ? "No local model is set up." : owner === false ? "Turned off by you." : auto === "off" && owner !== true ? `Redone ${Math.round(rate * 100)}% of the last ${recent.length} times (limit ${Math.round(limit * 100)}%).` : null };
+        state, reason: !model ? "No local model is set up." : !answering ? `${model.name} is not answering.` : owner === false ? "Turned off by you." : auto === "off" && owner !== true ? `Redone ${Math.round(rate * 100)}% of the last ${recent.length} times (limit ${Math.round(limit * 100)}%).` : null };
     });
   }
 

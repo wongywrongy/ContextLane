@@ -131,3 +131,27 @@ export const BriefQuery = z.object({ module: z.string().min(1).max(300).optional
 export const ProjectNotes = z.object({ text: z.string().max(8000) });
 /** About four characters per token for code and English; shown as an estimate, never billed against. */
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+/** Insights: numbers computed from the event log; the local model only writes words that cite them. */
+export type InsightStat = { id: string; label: string; value: string; detail: string };
+export const SuggestionType = z.enum(["process", "code", "tokens", "next", "notes"]);
+export const SuggestionAction = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("add_note"), text: z.string().min(1).max(500) }),
+  z.object({ kind: z.literal("start_lane"), task: z.string().min(1).max(300) }),
+  z.object({ kind: z.literal("allow_helper"), helper: z.enum(["read", "edit", "check"]) }),
+  z.object({ kind: z.literal("review"), lane: z.string() }),
+  z.object({ kind: z.literal("fix_note") }),
+]);
+export type SuggestionAction = z.infer<typeof SuggestionAction>;
+export const Suggestion = z.object({ id: z.string(), type: SuggestionType, title: z.string().min(1).max(120), body: z.string().min(1).max(400), stat: z.string(), evidence: z.array(z.string()).min(1).max(8), action: SuggestionAction, dismissed: z.boolean().default(false) });
+export type Suggestion = z.infer<typeof Suggestion>;
+export type InsightsView = {
+  project: string; generatedAt: string | null; model: string | null; error: string | null; canWrite: boolean;
+  week: { from: string; to: string; events: number; merges: number };
+  facts: { merges: number; cloudTokens: number; localShare: number | null; medianWaitMinutes: number | null };
+  stats: InsightStat[];
+  summary: { text: string; cites: string[] }[];
+  suggestions: Suggestion[];
+  today: { lane: string; task: string; tokens: number; cacheShare: number | null; local: boolean }[];
+  startsWith: { notes: { facts: number; tokens: number }; briefs: number; handoffs: number };
+};

@@ -333,8 +333,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.4 Local model runtime | models | Done with a fake server; real models need Kyle; see 3.4 |
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Done: see 3.5 |
 | 3.6 Local helper (`delegate`) | models, work-lane | Done with a fake model; see 3.6 (decision changed) |
-| 3.7 Insights | insights | Next |
-| 3.8 ⌘K Ask | top bar | Not started |
+| 3.7 Insights | insights | Done with a fake model; see 3.7 |
+| 3.8 ⌘K Ask | top bar | Next |
 | 3.9 Measure the phase 3 gate | — | Not started |
 | 4.1 Hand off, fork, fresh session | work-lane | Not started |
 | 4.2 Second-agent review | review | Not started |
@@ -612,6 +612,16 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Usage today: per-lane totals and cache share from 3.0. Show the breakdown by harness, rules, MCP tools, files and conversation only if you find a real source; write down what you checked.
 - Lane history retention (from B1) can now summarise old lanes before trimming them.
 - Set `READY.insights`.
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/insights.ts` counts the week from the event log: merges, cloud tokens (input, output and cache, from `usage.turn`), the share processed on local GPUs (the helper's input and output), the median time from a question or permission to its answer, questions asked twice or more, files read four or more times, modules edited by two or more lanes (code map), collisions, command output over 40,000 characters that the lead read itself, and plan entries left open when a lane merged. Each becomes a stat with an id, a value and a sentence of evidence.
+- The local model gets only those stats and replies with JSON (summary sentences and up to six suggestions, each citing stat ids, with one action from a fixed list: add to notes, start a lane, allow a helper kind, review, fix note). Anything citing an id that does not exist, or containing a number that none of its cited stats holds, is dropped. Suggestions take their number from the stat, never from the model. Nothing runs without a click; suggestions can be dismissed.
+- Runs after 02:00 once a day and five minutes after any merge, from inside the daemon rather than a systemd timer (the daemon is always on and already holds the model queue), plus Regenerate.
+- The Insights page follows `insights.webp`: This week with cited sentences and the four numbers, Suggestions with filters, Usage today (per lane, with the share read from cache), and What every lane starts with (project notes, editable here; module briefs). `READY.insights` is on.
+- Not shown: the board's split of each lane's context into harness, rules, MCP tools, files and conversation. Neither adapter reports it (checked in 3.0), and estimating it would be a made-up number. Handoffs arrive with 4.1.
+- The local helper now also shows Off while its model is not answering, so agents are not offered `delegate` when it would fail.
+- Tests: `insights.test.ts` (the numbers; the filter keeping an honest sentence and suggestion and dropping one with an invented number and one with invented evidence; dismiss).
 
 ### 3.8 ⌘K Ask (top bar)
 

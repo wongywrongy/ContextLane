@@ -19,3 +19,6 @@ export { layoutOf, setLink, releaseVersion, type Layout } from "./layout.js";
 export { CodeMaps, CODEMAP_WORKER } from "./codemap.js";
 export { Collisions, mergeOrder } from "./collisions.js";
 export { LocalModels } from "./localmodels.js";
+export { Insights } from "./insights.js";
+export { Briefs } from "./briefs.js";
+export { Helper } from "./helper.js";

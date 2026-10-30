@@ -175,7 +175,7 @@ function HelperSection() {
       <span style={{ textAlign: "right" }}>
         <Glyph g={k.state === "on" ? "done" : k.state === "near" ? "wait" : "idle"}>{k.state === "on" ? "On" : k.state === "near" ? "Near the limit" : "Off"}</Glyph>
         {k.reason ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{k.reason}</span> : null}
-        {k.model ? <button className="lnk" style={{ fontSize: 12.5 }} onClick={() => toggle(k.kind, k.state === "off")}>{k.state === "off" ? "Turn on" : "Turn off"}</button> : null}
+        {k.model ? <button className="lnk" style={{ display: "block", marginLeft: "auto", fontSize: 12.5 }} onClick={() => toggle(k.kind, k.state === "off")}>{k.state === "off" ? "Turn on" : "Turn off"}</button> : null}
       </span>
     </div>; })}
   </Section>;
