@@ -17,6 +17,7 @@ import { installBackupTimer } from "./install.js";
 import { confineGit, socketPath } from "./sandbox.js";
 import { CodeMaps } from "./codemap.js";
 import { Collisions } from "./collisions.js";
+import { LocalModels } from "./localmodels.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -42,8 +43,9 @@ async function main(): Promise<void> {
   await setup.initialize();
   const runtime = new Runtime({ store, bus, config, run });
   const codemaps = new CodeMaps({ run, store, config });
+  const localModels = new LocalModels({ config, run });
   const collisions = new Collisions({ store, bus, codemaps, hosts });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();

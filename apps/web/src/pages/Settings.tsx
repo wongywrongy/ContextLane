@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
@@ -111,20 +111,36 @@ function LaneLimit({ settings, reload }: { settings: SetupSettings | null; reloa
     <div style={{ marginLeft: "auto" }}><Action small disabled={max === null || max === current} done={() => { setMax(null); reload(); }} run={() => postJson("/api/setup/settings", { lanes: { maxConcurrent: max, launchHosts: settings?.lanes?.launchHosts ?? true } })}>Save</Action></div></div>;
 }
 
+/** One local endpoint, as on models.webp: server and host, model, this machine's GPU memory, state. */
+function LocalRow({ m }: { m: (LocalModelStatus | (LocalModel & { state: null })) }) {
+  const host = new URL(m.url).host;
+  const status = m.state ? m as LocalModelStatus : null;
+  const gpu = status?.gpu;
+  return <div className="sec-r lmrow">
+    <AgentMark agent={m.provider} />
+    <span style={{ minWidth: 0 }}><b>{m.provider === "ollama" ? "Ollama" : "llama.cpp"}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{host} · OpenAI API</span></span>
+    <span style={{ minWidth: 0 }}><span className="mono" style={{ fontSize: 13 }}>{m.name}</span><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{status ? status.running ? `working${status.waiting ? ` · ${status.waiting} waiting` : ""}` : status.waiting ? `${status.waiting} waiting` : status.loaded.length ? `loaded: ${status.loaded.join(", ")}` : "nothing loaded" : ""}</span></span>
+    <span style={{ minWidth: 0 }}>{gpu ? <><span className="mono muted" style={{ display: "flex", fontSize: 12 }}>{gpu.name} · {Math.round(gpu.totalMb / 1024)} GB<span style={{ marginLeft: "auto", color: "var(--ink)" }}>{(gpu.usedMb / 1024).toFixed(1)} GB</span></span>
+      <span className="meter" aria-label={`${Math.round(gpu.usedMb / gpu.totalMb * 100)}% of GPU memory used`}><i style={{ width: `${Math.min(100, gpu.usedMb / Math.max(1, gpu.totalMb) * 100)}%` }} /></span></> : <span className="muted" style={{ fontSize: 12.5 }}>{status && !status.local ? "on another machine" : status ? "no GPU reading" : ""}</span>}</span>
+    <span style={{ textAlign: "right" }}>{status ? <Glyph g={status.state === "serving" ? "done" : status.state === "idle" ? "idle" : "fail"}>{status.state === "serving" ? "Serving" : status.state === "idle" ? "Idle" : "Down"}</Glyph> : null}{status?.detail ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{status.detail}</span> : null}</span>
+  </div>;
+}
+
 export function ModelsPage() {
   const [agents, error, reload] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [settings, , reloadSettings] = useJson<SetupSettings>("/api/setup/settings");
   const [usage, usageError, reloadUsage] = useJson<UsageSummary>("/api/usage");
   const models = settings?.localModels ?? [];
+  const [local, , reloadLocal] = useJson<LocalModelStatus[]>(models.length ? "/api/models/local" : null);
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
     <PageHeader title="Models" meta="who does the work" />
     <Section title="Agents" meta="each keeps its own login" end={<button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    <Section title="Local models" meta="Ollama or llama.cpp on this machine">
-      {models.map((m) => <div className="sec-r" key={m.name}><AgentMark agent={m.provider} /><b>{m.name}</b><span className="mono muted" style={{ fontSize: 12 }}>{m.url}</span></div>)}
-      {!models.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None saved. Local models become helpers to Claude and Codex in phase 3.</div> : null}
+    <Section title="Local models" meta="agents call these directly; ContextLanes watches them" end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+      {(local ?? models.map((m) => ({ ...m, state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m} />)}
+      {!models.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None saved. Add Ollama or llama.cpp below; module briefs, the local helper and Insights use it.</div> : null}
       <div className="sec-b opts">
         <Form title="Add a local model" save={async (f) => {
           const model = { name: v(f, "name"), provider: v(f, "provider") as "ollama" | "llama.cpp", url: v(f, "url") };
@@ -134,7 +150,7 @@ export function ModelsPage() {
         }}>
           <div className="two"><label className="field">Model<input className="in" name="name" required placeholder="qwen3-coder" /></label>
             <label className="field">Runs on<select className="in" name="provider" defaultValue="ollama"><option value="ollama">Ollama</option><option value="llama.cpp">llama.cpp</option></select></label></div>
-          <label className="field">Address <span className="hint">on 127.0.0.1; checked before saving</span><input className="in mono" name="url" required defaultValue="http://127.0.0.1:11434" /></label>
+          <label className="field">Address <span className="hint">this machine or your tailnet; checked before saving</span><input className="in mono" name="url" required defaultValue="http://127.0.0.1:11434" /></label>
         </Form>
       </div>
     </Section>

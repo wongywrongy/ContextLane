@@ -2,6 +2,7 @@
 
 ## Needs Kyle
 
+- **Local models (phase 3):** add Ollama (or llama.cpp) under Models → Local models, pull the model you want (`ollama pull <name>`), and check it shows Serving after a brief or Insights run. Nothing in phase 3 has run against a real model yet; the code is tested against a fake OpenAI-compatible server. On neo's 24 GB card a 30B coder model fits only quantized (Q4).
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
 - **Terminals on neo:** the native terminal module is gone (see T). Open a lane terminal and an agent login terminal once on neo to confirm; the real tmux test passes in the build container with Python 3.13.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
@@ -329,8 +330,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.1 Code map | architecture | Done: CodeGraph 1.6.2 in a sandboxed worker; see 3.1 |
 | 3.2 Architecture page and `contextlanes arch` | architecture | Done: see 3.2 |
 | 3.3 Collision warnings | architecture, review | Done: see 3.3 |
-| 3.4 Local model runtime | models | Next |
-| 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Not started |
+| 3.4 Local model runtime | models | Done with a fake server; real models need Kyle; see 3.4 |
+| 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Next |
 | 3.6 Local helper (`delegate`) | models, work-lane | Not started |
 | 3.7 Insights | insights | Not started |
 | 3.8 ⌘K Ask | top bar | Not started |
@@ -550,6 +551,13 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Per endpoint: health, the loaded model and memory use from Ollama `/api/ps`, and the GPU name and memory from `nvidia-smi` when the endpoint is on this machine. Remote endpoints show only what their API reports.
 - A job queue, one job per GPU (each endpoint is one GPU), with the waiting count shown on Models.
 - Kyle picks the models and checks that they fit (neo has 24 GB).
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/localmodels.ts`: every call uses the OpenAI-compatible `/v1/chat/completions` that both Ollama and llama.cpp's server provide, with `<think>` blocks dropped from the answer. One job runs at a time per endpoint (each endpoint is one GPU); others wait in order, and the Models page shows the waiting count.
+- `GET /api/models/local` and the Models page's Local models rows (models.webp): server and address, model, what is loaded (Ollama `/api/ps`, llama.cpp `/v1/models`), this machine's GPU memory from `nvidia-smi` with a meter, and Serving, Idle or Down. A model Ollama has not pulled says so with the `ollama pull` command.
+- Endpoints may now be on another of Kyle's machines over the tailnet (`100.64.0.0/10` or `*.ts.net`), as the board shows for oracle; anything else is refused.
+- Tests: `localmodels.test.ts` with a fake server (address rules, one job at a time, usage and `<think>` handling, status for Ollama and llama.cpp, a server that is down). No real model ran here: Ollama, llama.cpp and Hugging Face downloads are blocked from this container. Added to Needs Kyle.
 
 ### 3.5 Module briefs, `get_brief`, project notes (architecture, insights)
 
