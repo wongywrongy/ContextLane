@@ -1,11 +1,15 @@
-import type { Checkpoint, Lane } from "@contextlanes/protocol";
+import { access } from "node:fs/promises";
+import type { Checkpoint, Lane, ProjectId } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Store } from "./db/store.js";
 import type { HostLinks } from "./hosts.js";
 import { NotFound, Refused } from "./lanes/manager.js";
+import { hostUnit } from "./lanes/naming.js";
 import type { Runner } from "./run.js";
+import type { Runtime } from "./runtime.js";
+import { Terminals } from "./terminal/tmux.js";
 
-type Deps = { store: Store; bus: EventBus; hosts: HostLinks; run: Runner };
+type Deps = { store: Store; bus: EventBus; hosts: HostLinks; run: Runner; runtime: Runtime };
 
 /** The owner's decision on a checkpoint. Nothing here force-pushes or writes to the base branch. */
 export class Review {
@@ -67,6 +71,41 @@ export class Review {
     if (existing) return existing;
     const created = await run("gh", ["pr", "create", "--base", base, "--head", lane.branch, "--title", lane.task, "--body", summary], options).catch(() => { throw new Refused("The branch is pushed, but gh could not open the pull request. Run gh auth login on this machine, then approve again."); });
     return created.stdout.trim().split("\n").at(-1)!;
+  }
+
+  private async unpushed(lane: Lane, repo: string): Promise<number> {
+    return Number((await this.deps.run("git", ["rev-list", "--count", lane.branch, "--not", "--remotes=origin"], { cwd: repo })).stdout.trim());
+  }
+
+  /** What Clean up would do for each merged lane, for the Run page. A lane git cannot read counts as unsafe. */
+  async cleanable(project: ProjectId): Promise<{ lane: string; unpushed: number; disk: number | null }[]> {
+    const { store } = this.deps;
+    const repo = store.getProject(project)!.path;
+    return Promise.all(store.listLanes(project).filter((l) => l.state === "merged").map(async (lane) => ({ lane: lane.id, unpushed: await this.unpushed(lane, repo).catch(() => 1), disk: store.environment(lane.id)?.setup?.disk ?? null })));
+  }
+
+  /** Stop the lane's units and remove its checkout; branches stay. Refuses before touching anything if work would be lost. */
+  async cleanup(id: string): Promise<{ cleaned: true }> {
+    const { store, bus, run, runtime } = this.deps;
+    const lane = store.getLane(id);
+    if (!lane) throw new NotFound(`no lane ${id}`);
+    if (lane.state !== "merged") throw new Refused("Only a merged lane can be cleaned up.");
+    if (this.busy.has(id)) throw new Refused("This lane is already being cleaned up.");
+    this.busy.add(id);
+    try {
+      const repo = store.getProject(lane.project)!.path;
+      const unpushed = await this.unpushed(lane, repo);
+      if (unpushed) throw new Refused(`${lane.branch} has ${unpushed} unpushed ${unpushed === 1 ? "commit" : "commits"}, so this lane was kept. Push them, then clean up again.`);
+      const present = await access(lane.worktree).then(() => true, () => false);
+      if (present && (await this.git(lane, "status", "--porcelain")).stdout.trim()) throw new Refused(`${lane.worktree} has uncommitted changes, so this lane was kept. Commit and push them, or remove them yourself.`);
+      await runtime.stop(id);
+      await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(id)]).catch(() => {});
+      // Never --force: git itself refuses if anything unsaved appeared since the check above.
+      if (present) await run("git", ["worktree", "remove", lane.worktree], { cwd: repo });
+      await new Terminals(run).kill(lane.terminal);
+      bus.publish(store.setLaneState(id, "cleaned", "units stopped, checkout removed, branch kept"));
+      return { cleaned: true };
+    } finally { this.busy.delete(id); }
   }
 
   /** The note goes to the same agent as a normal message, and the lane goes back to work. */

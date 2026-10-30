@@ -2,7 +2,7 @@
 // PLAYWRIGHT_MODULE and CHROMIUM_BIN point at installed browser tools; OUT keeps the screenshots.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -139,6 +139,13 @@ try {
   assert.equal(store.latestCheckpoint(first.id).prUrl, 'https://github.invalid/pr/1');
   assert.equal((await gitIn(remote, 'log', '--oneline', 'main')).stdout.trim().split('\n').length, 1, 'main must not move');
   assert.ok((await gitIn(remote, 'log', '--oneline', first.branch)).stdout.includes('Named'));
+
+  await page.goto(`${base}/p/billing/run`);
+  await page.getByRole('button', { name: 'Clean up 1 lane' }).click();
+  await until(() => store.getLane(first.id).state === 'cleaned');
+  await assert.rejects(access(first.worktree));
+  await assert.rejects(exec('tmux', ['has-session', '-t', `=${first.terminal}`]));
+  assert.ok((await git('branch', '--list', first.branch)).stdout.includes(first.branch), 'branch must stay');
   assert.deepEqual(errors, []);
   await context.close();
   console.log('phase 2 browser check passed');

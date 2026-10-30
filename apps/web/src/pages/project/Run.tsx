@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EnvironmentView, Lane, LaneEnvironment, LogLine, RecipeView, ServiceStatus } from "@contextlanes/protocol";
+import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { Dialog, Empty, Glyph, LaneBadge, PageHeader, Section } from "../../components/ui";
@@ -44,6 +44,7 @@ export function RunPage() {
             <div><button className="btn ghost sm" onClick={() => setViewing(recipe)}>View recipe</button></div></>
             : <span className="muted" style={{ fontSize: 13.5 }}>Add <span className="mono">.contextlanes.json</span> to the repository to say how this project runs. Nothing starts without your approval.</span>}
         </div>
+        {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
         <div>
           <h4>Exposure</h4>
           <Glyph g="done">{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews reachable on your tailnet only"}</Glyph>
@@ -53,6 +54,30 @@ export function RunPage() {
     </Section>
     {viewing ? <RecipeDialog view={viewing} onClose={() => setViewing(null)} changed={reloadEnvironments} /> : null}
   </main>;
+}
+
+function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]; changed: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const safe = entries.filter((e) => !e.unpushed);
+  const unpushed = entries.reduce((sum, e) => sum + e.unpushed, 0);
+  const disk = entries.reduce((sum, e) => sum + (e.disk ?? 0), 0);
+  const clean = async () => {
+    setBusy(true); setMessage("");
+    const refused: string[] = [];
+    for (const { lane } of safe) await postJson(`/api/lanes/${lane}/cleanup`, {}).catch((err) => refused.push(errorMessage(err)));
+    setMessage(refused.join(" "));
+    setBusy(false);
+    changed();
+  };
+  return <div>
+    <h4>Clean up{entries.length ? <span className="e mono muted" style={{ fontSize: 12, fontWeight: 500 }}>{entries.length} merged {entries.length === 1 ? "lane" : "lanes"}{disk ? ` · ${size(disk)}` : ""}</span> : null}</h4>
+    <Glyph g="done">Stops services and the agent</Glyph>
+    <Glyph g="done">Removes checkouts, keeps branches</Glyph>
+    <Glyph g={unpushed ? "wait" : "done"}>Skips anything unpushed ({unpushed} now)</Glyph>
+    {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
+    {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{message}</p> : null}
+  </div>;
 }
 
 function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: () => void; changed: () => void }) {

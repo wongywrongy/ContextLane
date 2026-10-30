@@ -71,7 +71,7 @@ export class Checker {
     if (this.running.has(id)) throw new Refused("A checkpoint is already running for this lane.");
     const dirty = (await run("git", ["status", "--porcelain"], { cwd: lane.worktree })).stdout.trim();
     if (dirty) throw new Refused("Commit your changes first; review covers commits, and these are not committed yet.");
-    const base = (await run("git", ["merge-base", lane.base ?? "main", "HEAD"], { cwd: lane.worktree })).stdout.trim();
+    const base = (await run("git", ["merge-base", lane.base ?? "main", "HEAD"], { cwd: lane.worktree }).catch(() => { throw new Refused(`This lane cannot be compared with ${lane.base ?? "main"}; that branch was not found.`); })).stdout.trim();
     if (!(await run("git", ["rev-list", "--count", `${base}..HEAD`], { cwd: lane.worktree })).stdout.trim().match(/^[1-9]/)) throw new Refused("This lane has no commits to review yet.");
     const recipe = await this.deps.runtime.recipeFor(lane);
     this.running.add(id);

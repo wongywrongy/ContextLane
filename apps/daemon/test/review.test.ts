@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -28,9 +28,10 @@ async function fixture(opts: { ghFails?: boolean } = {}) {
   await git(worktree, "add", "."); await git(worktree, "commit", "-m", "Feature");
 
   const calls: string[][] = [];
-  const state = { ghFails: opts.ghFails ?? false, prs: 0 };
+  const state = { ghFails: opts.ghFails ?? false, prs: 0, tmuxGone: false };
   const run: Runner = async (cmd, args, options) => {
     calls.push([cmd, ...args]);
+    if (["tmux", "systemctl", "tailscale"].includes(cmd)) { if (cmd === "tmux" && state.tmuxGone) throw new Error("no session"); return { stdout: "" }; }
     if (cmd === "gh") {
       if (args[1] === "view") return { stdout: state.prs ? "https://github.invalid/pr/1\n" : "" };
       if (state.ghFails) throw new Error("not logged in");
@@ -134,6 +135,73 @@ describe("approve and merge", () => {
     state.ghFails = false;
     expect((await approve()).statusCode).toBe(200);
     expect(store.getLane("shop/01")!.state).toBe("merged");
+  });
+});
+
+describe("cleanup", () => {
+  async function merged() {
+    const f = await fixture();
+    await f.approve();
+    const clean = (headers: Record<string, string> = { cookie: f.cookie }) => f.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", headers, payload: {} });
+    return { ...f, clean };
+  }
+  const exists = (path: string) => access(path).then(() => true, () => false);
+
+  it("stops units, removes the checkout, keeps the branch and kills the tmux session last", async () => {
+    const { git, repo, worktree, store, calls, clean, app } = await merged();
+    expect((await app.inject({ url: "/api/projects/shop/environments" })).json().cleanup).toMatchObject([{ lane: "shop/01", unpushed: 0 }]);
+    calls.length = 0;
+    const res = await clean();
+    expect(res.statusCode).toBe(200);
+    expect(await exists(worktree)).toBe(false);
+    expect((await git(repo, "branch", "--list", "lane/01-billing")).stdout).toContain("lane/01-billing");
+    expect(store.getLane("shop/01")!.state).toBe("cleaned");
+    expect(store.events("shop/01").at(-1)).toMatchObject({ type: "lane.state", payload: { from: "merged", to: "cleaned" } });
+    expect(calls).toContainEqual(["systemctl", "--user", "stop", "contextlanes-lane-shop-01"]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "=t"]);
+    expect(calls.flat().join(" ")).not.toMatch(/--force|branch -D|branch -d/);
+  });
+
+  it("refuses unpushed commits, says so and touches nothing", async () => {
+    const { git, worktree, store, calls, clean } = await merged();
+    await writeFile(join(worktree, "late.txt"), "late\n");
+    await git(worktree, "add", "."); await git(worktree, "commit", "-m", "Late");
+    calls.length = 0;
+    const res = await clean();
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/lane\/01-billing has 1 unpushed commit, so this lane was kept/);
+    expect(await exists(worktree)).toBe(true);
+    expect(store.getLane("shop/01")!.state).toBe("merged");
+    expect(calls.filter((c) => c[0] === "tmux" || c[0] === "systemctl")).toEqual([]);
+  });
+
+  it("refuses uncommitted files, and ignored files do not block it", async () => {
+    const dirty = await merged();
+    await writeFile(join(dirty.worktree, "unsaved.txt"), "work\n");
+    expect((await dirty.clean()).json().error).toMatch(/uncommitted changes/);
+    expect(await exists(join(dirty.worktree, "unsaved.txt"))).toBe(true);
+
+    const ignored = await merged();
+    await writeFile(join(ignored.repo, ".git/info/exclude"), ".env*\n");
+    await writeFile(join(ignored.worktree, ".env.local"), "SECRET=1\n");
+    expect((await ignored.clean()).statusCode).toBe(200);
+  });
+
+  it("refuses a lane that is not merged, and anyone but the owner", async () => {
+    const open = await fixture();
+    const cookie = open.cookie;
+    expect((await open.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", headers: { cookie }, payload: {} })).statusCode).toBe(409);
+    const { clean, worktree } = await merged();
+    expect((await clean({})).statusCode).toBe(403);
+    expect(await exists(worktree)).toBe(true);
+  });
+
+  it("finishes when the checkout or session has already gone", async () => {
+    const { worktree, store, state, clean } = await merged();
+    await rm(worktree, { recursive: true });
+    state.tmuxGone = true;
+    expect((await clean()).statusCode).toBe(200);
+    expect(store.getLane("shop/01")!.state).toBe("cleaned");
   });
 });
 

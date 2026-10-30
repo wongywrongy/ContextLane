@@ -87,7 +87,7 @@ export function ProjectShell() {
   const [projects] = useJson<Project[]>("/api/projects");
   const work = useWork(project);
   const [environments, , reloadEnvironments] = useJson<ProjectEnvironments>(READY.run ? `/api/projects/${project}/environments` : null);
-  const changes = useMemo(() => work.events.filter((e) => e.type === "env.status" || e.type === "recipe.approved" || e.type === "recipe.requested").length, [work.events]);
+  const changes = useMemo(() => work.events.filter((e) => ["env.status", "recipe.approved", "recipe.requested", "lane.state"].includes(e.type)).length, [work.events]);
   const reload = useCallback(() => reloadEnvironments(), [reloadEnvironments]);
   useEffect(reload, [reload, changes]);
   const [inbox] = useInbox();

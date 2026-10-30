@@ -12,9 +12,10 @@ export class Terminals {
     await this.run("tmux", ["new-session", "-d", "-s", session, "-c", cwd, ...envArgs]);
   }
 
+  /** = asks for this exact name; tmux would otherwise match cl-shop-01 to cl-shop-01-2, another lane's shell. */
   async exists(session: string): Promise<boolean> {
     try {
-      await this.run("tmux", ["has-session", "-t", session]);
+      await this.run("tmux", ["has-session", "-t", `=${session}`]);
       return true;
     } catch {
       return false;
@@ -22,7 +23,7 @@ export class Terminals {
   }
 
   async kill(session: string): Promise<void> {
-    if (await this.exists(session)) await this.run("tmux", ["kill-session", "-t", session]);
+    if (await this.exists(session)) await this.run("tmux", ["kill-session", "-t", `=${session}`]);
   }
 }
 

@@ -37,7 +37,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const run = deps.run ?? runCommand;
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
-  const review = new Review({ store, bus, hosts: deps.hosts, run });
+  const review = new Review({ store, bus, hosts: deps.hosts, run, runtime });
   const streams = new Set<ServerResponse>();
   app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
   app.register(websocket, {
@@ -164,7 +164,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
     const lanes = store.listLanes(project.id).filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
-    return { previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
+    return { cleanup: await review.cleanable(project.id), previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
@@ -187,6 +187,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
     if (refuseUnlessOwner(req, reply, store, config)) return reply;
     return reply.code(202).send(review.requestChanges(laneParam(req.params), RequestChanges.parse(req.body).note));
+  });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/cleanup", async (req, reply) => {
+    if (refuseUnlessOwner(req, reply, store, config)) return reply;
+    return review.cleanup(laneParam(req.params));
   });
   app.get<{ Params: { project: string } }>("/api/projects/:project/checkpoints", async (req) => store.checkpoints(ProjectId.parse(req.params.project)));
   app.get<{ Params: { id: string; file: string } }>("/api/checkpoints/:id/shots/:file", async (req, reply) => {
