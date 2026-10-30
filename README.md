@@ -4,21 +4,30 @@ Run several coding agents in parallel **lanes** on an always-on machine, steer t
 
 Each lane is a branch and worktree, a persistent terminal, a running copy of your app with its own private link, and an agent session (Claude Code, Codex, OpenCode and other ACP agents) that keeps going when you close your laptop. Everything waiting on you lands in one inbox you can answer from your phone.
 
-> Phase 1 implementation is complete. Independent ACP hosts, human permissions, phone notifications, persistent terminals, Work and first-run setup are implemented. Real agent logins, provider delivery, fresh-machine and physical-phone acceptance still need Kyle; the week-long usage gate has not been claimed. See [Needs Kyle](docs/IMPLEMENTATION.md#needs-kyle). Phase 2 has not started.
+> Phases 1 and 2 are built: lanes you steer from the browser, phone or terminal, a running copy of your app per lane, review packets and merge. Real agent logins, a real merge with `gh`, providers and a physical phone still need checking on a real machine; see [Needs Kyle](docs/IMPLEMENTATION.md#needs-kyle).
 
 ## Install
 
 On Linux with a running systemd user manager, Node ≥22.13 (24 recommended), npm, Git and tmux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wongywrongy/rootlane/contextlanes/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wongywrongy/contextlane/main/install.sh | sh
 ~/.local/bin/contextlanes setup
 ```
 
-Open the printed sign-in link or scan its QR code. Shell access claims ownership; there is no setup code to type. The link works once and expires after ten minutes. Setup checks linger and turns on Tailscale Serve when signed in; otherwise it prints an install link and SSH tunnel fallback. Follow **Agent → Project → First lane**. Agent sign-in opens in a browser terminal; repositories are discovered in home without typing a path. Each step must be done before continuing.
+Open the printed sign-in link or scan its QR code. Shell access claims ownership; there is no setup code to type. The link works once and expires after ten minutes. Setup checks linger and turns on Tailscale Serve when signed in; otherwise it prints an install link and SSH tunnel fallback. Then connect an agent, add repositories (the ones your agents already use are listed) and start your first lane.
 
-After the first lane, Projects offers Web Push and optional notification/local-model settings. ntfy and Telegram are under **Other ways**. You can optionally add a passkey for the HTTPS tailnet address after signing in.
-The installer refuses existing destinations and unrelated service/bin files. Configuration lives in `~/.config/contextlanes/config.toml`, data in `~/.local/share/contextlanes`, and lane worktrees in `~/lanes`. Both daemon and development UI bind 127.0.0.1. To keep services running after logout: `sudo loginctl enable-linger "$USER"`.
+Configuration lives in `~/.config/contextlanes/config.toml` and everything else in `~/.local/share/contextlanes`. The daemon binds 127.0.0.1. To keep services running after logout: `sudo loginctl enable-linger "$USER"`.
+
+## Update
+
+```sh
+contextlanes update            # install the newest version and restart; lanes keep running
+contextlanes update --check    # list what is new, change nothing
+contextlanes update --rollback # go back one version
+```
+
+Each version is built in its own folder (`releases/<commit>`) next to the running one, so a failed build changes nothing. The database is copied first. If the new version does not come up healthy within 30 seconds, it switches back by itself. Lanes run as their own services and keep going through the restart. Running the install line again on an installed machine does the same update, which is how an install from before `contextlanes update` existed gets it.
 
 ## From source
 
@@ -32,7 +41,7 @@ node apps/cli/dist/main.js setup
 # Open the sign-in link printed above.
 ```
 
-To install this built checkout as a service, run `node apps/daemon/dist/install-main.js`. Add `~/.local/bin` to your PATH for the `contextlanes` commands. `pnpm dev` runs the daemon and Vite for development; build host/toolbox entry points first.
+To install this built checkout as a service, run `node apps/daemon/dist/install-main.js`. A source checkout updates with `git pull`, `pnpm install`, `pnpm build` and a restart; `contextlanes update` manages only copies made by the install line. Add `~/.local/bin` to your PATH for the `contextlanes` commands. `pnpm dev` runs the daemon and Vite for development; build host/toolbox entry points first.
 
 ```sh
 ~/.local/bin/contextlanes status

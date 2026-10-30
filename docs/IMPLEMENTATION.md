@@ -2,9 +2,13 @@
 
 ## Needs Kyle
 
+- **Decide how far to trust processes on this machine (security, from the 2026-10-30 audit).** Agents and the services they write run as your Unix user next to the daemon. Two consequences:
+  - Any local process can answer a permission, change a lane's mode, rewrite settings or install an agent adapter through the loopback API, with no header forging, because loopback requests are trusted after the machine is claimed (`access.allowLocal`, on by default). A recipe check that runs a `package.json` script the agent edited can do this without a prompt.
+  - In the default `serve` preview mode, previews are the app's own hostname on another port, and browsers send cookies to every port. Opening a lane preview sends your 30-day owner cookie to code the agent wrote.
+  - Proposed fix: run lane hosts and lane services in sandboxed units that cannot reach the daemon's port or read its data folder, accept only Tailscale identity at the tailnet address (no cookie there), and keep the cookie for SSH-tunnel use on localhost. Until then, prefer `caddy` or `services` preview modes, which use other hostnames.
 - **Real agent accounts:** run `contextlanes setup`, open its sign-in link, and use **Agent → Install / Sign in**. Sign in runs the provider’s fixed command in the browser terminal (`claude auth login`, `codex login --device-auth`, or `opencode auth login`). Complete the provider’s account flow, then choose **Check again** if needed. Real Claude/Codex acceptance still needs your accounts; tests use the SDK fake agent and a fake login terminal. No model call or credential is supplied automatically.
 - **Tailscale / linger privileges:** setup enables Serve automatically when Tailscale is installed and signed in. If it prints a `tailscale up`, HTTPS/operator-access or `sudo loginctl enable-linger <user>` instruction, do that on the host and run `contextlanes setup` again. If Tailscale is missing, install it from the printed link or run the printed SSH tunnel command on your computer. No privileged command runs automatically. Setup reuses a route already pointing at this daemon; other routes are preserved.
-- **Notifications:** after your first lane, use **Projects → Phone notifications** for Web Push; the app generates its VAPID keys when you enable it. Real browser permission/provider delivery still need Kyle. Set a reachable **Push contact** in notification settings if required by your push provider. Under **Other ways**, supply an ntfy topic/server/token or Telegram bot token, numeric chat ID and owner ID, then save. These remain `[notifications]` settings in `~/.config/contextlanes/config.toml`; Serve fills the public URL automatically. Subscribe to ntfy or start a bot conversation as appropriate.
+- **Notifications:** after your first lane, use **Settings → Notifications** (Phone notifications) for Web Push; the app generates its VAPID keys when you enable it. Real browser permission/provider delivery still need Kyle. Set a reachable **Push contact** in notification settings if required by your push provider. Under **Other ways**, supply an ntfy topic/server/token or Telegram bot token, numeric chat ID and owner ID, then save. These remain `[notifications]` settings in `~/.config/contextlanes/config.toml`; Serve fills the public URL automatically. Subscribe to ntfy or start a bot conversation as appropriate.
 - **Fresh machine / physical phone / timing:** run the one-line installer over SSH, scan the terminal QR code on a real phone and complete a real provider login. Check install-to-running-lane time under five minutes, including downloads and provider interaction; the measured Chromium fixture time starts at CLI setup and uses fakes for provider login and Tailscale. Check phone terminal input and reattach, then the phase-1 gate of three lanes daily for a week. Fresh OS provisioning, real QR scanning, provider delivery and the week-long gate have not been verified.
 - **Previews on named Tailscale Services (optional):** the default works today: each lane service gets its own HTTPS port on this device (4700–4799, tailnet only). For named links, tag this machine, define the `svc:` names in the Tailscale admin console and approve the host, then set `[previews] mode = "services"`. neo has no tag now, so this path is built and tested with a fake only.
 - **Previews through Caddy (optional):** install Caddy, point a wildcard DNS name at this machine's tailnet address, give Caddy a DNS-provider token for the wildcard certificate, bind it to the tailnet address only, then set `[previews] mode = "caddy"` and `[previews.caddy] domain = "root.example.dev"`. Tested with a fake admin API; no real certificate or DNS has been tried.
@@ -35,6 +39,8 @@ Phases 1 and 2 are implemented. On 2026-10-30 the web app was rebuilt from the m
 | 2.6 Checker | Done | Real checks, diff and before/after screenshots in a real fixture; Playwright core pinned at 1.64.1 |
 | 2.7 Review page | Done; real merge needs Kyle | `READY.review`; compared with `review.webp`; merge tested with real git against a throwaway bare remote and fake `gh` |
 | 2.8 Cleanup | Done | Refuses unpushed or uncommitted work before touching anything; keeps branches; kills tmux only here |
+| `contextlanes update` | Done | Builds beside the running version, backs up the database, switches with a health check and switches back on failure; `--check`, `--rollback`; end-to-end run with a live lane (see Updating) |
+| Audit of phases 1–2 | Fixes in; two security decisions open | See Audit and Needs Kyle |
 
 ## Current capabilities
 
@@ -45,7 +51,7 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
 | `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients, recipes, runtime, previews, checker, review and cleanup | `get_brief` and `delegate` return 501 until phase 3 |
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
-| `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer`, `setup`, `add` | `arch` waits for phase 3 |
+| `apps/cli` | `status`, `lanes`, `lane start` (base defaults to the project's default branch, `--base` to change it), `term` (tmux attach), `inbox`, `answer`, `setup`, `add`, `update` (`--check`, `--rollback`) | `arch` arrives with phase 3 |
 | `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice; `env_status`, `env_start`, `get_logs`, `preview_url` and `checkpoint` are live | `get_brief` and `delegate` await phase 3 |
 | `apps/web` | Ported from `docs/mockups/`: top bar with inbox count and ⌘K jump; Projects (Needs you with inline answers, project tiles, Add repositories dialog with discovery and a contained folder browser); Work (lanes grouped by goal, controls, step trail, permission card, message box, inspector, overview graph, terminal); Inbox (list and detail with what led here); Setup (machine and browser columns, Done / Now / Next steps); Settings; Models; Run; Review | Architecture and Insights tabs and their lane actions are built but hidden until their phase (`features.ts`) |
 
@@ -58,10 +64,52 @@ The earlier pages were written from DESIGN.md without the boards and drifted fro
 - **Lane names** skip leftovers: if `lane/01-task`, its checkout folder, tmux session `cl-project-01` or host unit `contextlanes-lane-project-01` already exists (from an earlier install or a kept branch), the lane uses `-2`, `-3`… Existing shells and units are never killed. Before, the lane failed with a raw git or tmux error.
 - **Failed lanes** open anyway and show why they stopped.
 - **Idle lanes** (working, but the agent finished its turn) show the idle glyph and "Idle · waiting for your message".
-- **Agents get only working tools.** `LIVE_TOOLS` in `packages/toolbox` is `ask_owner` today; a tool joins when its daemon route works.
+- **Agents get only working tools.** `LIVE_TOOLS` in `packages/toolbox` lists the tools whose daemon routes work (after phase 2: `ask_owner` and the five environment and checkpoint tools); `get_brief` and `delegate` join in phase 3.
 - `GET /api/lanes` lists every project's lanes for the home page and ⌘K.
 
 Not built from the boards yet (left out rather than faked): the "Ask" part of ⌘K, composer chips (@ file, / command, attach image), Watching only / Take over, context compaction count and "fresh session from handoff", the usage line on Projects, picking repositories from GitHub in Add repositories, per-project branch in the band. Fonts still load from Google Fonts.
+
+## Updating (2026-10-30)
+
+`contextlanes update` (`apps/daemon/src/update.ts`, run through `update-main.js` so the CLI stays light):
+
+1. Refuses if tracked files in the running copy were edited, and names them. One update runs at a time (`update.lock`).
+2. Fetches every branch and lists what is new. It follows the branch recorded in `update.json`, else the clone's upstream, else `main`; if that branch is gone it follows the repository's default branch. A remote still pointing at `wongywrongy/rootlane` is switched to `wongywrongy/contextlane`.
+3. Builds the new commit in `releases/<commit>`, a git worktree of the original clone (`app/`), with the same steps as the installer. A failed build changes nothing. A finished build is marked with `.contextlanes-built` and reused on a retry.
+4. Copies the database with `VACUUM INTO` (newest five kept in `<data>/backups`) and records its format version.
+5. The first time, points the service file and the `contextlanes` commands at `current` instead of the clone. It replaces only files that carry the installer's marker line.
+6. Points `previous` at the running release and `current` at the new one, restarts the daemon and waits up to 30 seconds for `/api/health` to report the new commit. Otherwise it stops the daemon, restores the database if the new version changed its format, switches back and starts the old one.
+7. Prunes releases, keeping current, previous, the newest three and any a running process still uses. Lane hosts started before the update keep running from their own release folder.
+
+`--check` stops after step 2. `--rollback` goes back to `previous`; when the newer version changed the database format it asks for `--yes`, because the restore drops history recorded since the update. `install.sh` on an installed machine builds the newest commit beside it and runs the same switch (`update-main.js --adopt`), which is how installs from before this command get it. A plain source checkout is not managed and is told to use git. The daemon reports the commit it was built from as its version.
+
+Verified here end to end with real builds, a real daemon restart (systemctl faked by a script that runs the unit file) and a lane waiting on a permission: old install (5e00f6b, single-folder layout) → `install.sh` update to a88b8d2 in 32 s with the lane host still running from the old folder, reconnecting and finishing after the answer → `--check` → update to a new commit → `--rollback` → update again → fresh install with the new layout. Unit tests cover the failure paths (build failure, unhealthy start with database restore, edited files, lock, gone branch, renamed repository, pruning).
+
+## Audit of phases 1–2 (2026-10-30)
+
+An independent review checked the code against this plan. Fixed:
+
+- A lane failed by one agent error (a 429, a dropped connection) is working again when the agent takes a new turn, instead of never reaching review.
+- Lane host arguments use `--name=value` and escape `$` for systemd, so a task starting with `-` or containing `$` reaches the agent.
+- Approving again after a rebase onto a moved base and a failed push or `gh` finishes the merge (`checkpoint.updated` records the rebased head).
+- A newly approved recipe stops and restarts running services (keeping ports) and drops removed ones.
+- Only each lane's latest recipe asks for approval; an earlier, replaced one leaves the Inbox.
+- Merged lanes with running services stay on Run so they can be stopped.
+- `tmux attach` uses `=name`, so it cannot open another lane's shell.
+- `GET /api/setup/settings` masks tokens and keys; saving the mask keeps the stored value.
+- A base branch git would read as an option (`--force`, `a..b`) is refused.
+- The lane limit and other refusals return a plain sentence instead of a generic error.
+- CLI `lane start` uses the project's default branch and takes `--base`; the Work page shows the right `contextlanes term` command; Run approves a recipe in a project with no lanes; cleanup reports "could not be checked" instead of inventing one unpushed commit; unbuilt phase-3 pages redirect to Work.
+- Docs no longer claim cleanup keeps ignored files or that nothing ever listens on 0.0.0.0.
+
+Open (see Needs Kyle for the first two):
+
+- Loopback trust and the preview cookie, above.
+- Some request bodies use inline zod rather than `packages/protocol` (`preview_url`, `answers`, `LocalSetupRequest`); the diff route's `?file=` is not parsed with zod.
+- A recipe approved with no lane asking for it writes the `approval` row but no event.
+- `mode: "edits"` is accepted when starting a lane but the host starts in ask mode.
+- Routes with no caller: `GET /api/projects/:p/recipe`, `GET /api/lanes/:p/:n/env`, `DELETE /api/push/subscriptions`, `POST /api/setup/tailnet`.
+- The Review and Run pages have no unit tests; they are covered by `scripts/check-phase2.mjs`.
 
 ## Principles
 
@@ -113,7 +161,7 @@ Validation: all 56 tests pass with the real systemd/tmux fixtures enabled. Provi
 - Kill the session at cleanup only. `contextlanes term` (done).
 - Done when: closing the browser tab leaves the shell running and `contextlanes term` shows the same scrollback.
 
-Completed: closing the tab, switching views or stopping the daemon releases only that PTY's `tmux attach-session` client. The tmux session is never killed by the terminal route. Older history stays in tmux copy mode (**Ctrl+B**, then **[**); use **q** to leave it. There is no cleanup endpoint yet; killing lane sessions belongs to phase 2 cleanup.
+Completed: closing the tab, switching views or stopping the daemon releases only that PTY's `tmux attach-session` client. The tmux session is never killed by the terminal route. Older history stays in tmux copy mode (**Ctrl+B**, then **[**); use **q** to leave it. Cleanup (phase 2) is the only place a lane's tmux session is killed.
 
 Native `node-pty` loading is deferred until a terminal opens. A missing native build closes that terminal connection with an attach error; the daemon, health endpoint and other API routes keep working. A regression test simulates the native module load failure.
 
@@ -133,7 +181,7 @@ node apps/cli/dist/main.js term <project>/01
 - Overview: goal → lanes graph with React Flow + ELK and the last-2-hours timeline.
 - Done when: the Work page matches the v4 canvas boards "Work · one lane" and "Work · overview".
 
-Completed against `docs/DESIGN.md`, the supplied UI authority (canvas boards are not in this repository). Overview groups lanes by goal and draws owner gates using React Flow with ELK layout. Its two-hour timeline distinguishes recorded working, idle, waiting and failed periods, including the preceding state/turn. Selection is retained in `?lane=project/NN`, including notification links.
+Completed against `docs/DESIGN.md`, then rebuilt from the boards in `docs/mockups/` (see "UI rebuilt to the mockups"). Overview groups lanes by goal and draws owner gates using React Flow with ELK layout. Its two-hour timeline distinguishes recorded working, idle, waiting and failed periods, including the preceding state/turn. Selection is retained in `?lane=project/NN`, including notification links.
 
 One-lane view renders all six families, joins text chunks, folds thinking by default and retains failed-then-fixed tool history. Counts come from ACP old/new content via `diff`; individual test pips come from TAP/check events. Unknown results are not estimated. Diffs exceeding the 100ms comparison budget omit counts; full checkpoint diffs are phase 2. Tool output is capped at 12,000 characters with an explicit marker.
 
@@ -149,7 +197,7 @@ Goal: a new user over SSH reaches a running lane without typing a path or setup 
 - Browser steps are **Sign in → Connect an agent → Add projects → Start your first lane**, each marked Done, Now or Next; the current step is the first one not done. Agent requires at least one Ready agent; Project requires an added repository; a working lane completes the last step.
 - Agents have one status: **Ready**, **Install**, **Sign in**. Installed CLIs appear first, the rest under **Other agents**. Install uses fixed pinned packages under `~/.local`; Sign in opens only that agent’s fixed login command in the owner’s browser terminal. Login completion refreshes readiness. Known failures give an actionable sentence; raw process/network exceptions are not rendered.
 - Project discovery reads agent session history, then walks home (see "UI rebuilt to the mockups" for the current rules). Repositories show name, path and current branch; none are selected initially. The folder browser resolves canonical paths and refuses links/paths outside home. Explicit owner-entered paths and `contextlanes add [path]` accept `~`; CLI add defaults to the current folder. Discovery, browsing and branch APIs are owner-only.
-- First lane reads local branches from Git, prefers `origin/HEAD` as default (then main/master/first local branch), offers only Ready agents, and supplies an example task placeholder. Notifications and local endpoints are post-lane Projects cards, with Web Push first and ntfy/Telegram under **Other ways**. The public URL comes from Serve. Local helper execution remains phase 3.
+- First lane reads local branches from Git, prefers `origin/HEAD` as default (then main/master/first local branch), offers only Ready agents, and supplies an example task placeholder. Notifications and local endpoints live in Settings and Models, with Web Push first and ntfy/Telegram under **Other ways**. The public URL comes from Serve. Local helper execution remains phase 3.
 - A passkey is offered only after owner sign-in at the configured HTTPS tailnet address, labelled **Add a passkey for this address**. It never blocks onboarding.
 
 Implementation: a mode-0600 local control credential is read automatically by the CLI, never typed or printed. `/api/setup/local` additionally requires a local peer/Host and refuses Origin/Tailscale headers, so a browser or remote caller cannot claim by merely posting to a public endpoint. The local credential remains private; only sign-in-link hashes, origin and expiry are persisted. Consumption uses one atomic SQLite delete; reuse, expiry or another origin fails. URL secrets live in the fragment and are removed on landing. HttpOnly/SameSite Strict sessions are Secure over HTTPS. Auth expiry never answers an agent permission. Existing typed-code endpoints and the initial passkey claim were removed.
@@ -163,7 +211,7 @@ Validation: **86 tests pass** with real systemd/tmux fixtures enabled. API tests
 `scripts/check-setup.mjs` starts fresh configurations at **1440px and 390px**. It runs the actual CLI, follows its URL (including when Setup was already open), signs in through a fixed fake browser login terminal, selects an initially unchecked repository, checks a non-main default branch, starts a real systemd host with the SDK fake agent, and explicitly answers its permission. Both reached a running lane in **about 2.6 seconds from CLI invocation** on this machine. It then verifies post-lane cards, automatic public URL, real WebAuthn registration at the fixture HTTPS address and link replay rejection. Tailscale is faked exclusively through the injected Runner; fixture HTTPS binds 127.0.0.1. This is not a timing claim for real downloads/provider sign-in.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wongywrongy/rootlane/contextlanes/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wongywrongy/contextlane/main/install.sh | sh
 ~/.local/bin/contextlanes setup
 # Open the link or scan the QR; then Agent → Project → First lane.
 ~/.local/bin/contextlanes add          # optional: add the current repository
@@ -172,7 +220,7 @@ CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-setup.mjs
 ```
 
-Generated installer units are also validated by the real `systemd-analyze --user verify` gate, including an install path with spaces and specifier characters. `WorkingDirectory` uses a literal path value (with percent specifiers escaped), not ExecStart-style quotes. After rebuilding an existing source checkout, restart its daemon before using the new CLI. Setup detects an older status response and prints a specific restart instruction instead of a generic failure. External acceptance remains in Needs Kyle. Phase 2 was not started.
+Generated installer units are also validated by the real `systemd-analyze --user verify` gate, including an install path with spaces and specifier characters. `WorkingDirectory` uses a literal path value (with percent specifiers escaped), not ExecStart-style quotes. After rebuilding an existing source checkout, restart its daemon before using the new CLI. Setup detects an older status response and prints a specific restart instruction instead of a generic failure. External acceptance remains in Needs Kyle.
 
 ## Phase 2 — Apps and review
 
@@ -237,6 +285,7 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - **Lane host integration:** connect the ACP client to an in-process fake agent built with the SDK's `agent()` app (`ClientApp.connect(agentApp)`), so permission and streaming flows are tested without a real model.
 - **Web:** Playwright smoke tests against `vite preview` with a seeded daemon; screenshots compared with the canvas boards by eye at first.
 - **End to end:** a nightly job on neo starts a lane on a fixture repo with a cheap local model and checks the full loop.
+- **Updates:** `apps/daemon/test/update.test.ts` uses real git (a bare remote and the clone install.sh makes) with npm, systemctl and the health check faked. The full path, with real builds, a real daemon restart and a lane waiting through it, was run by hand on 2026-10-30 (see Updating); repeat it before changing the release layout.
 - **Terminal end to end:** `CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts` opts into real tmux, PTYs, a throwaway git repo and loopback HTTP. The ordinary suite fakes all commands through `Runner`, including its terminal launcher. The opt-in test checks shell state, history beyond the screen, prompt client cleanup, daemon recreation and the actual CLI entry point.
 
 ## Open questions
