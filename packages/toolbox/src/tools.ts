@@ -50,3 +50,9 @@ export const TOOLS = {
 
 export type ToolName = keyof typeof TOOLS;
 export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
+
+/**
+ * Tools agents are given today. A tool joins this list only when its daemon route works; until
+ * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
+ */
+export const LIVE_TOOLS: ToolName[] = ["ask_owner"];

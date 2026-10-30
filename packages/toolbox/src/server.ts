@@ -1,9 +1,9 @@
 import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
-import { TOOLS, TOOL_NAMES, type ToolName } from "./tools.js";
+import { LIVE_TOOLS, TOOLS, type ToolName } from "./tools.js";
 
-export type ToolboxOptions = { daemonUrl: string; lane: string; fetch?: typeof fetch };
+export type ToolboxOptions = { daemonUrl: string; lane: string; fetch?: typeof fetch; tools?: ToolName[] };
 
 /** Retrying the same question ID survives a daemon restart without asking twice. */
 export async function callLaneTool(opts: ToolboxOptions, name: ToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ text: string; ok: boolean }> {
@@ -21,10 +21,10 @@ export async function callLaneTool(opts: ToolboxOptions, name: ToolName, args: R
   }
 }
 
-/** Builds the MCP server. Each tool posts to /api/lanes/:lane/tools/:name on the daemon. */
+/** Builds the MCP server with the live tools. Each tool posts to /api/lanes/:lane/tools/:name on the daemon. */
 export function createToolbox(opts: ToolboxOptions): McpServer {
   const server = new McpServer({ name: "contextlanes", version: "0.1.0" });
-  for (const name of TOOL_NAMES) {
+  for (const name of opts.tools ?? LIVE_TOOLS) {
     const tool = TOOLS[name as ToolName];
     server.registerTool(name, { description: tool.description, inputSchema: tool.input }, async (args: Record<string, unknown>, context: ServerContext) => {
       const result = await callLaneTool(opts, name, args ?? {}, context.mcpReq.signal);
