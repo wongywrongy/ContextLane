@@ -19,7 +19,7 @@ const userVersion = (file: string) => { const db = new DatabaseSync(file); try {
 const setUserVersion = (file: string, v: number) => { const db = new DatabaseSync(file); try { db.exec(`PRAGMA user_version = ${v}`); } finally { db.close(); } };
 
 /** An installed copy: a bare remote, the clone install.sh made in ~/.local/share/contextlanes/app, a database and a service. */
-async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boolean; base?: string } = {}) {
+async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boolean; base?: string; publicUrl?: string } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cl-update-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "home");
@@ -61,7 +61,7 @@ async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boole
   const logs: string[] = [];
   let processes: string[] = [];
   const updater = async () => new Updater({ run, fetch: health as typeof fetch, log: (l) => logs.push(l), sleep: async () => {}, processes: async () => processes, home, node: process.execPath,
-    layout: await layoutOf(app, home), data, port: 4600, healthSeconds: 1 });
+    layout: await layoutOf(app, home), data, port: 4600, healthSeconds: 1, publicUrl: options.publicUrl ?? null });
   return { root, home, base, app, work, remote, data, database, first, calls, logs, updater, setProcesses: (p: string[]) => { processes = p; } };
 }
 
@@ -83,11 +83,12 @@ describe("contextlanes update", () => {
     expect(userVersion(join(f.data, "backups", backups[0]!))).toBe(3);
     expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).history).toHaveLength(1);
     expect(f.logs).toContain("1 new change on main:");
-    expect(f.logs.at(-1)).toMatch(new RegExp(`^Updated ${f.first.slice(0, 12)} → ${second.slice(0, 12)}\\. 2 of 2 active lanes kept running\\.`));
+    expect(f.logs.at(-2)).toMatch(new RegExp(`^Updated ${f.first.slice(0, 12)} → ${second.slice(0, 12)}\\. 2 of 2 active lanes kept running\\.`));
+    expect(f.logs.at(-1)).toBe("Open ContextLanes: http://127.0.0.1:4600 (this machine only; run contextlanes setup to reach it over Tailscale)");
 
     f.calls.length = 0; f.logs.length = 0;
     expect(await (await f.updater()).update()).toBe(0);
-    expect(f.logs.at(-1)).toBe(`Already up to date (${second.slice(0, 12)} on main).`);
+    expect(f.logs.at(-2)).toBe(`Already up to date (${second.slice(0, 12)} on main).`);
     expect(f.calls).toEqual([]);
   });
 
@@ -130,7 +131,7 @@ describe("contextlanes update", () => {
   });
 
   it("rolls back one version, asking first when the database format changed", async () => {
-    const f = await fixture({ migrateOnStart: true });
+    const f = await fixture({ migrateOnStart: true, publicUrl: "https://neo.tail1234.ts.net" });
     await commit(f.work, "Second version");
     expect(await (await f.updater()).update()).toBe(0);
     expect(userVersion(f.database)).toBe(4);
@@ -139,7 +140,8 @@ describe("contextlanes update", () => {
     expect(await (await f.updater()).rollback({ yes: true })).toBe(0);
     expect(await realpath(join(f.base, "current"))).toBe(f.app);
     expect(userVersion(f.database)).toBe(3);
-    expect(f.logs.at(-1)).toBe(`Back on ${f.first.slice(0, 12)}. The database was restored.`);
+    expect(f.logs.at(-2)).toBe(`Back on ${f.first.slice(0, 12)}. The database was restored.`);
+    expect(f.logs.at(-1)).toBe("Open ContextLanes: https://neo.tail1234.ts.net (on this machine: http://127.0.0.1:4600)");
   });
 
   it("follows the default branch when the branch it tracked is gone", async () => {

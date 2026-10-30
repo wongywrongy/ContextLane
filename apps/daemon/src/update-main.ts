@@ -25,7 +25,7 @@ const updater = new Updater({
     return lines;
   },
   home: homedir(), node: process.execPath, layout: await layoutOf(self, homedir()),
-  data: config.paths.data, port: config.listen.port, config: configPath(),
+  data: config.paths.data, port: config.listen.port, config: configPath(), publicUrl: config.notifications.publicUrl ?? null,
 });
 try {
   process.exitCode = values.rollback ? await updater.rollback({ yes: values.yes ?? false })

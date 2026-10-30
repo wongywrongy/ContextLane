@@ -25,6 +25,8 @@ export type UpdateDeps = {
   config?: string;
   /** Seconds to wait for the restarted daemon. */
   healthSeconds?: number;
+  /** The HTTPS tailnet address setup saved, if any; printed with the local one when an update ends. */
+  publicUrl?: string | null;
 };
 
 type History = { from: string; to: string; fromPath: string; toPath: string; at: string; backup: string | null; userVersion: number | null };
@@ -46,6 +48,11 @@ export class Updater {
   constructor(private deps: UpdateDeps) {}
   private get l() { return this.deps.layout; }
   private log(line: string) { this.deps.log(line); }
+  /** The address only, never a sign-in link: terminal output ends up in scrollback, logs and screenshots. */
+  private openAt() {
+    const local = `http://127.0.0.1:${this.deps.port}`;
+    this.log(this.deps.publicUrl ? `Open ContextLanes: ${this.deps.publicUrl} (on this machine: ${local})` : `Open ContextLanes: ${local} (this machine only; run contextlanes setup to reach it over Tailscale)`);
+  }
   private async git(cwd: string, args: string[], timeout = 120_000): Promise<string> {
     return (await this.deps.run("git", ["-C", cwd, ...args], { timeout })).stdout.trim();
   }
@@ -62,7 +69,7 @@ export class Updater {
       const state = await this.state();
       const branch = await this.branch(state, options.branch);
       const to = await this.git(this.l.repo, ["rev-parse", `refs/remotes/origin/${branch}`]);
-      if (to === from) { this.log(`Already up to date (${shortSha(from)} on ${branch}).`); return 0; }
+      if (to === from) { this.log(`Already up to date (${shortSha(from)} on ${branch}).`); if (!options.check) this.openAt(); return 0; }
       if (await this.isAncestor(to, from)) { this.log(`This copy (${shortSha(from)}) is newer than ${branch} (${shortSha(to)}). Nothing to update.`); return 0; }
       const changes = (await this.git(this.l.repo, ["log", "--no-decorate", "--format=%h %s", `${from}..${to}`])).split("\n").filter(Boolean);
       this.log(`${changes.length} new ${changes.length === 1 ? "change" : "changes"} on ${branch}:`);
@@ -121,6 +128,7 @@ export class Updater {
       if (undoing) state.history.pop();
       await this.saveState(state);
       this.log(`Back on ${shortSha(to)}.${restore ? " The database was restored." : ""}`);
+      this.openAt();
       return 0;
     });
   }
@@ -158,6 +166,7 @@ export class Updater {
     const after = await this.activeLanes();
     const lanes = before !== null && after !== null ? ` ${after} of ${before} active ${before === 1 ? "lane" : "lanes"} kept running.` : "";
     this.log(`Updated ${shortSha(v.from)} → ${shortSha(v.to)}.${lanes} Undo with: contextlanes update --rollback`);
+    this.openAt();
     return 0;
   }
 
