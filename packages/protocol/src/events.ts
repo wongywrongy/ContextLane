@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TurnUsage, UsageLimit } from "./usage.js";
+import { ServiceProposal } from "./resources.js";
 import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
 import { LaneCommand } from "./commands.js";
@@ -65,6 +66,7 @@ const payloads = {
   "recipe.requested": z.object({ hash: z.string() }),
   "recipe.approved": z.object({ hash: z.string() }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional(), state: ServiceState.optional(), detail: z.string().optional() }),
+  "service.proposed": ServiceProposal,
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
   /** The approved checkpoint was rebased or merged onto its base; a retry after a failed push continues from this head. */

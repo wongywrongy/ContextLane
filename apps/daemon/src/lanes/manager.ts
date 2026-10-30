@@ -1,6 +1,6 @@
 import { access, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { laneColour, laneId, StartLaneRequest, type Lane } from "@contextlanes/protocol";
+import { laneColour, laneId, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
 import type { Store } from "../db/store.js";
@@ -76,6 +76,7 @@ export class LaneManager {
       colour: laneColour(n),
     });
     this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree } }));
+    if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
     this.emit(store.setLaneState(id, "setting_up"));
 
     try {
@@ -83,7 +84,7 @@ export class LaneManager {
       await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, req.base], { cwd: project.path });
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
       // Through the environment, not arguments: every process on the machine can read arguments.
-      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
+      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {
@@ -98,13 +99,14 @@ export class LaneManager {
 }
 
 /** systemd-run arguments for a lane host. Kept separate so it can be tested and documented. */
-export function hostCommand(lane: Lane, config: Config): string[] {
+export function hostCommand(lane: Lane, config: Config, adoption?: ServiceProposal): string[] {
+  const task = adoption ? `${lane.task}\n\nPropose a .contextlanes.json service from this observed process. Keep the outside copy running. Adapt paths to the lane's worktree, replace its observed port with a free $PORT and bind to 127.0.0.1. Request the owner's normal recipe approval before starting the copy. Observed data: ${JSON.stringify(adoption)}` : lane.task;
   const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
   return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
     `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, "--setenv=CONTEXTLANES_LANE_TOKEN", ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
     // name=value keeps a task that starts with "-" a value; $$ keeps systemd from expanding $ in the task or JSON.
-    ...[...sandbox(config, { socket: true }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, `--task=${lane.task}`, `--agent=${lane.agent}`,
+    ...[...sandbox(config, { socket: true }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, `--task=${task}`, `--agent=${lane.agent}`,
       `--socket=${socketPath(config)}`, `--mode=${lane.mode}`,
       `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []),
       ...(config.agents[lane.agent] ? [`--agent-spec=${JSON.stringify(config.agents[lane.agent])}`] : [])].map((arg) => arg.replaceAll("$", "$$$$"))];

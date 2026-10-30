@@ -28,8 +28,9 @@ import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
+import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -43,6 +44,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
   const review = new Review({ store, bus, hosts: deps.hosts, run, runtime });
   const auth = new Auth(store, config);
+  const resources = deps.resources ?? new Resources(store, run);
   const streams = new Set<ServerResponse>();
   if (deps.onRoute) app.addHook("onRoute", deps.onRoute);
   app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
@@ -115,6 +117,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // ── projects ──
   app.get("/api/projects", async () => store.listProjects());
+  app.get("/api/resources", async () => resources.overview());
   app.post("/api/projects", async (req, reply) => {
     if (deps.setup) return reply.code(201).send(await deps.setup.addProject(req.body));
     const body = AddProjectRequest.parse(req.body);
@@ -183,7 +186,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!project) throw new NotFound("no such project");
     // A merged lane still shows while its services run, so they can be stopped before cleanup.
     const lanes = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state) && (l.state !== "merged" || store.environment(l.id)?.services.some((s) => s.state !== "stopped")));
-    return { cleanup: await review.cleanable(project.id), previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe: await readRecipe(store, project, project.path), lanes: await Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))) };
+    const [cleanup, recipe, entries, facts] = await Promise.all([review.cleanable(project.id), readRecipe(store, project, project.path),
+      Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))), resources.project(project.id)]);
+    return { cleanup, previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe, lanes: entries, facts };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));

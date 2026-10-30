@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { DetectedAgent, Lane, Project, ProjectBranches } from "@contextlanes/protocol";
+import type { DetectedAgent, Lane, Project, ProjectBranches, ServiceProposal } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, Dialog } from "./ui";
 
 /** Start a lane: project, agent, base branch, optional goal, task. Used by setup and the New lane dialog. */
-export function useLaneForm(projects: Project[], preset?: string) {
+export function useLaneForm(projects: Project[], preset?: string, adoption?: ServiceProposal) {
   const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [chosenProject, setProject] = useState(preset ?? "");
   const [chosenAgent, setAgent] = useState("");
-  const [task, setTask] = useState("");
+  const [task, setTask] = useState(adoption ? `Adopt service on port ${adoption.port}` : "");
   const [goal, setGoal] = useState("");
   const [chosenBase, setBase] = useState<{ project: string; branch: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,14 +30,14 @@ export function useLaneForm(projects: Project[], preset?: string) {
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, base, task: task.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}) });
+      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, base, task: task.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
   };
   const fields = <div className="form">
     <div className="two">
-      <label className="field">Project<select className="in" aria-label="Project" value={project?.id ?? ""} onChange={(e) => setProject(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      <label className="field">Project<select className="in" aria-label="Project" value={project?.id ?? ""} disabled={!!adoption} onChange={(e) => setProject(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label className="field">Agent<select className="in" aria-label="Agent" value={agent?.id ?? ""} disabled={!ready.length} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id]}</option>)}</select></label>
     </div>
     <div className="two">
@@ -45,14 +45,15 @@ export function useLaneForm(projects: Project[], preset?: string) {
       <label className="field">Goal <span className="hint">optional · groups lanes</span><input className="in" list="lane-goals" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="For example: Billing v1" /><datalist id="lane-goals">{goals.map((g) => <option key={g} value={g} />)}</datalist></label>
     </div>
     <label className="field">Task<textarea className="in" rows={4} value={task} onChange={(e) => setTask(e.target.value)} placeholder="For example: add a /health endpoint with a test" /></label>
+    {adoption ? <div><p>The outside copy keeps running. This lane proposes its own recipe for you to approve.</p><pre className="out">{JSON.stringify({ command: adoption.command, port: adoption.port, folder: adoption.cwd }, null, 2)}</pre></div> : null}
     {blocked && agents ? <p role="alert" style={{ margin: 0 }}>{blocked}{!ready.length ? <> <Link to="/models">Open Models</Link></> : null}</p> : null}
     {error ? <p role="alert" style={{ margin: 0 }}>{error}</p> : null}
   </div>;
   return { fields, start, canStart, busy };
 }
 
-export function NewLaneDialog({ projects, project, onClose }: { projects: Project[]; project?: string; onClose: () => void }) {
-  const form = useLaneForm(projects, project);
+export function NewLaneDialog({ projects, project, onClose, adoption }: { projects: Project[]; project?: string; onClose: () => void; adoption?: ServiceProposal }) {
+  const form = useLaneForm(projects, project, adoption);
   return <Dialog title="New lane" meta="its own branch, checkout, shell and agent" onClose={onClose}
     footer={<div className="e"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={!form.canStart} onClick={() => void form.start().then((lane) => lane && onClose())}>{form.busy ? "Starting…" : "Start lane"}</button></div>}>
     {form.fields}

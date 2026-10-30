@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { RECIPE_FILE, type LaneEvent } from "@contextlanes/protocol";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, publicBindings, Runtime, serviceArgs, Store, type Runner } from "@contextlanes/daemon";
 import { readRecipe } from "../src/recipes.js";
+import { Resources } from "../src/resources.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true }))); });
@@ -42,7 +43,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
   bus.subscribeAll((e) => seen.push(e));
   let port = 20100;
   const runtime = new Runtime({ store, bus, config, run, freePort: async () => port++, fetch: (async () => new Response("ok", { status: state.health })) as typeof fetch });
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime, resources: new Resources(store, run, async () => null) }), store);
   store.addProject({ id: "shop", name: "Shop", path: repo });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "cl-shop-01", hostUnit: null, base: null, state: "working", colour: "lc1" });
   await writeFile(join(worktree, RECIPE_FILE), JSON.stringify(recipe));

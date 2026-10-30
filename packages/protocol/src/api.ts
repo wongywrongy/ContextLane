@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LANE_COLOURS, LaneId, ProjectId } from "./ids.js";
 import { LaneState } from "./states.js";
+import { ServiceProposal } from "./resources.js";
 
 export const Project = z.object({
   id: ProjectId,
@@ -41,6 +42,7 @@ export const StartLaneRequest = z.object({
   model: z.string().optional(),
   mode: z.enum(["ask", "edits", "plan"]).default("ask"),
   goal: z.string().optional(),
+  adoption: ServiceProposal.optional(),
   /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */
   base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
 });

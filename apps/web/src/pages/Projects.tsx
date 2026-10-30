@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import type { Health, InboxItem, Lane, Project } from "@contextlanes/protocol";
+import type { Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { Glyph, LaneBadge, StateGlyph, Tile, ago, coverFor, type IconName } from "../components/ui";
@@ -12,6 +12,10 @@ export function ProjectsPage() {
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
   const [lanes] = useJson<Lane[]>("/api/lanes");
   const [health] = useJson<Health>("/api/health");
+  const [resources, , reloadResources] = useJson<ResourcesOverview>("/api/resources");
+  const [usage, , reloadUsage] = useJson<UsageSummary>("/api/usage");
+  const reportedLimits = (usage?.limits ?? []).filter((limit) => Date.parse(limit.resetsAt) > Date.now());
+  useEffect(() => { const timer = setInterval(() => { reloadResources(); reloadUsage(); }, 30_000); return () => clearInterval(timer); }, [reloadResources, reloadUsage]);
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(params.get("add") === "1");
   const close = () => { setAdding(false); if (params.has("add")) setParams({}); };
@@ -22,16 +26,20 @@ export function ProjectsPage() {
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} ${projects.length === 1 ? "repo" : "repos"} on ${health?.host ?? "this machine"}` : ""}</span>
           <div className="e"><button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button></div></div>
         <div className="tiles">
-          {(projects ?? []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} />)}
+          {(projects ?? []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
           {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}
         </div>
+        {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec-f" style={{ flexWrap: "wrap" }}>
+          {reportedLimits.map((limit) => <span className="mono" style={{ fontSize: 12 }} key={`${limit.agent}/${limit.window}`}>{limit.agent === "claude-code" ? "Claude" : limit.agent} {limit.usedPct.toFixed(0)}% of {limit.window}</span>)}
+          {resources?.gpus?.map((gpu, i) => <span className="mono" style={{ fontSize: 12 }} key={`${gpu.name}/${i}`}>{gpu.name}{gpu.usePct !== null ? ` · GPU ${gpu.usePct}%` : ""}{gpu.memoryUsedMiB !== null ? ` · ${gpu.memoryUsedMiB} MiB${gpu.memoryTotalMiB !== null ? ` of ${gpu.memoryTotalMiB} MiB` : ""}` : ""}</span>)}
+        </div> : null}
       </section>
       {adding ? <AddRepoDialog onClose={close} onAdded={reloadProjects} /> : null}
     </main>
   );
 }
 
-function ProjectTile({ project, lanes }: { project: Project; lanes: Lane[] }) {
+function ProjectTile({ project, lanes, services }: { project: Project; lanes: Lane[]; services?: ResourcesOverview["projects"][number] }) {
   const open = lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
   const counts = (["needs_you", "working", "in_review", "failed"] as const).map((s) => [s, open.filter((l) => l.state === s).length] as const).filter(([, n]) => n);
@@ -47,7 +55,7 @@ function ProjectTile({ project, lanes }: { project: Project; lanes: Lane[] }) {
         {!open.length ? <Glyph g="idle">No lanes</Glyph> : null}
       </div>
     </div>
-    <div className="tf">{line}</div>
+    <div className="tf">{line}{services ? <> · {services.up} {services.up === 1 ? "service" : "services"} up{services.down ? ` · ${services.down} down` : ""}</> : null}</div>
   </Link>;
 }
 

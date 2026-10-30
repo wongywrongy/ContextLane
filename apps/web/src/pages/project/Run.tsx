@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus } from "@contextlanes/protocol";
+import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus, Project, OutsideService, RunFacts } from "@contextlanes/protocol";
 import { useParams } from "react-router";
-import { errorMessage, getJson, postJson } from "../../api";
+import { errorMessage, getJson, postJson, useJson } from "../../api";
+import { NewLaneDialog } from "../../components/NewLane";
 import { useProjectWork } from "../../components/Shell";
 import { Dialog, Empty, Glyph, LaneBadge, PageHeader, Section } from "../../components/ui";
 import { SERVICE_GLYPH } from "../../work/model";
@@ -19,22 +20,31 @@ function size(bytes: number): string {
 
 /** Run: each lane's copy of the app, from the approved recipe. */
 export function RunPage() {
+  const { project } = useParams();
   const { lanes, environments, reloadEnvironments } = useProjectWork();
+  const [projects] = useJson<Project[]>("/api/projects");
+  const [adopting, setAdopting] = useState<OutsideService | null>(null);
   const [viewing, setViewing] = useState<RecipeView | null>(null);
   const exposure = environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
   const live = environments?.lanes.filter((l) => running(l.environment)).length ?? 0;
   useEffect(() => {
-    if (!live) return;
     const timer = setInterval(reloadEnvironments, 5000);
     return () => clearInterval(timer);
-  }, [live, reloadEnvironments]);
+  }, [reloadEnvironments]);
   const open = environments?.lanes ?? [];
   const recipe = environments?.recipe ?? null;
   return <main className="pg stack">
     <PageHeader title="Run" meta="each lane's copy of the app, from the approved recipe" end={<Glyph g="done">{exposure}</Glyph>} />
     <Section title="Environments" meta={environments ? `${live} running · ${open.length - live} not started` : ""}>
-      {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} /> : null; })}
+      {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} facts={environments?.facts?.lanes.find((f) => f.lane === lane.id)} /> : null; })}
       {environments && !open.length ? <Empty>No open lanes. Start a lane from Work, then run its copy of the app here.</Empty> : null}
+      <div className="envl"><div className="envl-h"><b>Not started by ContextLanes</b><span className="m">watched only</span></div>
+        {environments?.facts?.outside === null ? <p className="muted">The socket list could not be read.</p> : environments?.facts?.outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
+          <Glyph g="idle">{service.name}</Glyph><code>:{service.port}</code><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>pid {service.pid} · {service.cwd} · {service.bind}</span>
+          {service.adoptedLane ? <span>Proposed for {service.adoptedLane}. Stop this outside copy only once the lane’s copy runs.</span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
+        </div>)}
+        {environments?.facts?.outside?.length === 0 ? <p className="muted">No other project listeners found.</p> : null}
+      </div>
     </Section>
     <Section title="Recipe and housekeeping" meta="applies to every lane in this project">
       <div className="hk">
@@ -49,11 +59,13 @@ export function RunPage() {
         <div>
           <h4>Exposure</h4>
           <Glyph g="done">{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews reachable on your tailnet only"}</Glyph>
-          <Glyph g="done">A service found listening beyond this machine is stopped within seconds</Glyph>
+          <Glyph g="done">A lane service found listening beyond localhost is stopped within seconds</Glyph>
+          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <Glyph key={lane.lane} g="done">{lane.lane} · certificate valid {lane.certificateDays} more days</Glyph>)}
         </div>
       </div>
     </Section>
     {viewing ? <RecipeDialog view={viewing} onClose={() => setViewing(null)} changed={reloadEnvironments} /> : null}
+    {adopting && projects ? <NewLaneDialog projects={projects} project={project} adoption={adopting} onClose={() => setAdopting(null)} /> : null}
   </main>;
 }
 
@@ -97,7 +109,7 @@ function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: (
   </Dialog>;
 }
 
-function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: LaneEnvironment; changed: () => void; review: (view: RecipeView) => void }) {
+function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; entry: LaneEnvironment; changed: () => void; review: (view: RecipeView) => void; facts?: RunFacts["lanes"][number] }) {
   const env = entry.environment;
   const recipe = entry.recipe;
   const [busy, setBusy] = useState("");
@@ -123,10 +135,10 @@ function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: L
     </div>
     {error ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{error}</p> : null}
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}
-    {env?.setup && isRunning ? <div className="envfacts">
-      <div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
-      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div>
-      {env.setup.disk !== null ? <div><Glyph g="done">Disk</Glyph><small>{size(env.setup.disk)} in this lane</small></div> : null}
+    {(env?.setup && isRunning) || facts?.diskBytes != null ? <div className="envfacts">
+      {env?.setup && isRunning ? <><div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
+      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div></> : null}
+      {facts?.diskBytes != null ? <div><Glyph g="done">Disk</Glyph><small>{size(facts.diskBytes)} in this lane</small></div> : null}
     </div> : null}
     {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? null : service.name)} />) : null}
     {isRunning && logs ? <Logs lane={lane.id} service={logs} /> : null}

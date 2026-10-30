@@ -282,6 +282,12 @@ export class Store {
     } as UsageSummary;
   }
 
+  serviceAdoption(project: ProjectId, pid: number, startTicks: string, port: number, bootId: string): LaneId | null {
+    const row = this.db.prepare(`SELECT e.lane FROM event e JOIN lane l ON l.id = e.lane WHERE l.project = ? AND e.type = 'service.proposed'
+      AND json_extract(e.payload, '$.pid') = ? AND json_extract(e.payload, '$.startTicks') = ? AND json_extract(e.payload, '$.port') = ? AND json_extract(e.payload, '$.bootId') = ? ORDER BY e.rowid DESC LIMIT 1`).get(project, pid, startTicks, port, bootId) as { lane: string } | undefined;
+    return row?.lane ?? null;
+  }
+
   activity(project: ProjectId, since: string): LaneEvent[] {
     const rows = this.db.prepare(`SELECT e.* FROM event e JOIN lane l ON l.id = e.lane WHERE l.project = ? AND
       (e.at >= ? OR (e.type IN ('lane.state', 'agent.turn') AND e.seq =
