@@ -67,7 +67,7 @@ export function useLiveInbox(): InboxQuery {
   useEffect(() => {
     const source = new EventSource("/api/stream");
     source.onopen = reload;
-    source.addEventListener("lane", (message) => { if (/permission\.|lane.state/.test(JSON.parse((message as MessageEvent<string>).data).type)) reload(); });
+    source.addEventListener("lane", (message) => { if (/permission\.|recipe\.|lane.state/.test(JSON.parse((message as MessageEvent<string>).data).type)) reload(); });
     return () => source.close();
   }, [reload]);
   return result;

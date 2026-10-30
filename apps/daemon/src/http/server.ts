@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
-import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery } from "@contextlanes/protocol";
+import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -17,6 +17,8 @@ import type { Store } from "../db/store.js";
 import type { HostLinks } from "../hosts.js";
 import { NotFound, type LaneManager } from "../lanes/manager.js";
 import { slugify } from "../lanes/naming.js";
+import { readRecipe } from "../recipes.js";
+import { refuseUnlessOwner } from "./owner.js";
 import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
@@ -98,6 +100,29 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string } }>("/api/projects/:project/activity", async (req) => {
     const { since } = ActivityQuery.parse(req.query);
     return store.activity(ProjectId.parse(req.params.project), since ?? new Date(Date.now() - 2 * 60 * 60_000).toISOString());
+  });
+
+  // ── recipes ──
+  app.get<{ Params: { project: string } }>("/api/projects/:project/recipe", async (req) => {
+    const project = store.getProject(ProjectId.parse(req.params.project));
+    if (!project) throw new NotFound("no such project");
+    return await readRecipe(store, project, project.path);
+  });
+  app.post<{ Params: { project: string } }>("/api/projects/:project/recipe/approve", async (req, reply) => {
+    if (refuseUnlessOwner(req, reply, store, config)) return reply;
+    const project = store.getProject(ProjectId.parse(req.params.project));
+    if (!project) throw new NotFound("no such project");
+    const { hash } = ApproveRecipeRequest.parse(req.body);
+    // Only bytes that exist right now can be approved, and only if they parse.
+    const views = await Promise.all([project.path, ...store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state)).map((l) => l.worktree)].map((dir) => readRecipe(store, project, dir)));
+    const view = views.find((v) => v?.hash === hash);
+    if (!view?.recipe) return reply.code(409).send({ error: view?.error ?? "That recipe has changed; review the current file and approve again." });
+    const events = store.tx(() => {
+      store.approveRecipe(project.id, hash);
+      return store.recipeRequests(project.id, hash).map((lane) => store.appendEvent(lane, { type: "recipe.approved", payload: { hash } }));
+    });
+    for (const event of events) bus.publish(event);
+    return { approved: true, hash };
   });
 
   // ── lanes ──

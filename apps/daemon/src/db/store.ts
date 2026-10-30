@@ -87,6 +87,23 @@ export class Store {
     return (this.db.prepare("SELECT * FROM project ORDER BY name").all() as Row[]).map(toProject);
   }
 
+  /** Approvals are per project and exact bytes; recipe_hash remembers the latest one. */
+  approveRecipe(project: ProjectId, hash: string): void {
+    this.tx(() => {
+      this.db.prepare("INSERT OR IGNORE INTO approval (project, recipe_hash, approved_at) VALUES (?, ?, ?)").run(project, hash, now());
+      this.db.prepare("UPDATE project SET recipe_hash = ? WHERE id = ?").run(hash, project);
+    });
+  }
+
+  recipeApproved(project: ProjectId, hash: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM approval WHERE project = ? AND recipe_hash = ?").get(project, hash);
+  }
+
+  /** Lanes waiting for this exact recipe, so its approval lands in each of their logs. */
+  recipeRequests(project: ProjectId, hash: string): LaneId[] {
+    return (this.db.prepare(`SELECT DISTINCT e.lane FROM event e JOIN lane l ON l.id = e.lane WHERE l.project = ? AND e.type = 'recipe.requested' AND json_extract(e.payload, '$.hash') = ?`).all(project, hash) as Row[]).map((r) => String(r.lane));
+  }
+
   // ── lanes ───────────────────────────────────────────────────────────────
 
   nextLaneNumber(project: ProjectId): number {
@@ -196,7 +213,12 @@ export class Store {
       )
       .all() as Row[];
     const reviews = this.db.prepare("SELECT id, task FROM lane WHERE state = 'in_review' ORDER BY created_at").all() as Row[];
+    const recipes = this.db.prepare(`SELECT r.lane, MIN(r.at) AS at, json_extract(r.payload, '$.hash') AS hash FROM event r JOIN lane l ON l.id = r.lane
+      WHERE r.type = 'recipe.requested' AND l.state NOT IN ('merged', 'cleaned', 'archived')
+        AND NOT EXISTS (SELECT 1 FROM approval a WHERE a.project = l.project AND a.recipe_hash = json_extract(r.payload, '$.hash'))
+      GROUP BY r.lane, hash ORDER BY at`).all() as Row[];
     return [
+      ...recipes.map((r) => ({ id: `${r.lane}#recipe-${r.hash}`, lane: String(r.lane), kind: "approval" as const, title: `Approve the recipe ${String(r.hash).slice(0, 7)} on the Run page`, since: String(r.at), options: [] })),
       ...asks.map((r) => ({ id: `${r.lane}#${r.rid}`, lane: String(r.lane), kind: r.kind === "question" ? "question" as const : "permission" as const, title: String(r.title), since: String(r.at), options: JSON.parse(String(r.options)) })),
       ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: now(), options: [] })),
     ];

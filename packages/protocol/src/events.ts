@@ -60,6 +60,8 @@ const payloads = {
   "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional() }),
   "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional() }),
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
+  "recipe.requested": z.object({ hash: z.string() }),
+  "recipe.approved": z.object({ hash: z.string() }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional() }),
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
