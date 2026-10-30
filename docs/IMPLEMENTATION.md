@@ -339,8 +339,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.9 Measure the phase 3 gate | — | Built; the real run is Kyle's; see 3.9 |
 | 4.1 Hand off, fork, fresh session | work-lane | Done; see 4.1 |
 | 4.2 Second-agent review | review | Done; see 4.2 |
-| 4.3 More agents | models | Next |
-| 4.4 Routing | models | Not started |
+| 4.3 More agents | models | Done; Hermes is not in the registry; see 4.3 |
+| 4.4 Routing | models | Next |
 | 4.5 Scheduled lanes | — (needs a board) | Not started |
 | 4.6 Shared skills | insights | Not started |
 | 4.7 Final board pass | all | Not started |
@@ -677,6 +677,14 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - Hermes, Gemini CLI and Goose over ACP, plus **Add from ACP registry**. Install and sign-in detection work as they do for the current agents.
 - Each starts in a mode where a human approves; modes that approve on their own are excluded. Record each adapter's modes with a source link, as for Codex.
+
+#### What was done (2026-10-30)
+
+- **Add from ACP registry** on Models lists the registry's agents (`cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, the format in `github.com/agentclientprotocol/registry`; Gemini CLI, goose, Qwen Code, Cline, Mistral Vibe and about 40 more as of today). `apps/daemon/src/registry.ts` installs one by its own distribution: npm packages into `~/.local` like the built-in adapters; downloads checked against the registry's SHA-256 and unpacked under `~/.local/share/acp-agents/` (outside the data folder, so the sandboxed lane host can run them); `uv` agents run through `uvx`. The result is saved as `[agents.<id>]`, shown under Agents with Remove, and offered in New lane.
+- Safety as for Codex: lanes start each agent in a human-approval mode (now also `approve` and `manual`, the names goose uses); bypass modes are refused by `SafeMode`; and the registry's own arguments are filtered, so goose's `--yolo` style switches are never passed.
+- Registry agents sign in through their own CLI or ACP; ContextLanes only checks that the command is there.
+- **Hermes Agent is not in the ACP registry** (checked against the registry repository today), so it is not offered. If it is added there it appears without code changes.
+- Tests: `registry.test.ts` (listing; npm install; a checked download; a tampered download refused; unsafe switches dropped).
 
 ### 4.4 Routing (models)
 

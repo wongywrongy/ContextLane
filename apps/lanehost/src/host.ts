@@ -79,7 +79,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     };
     // Do not inherit an agent's saved bypass mode, and never select an auto-approval mode.
     const initialMode = opts.mode === "plan" ? "plan" : opts.mode && !["ask", "edits"].includes(opts.mode) ? opts.mode :
-      session.modes?.availableModes.find((m) => ["default", "read-only", "ask", "on-request"].includes(m.id))?.id;
+      session.modes?.availableModes.find((m) => ["default", "read-only", "ask", "on-request", "approve", "manual"].includes(m.id))?.id;
     if (initialMode) await setMode(initialMode);
     else if (currentMode) SafeMode.parse(currentMode);
     if (opts.model) await setModel(opts.model);

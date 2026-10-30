@@ -38,7 +38,8 @@ export const SetupStatus = z.object({ claimed: z.boolean(), authorized: z.boolea
   tailnetLogin: z.string().nullable(), publicUrl: z.string().nullable(), controlFile: z.string().optional(), hasLane: z.boolean(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
-export const DetectedAgent = z.object({ id: AgentId, installed: z.boolean(), status: z.enum(["Ready", "Install", "Sign in"]) });
+/** Built-in agents (with their own install and sign-in) and agents added from the ACP registry. */
+export const DetectedAgent = z.object({ id: z.string(), installed: z.boolean(), status: z.enum(["Ready", "Install", "Sign in"]), source: z.enum(["built-in", "registry"]).default("built-in") });
 export type DetectedAgent = z.infer<typeof DetectedAgent>;
 export const FolderQuery = z.object({ path: z.string().min(1).max(4096).default("~") });
 export const Repository = z.object({ name: z.string(), path: z.string(), branch: z.string().nullable(),
@@ -72,3 +73,7 @@ export type HelperKind = z.infer<typeof HelperKind>;
 export type HelperStatus = { kind: HelperKind; model: string | null; uses: number; redoneRate: number | null; savedThisWeek: number; state: "on" | "near" | "off"; reason: string | null };
 export const DelegateRequest = z.object({ kind: HelperKind, task: z.string().min(1).max(4000), files: z.array(z.string().min(1).max(500)).max(20).default([]) });
 export const HelperToggle = z.object({ kind: HelperKind, on: z.boolean() });
+
+/** Models → Add from ACP registry. */
+export type RegistryAgent = { id: string; name: string; version: string; description: string; website: string | null; license: string | null; install: "npm" | "download" | "uv" | null; installed: boolean };
+export const RegistryInstall = z.object({ id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}$/) });

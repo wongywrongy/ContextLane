@@ -11,11 +11,12 @@ const STATUS: Record<DetectedAgent["status"], string> = { Ready: "signed in", In
 export function AgentRows({ agents, error, reload, limits }: { agents: DetectedAgent[] | null; error: Error | null; reload: () => void; limits?: UsageSummary["limits"] }) {
   const [login, setLogin] = useState<AgentId | null>(null);
   const row = (agent: DetectedAgent) => <div className={`sec-r${limits ? " agent-usage" : ""}`} key={agent.id}>
-    <AgentMark agent={agent.id} /><b>{AGENT_NAMES[agent.id]}</b><span className="st">· {STATUS[agent.status]}</span>
+    <AgentMark agent={agent.id} /><b>{AGENT_NAMES[agent.id] ?? agent.id}</b><span className="st">· {agent.source === "registry" ? agent.installed ? "from the ACP registry; signs in through its own CLI" : "from the ACP registry; its command is missing" : STATUS[agent.status]}</span>
     {limits ? <span className="agent-limits mono muted" style={{ fontSize: 12 }}>{limits.filter((limit) => limit.agent === agent.id && Date.parse(limit.resetsAt) > Date.now()).map((limit) => `${limit.window} ${Math.round(limit.usedPct)}%`).join(" · ") || "limits not reported"}</span> : null}
-    <div className="e">{agent.status === "Ready" ? <Glyph g="done">Ready</Glyph>
+    <div className="e">{agent.source === "registry" ? <>{agent.installed ? <Glyph g="done">Ready</Glyph> : null}<Action small ghost run={() => postJson(`/api/setup/agents/${agent.id}`, {}, "DELETE")} done={reload}>Remove</Action></>
+      : agent.status === "Ready" ? <Glyph g="done">Ready</Glyph>
       : agent.status === "Install" ? <Action small ghost run={() => postJson("/api/setup/agents/install", { id: agent.id })} done={reload}>Install</Action>
-      : <button className="btn sm" onClick={() => setLogin(agent.id)}>Sign in</button>}</div>
+      : <button className="btn sm" onClick={() => setLogin(agent.id as AgentId)}>Sign in</button>}</div>
   </div>;
   if (error) return <div className="agents"><Empty>Agents could not be checked. <button className="lnk" onClick={reload}>Check again</button></Empty></div>;
   if (!agents) return <div className="agents"><Empty>Checking which agents are installed…</Empty></div>;

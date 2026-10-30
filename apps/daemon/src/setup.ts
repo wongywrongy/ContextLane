@@ -7,6 +7,7 @@ import { homedir, userInfo } from "node:os";
 import { isAbsolute, join, basename } from "node:path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
+import type { AgentRegistry } from "./registry.js";
 import { AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type SetupLink } from "@contextlanes/protocol";
 import webPush from "web-push";
 import { Config, configPath, saveConfig } from "./config.js";
@@ -195,8 +196,25 @@ export class SetupManager {
           signedIn = id === "claude-code" ? JSON.parse(stdout).loggedIn === true : id === "codex" ? true : /\b[1-9]\d* credentials?\b/.test(stripVTControlCharacters(stdout));
         } catch { /* Status failures need an explicit sign-in, never a presumed ready state. */ }
       }
-      return { id, installed: !!cli, status: !cli || !adapter ? "Install" : signedIn ? "Ready" : "Sign in" };
-    }));
+      const status: DetectedAgent["status"] = !cli || !adapter ? "Install" : signedIn ? "Ready" : "Sign in";
+      return { id, installed: !!cli, status, source: "built-in" as const };
+    })).then(async (builtIn) => [...builtIn, ...await Promise.all(Object.entries(this.config.agents).filter(([id]) => !(id in agents)).map(async ([id, spec]) => {
+      // Registry agents sign in through their own CLI or ACP; ContextLanes only checks the command is there.
+      const there = await (this.options.find ?? findExecutable)(spec.command);
+      return { id, installed: !!there, status: there ? "Ready" as const : "Install" as const, source: "registry" as const };
+    }))]);
+  }
+  /** Add from ACP registry: install, then save as [agents.<id>]. */
+  async installFromRegistry(registry: AgentRegistry, id: string): Promise<{ installed: true }> {
+    if (id in agents) throw new SetupError("That agent is built in; use Install on its row.");
+    const spec = await registry.install(id);
+    await this.settings({ agents: { ...this.config.agents, [id]: spec } });
+    return { installed: true };
+  }
+  async removeRegistryAgent(id: string): Promise<void> {
+    if (id in agents) throw new SetupError("Built-in agents cannot be removed.");
+    const { [id]: _gone, ...rest } = this.config.agents;
+    await this.settings({ agents: rest });
   }
   async installAgent(body: unknown) {
     const id = AgentId.parse((body as { id?: unknown })?.id);

@@ -1,5 +1,6 @@
 import { GitHub } from "../github.js";
-import { CloneRequest } from "@contextlanes/protocol";
+import { CloneRequest, RegistryInstall } from "@contextlanes/protocol";
+import { AgentRegistry } from "../registry.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AgentId, FolderQuery, ProjectId, SignInRequest } from "@contextlanes/protocol";
 import { z } from "zod";
@@ -82,6 +83,10 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   const github = new GitHub(run, setup.config.paths.code);
   app.get("/api/setup/github", async () => github.list());
   app.post("/api/setup/github/clone", async (req) => setup.addProject({ path: await github.clone(CloneRequest.parse(req.body)) }));
+  const registry = new AgentRegistry({ run });
+  app.get("/api/setup/registry", async () => registry.list(setup.config.agents));
+  app.post("/api/setup/registry/install", async (req) => setup.installFromRegistry(registry, RegistryInstall.parse(req.body).id));
+  app.delete<{ Params: { id: string } }>("/api/setup/agents/:id", async (req) => { await setup.removeRegistryAgent(RegistryInstall.parse({ id: req.params.id }).id); return { removed: true }; });
   app.post("/api/setup/tailnet", async () => setup.enableTailnet());
   app.post("/api/setup/push", async () => setup.generatePush());
   app.post("/api/setup/model/probe", async (req) => setup.probeModel(req.body));

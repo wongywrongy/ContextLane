@@ -1,9 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
-import { AgentMark, Empty, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
+import { AgentMark, Dialog, Empty, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 
@@ -132,10 +132,11 @@ export function ModelsPage() {
   const [usage, usageError, reloadUsage] = useJson<UsageSummary>("/api/usage");
   const models = settings?.localModels ?? [];
   const [local, , reloadLocal] = useJson<LocalModelStatus[]>(models.length ? "/api/models/local" : null);
+  const [registry, setRegistry] = useState(false);
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
     <PageHeader title="Models" meta="who does the work" />
-    <Section title="Agents" meta="each keeps its own login" end={<button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button>}>
+    <Section title="Agents" meta="each keeps its own login · talks over ACP" end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
     <Section title="Local models" meta="agents call these directly; ContextLanes watches them" end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
@@ -155,7 +156,28 @@ export function ModelsPage() {
       </div>
     </Section>
     {models.length ? <HelperSection /> : null}
+    {registry ? <RegistryDialog onClose={() => { setRegistry(false); reload(); }} /> : null}
   </main>;
+}
+
+/** Add from ACP registry: agents that speak ACP, installed with npm, a checked download, or uv. */
+function RegistryDialog({ onClose }: { onClose: () => void }) {
+  const [list, error] = useJson<RegistryAgent[]>("/api/setup/registry");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState("");
+  const install = (id: string) => { setBusy(id); setMessage(""); void postJson("/api/setup/registry/install", { id }).then(() => setMessage("Installed. It appears under Agents and in New lane."), (e) => setMessage(errorMessage(e))).finally(() => setBusy(null)); };
+  const shown = (list ?? []).filter((a) => !filter || `${a.name} ${a.description}`.toLowerCase().includes(filter.toLowerCase()));
+  return <Dialog title="Add from ACP registry" meta="agents that speak the Agent Client Protocol" onClose={onClose} footer={<div className="e">{message ? <span role="status">{message}</span> : null}<button className="btn ghost" onClick={onClose}>Done</button></div>}>
+    {error ? <Empty>{error.message}</Empty> : !list ? <Empty>Reading the registry…</Empty> : <>
+      <input className="in" aria-label="Filter agents" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ marginBottom: 8 }} />
+      {shown.map((a) => <div className="repo" key={a.id}>
+        <span style={{ minWidth: 0 }}><span className="nm"><b>{a.name}</b><span className="mono">{a.version}</span></span><span className="sub" style={{ display: "block" }}>{[a.description, a.license].filter(Boolean).join(" · ")}</span></span>
+        <span className="meta">{a.installed ? <span className="sig">added</span> : a.install ? <button className="btn sm" disabled={!!busy} onClick={() => install(a.id)}>{busy === a.id ? "Installing…" : "Install"}</button> : <span className="muted" style={{ fontSize: 12.5 }}>no build for this machine</span>}</span>
+      </div>)}
+      <p className="muted" style={{ fontSize: 12.5 }}>Each agent keeps its own login. Lanes start them in a mode where you approve their actions; approval-bypassing switches are never passed.</p>
+    </>}
+  </Dialog>;
 }
 
 const HELPER_WORDS: Record<HelperStatus["kind"], [string, string, IconName]> = { read: ["Read", "logs, test output, big files", "read"], edit: ["Edit", "renames, fixtures, small specs", "edit"], check: ["Check", "run tests, sort failures", "test"] };
