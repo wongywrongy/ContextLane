@@ -8,7 +8,7 @@ import { isAbsolute, join, basename } from "node:path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AgentRegistry } from "./registry.js";
-import { AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type SetupLink } from "@contextlanes/protocol";
+import { AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type Project, type SetupLink } from "@contextlanes/protocol";
 import webPush from "web-push";
 import { Config, configPath, saveConfig } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -54,8 +54,10 @@ export class SetupManager {
     catch (err) { if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err; }
     await rm(join(this.config.paths.data, "claim-code"), { force: true });
     for (const p of this.config.projects) {
+      // Matched by path: a renamed project keeps its id, which came from its first name.
+      if (this.store.projectRecord({ path: p.path })) continue;
       const id = ProjectId.parse(slugify(p.name ?? basename(p.path)));
-      if (!this.store.getProject(id)) this.store.addProject({ id, name: p.name ?? basename(p.path), path: p.path });
+      if (!this.store.projectRecord({ id })) this.store.addProject({ id, name: p.name ?? basename(p.path), path: p.path });
     }
   }
   async checkShell(token: string | undefined): Promise<void> {
@@ -171,16 +173,35 @@ export class SetupManager {
     const path = expandPath(p.path, this.home);
     const root = (await this.run("git", ["rev-parse", "--show-toplevel"], { cwd: path, timeout: 5000 }).catch(() => { throw new SetupError("This folder is not a Git repository; choose another folder."); })).stdout.trim();
     if (!isAbsolute(root)) throw new SetupError("This folder could not be registered; choose its Git repository root.");
-    const registered = this.store.listProjects().find((project) => project.path === root);
-    if (registered) return registered;
-    const project = { path: root, name: p.name ?? basename(root) };
+    const registered = this.store.projectRecord({ path: root });
+    if (registered && !registered.removed) return this.store.getProject(registered.id)!;
+    const project = { path: root, name: p.name ?? registered?.name ?? basename(root) };
+    if (registered) {
+      // Added again after removal: the same id, so its old lanes and history line up.
+      await this.update({ projects: [...this.config.projects.filter((x) => x.path !== root), project] });
+      return this.store.restoreProject(registered.id, project.name);
+    }
     const base = slugify(project.name);
-    if (!p.name && (!base || this.store.getProject(base))) project.name = `${base || "project"}-${createHash("sha256").update(root).digest("hex").slice(0, 10)}`;
+    if (!p.name && (!base || this.store.projectRecord({ id: base }))) project.name = `${base || "project"}-${createHash("sha256").update(root).digest("hex").slice(0, 10)}`;
     const id = ProjectId.parse(slugify(project.name));
-    const existing = this.store.getProject(id);
-    if (existing && existing.path !== root) throw new SetupError("That project name is already in use; choose a different name.", 409);
-    await this.update({ projects: [...this.config.projects.filter((p) => p.path !== root), project] });
-    return existing ?? this.store.addProject({ ...project, id });
+    if (this.store.projectRecord({ id })) throw new SetupError("That project name is already in use; choose a different name.", 409);
+    await this.update({ projects: [...this.config.projects.filter((x) => x.path !== root), project] });
+    return this.store.addProject({ ...project, id });
+  }
+  /** Rename, pin or remove: the database for the app, config.toml for the next start. */
+  async changeProject(id: ProjectId, change: { name?: string; pinned?: boolean }): Promise<Project> {
+    const project = this.store.getProject(id);
+    if (!project) throw new SetupError("There is no such project.", 404);
+    if (change.name !== undefined) await this.update({ projects: [...this.config.projects.filter((x) => x.path !== project.path), { path: project.path, name: change.name }] });
+    return this.store.updateProject(id, change)!;
+  }
+  async removeProject(id: ProjectId): Promise<void> {
+    const project = this.store.getProject(id);
+    if (!project) throw new SetupError("There is no such project.", 404);
+    const open = this.store.listLanes(id).filter((l) => !["cleaned", "archived", "failed"].includes(l.state));
+    if (open.length) throw new SetupError(`${open.length} ${open.length === 1 ? "lane is" : "lanes are"} still open in ${project.name}. Merge and clean up, or archive ${open.length === 1 ? "it" : "them"}, first.`, 409);
+    await this.update({ projects: this.config.projects.filter((x) => x.path !== project.path) });
+    this.store.removeProject(id);
   }
   async detectAgents(): Promise<DetectedAgent[]> {
     return Promise.all(Object.entries(agents).map(async ([key, a]) => {

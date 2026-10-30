@@ -124,6 +124,14 @@ describe("headless setup", () => {
     f.run.mockRejectedValueOnce(new Error("raw git exec failure"));
     await expect(f.setup.addProject({ path: "/other/repo" })).rejects.toThrow("not a Git repository");
     expect(loadConfig(f.path).projects).toHaveLength(1);
+    // A rename keeps the id across a restart; removing and adding again brings back the same id.
+    await f.setup.changeProject("example", { name: "Renamed" });
+    expect(loadConfig(f.path).projects[0]!.name).toBe("Renamed");
+    const again = new SetupManager(loadConfig(f.path), f.store, f.run, { path: f.path, home: f.home }); await again.initialize();
+    expect(f.store.listProjects().map((p) => [p.id, p.name])).toEqual([["example", "Renamed"]]);
+    await f.setup.removeProject("example");
+    expect(f.store.listProjects()).toEqual([]); expect(loadConfig(f.path).projects).toEqual([]);
+    expect(await f.setup.addProject({ path: "~/repo" })).toMatchObject({ id: "example", name: "Renamed" });
   });
   it("adds same-named repositories without asking for a name and keeps first-lane completion after later failure", async () => {
     const f = await fixture(); await f.claim();
@@ -217,6 +225,9 @@ describe("headless setup", () => {
     const app = Fastify(); serveWeb(app, f.root); cleanups.push(() => app.close());
     expect((await app.inject("/setup")).body).toContain("Setup"); expect((await app.inject("/sw.js")).headers["cache-control"]).toBe("no-cache");
     expect((await app.inject("/api/invented")).statusCode).toBe(404); expect((await app.inject("/%2e%2e%2fsecret.txt")).statusCode).toBe(403); expect((await app.inject("/missing.js")).statusCode).toBe(404);
+    await mkdir(join(f.root, "covers")); await writeFile(join(f.root, "covers/cover-1.webp"), "RIFF");
+    const cover = await app.inject("/covers/cover-1.webp");
+    expect(cover.headers["content-type"]).toBe("image/webp"); expect(cover.headers["cache-control"]).toBe("public, max-age=86400");
   });
 });
 

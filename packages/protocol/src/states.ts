@@ -25,7 +25,7 @@ const NEXT: Record<LaneState, readonly LaneState[]> = {
   needs_you: ["working", "failed", "paused", "archived"],
   in_review: ["working", "merged", "archived"],
   merged: ["cleaned"],
-  cleaned: [],
+  cleaned: ["archived"],
   failed: ["setting_up", "working", "archived"],
   paused: ["working", "archived"],
   archived: [],

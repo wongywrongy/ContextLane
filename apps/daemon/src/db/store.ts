@@ -89,13 +89,42 @@ export class Store {
     return this.getProject(p.id)!;
   }
 
+  /** A project still in ContextLanes; removed ones are kept only for their lanes' history. */
   getProject(id: ProjectId): Project | null {
-    const r = this.db.prepare("SELECT * FROM project WHERE id = ?").get(id) as Row | undefined;
+    const r = this.db.prepare("SELECT * FROM project WHERE id = ? AND removed_at IS NULL").get(id) as Row | undefined;
     return r ? toProject(r) : null;
   }
 
   listProjects(): Project[] {
-    return (this.db.prepare("SELECT * FROM project ORDER BY name").all() as Row[]).map(toProject);
+    return (this.db.prepare("SELECT * FROM project WHERE removed_at IS NULL ORDER BY pinned DESC, position IS NULL, position, name COLLATE NOCASE").all() as Row[]).map(toProject);
+  }
+
+  /** Whether an id or a path is taken, by a current or a removed project. */
+  projectRecord(by: { id?: ProjectId; path?: string }): (Project & { removed: boolean }) | null {
+    const r = (by.id ? this.db.prepare("SELECT * FROM project WHERE id = ?").get(by.id) : this.db.prepare("SELECT * FROM project WHERE path = ?").get(by.path!)) as Row | undefined;
+    return r ? { ...toProject(r), removed: r.removed_at != null } : null;
+  }
+
+  updateProject(id: ProjectId, change: { name?: string; pinned?: boolean }): Project | null {
+    if (change.name !== undefined) this.db.prepare("UPDATE project SET name = ? WHERE id = ? AND removed_at IS NULL").run(change.name, id);
+    if (change.pinned !== undefined) this.db.prepare("UPDATE project SET pinned = ? WHERE id = ? AND removed_at IS NULL").run(change.pinned ? 1 : 0, id);
+    return this.getProject(id);
+  }
+
+  /** The owner's order for project tiles; projects left out keep theirs after the listed ones. */
+  orderProjects(ids: ProjectId[]): void {
+    this.tx(() => { ids.forEach((id, i) => this.db.prepare("UPDATE project SET position = ? WHERE id = ?").run(i, id)); });
+  }
+
+  /** Hides a project. Its lanes, events and checkpoints stay for history; nothing on disk changes. */
+  removeProject(id: ProjectId): void {
+    this.db.prepare("UPDATE project SET removed_at = ?, pinned = 0, position = NULL WHERE id = ?").run(now(), id);
+  }
+
+  /** Brings back a removed project when its folder is added again. */
+  restoreProject(id: ProjectId, name: string): Project {
+    this.db.prepare("UPDATE project SET removed_at = NULL, name = ? WHERE id = ?").run(name, id);
+    return this.getProject(id)!;
   }
 
   /** Approvals are per project and exact bytes; recipe_hash remembers the latest one. */
@@ -140,8 +169,18 @@ export class Store {
   listLanes(project?: ProjectId): Lane[] {
     const rows = project
       ? this.db.prepare("SELECT * FROM lane WHERE project = ? ORDER BY n").all(project)
-      : this.db.prepare("SELECT * FROM lane ORDER BY project, n").all();
+      : this.db.prepare("SELECT lane.* FROM lane JOIN project ON project.id = lane.project WHERE project.removed_at IS NULL ORDER BY lane.project, lane.n").all();
     return (rows as Row[]).map(toLane);
+  }
+
+  /** A lane's title, with the event that records the change. */
+  renameLane(id: LaneId, task: string): LaneEvent | null {
+    return this.tx(() => {
+      const lane = this.getLane(id);
+      if (!lane || lane.task === task) return null;
+      this.db.prepare("UPDATE lane SET task = ? WHERE id = ?").run(task, id);
+      return this.appendEvent(id, { type: "lane.renamed", payload: { from: lane.task, task } });
+    });
   }
 
   /** Move a lane to a new state and record it, or throw if the lifecycle does not allow it. */
@@ -430,7 +469,7 @@ function toCheckpoint(r: Row): Checkpoint {
 }
 
 function toProject(r: Row): Project {
-  return { id: String(r.id), name: String(r.name), path: String(r.path), remote: (r.remote as string) ?? null, recipeHash: (r.recipe_hash as string) ?? null };
+  return { id: String(r.id), name: String(r.name), path: String(r.path), remote: (r.remote as string) ?? null, recipeHash: (r.recipe_hash as string) ?? null, pinned: r.pinned === 1 };
 }
 
 function toLane(r: Row): Lane {

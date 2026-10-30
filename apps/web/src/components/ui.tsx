@@ -100,7 +100,7 @@ export function Tile({ family, icon, small = false, label }: { family: Family; i
 export function coverFor(id: string): string {
   let hash = 0;
   for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return `cv-${(hash % 6) + 1}`;
+  return `cv-${(hash % 10) + 1}`;
 }
 
 /** Short age: now, 4m, 3h, 2d. */

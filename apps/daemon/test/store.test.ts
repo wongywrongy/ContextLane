@@ -15,7 +15,7 @@ function seeded() {
 describe("store", () => {
   it("migrates an empty database", () => {
     const store = Store.open(":memory:");
-    expect(store.schemaVersion()).toBe(8);
+    expect(store.schemaVersion()).toBe(9);
     expect(store.listProjects()).toEqual([]);
   });
 

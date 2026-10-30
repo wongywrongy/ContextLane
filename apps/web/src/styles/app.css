@@ -59,12 +59,17 @@ a.btn.ghost { color: var(--ink); }
 
 /* covers: one per project, picked from its id */
 .cover { background: #C9BFAE; }
-.cv-1 { background: radial-gradient(ellipse at 72% 18%,rgba(255,236,190,.9),transparent 38%),linear-gradient(165deg,#EAD3A2 0%,#CF9C45 34%,#8D6631 64%,#3F3322 100%); }
-.cv-2 { background: radial-gradient(ellipse at 50% 0%,rgba(250,240,220,.9),transparent 45%),repeating-linear-gradient(100deg,rgba(255,255,255,0) 0 46px,rgba(240,228,196,.35) 46px 52px),linear-gradient(175deg,#EAE0C8 0%,#BDB58A 34%,#83905F 64%,#4E5A3D 100%); }
-.cv-3 { background: radial-gradient(ellipse at 22% 30%,rgba(255,248,236,.95),transparent 40%),linear-gradient(150deg,#F2E6D4 0%,#DDB892 38%,#B8653A 74%,#6B3E25 100%); }
-.cv-4 { background: radial-gradient(circle at 70% 62%,#F4B866 0,#C9782C 7%,rgba(201,120,44,.25) 18%,transparent 32%),linear-gradient(165deg,#34496A 0%,#1F2C40 58%,#121822 100%); }
-.cv-5 { background: radial-gradient(ellipse at 30% 10%,rgba(255,240,215,.9),transparent 40%),linear-gradient(176deg,#F2DCB8 0%,#E4B47D 32%,#CA8D70 52%,#8E9C6B 78%,#5D6A48 100%); }
-.cv-6 { background: radial-gradient(ellipse at 28% 46%,rgba(236,176,96,.75),transparent 34%),radial-gradient(ellipse at 74% 30%,rgba(214,150,80,.45),transparent 30%),linear-gradient(135deg,#2C2622 0%,#15120F 100%); }
+/* Project banners: ten flowing-ribbon images (public/covers), picked by project id. */
+.cv-1 { background: #C9BFAE url("/covers/cover-1.webp") center / cover no-repeat; }
+.cv-2 { background: #C9BFAE url("/covers/cover-2.webp") center / cover no-repeat; }
+.cv-3 { background: #C9BFAE url("/covers/cover-3.webp") center / cover no-repeat; }
+.cv-4 { background: #C9BFAE url("/covers/cover-4.webp") center / cover no-repeat; }
+.cv-5 { background: #C9BFAE url("/covers/cover-5.webp") center / cover no-repeat; }
+.cv-6 { background: #C9BFAE url("/covers/cover-6.webp") center / cover no-repeat; }
+.cv-7 { background: #C9BFAE url("/covers/cover-7.webp") center / cover no-repeat; }
+.cv-8 { background: #C9BFAE url("/covers/cover-8.webp") center / cover no-repeat; }
+.cv-9 { background: #C9BFAE url("/covers/cover-9.webp") center / cover no-repeat; }
+.cv-10 { background: #C9BFAE url("/covers/cover-10.webp") center / cover no-repeat; }
 
 /* ── page, header, sections ── */
 .pg { padding: 24px var(--gutter) 48px; display: grid; gap: 32px; align-content: start; }

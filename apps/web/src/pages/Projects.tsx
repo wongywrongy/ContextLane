@@ -24,7 +24,7 @@ export function ProjectsPage() {
       <NeedsYou lanes={lanes ?? []} projects={projects ?? []} />
       <section aria-labelledby="projects-h">
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} ${projects.length === 1 ? "repo" : "repos"} on ${health?.host ?? "this machine"}` : ""}</span>
-          <div className="e"><button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button></div></div>
+          <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button></div></div>
         <div className="tiles">
           {(projects ?? []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
           {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}

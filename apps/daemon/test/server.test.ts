@@ -143,4 +143,24 @@ describe("http api", () => {
     expect((await app.inject({ method: "PUT", url: "/api/projects/skillshop/skills", payload: { ...skill, name: "Bad Name" } })).statusCode).toBe(400);
     expect((await app.inject({ method: "DELETE", url: "/api/projects/skillshop/skills/deploy-check" })).json()).toEqual([]);
   });
+
+  it("renames, pins, orders and removes projects, and renames and archives lanes", async () => {
+    const { app, store } = setup();
+    for (const path of ["/code/ara", "/code/shop", "/code/zed"]) await app.inject({ method: "POST", url: "/api/projects", payload: { path } });
+    expect((await app.inject({ method: "PATCH", url: "/api/projects/shop", payload: { name: "Shop front", pinned: true } })).json()).toMatchObject({ id: "shop", name: "Shop front", pinned: true });
+    expect((await app.inject({ method: "PATCH", url: "/api/projects/shop", payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: "/api/projects/order", payload: { ids: ["zed", "ara"] } })).json().map((p: { id: string }) => p.id)).toEqual(["shop", "zed", "ara"]);
+
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "ara", task: "Wake word" } })).json();
+    expect((await app.inject({ method: "PATCH", url: `/api/lanes/${lane.id}`, payload: { task: "Wake word, Korean" } })).json()).toMatchObject({ task: "Wake word, Korean" });
+    expect(store.events(lane.id).at(-1)).toMatchObject({ type: "lane.renamed", payload: { from: "Wake word", task: "Wake word, Korean" } });
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/archive` })).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: "/api/projects/ara" })).statusCode).toBe(409);
+    store.setLaneState(lane.id, "failed");
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/archive` })).json()).toMatchObject({ state: "archived" });
+    expect((await app.inject({ method: "DELETE", url: "/api/projects/ara" })).statusCode).toBe(204);
+    expect((await app.inject({ url: "/api/projects" })).json().map((p: { id: string }) => p.id)).toEqual(["shop", "zed"]);
+    expect((await app.inject({ url: "/api/lanes" })).json()).toEqual([]);
+    expect(store.projectRecord({ path: "/code/ara" })).toMatchObject({ id: "ara", removed: true });
+  });
 });

@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { Link, useParams, useSearchParams } from "react-router";
 import { sharing } from "./Review";
 import type { InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
-import { postJson, useInbox, useJson } from "../../api";
+import { errorMessage, postJson, useInbox, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
 import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
@@ -67,6 +67,8 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
     return [...byGoal].sort(([a], [b]) => (a === null ? 1 : 0) - (b === null ? 1 : 0));
   }, [lanes]);
   const hasGoals = groups.some(([goal]) => goal !== null);
+  const archived = lanes.filter((l) => l.state === "archived").length;
+  const [showArchived, setShowArchived] = useState(false);
   return <aside className="pane l" aria-label="Lanes">
     <div className="ps">
       <div className="ps-h" style={{ marginBottom: 10 }}><span className="lbl">Lanes · {lanes.length}</span><div className="e"><button className="btn sm" onClick={create}>New lane</button></div></div>
@@ -74,7 +76,7 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
         <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane as a graph</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
         {groups.map(([goal, group]) => <div key={goal ?? ""} style={{ display: "contents" }}>
           {hasGoals ? <div className="grp">{goal ? <><i className="g work" aria-hidden="true" />Goal · {goal}</> : "No goal"}</div> : null}
-          {group.map((l) => {
+          {group.filter((l) => showArchived || l.state !== "archived" || l.id === selected).map((l) => {
             const [g] = GLYPH[l.state];
             return <button key={l.id} className={`lrow ${l.colour}${g === "wait" ? " needs" : ""}${l.id === selected ? " on" : ""}`} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
               <span className="rail" /><AgentMark agent={l.agent} small />
@@ -83,6 +85,7 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
           })}
         </div>)}
       </div>
+      {archived ? <button className="lnk" style={{ fontSize: 13, marginTop: 10 }} aria-pressed={showArchived} onClick={() => setShowArchived((v) => !v)}>{showArchived ? "Hide" : "Show"} {archived} archived</button> : null}
     </div>
     <Watching project={lanes[0]?.project ?? null} choose={choose} />
   </aside>;
@@ -113,6 +116,7 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
 function LaneView({ projectName, lane, events, error, reload, view, setView }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const interrupt = useCallback(() => {
     void postJson(`/api/lanes/${lane.id}/cancel`, {}).then(() => setNotice("Interrupt sent. The agent stops after its current action."), (err: Error) => setNotice(err.message));
@@ -137,7 +141,10 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     <Link className="back" to={`/p/${lane.project}/work`}>‹ {projectName}</Link>
     <div className="ph">
       <LaneBadge id={lane.id} colour={lane.colour} large /><AgentMark agent={lane.agent} />
-      <h2>{lane.task}</h2><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
+      {renaming ? <form style={{ display: "flex", gap: 8, flex: "1 1 320px" }} onSubmit={(e) => { e.preventDefault(); const task = String(new FormData(e.currentTarget).get("task") ?? "").trim(); void postJson(`/api/lanes/${lane.id}`, { task }, "PATCH").then(() => { setRenaming(false); reload(); }, (err) => setNotice(errorMessage(err))); }}>
+          <input className="in" name="task" defaultValue={lane.task} maxLength={300} required autoFocus aria-label="Lane title" style={{ flex: 1, minHeight: 36 }} /><button className="btn sm">Save</button><button type="button" className="btn ghost sm" onClick={() => setRenaming(false)}>Cancel</button></form>
+        : <><h2>{lane.task}</h2><button className="lnk" style={{ fontSize: 13 }} onClick={() => setRenaming(true)}>Rename</button></>}
+      <StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
       {sharing(events, lane.id).map((c) => <Link key={c.module} className="lnk" style={{ fontSize: 13 }} to={`/p/${lane.project}/architecture`}><Glyph g="wait">Also changed by {c.others.map((o) => o.slice(o.lastIndexOf("/") + 1)).join(" and ")}: {c.module}</Glyph></Link>)}
       <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · {ago(lane.createdAt)}</span></div>
     </div>

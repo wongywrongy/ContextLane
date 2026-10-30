@@ -56,6 +56,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open in editor</a> : null}
       {READY.handoff ? <><button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
       {READY.review ? <button className="act" disabled={lane.state !== "working"} onClick={() => void sendCheckpoint()}><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
+      {["cleaned", "failed"].includes(lane.state) ? <button className="act" onClick={() => void postJson(`/api/lanes/${lane.id}/archive`, {}).then(() => setCopied("Archived. Show archived lanes in the list to find it again."), (e) => setCopied(errorMessage(e)))}><Tile family="look" icon="checkpoint" small />Archive this lane</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>

@@ -8,6 +8,33 @@ import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 
 /** Offered only at the HTTPS address the passkey will belong to. */
+/** One project in Settings: rename, pin, move, remove. Nothing here touches the repository on disk. */
+function ProjectRow({ project, first, last, move, changed }: { project: Project; first: boolean; last: boolean; move: (by: -1 | 1) => void; changed: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState("");
+  const patch = (body: object) => postJson(`/api/projects/${project.id}`, body, "PATCH").then(() => { setError(""); changed(); }, (e) => setError(errorMessage(e)));
+  return <>
+    <div className="sec-r wrap">
+      <span className="grow">{editing
+        ? <form style={{ display: "flex", gap: 8 }} onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get("name") ?? "").trim(); void patch({ name }).then(() => setEditing(false)); }}>
+            <input className="in" name="name" defaultValue={project.name} maxLength={80} required autoFocus aria-label="Project name" style={{ minHeight: 34 }} /><button className="btn sm">Save</button><button type="button" className="btn ghost sm" onClick={() => setEditing(false)}>Cancel</button></form>
+        : <><b>{project.name}</b>{project.pinned ? <span className="mono muted" style={{ fontSize: 11.5, marginLeft: 8 }}>pinned</span> : null}<span className="mono muted" style={{ display: "block", fontSize: 12, overflowWrap: "anywhere" }}>{project.id} · {project.path}</span></>}</span>
+      {editing ? null : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button className="btn ghost sm" onClick={() => setEditing(true)}>Rename</button>
+        <button className="btn ghost sm" aria-pressed={project.pinned} onClick={() => void patch({ pinned: !project.pinned })}>{project.pinned ? "Unpin" : "Pin"}</button>
+        <button className="btn ghost sm" disabled={first} aria-label={`Move ${project.name} up`} onClick={() => move(-1)}>↑</button>
+        <button className="btn ghost sm" disabled={last} aria-label={`Move ${project.name} down`} onClick={() => move(1)}>↓</button>
+        <button className="btn ghost sm" onClick={() => setRemoving(true)}>Remove</button>
+      </span>}
+    </div>
+    {error ? <div className="sec-f" role="alert" style={{ fontSize: 13 }}>{error}</div> : null}
+    {removing ? <Dialog title={`Remove ${project.name}?`} onClose={() => setRemoving(false)} footer={<><Action run={() => postJson(`/api/projects/${project.id}`, {}, "DELETE")} done={() => { setRemoving(false); changed(); }}>Remove</Action><button className="btn ghost" onClick={() => setRemoving(false)}>Cancel</button></>}>
+      <p style={{ margin: 0 }}>It leaves ContextLanes. The repository at <code>{project.path}</code>, its branches and its lane history stay. Add the folder again to bring it back.</p>
+    </Dialog> : null}
+  </>;
+}
+
 export function PasskeyButton() {
   const [status, , reload] = useJson<SetupStatus>("/api/setup/status");
   if (!status?.authorized || status.hasPasskey || location.protocol !== "https:" || status.publicUrl !== location.origin) return null;
@@ -62,7 +89,10 @@ export function SettingsPage() {
           <div className="sec-r"><span className="kl">Public internet</span><span>Off · tailnet or SSH tunnel only</span></div>
         </Section>
         <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button>}>
-          {projects?.map((p) => <div className="sec-r" key={p.id}><b>{p.name}</b><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{p.path}</span></div>)}
+          {projects?.map((p, i) => <ProjectRow key={p.id} project={p} first={i === 0} last={i === projects.length - 1} move={(by) => {
+            const ids = projects.map((x) => x.id); const j = i + by; [ids[i], ids[j]] = [ids[j]!, ids[i]!];
+            void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects);
+          }} changed={reloadProjects} />)}
           {projects && !projects.length ? <Empty>No projects yet.</Empty> : null}
         </Section>
         <Section id="notifications" title="Notifications" meta="you decide when the agent continues">

@@ -6,7 +6,7 @@ import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
+import { AddProjectRequest, AnswerRequest, LaneId, LaneRename, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
@@ -143,6 +143,40 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const id = ProjectId.parse(slugify(body.name ?? basename(body.path)));
     reply.code(201);
     return store.addProject({ id, name: body.name ?? basename(body.path), path: body.path });
+  });
+  // Rename, pin, order and remove. Removing hides the project; the repository, branches and history stay.
+  app.patch<{ Params: { project: string } }>("/api/projects/:project", async (req) => {
+    const id = ProjectId.parse(req.params.project); const change = ProjectUpdate.parse(req.body);
+    if (deps.setup) return deps.setup.changeProject(id, change);
+    const project = store.updateProject(id, change);
+    if (!project) throw new NotFound("no such project");
+    return project;
+  });
+  app.put("/api/projects/order", async (req) => { store.orderProjects(ProjectOrder.parse(req.body).ids); return store.listProjects(); });
+  app.delete<{ Params: { project: string } }>("/api/projects/:project", async (req, reply) => {
+    const id = ProjectId.parse(req.params.project);
+    if (deps.setup) await deps.setup.removeProject(id);
+    else {
+      if (!store.getProject(id)) throw new NotFound("no such project");
+      if (store.listLanes(id).some((l) => !["cleaned", "archived", "failed"].includes(l.state))) throw new Refused("Lanes are still open in this project. Merge and clean up, or archive them, first.", 409);
+      store.removeProject(id);
+    }
+    return reply.code(204).send();
+  });
+  app.patch<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n", async (req) => {
+    const id = laneParam(req.params);
+    if (!store.getLane(id)) throw new NotFound("no such lane");
+    const e = store.renameLane(id, LaneRename.parse(req.body).task);
+    if (e) bus.publish(e);
+    return store.getLane(id);
+  });
+  /** Archive hides a finished lane from lists. Its branch and history stay; a failed lane's checkout stays on disk. */
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/archive", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no such lane");
+    if (!["cleaned", "failed"].includes(lane.state)) throw new Refused(lane.state === "merged" ? "Clean up a merged lane first, then archive it." : "Only a cleaned-up or failed lane can be archived.", 409);
+    bus.publish(store.setLaneState(lane.id, "archived"));
+    return store.getLane(lane.id);
   });
   app.get("/api/lanes", async () => store.listLanes());
   app.get<{ Params: { project: string } }>("/api/projects/:project/lanes", async (req) => store.listLanes(ProjectId.parse(req.params.project)));

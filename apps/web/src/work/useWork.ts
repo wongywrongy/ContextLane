@@ -10,7 +10,7 @@ export function useWork(project: string) {
   const [version, setVersion] = useState(0);
   const event = useCallback((event: LaneEvent) => {
     setLive((old) => mergeEvents(old, [event]));
-    if (["lane.created", "lane.state"].includes(event.type)) reloadLanes();
+    if (["lane.created", "lane.state", "lane.renamed"].includes(event.type)) reloadLanes();
   }, [reloadLanes]);
   const reopen = useCallback(() => { reloadLanes(); reloadActivity(); setVersion((v) => v + 1); }, [reloadLanes, reloadActivity]);
   useProjectStream(project, event, reopen);

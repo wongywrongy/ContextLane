@@ -10,8 +10,15 @@ export const Project = z.object({
   path: z.string(),
   remote: z.string().nullable(),
   recipeHash: z.string().nullable(),
+  /** Pinned projects come first on Projects; then the owner's order, then name. */
+  pinned: z.boolean(),
 });
 export type Project = z.infer<typeof Project>;
+/** Rename or pin a project. The id, path and checkouts never change. */
+export const ProjectUpdate = z.object({ name: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional() }).refine((b) => b.name !== undefined || b.pinned !== undefined, "Nothing to change.");
+export const ProjectOrder = z.object({ ids: z.array(ProjectId).min(1).max(500) });
+/** A lane's title. */
+export const LaneRename = z.object({ task: z.string().trim().min(1).max(300) });
 
 export const Lane = z.object({
   id: LaneId,
