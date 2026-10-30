@@ -1,5 +1,5 @@
-import { createServer, type Server, type Socket } from "node:net";
-import { chmodSync, rmSync } from "node:fs";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { chmodSync, lstatSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { HostEvent, LaneId, type LaneCommand, type NewLaneEvent } from "@contextlanes/protocol";
@@ -14,8 +14,18 @@ export class HostLinks {
 
   constructor(private readonly deps: { store: Store; bus: EventBus }) {}
 
-  listen(socketPath: string): Promise<void> {
-    rmSync(socketPath, { force: true });
+  async listen(socketPath: string): Promise<void> {
+    try {
+      if (!lstatSync(socketPath).isSocket()) throw new Error("Lane socket path exists and is not a socket");
+      await new Promise<void>((resolve, reject) => {
+        const probe = createConnection(socketPath);
+        probe.once("connect", () => { probe.destroy(); reject(new Error("Another daemon is already using the lane socket")); });
+        probe.once("error", (err: NodeJS.ErrnoException) => {
+          if (["ECONNREFUSED", "ENOENT"].includes(err.code ?? "")) resolve(); else reject(err);
+        });
+      });
+      rmSync(socketPath, { force: true });
+    } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
     this.server = createServer((sock) => this.accept(sock));
     return new Promise((resolve, reject) => {
       this.server!.once("error", reject);

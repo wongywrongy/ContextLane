@@ -73,9 +73,12 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
       await vi.waitFor(() => expect(cliOutput).toContain("AFTER_still-here"), { timeout: 5000 });
       cli.write(`printf 'CLI_%s\\n' "$CL_TERMINAL_PROOF"\r`);
       await vi.waitFor(() => expect(cliOutput).toContain("CLI_still-here"));
-      const afterCli = (await runCommand("tmux", ["capture-pane", "-p", "-S", "-", "-t", session!])).stdout;
-      expect(afterCli).toContain("\n1\n2\n");
-      expect(afterCli).toContain("CLI_still-here");
+      // Raw PTY delivery and tmux's captured screen can settle on different ticks.
+      await vi.waitFor(async () => {
+        const afterCli = (await runCommand("tmux", ["capture-pane", "-p", "-S", "-", "-t", session!])).stdout;
+        expect(afterCli).toContain("\n1\n2\n");
+        expect(afterCli).toContain("CLI_still-here");
+      });
     } finally {
       listener.dispose();
       cli.kill();

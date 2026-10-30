@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import type { Health, InboxItem, Lane, Project } from "@contextlanes/protocol";
+import type { Health, InboxItem, SetupStatus, Lane, Project } from "@contextlanes/protocol";
 import { api, daemonUrl } from "./client.js";
 import { formatInbox, formatLanes } from "./format.js";
 
@@ -14,7 +15,7 @@ const HELP = `contextlanes — run coding agents in parallel lanes
   contextlanes inbox                          what is waiting on you
   contextlanes answer <id> <option>           answer a permission or question
   contextlanes arch [module]                  the architecture view as text  (phase 3)
-  contextlanes setup                          first-run claim code           (phase 1)
+  contextlanes setup                          open setup and show the claim code
 
 Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
 
@@ -70,9 +71,14 @@ async function main(argv: string[]): Promise<number> {
     case "arch":
       console.log("The architecture view arrives with the code map in phase 3 (docs/IMPLEMENTATION.md).");
       return 0;
-    case "setup":
-      console.log("The setup wizard arrives in phase 1 (docs/IMPLEMENTATION.md).");
+    case "setup": {
+      const status = await api<SetupStatus>("/api/setup/status");
+      const url = new URL(daemonUrl());
+      if (["127.0.0.1", "localhost"].includes(url.hostname)) url.hostname = "localhost";
+      console.log(`Open ${status.publicUrl ?? url.origin}/setup`);
+      if (!status.claimed && status.claimFile && ["127.0.0.1", "localhost"].includes(new URL(daemonUrl()).hostname)) console.log(`Claim code: ${(await readFile(status.claimFile, "utf8")).trim()}`);
       return 0;
+    }
     default:
       return usage();
   }

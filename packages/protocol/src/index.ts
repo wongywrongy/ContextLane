@@ -5,3 +5,4 @@ export * from "./api.js";
 export * from "./terminal.js";
 export * from "./commands.js";
 export * from "./notifications.js";
+export * from "./setup.js";

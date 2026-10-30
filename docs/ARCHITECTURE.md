@@ -45,7 +45,7 @@ flowchart TB
 
 ## Data
 
-The six core tables and three notification transport tables live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
+The six core tables, three notification transport tables and hashed owner-session table live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
 
 | Table | Holds |
 |---|---|
@@ -135,14 +135,24 @@ The native PTY module loads only inside `Runner.terminal`, when attachment is re
 
 ## Security
 
-- The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Requests without the header are accepted only from loopback when `access.allowLocal` is on.
-- Terminal upgrades run through the same identity checks. Browser origins must match the request host; non-local browser hostnames additionally require the configured owner's Tailscale identity. This rejects cross-origin shell access and DNS rebinding. Non-browser clients may omit Origin. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
+- The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Before claim, application APIs are closed. After claim, requests without identity headers need a valid owner session or loopback hostname with `access.allowLocal` on. Unrelated hostnames cannot use local authorization.
+- Terminal upgrades run through the same identity checks. Browser origins must match the request host; non-local browser hostnames additionally require owner authorization. This rejects cross-origin shell access and DNS rebinding. Non-browser clients may omit Origin. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
 - Agents never approve their own permissions or recipes. Answers come only through `/api/answers`.
 - Notification action bearers grant exactly one recorded lane/request/option, not general API access. A conflicting Tailscale owner is still refused. Telegram callbacks additionally require the configured sender and chat. Replays cannot answer twice; no action expiration, quiet-hour timer or delivery retry supplies an answer. Push subscriptions and action hashes are private; database files use mode 0600.
 - Previews are reachable on the tailnet only; nothing listens on `0.0.0.0`.
 - Cleanup never deletes unpushed commits.
 
 **Notifications:** the daemon observes pending request events, records `notification.sent` / `notification.failed`, and retries deferred work after quiet hours and on restart. ntfy and Telegram use injected HTTP fetch; Web Push uses an injected VAPID transport. Telegram polls outbound and persists its cursor; it never needs an inbound public bot webhook. Provider credentials remain in configuration and are excluded from public status routes.
+
+## Setup and installation
+
+The daemon serves the built `apps/web/dist` SPA as well as `/api`; unknown API routes never become HTML. Static paths are confined to that directory, assets are immutable and the service worker is not cached. Live event streams end during `preClose`, so a browser cannot hold a daemon restart open. Host startup refuses an active lane socket or non-socket path; only stale sockets are removed.
+
+`SetupManager` writes validated configuration atomically with mode 0600, then applies it to the running managers. Saved projects are re-registered idempotently at startup, and notifier changes close the old transport before starting the new one. Commands remain injected through `Runner`, including agent status/install, Git validation and Tailscale Serve. Model probes are loopback-only and reject redirects.
+
+A random code in `<data>/claim-code` (0600) authorizes the first owner claim. The public API never returns the code; the local CLI prints it. Claim is serialized and consumes the code after saving an owner identity or verified passkey. WebAuthn verification uses pinned SimpleWebAuthn, single-use five-minute challenges bound to origin/RP, user verification and persisted counters. Counters cannot move backwards. Thirty-day random session cookies are HttpOnly/SameSite Strict and Secure over HTTPS; only hashes are stored. These authentication expirations never answer agent permissions. Passkeys registered on localhost work on that RP only; the wizard links the Tailscale node owner for phone access.
+
+`install.sh` bootstraps a new checkout, builds and invokes the installer entry point. The installer writes an absolute-Node user unit and executable wrappers; it refuses to replace unrelated files and never stops lane hosts. Normal installation needs systemd user services, Node, npm, Git and tmux. A failed optional native terminal build does not prevent the daemon from starting.
 
 ## Decisions
 

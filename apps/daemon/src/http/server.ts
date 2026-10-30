@@ -1,3 +1,7 @@
+import { setupRoutes, requestOrigin } from "./setup.js";
+import { serveWeb } from "./static.js";
+import { SetupError, type SetupManager } from "../setup.js";
+import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
@@ -16,13 +20,15 @@ import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager };
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { store, bus, config } = deps;
   const run = deps.run ?? runCommand;
+  const streams = new Set<ServerResponse>();
+  app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
   app.register(websocket, {
     options: { maxPayload: 65_536 },
     preClose(done) {
@@ -42,18 +48,27 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (!store.notificationAction(bearer)) return reply.code(401).send({ error: "invalid notification action" });
       return;
     }
-    if (typeof login === "string") {
-      if (owner && login !== owner) return reply.code(403).send({ error: "not the owner of this machine" });
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
+    if (deps.setup) {
+      const path = req.url.split("?")[0]!;
+      const publicApi = ["/api/health", "/api/setup/status", "/api/setup/claim/tailnet", "/api/setup/claim/options", "/api/setup/claim/passkey", "/api/setup/login/options", "/api/setup/login"];
+      if (!path.startsWith("/api/") || publicApi.includes(path)) return;
+      if (!deps.setup.authorized(login, req.headers.cookie, req.hostname)) return reply.code(401).send({ error: deps.setup.claimed ? "Sign in through Setup" : "Claim this machine through Setup" });
       return;
     }
+    if (typeof login === "string") return;
     if (!config.access.allowLocal) return reply.code(401).send({ error: "open ContextLanes through Tailscale" });
   });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "invalid request", issues: err.issues });
+    if (err instanceof SetupError) return reply.code(err.statusCode).send({ error: err.message });
     if (err instanceof NotFound) return reply.code(404).send({ error: err.message });
     return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
   });
+
+  if (deps.setup) setupRoutes(app, deps.setup);
+  serveWeb(app);
 
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
   app.get("/api/notifications", async () => ({ publicKey: config.notifications.webPush?.publicKey ?? null,
@@ -71,6 +86,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // ── projects ──
   app.get("/api/projects", async () => store.listProjects());
   app.post("/api/projects", async (req, reply) => {
+    if (deps.setup) return reply.code(201).send(await deps.setup.addProject(req.body));
     const body = AddProjectRequest.parse(req.body);
     const id = ProjectId.parse(slugify(body.name ?? basename(body.path)));
     reply.code(201);
@@ -118,7 +134,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
           let origin: URL | undefined;
           try { origin = new URL(req.headers.origin); } catch { /* Invalid origins are refused below. */ }
           const localOrigin = origin && ["127.0.0.1", "localhost"].includes(origin.hostname);
-          const owner = config.access.owner && req.headers["tailscale-user-login"] === config.access.owner;
+          const owner = deps.setup ? deps.setup.authorized(req.headers["tailscale-user-login"], req.headers.cookie, req.hostname) : config.access.owner && req.headers["tailscale-user-login"] === config.access.owner;
           if (!origin || !["http:", "https:"].includes(origin.protocol) || origin.host !== req.headers.host || (!localOrigin && !owner)) {
             return reply.code(403).send({ error: "open the terminal from ContextLanes" });
           }
@@ -181,12 +197,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const project = req.params.project ? ProjectId.parse(req.params.project) : null;
     reply.hijack();
     const res = reply.raw;
+    streams.add(res);
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     res.write("retry: 2000\n\n");
     const write = (e: import("@contextlanes/protocol").LaneEvent) => { res.write(`event: lane\ndata: ${JSON.stringify(e)}\n\n`); };
     const off = project ? bus.subscribe(project, write) : bus.subscribeAll(write);
     const beat = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
     res.on("close", () => {
+      streams.delete(res);
       clearInterval(beat);
       off();
     });

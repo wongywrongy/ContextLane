@@ -230,6 +230,18 @@ export class Store {
 
   telegramOffset(): number { return Number((this.db.prepare("SELECT offset FROM notification_cursor WHERE id = 1").get() as Row | undefined)?.offset ?? 0); }
   setTelegramOffset(offset: number): void { this.db.prepare("INSERT INTO notification_cursor VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET offset = excluded.offset").run(offset); }
+
+  ownerSession(): string {
+    const token = randomBytes(32).toString("base64url");
+    this.db.prepare("DELETE FROM owner_session WHERE expires < ?").run(Date.now());
+    this.db.prepare("INSERT INTO owner_session VALUES (?, ?)").run(createHash("sha256").update(token).digest("hex"), Date.now() + 30 * 86_400_000);
+    return token;
+  }
+
+  validOwnerSession(token: string): boolean {
+    if (!/^[\w-]{43}$/.test(token)) return false;
+    return !!this.db.prepare("SELECT 1 FROM owner_session WHERE hash = ? AND expires > ?").get(createHash("sha256").update(token).digest("hex"), Date.now());
+  }
 }
 
 function toEvent(r: Row): LaneEvent {

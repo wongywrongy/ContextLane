@@ -32,7 +32,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("keeps two real systemd la
     await runCommand("git", ["init", "-b", "main", repo]);
     await runCommand("git", ["-c", "user.name=ContextLanes", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Fixture"], { cwd: repo });
     const config = join(root, "config.toml");
-    await writeFile(config, stringify({ listen: { port }, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, agents: { "claude-code": executable, codex: executable }, lanes: { host, launchHosts: true } }));
+    await writeFile(config, stringify({ access: { owner: "fixture@example.invalid" }, listen: { port }, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, agents: { "claude-code": executable, codex: executable }, lanes: { host, launchHosts: true } }));
     await runCommand("systemd-run", ["--user", `--unit=${unit}`, "--collect", `--working-directory=${process.cwd()}`, `--setenv=CONTEXTLANES_CONFIG=${config}`,
       process.execPath, "--import", loader, "--conditions=source", resolve("apps/daemon/src/main.ts")]);
     await vi.waitFor(() => api("/api/health"), { timeout: 10_000 });

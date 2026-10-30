@@ -21,7 +21,7 @@ export function ProjectsPage() {
           <Empty>Nothing is waiting on you.</Empty>
         )}
       </Section>
-      <PageHeader title="Projects" meta={projects ? `${projects.length} repos` : ""} />
+      <PageHeader title="Projects" meta={projects ? `${projects.length} repos` : ""} end={<Link className="btn" to="/setup">Start a lane</Link>} />
       <Section title="All projects">
         {projects?.length ? (
           projects.map((p) => (
@@ -31,7 +31,7 @@ export function ProjectsPage() {
             </Link>
           ))
         ) : (
-          <Empty>No projects yet. Add one with POST /api/projects or the setup wizard (phase 1).</Empty>
+          <Empty>No projects yet. Add your first repository in Settings.</Empty>
         )}
       </Section>
     </main>

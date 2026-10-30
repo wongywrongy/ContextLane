@@ -1,14 +1,16 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
+import { SetupPage, SettingsPage, ModelsPage, ClaimGuard } from "./pages/Setup";
 import { ProjectShell, Shell } from "./components/Shell";
 import { InboxPage } from "./pages/Inbox";
 import { ProjectsPage } from "./pages/Projects";
 import { WorkPage } from "./pages/project/Work";
-import { ArchitecturePage, InsightsPage, ModelsPage, ReviewPage, RunPage, SettingsPage } from "./pages/Static";
+import { ArchitecturePage, InsightsPage, ReviewPage, RunPage, } from "./pages/Static";
 
 /** Global pages, then one project with five tabs, each with one job. */
 const router = createBrowserRouter([
+  { path: "/setup", element: <SetupPage /> },
   {
-    element: <Shell />,
+    element: <ClaimGuard><Shell /></ClaimGuard>,
     children: [
       { path: "/", element: <ProjectsPage /> },
       { path: "/inbox", element: <InboxPage /> },

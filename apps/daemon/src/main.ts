@@ -8,6 +8,7 @@ import { HostLinks } from "./hosts.js";
 import { buildServer } from "./http/server.js";
 import { LaneManager } from "./lanes/manager.js";
 import { runCommand } from "./run.js";
+import { SetupManager } from "./setup.js";
 import { Notifier } from "./notifications/notifier.js";
 
 const VERSION = "0.1.0";
@@ -20,9 +21,12 @@ async function main(): Promise<void> {
   const hosts = new HostLinks({ store, bus });
   await hosts.listen(join(config.paths.data, "lanes.sock"));
   const lanes = new LaneManager({ store, bus, config, run: runCommand });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION });
-  const notifier = new Notifier({ store, bus, config: config.notifications,
+  const setup = new SetupManager(config, store, runCommand, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
+  await setup.initialize();
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup });
+  const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
+  let notifier = makeNotifier();
   await app.listen({ host: config.listen.host, port: config.listen.port });
   notifier.start();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);

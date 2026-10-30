@@ -2,11 +2,12 @@
 
 ## Needs Kyle
 
-- **Real agents (1.1 acceptance):** install the registry adapters with `npm install --global --prefix "$HOME/.local" @agentclientprotocol/claude-agent-acp@0.99.1 @agentclientprotocol/codex-acp@2.5.0`. Put their absolute executables under `[agents.claude-code].command` and `[agents.codex].command` in `~/.config/contextlanes/config.toml` if they are not on the daemon's PATH. Authenticate Claude interactively with `claude-agent-acp --cli` then `/login` (headless/SSH flow); authenticate Codex with your normal Codex CLI login. Run one lane of each and restart the daemon. Both adapter executables are absent on the development machine, so the two-lane restart check used SDK fake agents in real systemd units.
-- **ntfy:** in `~/.config/contextlanes/config.toml`, set `[notifications].publicUrl` to the HTTPS tailnet URL this phone can reach and `[notifications.ntfy].topic` to a private, unguessable topic; optionally set `.url` for your own server and `.token` for publishing. Subscribe to that topic on the phone. Action buttons post one scoped answer to `/api/answers`; their capabilities must be kept private like the topic.
-- **Telegram:** set `[notifications.telegram].botToken`, `.chatId` and `.ownerId` in the same config. Start a conversation with the bot and use the numeric chat/user IDs. No public webhook is needed; the daemon polls outbound. Actual bot credentials and delivery have not been tested.
-- **Web Push:** set `[notifications.webPush].subject` (`mailto:you@example.com`), `.publicKey` and `.privateKey` once, or generate them through Setup in 1.5. Open the HTTPS app on the phone, install it on the home screen and choose **Inbox → Enable push on this device**. Browser permission and real provider delivery need Kyle; encryption/transport calls and service-worker clicks use fakes in tests.
-- **Real phone acceptance:** set `[access].owner` to your Tailscale login in `~/.config/contextlanes/config.toml` before remote use. Through your tailnet proxy, open `/p/<project>/work`, select **Terminal**, try the phone keyboard, close the tab and reattach. Chromium at a 390px viewport passed; a physical phone has not been tested. Remote-access setup remains milestone 1.5.
+- **Real agents / 1.1 acceptance:** open `/setup` → **Connect agents**, install the Claude Code and Codex adapters, and run the displayed login commands on this machine: `claude-agent-acp --cli` then `/login`, and `codex login --device-auth`. Use `~/.local/bin/claude-agent-acp` if `~/.local/bin` is not on your shell PATH. Run one lane of each, then `systemctl --user restart contextlanes`. The development machine has no ACP adapters; acceptance used SDK fake agents in real systemd units. Installs remain pinned to `@agentclientprotocol/claude-agent-acp@0.99.1` and `@agentclientprotocol/codex-acp@2.5.0`.
+- **Remote access:** sign in to Tailscale on the host (`tailscale up`), then choose **Setup → Remote access → Enable Tailscale Serve**. Enable HTTPS in the Tailscale console if prompted, and grant this user Serve/operator access if Tailscale refuses the command. The wizard saves `[access].owner` and `[notifications].publicUrl` in `~/.config/contextlanes/config.toml`. Existing routes are preserved; if both 443 and 8443 are occupied, free a port yourself. Live tailnet routes on this development machine were not changed.
+- **ntfy:** in **Settings → Notifications**, set the public HTTPS app URL and a private, unguessable topic; optionally set the server URL and publishing token. Subscribe on the phone. These write `[notifications.ntfy]` and `[notifications].publicUrl` in the same config. Keep the topic and scoped answer capabilities private.
+- **Telegram:** in the same form set bot token, numeric chat ID and owner user ID (`[notifications.telegram].botToken`, `.chatId`, `.ownerId`). Start a conversation with the bot. Real bot credentials and delivery need testing.
+- **Web Push:** choose **Generate Web Push keys** in that form, set **Push contact** to your `mailto:` address, and save. On the phone, open the HTTPS app, install it on the home screen and choose **Enable push on this device**. Keys live under `[notifications.webPush]`; real provider delivery and browser permission need Kyle.
+- **Real machine / phone acceptance:** run the one-line installer on a fresh Linux machine with a systemd user manager, Node ≥22.13, git and tmux. If user services must survive logout, run `sudo loginctl enable-linger "$USER"`. Then use three lanes a day for a week, answer from the phone, and check phone terminal input/reattach. Fresh-config Chromium checks at 390px/1440px and real fixture services pass; fresh-OS provisioning, a physical phone and the week-long phase gate have not been verified.
 
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
 
@@ -20,10 +21,10 @@ The current goal is **finish phase 1**, first isolating native terminal loading,
 | 1.2 Permission round trip | Implemented; provider/device acceptance needs Kyle | ntfy HTTP actions, owner-checked Telegram keyboards/polling, Web Push + service worker, quiet hours, live Inbox, single-use answers and durable ask_owner; 56 tests and phone-sized browser round trip pass |
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
 | 1.4 Work page | Done against DESIGN.md | Six families, measured diffs/tests, inline answers, composer and inspector, React Flow + ELK overview and two-hour timeline; desktop/phone browser flow passes |
-| 1.5 Setup and install | Pending | After 1.4 |
+| 1.5 Setup and install | Implemented; fresh-machine/device acceptance needs Kyle | Private claim + verified passkey or tailnet identity, wizard, config persistence, source installer and user service; 71 tests and fresh-config browser-to-first-lane check pass |
 | Phase 2 | Pending | Outside the current goal |
 
-## Where the scaffold stands
+## Current capabilities
 
 Everything below builds, typechecks and has tests (`pnpm check`). A lane can already be started end to end: project registered, branch and worktree created, tmux session opened, events recorded and streamed.
 
@@ -32,16 +33,16 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
 | `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients | Most toolbox calls return 501 until their phase |
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
-| `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer` | `arch` and `setup` print where they land |
+| `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer`, `setup` | `arch` waits for phase 3 |
 | `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice | Other tools await their phases |
-| `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Other pages show their final sections with empty states |
+| `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Setup, Settings and Models work; later-phase pages keep explicit empty states |
 
 ## Principles
 
 1. **Borrow, don't build.** ACP for agents, tmux for shells, systemd for processes, Caddy and Tailscale for access, CodeGraph for code, Playwright for screenshots. New code only where nothing fits.
 2. **Everything is an event.** The store appends; screens, the CLI and insights read. No second source of truth.
 3. **Agents live outside the daemon.** One lane host per lane as its own systemd unit.
-4. **No accounts.** Bind to loopback; Tailscale says who you are.
+4. **One owner.** Bind to loopback; claim with a passkey or tailnet identity. Remote requests retain owner checks.
 5. **Agents can ask, never approve.** Recipes are approved once, by hash, from the owner's session. Nothing is allowed on a timer.
 6. **One job per page.** Every group of content sits in a section card; a side column only as the inspector of a selection.
 7. **Every claim is measured.** Token savings, redo rates and review time are computed from events, not estimated.
@@ -119,6 +120,25 @@ Validation: 61 tests pass with real fixture services enabled. Chromium at 1440px
 - Browser wizard: claim (owner passkey or tailnet identity), remote access (Tailscale Serve), connect agents (detect `claude`, `codex`, `opencode` and their logins), add projects, notifications, local models. Everything written to `config.toml`.
 - Done when: a fresh machine goes from install to first lane without editing a file.
 
+Implemented. `install.sh` checks prerequisites, clones only into a new destination, installs pinned dependencies, builds, writes the user service and CLI wrappers, then prints a localhost setup URL and private claim code. It refuses existing destinations and unrelated service/bin files. It builds esbuild separately and treats a failed node-pty build as a terminal-only limitation. The daemon serves the built SPA directly, so installed use does not need Vite. `contextlanes setup` prints the claim code only when called locally before ownership is set.
+
+The wizard claims once with the private code and either a verified WebAuthn passkey or Tailscale identity. Passkeys require HTTPS or `http://localhost` (not an IP address); challenge expiry/replay/origin/user-verification checks use `@simplewebauthn/server@14.0.3`, added because Node does not provide a complete WebAuthn/CBOR verifier. Session cookies are HttpOnly/SameSite Strict, Secure over HTTPS, and hashed in SQLite. Loopback CLI access remains on by default after claim; `access.allowLocal = false` requires an owner session or matching Tailscale identity. API requests using unrelated hostnames cannot use local authorization.
+
+Remote access chooses an unused Serve HTTPS port without resetting routes. Agent detection checks executable availability and read-only login status; adapter installs use pinned npm packages under `~/.local`. Claude/Codex login output is never returned; OpenCode status stays unknown when its human-readable output cannot be established. Projects are verified with Git and persisted to config; reloading does not register them twice. Notification settings restart the notifier safely, VAPID keys are generated once, and optional local-model health probes accept only HTTP on 127.0.0.1 without redirects. Local helper execution remains phase 3. Model and Settings pages reuse these controls.
+
+Validation: 71 tests pass with both real systemd/tmux fixtures enabled. API tests cover claim protection, owner/session checks, replay/origin rejection, safe config writes, project validation, pinned installs, preserving Serve routes, model probes, static serving, socket ownership and closing live streams during restart. `scripts/check-setup.mjs` drives Chromium against a fresh config and actual systemd daemon: native browser passkey creation/verification, claim replay rejection, wizard registration/settings, first SDK fake-agent lane, permission answer, phone layout, restart with a live browser, persisted session, passkey sign-in and rejection without user verification. Installer unit generation is tested with a fixture home and fake Runner. A disposable source copy also passed frozen/offline dependency installation with scripts disabled, separate esbuild and node-pty builds, and the full production build. This has not provisioned a fresh OS.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wongywrongy/rootlane/contextlanes/install.sh | sh
+# Or, from a built source checkout:
+node apps/daemon/dist/install-main.js
+~/.local/bin/contextlanes setup
+# Optional browser acceptance, with existing Playwright/Chromium paths:
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-setup.mjs
+```
+
+Plan adjustments: the built daemon also serves the UI, which makes installation usable without a second server; setup added private owner sessions and a passkey verifier. Browser testing exposed live SSE streams delaying restart, so shutdown now ends them before closing HTTP. The existing lane socket is probed before stale-socket removal, preventing a second daemon from unlinking an active daemon's socket. External acceptance remains listed above; phase 2 was not started.
+
 ## Phase 2 — Apps and review
 
 Gate: review a checkpoint in under five minutes.
@@ -160,7 +180,8 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - **Resolved from adapter code:** both current registry adapters support `session/resume` and `session/load`. Claude advertises `resume: {}` in [`acp-agent.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/2fd46c866d4ff2939fe1b1245b15a536d6de7c0b/src/acp-agent.ts); Codex does so in [`CodexAcpServer.ts`](https://github.com/agentclientprotocol/codex-acp/blob/ac8d9251de43ab8648a89eb0520e0c606ad78be5/src/CodexAcpServer.ts). ContextLanes keeps the existing process/session alive across daemon restarts because resume cannot preserve an outstanding in-process permission handler. Agent connection failures are recorded; tasks are not silently rerun. Investigate forcibly killed hosts through their systemd journal.
 - **Resolved from Claude adapter code, not a login test:** it advertises Claude subscription terminal authentication, and detects SSH/`NO_BROWSER` to select the interactive `--cli` TUI login flow. It is not an unattended ACP login. Kyle still needs to authenticate and verify his subscription on this machine. `--hide-claude-auth` can intentionally disable subscriptions; ContextLanes does not set it. Source: [`acp-agent.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/2fd46c866d4ff2939fe1b1245b15a536d6de7c0b/src/acp-agent.ts).
 - **Safety finding:** Codex's current default `agent` mode delegates approvals to auto review. ContextLanes forces `INITIAL_AGENT_MODE=read-only`, selects a human-approval mode before prompting, and excludes `agent` and full-access modes. Source: [`AgentMode.ts`](https://github.com/agentclientprotocol/codex-acp/blob/ac8d9251de43ab8648a89eb0520e0c606ad78be5/src/AgentMode.ts).
-- Can Tailscale Serve give each lane its own name, or do we always need Caddy with a DNS API token?
+- **Resolved from current Tailscale docs:** named [Tailscale Services](https://tailscale.com/docs/features/tailscale-services) can give separate `name.<tailnet>.ts.net` addresses through `serve --service=svc:name`; they require a tagged host plus admin service definition/host approval. The phase-1 wizard uses the user-owned device address and an unused HTTPS port. Phase 2 may use Services as a named fallback; custom wildcard domains still need the planned DNS/certificate integration. This was documentation research, not a change to Kyle’s tailnet.
+- **OpenCode login detection limit:** its [CLI docs](https://opencode.ai/docs/cli/#list-1) document `auth list` as a provider list, without a stable JSON login-status API. The wizard runs it but reports unknown when it cannot establish status; it never treats command success alone as a login. Local-model and environment-provided credentials can also work without an interactive provider login.
 - How long does CodeGraph take to index the largest repo, and how big is the index?
 - Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe?
 - Which delegate kinds clear the redo-rate bar on the local GPU, and how many local jobs can run before lanes wait?

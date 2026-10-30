@@ -1,6 +1,7 @@
 /**
  * Plain SQL migrations, applied in order and tracked with PRAGMA user_version.
- * Six tables hold everything; the inbox, timelines and insights are queries over `event`.
+ * Core tables hold work; notification transport and owner sessions are separate.
+ * The inbox, timelines and insights are queries over `event`.
  */
 export const MIGRATIONS: readonly string[] = [
   /* 1 */ `
@@ -76,4 +77,5 @@ export const MIGRATIONS: readonly string[] = [
   /* 3 */ `CREATE TABLE push_subscription (endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL);
   CREATE TABLE notification_action (hash TEXT PRIMARY KEY, lane TEXT NOT NULL REFERENCES lane(id), request_id TEXT NOT NULL, option_id TEXT NOT NULL, channel TEXT NOT NULL);
   CREATE TABLE notification_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), offset INTEGER NOT NULL);`,
+  /* 4 */ `CREATE TABLE owner_session (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);`,
 ];

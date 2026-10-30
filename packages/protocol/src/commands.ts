@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const AgentSpec = z.object({ command: z.string().min(1), args: z.array(z.string()).default([]), env: z.record(z.string(), z.string()).optional() });
+export const AgentSpec = z.object({ command: z.string().min(1), args: z.array(z.string().refine((arg) => !/^--(?:dangerously|bypass|yolo|full-auto|auto(?:$|=)|auto-approve|approval-policy=never)/i.test(arg), "approval-bypassing arguments are not available")).default([]), env: z.record(z.string(), z.string()).optional() });
 export type AgentSpec = z.infer<typeof AgentSpec>;
 export const SafeMode = z.string().min(1).max(100).refine((mode) => !/bypass|danger|full.access|yolo|auto.?approv|auto.?review|^(agent|auto|dontask|never)$/i.test(mode), "approval-bypassing modes are not available");
 export const PromptRequest = z.object({ text: z.string().min(1).max(100_000), immediate: z.boolean().default(false) });
