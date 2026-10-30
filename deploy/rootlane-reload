@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-cd "$(dirname "$0")/.."
-if command -v docker >/dev/null && [ -n "$(docker compose ps --status running -q rootlane 2>/dev/null)" ]; then
-  exec docker compose kill -s SIGHUP rootlane
-fi
-exec systemctl --user kill -s HUP rootlane.service

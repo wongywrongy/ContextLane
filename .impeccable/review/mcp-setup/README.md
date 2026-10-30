@@ -1,1 +1,0 @@
-Rootlane 0.1.5 MCP Settings page, real HTTPS Chromium captures on root.avlis.dev, 2026-10-09. Desktop 1678px and mobile 390px. Certificate validation enabled; authenticated existing backend. Copy button checked against exact adapter command. Independent finish reviewer: ship. Incumbent DESIGN.md and design sidecar preserved. No credential values appear.

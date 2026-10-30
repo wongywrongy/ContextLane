@@ -1,9 +1,0 @@
-[Unit]
-Description=Private Docker bridge relay for Rootlane's HTTPS proxy
-
-[Socket]
-ListenStream=172.19.0.1:19485
-FreeBind=yes
-
-[Install]
-WantedBy=sockets.target

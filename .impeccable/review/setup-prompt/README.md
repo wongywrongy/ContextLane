@@ -1,1 +1,0 @@
-Rootlane 0.1.7 optional setup prompt, real HTTPS Chromium captures on 2026-10-09. Desktop 1678px/mobile 390px. Disclosure and clipboard checked; existing commands remain primary. Independent review: ship. The agent prompt itself was not executed and does not guarantee client compliance.

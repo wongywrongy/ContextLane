@@ -1,7 +1,0 @@
-{
-  "samples": 30,
-  "originalMedianMs": 2.3403749999999945,
-  "wrappedMedianMs": 5.6690849999999955,
-  "addedMedianMs": 3.328710000000001,
-  "method": "Full executable including Bash, readlink, tee and background reporter launch; paired cat baselines; throttled session; 100ms between pairs."
-}

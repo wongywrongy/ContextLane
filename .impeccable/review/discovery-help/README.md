@@ -1,1 +1,0 @@
-Rootlane 0.1.8 MCP discovery clarification, real HTTPS desktop 1678px/mobile 390px captures, 2026-10-09. Clipboard/navigation/overflow checks passed. Independent text refinement review: ship. No original missing-tools session was reconnected by this check.

@@ -1,5 +1,0 @@
-{
-  "type": "stdio",
-  "command": "/absolute/path/rootlane/deploy/rootlane-mcp-docker",
-  "args": []
-}
