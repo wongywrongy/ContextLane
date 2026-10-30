@@ -7,7 +7,7 @@ import { z } from "zod";
 /** Everything the setup wizard writes ends up in ~/.config/contextlanes/config.toml. */
 export const Config = z.object({
   host: z.object({ name: z.string().default(hostname()) }).default({ name: hostname() }),
-  listen: z.object({ host: z.string().default("127.0.0.1"), port: z.number().int().default(4600) }).default({ host: "127.0.0.1", port: 4600 }),
+  listen: z.object({ host: z.literal("127.0.0.1").default("127.0.0.1"), port: z.number().int().default(4600) }).default({ host: "127.0.0.1", port: 4600 }),
   paths: z
     .object({
       data: z.string().default(join(homedir(), ".local/share/contextlanes")),

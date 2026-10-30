@@ -6,4 +6,4 @@ export { LaneManager, hostCommand } from "./lanes/manager.js";
 export { branchName, slugify, terminalSession, worktreePath, hostUnit } from "./lanes/naming.js";
 export { Terminals, attachArgs } from "./terminal/tmux.js";
 export { buildServer } from "./http/server.js";
-export { runCommand, type Runner } from "./run.js";
+export { runCommand, type Runner, type TerminalProcess } from "./run.js";

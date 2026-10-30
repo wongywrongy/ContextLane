@@ -16,7 +16,7 @@ import { MIGRATIONS } from "./migrations.js";
 type Row = Record<string, unknown>;
 
 /**
- * SQLite through Node's built-in node:sqlite, so installing ContextLanes needs no compiler.
+ * SQLite through Node's built-in node:sqlite, with no native database dependency.
  * WAL mode; every write goes through tx() so events and state never disagree.
  */
 export class Store {

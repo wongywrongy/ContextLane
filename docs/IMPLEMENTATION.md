@@ -1,6 +1,23 @@
 # ContextLanes — implementation plan
 
+## Needs Kyle
+
+- **Real phone acceptance:** set `[access].owner` to your Tailscale login in `~/.config/contextlanes/config.toml` before remote use. Through your tailnet proxy, open `/p/<project>/work`, select **Terminal**, try the phone keyboard, close the tab and reattach. Chromium at a 390px viewport passed; a physical phone has not been tested. Remote-access setup remains milestone 1.5.
+
 This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system design in [ARCHITECTURE.md](ARCHITECTURE.md) and the visual system in [DESIGN.md](DESIGN.md). Coding agents: read [AGENTS.md](../AGENTS.md) first.
+
+## Milestone status
+
+The current requested goal is **milestone 1.3 only**. Earlier milestones remain pending; the terminal works independently of agent sessions and logins.
+
+| Milestone | Status | Evidence / next step |
+|---|---|---|
+| 1.1 Lane hosts for real | Pending | Scaffold only; launch/reconnect/control work still needed |
+| 1.2 Permission round trip | Pending | Scaffold only; notifiers and phone acceptance still needed |
+| 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
+| 1.4 Work page | Pending | Outside the current goal |
+| 1.5 Setup and install | Pending | Outside the current goal |
+| Phase 2 | Pending | Outside the current goal |
 
 ## Where the scaffold stands
 
@@ -9,11 +26,11 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | Package | What works now | What is stubbed |
 |---|---|---|
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
-| `apps/daemon` | Config from `config.toml`, SQLite store on `node:sqlite` with migrations, event log with gap-free seq per lane, inbox derived from events, lane manager (worktree + tmux), lane-host socket, HTTP API, live stream (SSE), Tailscale identity check | Launching lane hosts is behind `lanes.launchHosts`; toolbox calls return 501 |
+| `apps/daemon` | Config from `config.toml`, SQLite store on `node:sqlite` with migrations, event log with gap-free seq per lane, inbox derived from events, lane manager (worktree + tmux), lane-host socket, HTTP API, live stream (SSE), Tailscale identity check, terminal WebSocket with detachable PTY clients | Launching lane hosts is behind `lanes.launchHosts`; toolbox calls return 501 |
 | `apps/lanehost` | ACP client on `@agentclientprotocol/sdk`: spawns the agent, opens a session, runs prompts, coalesces streamed text into steps, maps tool calls and plans to events, relays permission requests and waits for your answer | Not yet launched by the daemon; no reconnect after a daemon restart |
 | `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer` | `arch` and `setup` print where they land |
 | `packages/toolbox` | The eight MCP tools declared with input schemas and served over stdio | Every tool returns 501 until its phase |
-| `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and the Steps / Terminal switch | Other pages show their final sections with empty states |
+| `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Other pages show their final sections with empty states |
 
 ## Principles
 
@@ -46,6 +63,18 @@ Gate: three lanes a day for a week, answered from the phone.
 - tmux session per lane (done). Add `GET /api/lanes/:p/:n/terminal` as a WebSocket that spawns `tmux attach-session -t <session>` under `node-pty`; xterm.js in the Work page's Terminal view.
 - Kill the session at cleanup only. `contextlanes term` (done).
 - Done when: closing the browser tab leaves the shell running and `contextlanes term` shows the same scrollback.
+
+Completed: closing the tab, switching views or stopping the daemon releases only that PTY's `tmux attach-session` client. The tmux session is never killed by the terminal route. Older history stays in tmux copy mode (**Ctrl+B**, then **[**); use **q** to leave it. There is no cleanup endpoint yet; killing lane sessions belongs to phase 2 cleanup.
+
+Validation: `pnpm check`; opt-in real tmux/fixture-repo test (including CLI attach after daemon recreation); built Vite app in Chromium at 1440×1000 and 390×844 against a transient systemd user service, including an actual daemon restart. Browser input, close/reopen and Steps/Terminal switching passed with no page errors. Only fixture sessions, services and repositories were removed.
+
+```sh
+pnpm check
+CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts
+pnpm dev
+# Open http://127.0.0.1:5173/p/<project>/work and select Terminal.
+node apps/cli/dist/main.js term <project>/01
+```
 
 **1.4 Work page**
 - Step trail rendered by family (look, change, run, mind, you, team) with the icon tiles, diff bars and test pips from the mockups; thinking collapsed by default.
@@ -92,6 +121,7 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - **Lane host integration:** connect the ACP client to an in-process fake agent built with the SDK's `agent()` app (`ClientApp.connect(agentApp)`), so permission and streaming flows are tested without a real model.
 - **Web:** Playwright smoke tests against `vite preview` with a seeded daemon; screenshots compared with the canvas boards by eye at first.
 - **End to end:** a nightly job on neo starts a lane on a fixture repo with a cheap local model and checks the full loop.
+- **Terminal end to end:** `CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts` opts into real tmux, PTYs, a throwaway git repo and loopback HTTP. The ordinary suite fakes all commands through `Runner`, including its terminal launcher. The opt-in test checks shell state, history beyond the screen, prompt client cleanup, daemon recreation and the actual CLI entry point.
 
 ## Open questions
 
@@ -101,5 +131,5 @@ Overview graph polish, scheduled lanes (systemd timers), more ACP agents (Hermes
 - How long does CodeGraph take to index the largest repo, and how big is the index?
 - Per-lane databases: Postgres template databases or copied SQLite files, chosen per project in the recipe?
 - Which delegate kinds clear the redo-rate bar on the local GPU, and how many local jobs can run before lanes wait?
-- `node:sqlite` is still marked experimental in Node 22; confirm it is stable enough on Node 24 or fall back to `better-sqlite3` behind the same `Store` API.
+- `node:sqlite` still emits an experimental warning on the tested Node 24.11.0. The Store tests and full local check pass, so it remains behind the existing `Store` API; long-running production durability is not established by this milestone.
 - Licence for the open-source release.

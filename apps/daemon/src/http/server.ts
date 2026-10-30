@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
+import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -8,13 +9,25 @@ import type { Store } from "../db/store.js";
 import type { HostLinks } from "../hosts.js";
 import { NotFound, type LaneManager } from "../lanes/manager.js";
 import { slugify } from "../lanes/naming.js";
+import { runCommand, type Runner } from "../run.js";
+import { attachArgs } from "../terminal/tmux.js";
+import { connectTerminal } from "../terminal/socket.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner };
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { store, bus, config } = deps;
+  const run = deps.run ?? runCommand;
+  app.register(websocket, {
+    options: { maxPayload: 65_536 },
+    preClose(done) {
+      // Do not wait for browser close handshakes while the daemon is stopping.
+      for (const socket of this.websocketServer.clients) socket.terminate();
+      this.websocketServer.close(done);
+    },
+  });
 
   // Identity comes from Tailscale Serve headers; there are no accounts.
   app.addHook("onRequest", async (req, reply) => {
@@ -60,6 +73,34 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     store.appendEvent(lane, { type: "agent.message", payload: { text, role: "user" } });
     if (!deps.hosts.send(lane, { prompt: text })) return reply.code(202).send({ queued: true, delivered: false });
     return reply.code(202).send({ queued: true, delivered: true });
+  });
+
+  // Register after the websocket plugin has installed its upgrade hook.
+  app.register(async (terminal) => {
+    terminal.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/terminal", {
+      websocket: true,
+      preValidation: async (req, reply) => {
+        // A web page on another origin must never gain access to the owner's shell.
+        if (req.headers.origin) {
+          let origin: URL | undefined;
+          try { origin = new URL(req.headers.origin); } catch { /* Invalid origins are refused below. */ }
+          const localOrigin = origin && ["127.0.0.1", "localhost"].includes(origin.hostname);
+          const owner = config.access.owner && req.headers["tailscale-user-login"] === config.access.owner;
+          if (!origin || !["http:", "https:"].includes(origin.protocol) || origin.host !== req.headers.host || (!localOrigin && !owner)) {
+            return reply.code(403).send({ error: "open the terminal from ContextLanes" });
+          }
+        }
+        if (!store.getLane(laneParam(req.params))) throw new NotFound("no such lane");
+      },
+    }, (socket, req) => {
+      const lane = store.getLane(laneParam(req.params))!;
+      try {
+        if (!run.terminal) throw new Error("terminal runner unavailable");
+        connectTerminal(socket, run.terminal("tmux", attachArgs(lane.terminal), { cwd: lane.worktree, cols: 80, rows: 24 }));
+      } catch {
+        socket.close(1011, "Could not attach to the lane terminal. Check that tmux is installed and the session exists.");
+      }
+    });
   });
 
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.

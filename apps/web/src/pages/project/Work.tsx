@@ -3,6 +3,7 @@ import { useParams } from "react-router";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { useJson, useProjectStream } from "../../api";
 import { AgentMark, Empty, LaneBadge, Section, StateGlyph } from "../../components/ui";
+import { Terminal } from "../../components/Terminal";
 
 /** Run and steer lanes: lane list, then one lane (steps or terminal), then its details. */
 export function WorkPage() {
@@ -31,7 +32,7 @@ export function WorkPage() {
           {lanes && lanes.length === 0 ? <Empty>No lanes yet. Start one with contextlanes lane start.</Empty> : null}
         </div>
       </aside>
-      <main className="page">{lane ? <LaneView lane={lane} /> : <Empty>Select a lane.</Empty>}</main>
+      <main className="page">{lane ? <LaneView key={lane.id} lane={lane} /> : <Empty>Select a lane.</Empty>}</main>
       <aside className="pane r" aria-label="Lane details">
         <div className="ps"><span className="lbl">Plan</span></div>
         <div className="ps"><span className="lbl">Context</span></div>
@@ -61,9 +62,9 @@ function LaneView({ lane }: { lane: Lane }) {
       </div>
       <Section
         title={
-          <span className="vt" role="tablist">
-            <button className={view === "steps" ? "active" : ""} onClick={() => setView("steps")}>Steps</button>
-            <button className={view === "terminal" ? "active" : ""} onClick={() => setView("terminal")}>Terminal</button>
+          <span className="vt" role="group" aria-label="Lane view">
+            <button className={view === "steps" ? "active" : ""} aria-pressed={view === "steps"} onClick={() => setView("steps")}>Steps</button>
+            <button className={view === "terminal" ? "active" : ""} aria-pressed={view === "terminal"} onClick={() => setView("terminal")}>Terminal</button>
           </span>
         }
         meta={view === "terminal" ? `tmux · ${lane.terminal}` : `${events.length} events`}
@@ -80,7 +81,7 @@ function LaneView({ lane }: { lane: Lane }) {
             <Empty>No steps yet.</Empty>
           )
         ) : (
-          <div className="tty">{`xterm.js attaches to tmux session ${lane.terminal} here (phase 1).\nSame session from any terminal: contextlanes term ${lane.id}`}</div>
+          <Terminal lane={lane.id} />
         )}
       </Section>
     </>

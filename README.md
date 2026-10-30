@@ -4,7 +4,7 @@ Run several coding agents in parallel **lanes** on an always-on machine, steer t
 
 Each lane is a branch and worktree, a persistent terminal, a running copy of your app with its own private link, and an agent session (Claude Code, Codex, OpenCode and other ACP agents) that keeps going when you close your laptop. Everything waiting on you lands in one inbox you can answer from your phone.
 
-> Status: early. This branch is a fresh start; the scaffold builds and runs a lane end to end (worktree, terminal, events, live stream). See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for what is next.
+> Status: early. The scaffold creates worktrees, tmux sessions and events. Milestone 1.3 adds persistent browser terminals; agent hosting and notifications still need milestones 1.1–1.2. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for status and what needs Kyle.
 
 ## Try the scaffold
 
@@ -21,7 +21,15 @@ node apps/cli/dist/main.js lanes
 node apps/cli/dist/main.js term <project>/01      # your shell in the lane (tmux)
 ```
 
-Requires Node ≥ 22.13 (24 recommended), pnpm 10, git and tmux. Configuration lives in `~/.config/contextlanes/config.toml`.
+Open the web app at `http://127.0.0.1:5173`, choose the project, then **Work → Terminal**. Closing the tab keeps the shell running. Reattach with the CLI command above; older history is in tmux copy mode (**Ctrl+B**, then **[**; **q** to leave).
+
+Requires Node ≥ 22.13 (24 recommended), pnpm 10, git and tmux. On Linux, node-pty builds a native module: install Python 3 and a C/C++ toolchain (Debian/Ubuntu: `sudo apt install python3 build-essential`) before `pnpm install`. Its build is allowlisted in `pnpm-workspace.yaml`. Configuration lives in `~/.config/contextlanes/config.toml`; the daemon and Vite bind `127.0.0.1`.
+
+To check real terminal persistence using a disposable repository and tmux session:
+
+```sh
+CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts
+```
 
 ## Docs
 

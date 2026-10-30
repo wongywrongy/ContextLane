@@ -30,6 +30,8 @@ The mockups live on the design canvas, page v4 ("Full site"), with a **Legend** 
 4. **Empty states say what will be there and when**, never a blank box.
 5. **Phone:** the same sections stacked; tabs scroll; the top bar becomes two rows.
 
+**Work terminal:** the Steps / Terminal controls sit in the existing section header. Terminal shows a connection status in words, an xterm shell that fits the available width, a Reconnect action on disconnection, and a footer explaining persistence and `contextlanes term`. Keyboard focus is visible; xterm's screen-reader mode is enabled. Switching away detaches the browser without ending the shell. Phone layout is verified in Chromium at 390px; physical keyboard behavior still needs device acceptance.
+
 ## Legend
 
 Meaning is never carried by colour alone: every state has a shape, every step kind an icon, every lane a number.

@@ -102,6 +102,7 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `POST /api/lanes` | Start a lane |
 | `GET /api/lanes/:project/:n/events?after=` | Event history |
 | `POST /api/lanes/:project/:n/prompt` | Message the agent |
+| `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
 | `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
 | `GET /api/inbox`, `POST /api/answers` | What waits on you, and your answer |
 
@@ -113,9 +114,12 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 
 **CLI:** `status`, `lanes`, `lane start`, `term`, `inbox`, `answer`, `arch`, `setup`.
 
+**Terminal wire:** browser messages are validated `TerminalInput` values: `{"type":"input","data":"..."}` or `{"type":"resize","cols":100,"rows":30}`. Output is raw UTF-8 terminal text. The server starts at 80×24 and xterm sends its fitted size on connection and resize (1–500 columns, 1–200 rows). Input messages are bounded; a slow browser is disconnected rather than buffering indefinitely. Reconnect attaches to the existing session; tmux copy mode retains older history. Terminal I/O does not mutate lane state or create agent events.
+
 ## Security
 
 - The daemon binds `127.0.0.1`. Remote access is Tailscale Serve, which adds `Tailscale-User-Login`; a login that is not the configured owner gets 403. Requests without the header are accepted only from loopback when `access.allowLocal` is on.
+- Terminal upgrades run through the same identity checks. Browser origins must match the request host; non-local browser hostnames additionally require the configured owner's Tailscale identity. This rejects cross-origin shell access and DNS rebinding. Non-browser clients may omit Origin. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
 - Agents never approve their own permissions or recipes. Answers come only through `/api/answers`.
 - Previews are reachable on the tailnet only; nothing listens on `0.0.0.0`.
 - Cleanup never deletes unpushed commits.
@@ -125,7 +129,7 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | Decision | Why |
 |---|---|
 | TypeScript everywhere | Every borrowed SDK has TypeScript (ACP, Claude Agent SDK, Codex SDK, CodeGraph, Playwright); one language for daemon, host, CLI and web |
-| `node:sqlite` instead of a native module | No compiler needed to install; same SQL. `better-sqlite3` can replace it behind `Store` if needed |
+| `node:sqlite` instead of a native database module | No extra native database dependency; same SQL. `better-sqlite3` can replace it behind `Store` if needed |
 | ACP for every agent | One client for Claude Code, Codex, OpenCode and more; native SDKs only as a fallback |
 | One lane host per lane under systemd | Agents survive daemon restarts and upgrades |
 | tmux for terminals | Persistent, attachable from the browser and any terminal |
