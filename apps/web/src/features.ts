@@ -9,7 +9,7 @@ export const READY = {
   /** Run tab and the Environment block in the lane inspector. */
   run: true,
   /** Phase 3: Architecture tab. */
-  architecture: false,
+  architecture: true,
   /** Phase 3: Insights tab. */
   insights: false,
   /** Phase 4: hand off to another agent, fork into a new lane. */

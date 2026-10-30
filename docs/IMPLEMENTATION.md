@@ -327,8 +327,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B5 Composer, editor link, watching only | work-lane | Done: @ file, / command, pictures, Open in editor, Watching only and Take over; see B5 |
 | B6 Add from GitHub, branch in the band | projects | Done: see B6 |
 | 3.1 Code map | architecture | Done: CodeGraph 1.6.2 in a sandboxed worker; see 3.1 |
-| 3.2 Architecture page and `contextlanes arch` | architecture | Next |
-| 3.3 Collision warnings | architecture, review | Not started |
+| 3.2 Architecture page and `contextlanes arch` | architecture | Done: see 3.2 |
+| 3.3 Collision warnings | architecture, review | Next |
 | 3.4 Local model runtime | models | Not started |
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Not started |
 | 3.6 Local helper (`delegate`) | models, work-lane | Not started |
@@ -520,6 +520,13 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Main paths: entry points CodeGraph finds (routes, pages, CLI commands) traced through to the data layer, named from the route or entry symbol, at most 5, chosen by how many modules they touch. Selecting one traces it on the diagram.
 - `contextlanes arch [project] [--json | --mermaid]`: layers, modules and edges as text, with the lane overlay.
 - Show real layers and dependencies, not lanes and files. Set `READY.architecture`.
+
+#### What was done (2026-10-30)
+
+- `apps/web/src/pages/project/Architecture.tsx` follows `architecture.webp`: layers as columns with their language, module boxes with file counts and lane badges, "new" for modules only a lane has, a lane's colour on the modules it edits, the dashed amber box where two lanes edit one module, "uses a change" on modules that depend on one, links drawn behind the boxes, and Show all, Lanes, Changes and Tests. Lanes is the default when any lane has changed code. Main paths trace one route. The inspector shows the module's layer, size, who uses it (with the symbol), which tests cover it, Start a lane here (New lane with "In <module>:") and Open in editor. `READY.architecture` is on.
+- Not drawn yet: the dashed "added by a lane" links, because lanes have no index of their own. The brief and the collision action arrive in 3.5 and 3.3.
+- `contextlanes arch [project] [--json | --mermaid]`: layers and modules with what each uses, lane numbers, `*` where two lanes edit, new modules and main paths. The Mermaid output renders with `mmdc`.
+- Checked in Chromium at 1440px and 390px with a ShuttleWorks-like fixture and two lanes editing `models/tournament.py`: no page errors besides the blocked Google Fonts request, no sideways scrolling.
 
 ### 3.3 Collision warnings (architecture, review)
 

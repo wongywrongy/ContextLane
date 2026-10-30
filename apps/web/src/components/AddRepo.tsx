@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FolderListing, GithubListing, Project, RepositoryScan } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
-import { AGENT_NAMES, AgentMark, Dialog, Icon, ago, tildePath } from "./ui";
+import { AGENT_NAMES, AgentMark, Dialog, Icon, ago, agoText, tildePath } from "./ui";
 
 /**
  * Add repositories: the ones your agents already worked in and the ones found in your home
@@ -44,7 +44,7 @@ export function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdd
             <span style={{ minWidth: 0 }}>
               <span className="nm"><b>{repo.name}</b><span className="mono">{tildePath(repo.path, homePath)}</span></span>
               {repo.note ? <span className={`sub warn`} style={{ display: "block" }}>{repo.note}</span>
-                : <span className="sub" style={{ display: "block" }}>{[repo.branch ?? "no branch", repo.usedBy.length ? `used with ${repo.usedBy.map((a) => AGENT_NAMES[a]).join(" and ")}${repo.lastUsed ? ` · ${ago(repo.lastUsed)} ago` : ""}` : null].filter(Boolean).join(" · ")}</span>}
+                : <span className="sub" style={{ display: "block" }}>{[repo.branch ?? "no branch", repo.usedBy.length ? `used with ${repo.usedBy.map((a) => AGENT_NAMES[a]).join(" and ")}${repo.lastUsed ? ` · ${agoText(repo.lastUsed)}` : ""}` : null].filter(Boolean).join(" · ")}</span>}
             </span>
             <span className="meta">{isAdded ? <span className="sig">added</span> : repo.usedBy.map((a) => <AgentMark key={a} agent={a} small />)}</span>
           </label>;
@@ -109,7 +109,7 @@ function FromGithub({ onBack, onClose, onAdded }: { onBack: () => void; onClose:
         {repos.map((r) => <div className="repo" key={r.name}>
           <span style={{ minWidth: 0 }}>
             <span className="nm"><b>{r.name}</b>{r.private ? <span className="mono">private</span> : null}</span>
-            <span className="sub" style={{ display: "block" }}>{[r.description, `updated ${ago(r.updatedAt)} ago`, r.cloned ? "already on this machine" : null].filter(Boolean).join(" · ")}</span>
+            <span className="sub" style={{ display: "block" }}>{[r.description, `updated ${agoText(r.updatedAt)}`, r.cloned ? "already on this machine" : null].filter(Boolean).join(" · ")}</span>
           </span>
           <span className="meta"><button className="btn sm" disabled={!!busy} onClick={() => void add(r.name)}>{busy === r.name ? (r.cloned ? "Adding…" : "Cloning…") : r.cloned ? "Add" : "Clone and add"}</button></span>
         </div>)}

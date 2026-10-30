@@ -1,15 +1,6 @@
 import { Empty, PageHeader, Section } from "../components/ui";
 
 /** Pages whose data arrives in later phases. Each keeps its final structure so layout work is done once. */
-export function ArchitecturePage() {
-  return (
-    <main className="pg">
-      <PageHeader title="Architecture" meta="how the code fits together and where lanes touch it" />
-      <Section title="Dependency view"><Empty>Layers, calls and imports from CodeGraph, with the lane overlay (phase 3).</Empty></Section>
-    </main>
-  );
-}
-
 export function InsightsPage() {
   return (
     <main className="pg">

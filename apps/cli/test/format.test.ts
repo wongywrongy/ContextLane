@@ -18,3 +18,25 @@ describe("cli output", () => {
     expect(formatInbox([])).toBe("Nothing is waiting on you.");
   });
 });
+
+import { formatArch, formatMermaid } from "../src/format.js";
+import type { ProjectMap } from "@contextlanes/protocol";
+describe("contextlanes arch", () => {
+  const view: ProjectMap = { error: null, lanes: [{ lane: "shop/01", modules: { "models/t.py": ["models/t.py"], "billing/fees.py": ["billing/fees.py"] }, created: ["billing/fees.py"] }, { lane: "shop/02", modules: { "models/t.py": ["models/t.py"] }, created: [] }],
+    map: { syncedAt: "2026-10-30T10:00:00.000Z", files: 3, layers: [{ name: "API", tech: "Python" }, { name: "Data", tech: null }],
+      modules: [{ id: "api/routes", layer: "API", files: 2, lines: 10, tests: 0 }, { id: "models/t.py", layer: "Data", files: 1, lines: 4, tests: 1 }],
+      links: [{ source: "api/routes", target: "models/t.py", count: 3, kinds: ["imports"] }], pairs: [], coveredBy: {}, paths: [{ name: "POST /api/t", modules: ["api/routes", "models/t.py"] }], rules: { source: "inferred", roots: [] } } };
+  it("prints layers, lanes, collisions, new modules and main paths", () => {
+    const text = formatArch(view);
+    expect(text).toContain("API (Python)\n    api/routes  2 files\n      uses models/t.py");
+    expect(text).toContain("  * models/t.py  1 file  [01 02]");
+    expect(text).toContain("NEW IN LANES\n    billing/fees.py [01]");
+    expect(text).toContain("POST /api/t: api/routes → models/t.py");
+  });
+  it("prints Mermaid with lane styles", () => {
+    const m = formatMermaid(view);
+    expect(m.split("\n")[0]).toBe("flowchart LR");
+    expect(m).toContain("m_api_routes --> m_models_t_py");
+    expect(m).toContain("class m_models_t_py two");
+  });
+});

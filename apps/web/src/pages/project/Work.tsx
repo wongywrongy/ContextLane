@@ -4,7 +4,7 @@ import type { InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@context
 import { postJson, useInbox, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
-import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
 import { useHistory } from "../../work/useWork";
 import { isIdle, stepsFor } from "../../work/model";
 import { FilterSwitch, Steps, type Filter } from "../../work/Steps";
@@ -101,7 +101,7 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
     <div className="ps-h" style={{ marginBottom: 8 }}><span className="lbl">Watching only</span></div>
     {agents.map((a) => <div key={`${a.pid}${a.startedAt}`} style={{ display: "grid", gap: 6, marginBottom: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}><AgentMark agent={a.agent} small /><span style={{ fontSize: 14 }}>Terminal session</span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>pid {a.pid}</span></div>
-      <span className="muted" style={{ fontSize: 12.5 }}>{a.running ? "Started outside ContextLanes. Close it there, then take it over to talk to it here." : `Ended ${ago(a.endedAt!)}. Take it over to continue in a lane.`}</span>
+      <span className="muted" style={{ fontSize: 12.5 }}>{a.running ? "Started outside ContextLanes. Close it there, then take it over to talk to it here." : `Ended ${agoText(a.endedAt!)}. Take it over to continue in a lane.`}</span>
       <span className="mono muted" style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>{a.cwd}</span>
       <div><button className="btn sm ghost" disabled={a.running} title={a.running ? "Close it first" : undefined} onClick={() => take(a)}>{a.running ? "Close it first" : "Take over"}</button></div>
     </div>)}

@@ -111,6 +111,8 @@ export function ago(iso: string, now = Date.now()): string {
   if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h`;
   return `${Math.round(minutes / 1440)}d`;
 }
+/** "just now", "3m ago", "2h ago". */
+export const agoText = (iso: string, now = Date.now()) => { const a = ago(iso, now); return a === "now" ? "just now" : `${a} ago`; };
 export function tildePath(path: string, home?: string | null): string {
   return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
 }

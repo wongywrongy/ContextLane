@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { Health, InboxItem, Lane, Project, ProjectBranches } from "@contextlanes/protocol";
+import type { Health, InboxItem, Lane, Project, ProjectBranches, ProjectMap } from "@contextlanes/protocol";
 import { api, daemonUrl, ClientError } from "./client.js";
-import { formatInbox, formatLanes } from "./format.js";
+import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
 
 const HELP = `contextlanes — run coding agents in parallel lanes
 
@@ -18,6 +18,7 @@ const HELP = `contextlanes — run coding agents in parallel lanes
   contextlanes answer <id> <option>           answer a permission or question
   contextlanes setup                          claim, enable remote access, print sign-in link and QR
   contextlanes add [path]                     add a repository (defaults to the current folder)
+  contextlanes arch [project]                 layers, modules and where lanes work  [--json] [--mermaid]
   contextlanes update                         install the newest version and restart; lanes keep running
                                               [--check] only list what's new   [--rollback] go back one version
 
@@ -32,7 +33,7 @@ async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, help: { type: "boolean", short: "h" } },
+    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" } },
   });
   const [cmd, ...rest] = positionals;
 
@@ -86,6 +87,13 @@ async function main(argv: string[]): Promise<number> {
       const project = await addProject(rest[0]);
       console.log(`Added ${project.name}.`);
       return 0;
+    }
+    case "arch": {
+      const project = rest[0] ?? (await api<Project[]>("/api/projects")).find((p) => process.cwd() === p.path || process.cwd().startsWith(`${p.path}/`))?.id;
+      if (!project) { console.error("Name a project, or run this inside one: contextlanes arch <project>"); return 2; }
+      const view = await api<ProjectMap>(`/api/projects/${project}/map`);
+      console.log(values.json ? JSON.stringify(view, null, 2) : values.mermaid ? formatMermaid(view) : formatArch(view));
+      return view.map ? 0 : 1;
     }
     default:
       return usage();

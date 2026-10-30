@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import type { Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
-import { Glyph, LaneBadge, StateGlyph, Tile, ago, coverFor, type IconName } from "../components/ui";
+import { Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment" };
 
@@ -44,7 +44,7 @@ function ProjectTile({ project, lanes, services }: { project: Project; lanes: La
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
   const counts = (["needs_you", "working", "in_review", "failed"] as const).map((s) => [s, open.filter((l) => l.state === s).length] as const).filter(([, n]) => n);
   const words: Record<string, string> = { needs_you: "need you", working: "working", in_review: "in review", failed: "failed" };
-  const line = counts.length ? counts.map(([s, n]) => `${n} ${words[s]}`).join(" · ") : latest ? `last lane ${ago(latest)} ago` : "no lanes yet";
+  const line = counts.length ? counts.map(([s, n]) => `${n} ${words[s]}`).join(" · ") : latest ? `last lane ${agoText(latest)}` : "no lanes yet";
   return <Link className="tile" to={`/p/${project.id}/work`}>
     <div className={`cover ${coverFor(project.id)}`} />
     <div className="tb">

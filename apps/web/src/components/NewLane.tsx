@@ -5,11 +5,11 @@ import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, Dialog } from "./ui";
 
 /** Start a lane: project, agent, base branch, optional goal, task. Used by setup and the New lane dialog. */
-export function useLaneForm(projects: Project[], preset?: string, adoption?: ServiceProposal) {
+export function useLaneForm(projects: Project[], preset?: string, adoption?: ServiceProposal, initialTask?: string) {
   const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [chosenProject, setProject] = useState(preset ?? "");
   const [chosenAgent, setAgent] = useState("");
-  const [task, setTask] = useState(adoption ? `Adopt service on port ${adoption.port}` : "");
+  const [task, setTask] = useState(adoption ? `Adopt service on port ${adoption.port}` : initialTask ?? "");
   const [goal, setGoal] = useState("");
   const [chosenBase, setBase] = useState<{ project: string; branch: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,8 +52,8 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   return { fields, start, canStart, busy };
 }
 
-export function NewLaneDialog({ projects, project, onClose, adoption }: { projects: Project[]; project?: string; onClose: () => void; adoption?: ServiceProposal }) {
-  const form = useLaneForm(projects, project, adoption);
+export function NewLaneDialog({ projects, project, onClose, adoption, task }: { projects: Project[]; project?: string; onClose: () => void; adoption?: ServiceProposal; task?: string }) {
+  const form = useLaneForm(projects, project, adoption, task);
   return <Dialog title="New lane" meta="its own branch, checkout, shell and agent" onClose={onClose}
     footer={<div className="e"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={!form.canStart} onClick={() => void form.start().then((lane) => lane && onClose())}>{form.busy ? "Starting…" : "Start lane"}</button></div>}>
     {form.fields}

@@ -8,7 +8,8 @@ import { ProjectsPage } from "./pages/Projects";
 import { WorkPage } from "./pages/project/Work";
 import { RunPage } from "./pages/project/Run";
 import { ReviewPage } from "./pages/project/Review";
-import { ArchitecturePage, InsightsPage } from "./pages/Static";
+import { InsightsPage } from "./pages/Static";
+import { ArchitecturePage } from "./pages/project/Architecture";
 
 /** Global pages, then one project with five tabs, each with one job. */
 const router = createBrowserRouter([
