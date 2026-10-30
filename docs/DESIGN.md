@@ -1,6 +1,6 @@
 # ContextLanes — visual system
 
-The mockups live on the design canvas, page v4 ("Full site"), with a **Legend** board that shows every code below in one place. Tokens are in `apps/web/src/styles/tokens.css`.
+The mockups are exported to [mockups/](mockups/README.md), one image per page, with a **Legend** board that shows every code below in one place. The web app ports the canvas CSS with the same class names (`apps/web/src/styles/app.css`); tokens are in `tokens.css`. Match the board; do not reinterpret it.
 
 ## Look
 
@@ -30,13 +30,19 @@ The mockups live on the design canvas, page v4 ("Full site"), with a **Legend** 
 4. **Empty states say what will be there and when**, never a blank box.
 5. **Phone:** the same sections stacked; tabs scroll; the top bar becomes two rows.
 
-**Work terminal:** the Steps / Terminal controls sit in the existing section header. Terminal shows a connection status in words, an xterm shell that fits the available width, a Reconnect action on disconnection, and a footer explaining persistence and `contextlanes term`. Keyboard focus is visible; xterm's screen-reader mode is enabled. Switching away detaches the browser without ending the shell. Phone layout is verified in Chromium at 390px; physical keyboard behavior still needs device acceptance.
+**Show only what works.** Tabs, inspector blocks and lane actions for later phases are in the code behind `apps/web/src/features.ts` (`READY.review`, `READY.run`, …). A tab bar with one tab is hidden. Agents are given only the toolbox tools that work (`LIVE_TOOLS` in `packages/toolbox`).
 
-**Inbox:** live requests sit in the Waiting section, with a diamond, the full request title, lane link and named single-use choices. Answer targets are at least 44px tall; no choice is selected or answered automatically. Busy controls disable only while sending, and failures remain visible with the request. The Phone notifications section enables this device after explicit browser permission. A web manifest and push-only service worker support installation; there is no cached approval state.
+**Projects:** Needs you (one row per item: kind tile, lane badge, project, what, age, Allow / Deny inline for permissions), then project tiles (cover, name, folder, lane badges with glyphs, one status line). Add repo opens a dialog; it never takes over the page.
 
-**Setup:** one section-led column with exactly three steps: Agent, Project, First lane. Each progress item has a state glyph and Done / Not done. Continue is disabled until the current requirement and earlier gates are complete. The terminal owns initial ownership, remote access, linger and a ten-minute QR/link; no claim-code field appears. Installed agent CLIs appear first, the rest under Other agents. Each has only Ready, Install or Sign in; login opens the fixed agent command inline in an xterm section. Known failures say what to do without displaying raw errors.
+**Add repositories:** a checklist of repositories your agents already work in (Claude Code and Codex session history, newest first, with their marks) and ones found in your home folder, each with path and branch, nothing preselected. Repositories that cannot be used yet say why in one sentence (owned by another user, no commits). Large data folders are skipped and named. Choose a folder swaps the list for a folder browser inside the same dialog: breadcrumbs, folders with a git tag and an Add button on each repository, and a path field that accepts `~` and paths outside home.
 
-Project discovery lists unchecked repositories with name/path/current branch. Browsing home and entering a `~` path are secondary choices. First lane uses labelled branch/ready-agent menus and an example task placeholder. Notifications/local endpoints are optional Projects sections after the first lane: Web Push comes first, ntfy/Telegram sit under Other ways. The Serve URL fills itself. A passkey action appears after sign-in at the HTTPS address and is labelled Add a passkey for this address. Forms use 16px inputs, 44px action targets and the existing warm section system. Fresh configs have passed at 1440px and 390px.
+**Work · one lane:** lane list on the left grouped by goal (rail in the lane colour, agent mark, task, glyph, what it is doing now; idle lanes say so); the lane in the middle (header, model and mode controls with Interrupt, Steps / Terminal with All / Thinking / Changes, the step trail on a spine, the permission card at "now", the message box with queued messages on top); the inspector on the right (plan with glyphs, context ring, checkout, lane actions). A failed lane shows why it stopped above the controls.
+
+**Inbox:** list on the left (kind tile, lane badge, project, title, age; the selected one has an amber edge), the selected item on the right (lane and agent, the request in a sentence, the command if any, every option as a button, what led here, open the lane). Filter chips by kind.
+
+**Setup:** two columns. Left: what to run on the machine (`contextlanes setup`) and why an always-on machine. Right: numbered steps with Done / Now / Next: sign in, connect an agent, add projects, start your first lane, then the optional phone and local-model steps. Only the current step is open; done steps can be reopened with Change.
+
+**Terminal:** Steps / Terminal sit in the section header. The terminal footer says it is your shell, keeps running when the tab closes, and shows `contextlanes term NN`.
 
 ## Legend
 
@@ -95,5 +101,3 @@ Meaning is never carried by colour alone: every state has a shape, every step ki
 Plain words. Say what happened and what to do: "Claude wants to run a command", "Allow once", "Keeps running when you close this tab". No AI jargon in the UI.
 
 **Work overview:** goal cards lead to numbered lane cards; a dashed amber gate appears only for lanes awaiting an answer or review. Nodes include words and glyphs. The two-hour strip uses event times and idle periods; a new lane may have only a tiny mark at the right edge. Timeline rows are keyboard-accessible alternatives to graph selection.
-
-**Work · one lane:** navigation stays on the left; one step trail and composer form the main column; the right column inspects only this lane. Steps have timestamps and named family tiles. Thinking and long output start collapsed. Measured changes use green/red diff bars; test pips have passed/failed names and numerical totals. Failed-then-fixed tools retain a red outline and word label. The composer preserves failed drafts. Phones use a horizontal lane strip, stacked inspector and 16px composer text to avoid keyboard zoom.

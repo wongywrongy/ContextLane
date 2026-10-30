@@ -1,64 +1,159 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { postJson, useInbox } from "../../api";
-import { AgentMark, Empty, LaneBadge, Section, StateGlyph } from "../../components/ui";
-import { useHistory, useWork } from "../../work/useWork";
-import { Steps } from "../../work/Steps";
+import type { InboxItem, Lane, LaneEvent, Project } from "@contextlanes/protocol";
+import { postJson, useInbox, useJson } from "../../api";
+import { useProjectWork } from "../../components/Shell";
+import { NewLaneDialog } from "../../components/NewLane";
+import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, laneNumber } from "../../components/ui";
+import { useHistory } from "../../work/useWork";
+import { isIdle, stepsFor } from "../../work/model";
+import { FilterSwitch, Steps, type Filter } from "../../work/Steps";
 import { Composer } from "../../work/Composer";
 import { Inspector } from "../../work/Inspector";
 
 const Terminal = lazy(() => import("../../components/Terminal").then((module) => ({ default: module.Terminal })));
 const Overview = lazy(() => import("../../work/Overview").then((module) => ({ default: module.Overview })));
 
+/** Work: lane list on the left; the Overview or one lane in the middle; that lane's inspector on the right. */
 export function WorkPage() {
   const { project = "" } = useParams();
+  const work = useProjectWork();
+  const [projects] = useJson<Project[]>("/api/projects");
+  const [inbox] = useInbox();
   const [params, setParams] = useSearchParams();
-  const work = useWork(project);
-  const selected = params.get("lane");
-  const lane = work.lanes.find((l) => l.id === selected) ?? null;
+  const [creating, setCreating] = useState(params.get("new") === "1");
+  const lane = work.lanes.find((l) => l.id === params.get("lane")) ?? null;
   const history = useHistory(lane?.id ?? "", work.events, work.version);
+  const [view, setView] = useState<"steps" | "terminal">("steps");
+  useEffect(() => setView("steps"), [lane?.id]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
-  return <div className={`work${lane ? " selected" : " overview"}`}>
-    <aside className="pane l" aria-label="Lanes"><Section title="Lanes" meta={String(work.lanes.length)}>
-      <div className="lane-navigation"><button className={`lrow${!lane ? " active" : ""}`} onClick={() => choose(null)}>Overview <span className="muted">All lanes</span></button>
-        {work.lanes.map((l) => <button key={l.id} className={`lrow ${l.state}${l.id === lane?.id ? " active" : ""}`} onClick={() => choose(l.id)}>
-          <span className="lane-list-main"><LaneBadge id={l.id} colour={l.colour} /><AgentMark agent={l.agent} /><strong>{l.task}</strong></span><StateGlyph state={l.state} label />
-        </button>)}
-        {!work.lanes.length ? <Empty>Start a lane to give it its own agent and checkout.</Empty> : null}
-      </div>
-    </Section></aside>
-    <main className="page">
-      {work.error ? <p role="alert">{work.error.message} <button className="btn ghost" onClick={work.reload}>Try again</button></p> : null}
-      {lane ? <LaneView key={lane.id} lane={lane} events={history.events} error={history.error} reload={work.reload} /> : <><div className="ph"><h2>Work overview</h2><span className="m">One goal, several lanes</span></div><Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={work.lanes} events={work.events} select={choose} /></Suspense></>}
+  const closeNew = () => { setCreating(false); if (params.has("new")) setParams(lane ? { lane: lane.id } : {}); };
+  return <div className={`wk3${lane ? "" : " overview"}`}>
+    <LaneList lanes={work.lanes} events={work.events} inbox={inbox ?? []} selected={lane?.id ?? null} choose={choose} create={() => setCreating(true)} />
+    <main className="lane-main" aria-label={lane ? "Lane" : "Overview"}>
+      {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
+      {lane ? <LaneView key={lane.id} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
+        : <>
+          <div className="ph"><h2>Overview</h2><span className="m">every lane as a graph</span><div className="e"><button className="btn sm" onClick={() => setCreating(true)}>New lane</button></div></div>
+          {work.lanes.length ? <Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={work.lanes} events={work.events} select={choose} /></Suspense>
+            : <section className="sec"><div className="empty">No lanes yet. A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>Start the first one</button>.</div></section>}
+        </>}
     </main>
-    {lane ? <aside className="pane r" aria-label="Lane details"><Inspector key={lane.id} lane={lane} events={history.events} /></aside> : null}
+    {lane ? <Inspector key={lane.id} lane={lane} events={history.events} openTerminal={() => setView("terminal")} /> : null}
+    {creating && projects ? <NewLaneDialog projects={projects} project={project} onClose={closeNew} /> : null}
   </div>;
 }
 
-function LaneView({ lane, events, error, reload }: { lane: Lane; events: LaneEvent[]; error: string; reload: () => void }) {
+/** What a lane is doing, in a few words, for the lane list. */
+function laneNow(lane: Lane, events: LaneEvent[], waiting: InboxItem[]): string {
+  const asked = waiting.find((i) => i.lane === lane.id);
+  if (asked) return asked.kind === "question" ? `Asked: ${asked.title}` : `Wants: ${asked.title}`;
+  const mine = events.filter((e) => e.lane === lane.id);
+  if (lane.state === "failed") {
+    const error = mine.findLast((e) => e.type === "agent.error");
+    return error?.type === "agent.error" ? error.payload.message : "Could not start. Open it to see why.";
+  }
+  if (isIdle(lane, events)) return "Idle · waiting for your message";
+  const last = stepsFor(mine).findLast((s) => s.type !== "text" || s.family !== "you");
+  if (lane.state === "working" && last) return last.type === "text" ? "Writing a reply" : last.title;
+  return lane.state === "working" ? "Starting the agent" : GLYPH[lane.state][1];
+}
+
+function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: Lane[]; events: LaneEvent[]; inbox: InboxItem[]; selected: string | null; choose: (id: string | null) => void; create: () => void }) {
+  const groups = useMemo(() => {
+    const byGoal = new Map<string | null, Lane[]>();
+    for (const lane of lanes) byGoal.set(lane.goal, [...(byGoal.get(lane.goal) ?? []), lane]);
+    return [...byGoal].sort(([a], [b]) => (a === null ? 1 : 0) - (b === null ? 1 : 0));
+  }, [lanes]);
+  const hasGoals = groups.some(([goal]) => goal !== null);
+  return <aside className="pane l" aria-label="Lanes">
+    <div className="ps">
+      <div className="ps-h" style={{ marginBottom: 10 }}><span className="lbl">Lanes · {lanes.length}</span><div className="e"><button className="btn sm" onClick={create}>New lane</button></div></div>
+      <div className="lanes-scroll">
+        <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane as a graph</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
+        {groups.map(([goal, group]) => <div key={goal ?? ""} style={{ display: "contents" }}>
+          {hasGoals ? <div className="grp">{goal ? <><i className="g work" aria-hidden="true" />Goal · {goal}</> : "No goal"}</div> : null}
+          {group.map((l) => {
+            const [g] = GLYPH[l.state];
+            return <button key={l.id} className={`lrow ${l.colour}${g === "wait" ? " needs" : ""}${l.id === selected ? " on" : ""}`} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
+              <span className="rail" /><AgentMark agent={l.agent} small />
+              <span className="body"><span className="ttl"><b>{l.task}</b><StateGlyph state={l.state} idle={isIdle(l, events)} /></span><span className="now">{laneNow(l, events, inbox)}</span></span>
+            </button>;
+          })}
+        </div>)}
+      </div>
+    </div>
+  </aside>;
+}
+
+function LaneView({ lane, events, error, reload, view, setView }: { lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {
   const [waiting, , reloadInbox] = useInbox();
-  const [view, setView] = useState<"steps" | "terminal">("steps");
   const [notice, setNotice] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const interrupt = useCallback(() => {
-    void postJson(`/api/lanes/${lane.id}/cancel`, {}).then(() => setNotice("Interruption requested."), (err: Error) => setNotice(err.message));
+    void postJson(`/api/lanes/${lane.id}/cancel`, {}).then(() => setNotice("Interrupt sent. The agent stops after its current action."), (err: Error) => setNotice(err.message));
   }, [lane.id]);
   useEffect(() => {
     if (view !== "steps") return;
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented) { event.preventDefault(); interrupt(); } };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !document.querySelector("dialog[open]")) { event.preventDefault(); interrupt(); } };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, [view, interrupt]);
-  const turn = events.findLast((e) => e.type === "agent.turn");
-  const active = turn?.type === "agent.turn" && turn.payload.active;
   const laneWaiting = useMemo(() => waiting?.filter((item) => item.lane === lane.id) ?? [], [waiting, lane.id]);
+  const session = events.findLast((e) => e.type === "agent.session");
+  const control = async (kind: "mode" | "model", value: string) => {
+    try { await postJson(`/api/lanes/${lane.id}/${kind}`, { [kind]: value }); setNotice(`${kind === "mode" ? "Mode" : "Model"} change sent. The agent confirms it in the steps.`); }
+    catch (err) { setNotice(err instanceof Error ? err.message : "The agent setting could not be changed."); }
+  };
+  const steps = stepsFor(events);
+  const first = events[0];
+  const agent = AGENT_NAMES[lane.agent] ?? lane.agent;
   return <>
-    <div className="ph lane-header"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} /><h2>{lane.task}</h2><StateGlyph state={lane.state} label /><span className="m">{lane.state === "working" ? active ? "Agent working" : "Ready for your next message" : ""}</span></div>
-    {notice ? <p role="status">{notice}</p> : null}
-    <Section title={<span className="vt" role="group" aria-label="Lane view"><button className={view === "steps" ? "active" : ""} aria-pressed={view === "steps"} onClick={() => setView("steps")}>Steps</button><button className={view === "terminal" ? "active" : ""} aria-pressed={view === "terminal"} onClick={() => setView("terminal")}>Terminal</button></span>} meta={view === "terminal" ? `tmux · ${lane.terminal}` : "Live step trail"}>
-      {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost" onClick={reload}>Try again</button></p> : null}
-      {view === "terminal" ? <Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense> : <Steps events={events} waiting={laneWaiting} reload={reloadInbox} />}
-    </Section>
-    {view === "steps" ? <Composer lane={lane.id} events={events} interrupt={interrupt} /> : null}
+    <div className="ph">
+      <LaneBadge id={lane.id} colour={lane.colour} large /><AgentMark agent={lane.agent} />
+      <h2>{lane.task}</h2><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
+      <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · {ago(lane.createdAt)}</span></div>
+    </div>
+
+    {lane.state === "failed" ? <FailedNote events={events} /> : null}
+
+    <section className="sec" aria-label="Agent controls"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
+      {session?.type === "agent.session" && session.payload.models.length
+        ? <select className="sel" aria-label="Model" value={session.payload.currentModel ?? ""} onChange={(e) => void control("model", e.target.value)}>{session.payload.models.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select>
+        : <span className="sel" style={{ display: "inline-flex", alignItems: "center", cursor: "default" }}>{lane.model ?? `${agent} default`}</span>}
+      {session?.type === "agent.session" && session.payload.modes.length
+        ? <div className="seg" role="group" aria-label="Permission mode">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
+        : <span className="muted" style={{ fontSize: 13 }}>Modes appear when the agent connects</span>}
+      <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
+    </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>
+
+    <section className="sec" aria-label="Lane view">
+      <div className="sec-h">
+        <div className="vt" role="tablist" aria-label="Lane view">
+          <button role="tab" aria-selected={view === "steps"} className={view === "steps" ? "on" : ""} onClick={() => setView("steps")}>Steps <i>{steps.length}</i></button>
+          <button role="tab" aria-selected={view === "terminal"} className={view === "terminal" ? "on" : ""} onClick={() => setView("terminal")}>Terminal <span className="live" title="Running" /></button>
+        </div>
+        {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span><div className="e"><FilterSwitch value={filter} change={setFilter} /></div></>
+          : <span className="m">tmux · {lane.terminal} · your shell in this lane</span>}
+      </div>
+      {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
+      {view === "terminal"
+        ? <><Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense>
+          <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>Your shell, not the agent’s · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {laneNumber(lane.id)}</span></div></>
+        : <Steps events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
+    </section>
+
+    {view === "steps" ? <Composer lane={lane} events={events} agent={agent} /> : null}
   </>;
+}
+
+/** Why a lane failed, from its last state change, in the words the setup step reported. */
+function FailedNote({ events }: { events: LaneEvent[] }) {
+  const change = events.findLast((e) => e.type === "lane.state" && e.payload.to === "failed");
+  const error = events.findLast((e) => e.type === "agent.error");
+  const reason = change?.type === "lane.state" && change.payload.reason ? change.payload.reason : error?.type === "agent.error" ? error.payload.message : "No reason was recorded.";
+  return <section className="sec" style={{ borderColor: "#F0C7BD" }} aria-label="Why this lane failed">
+    <div className="sec-h"><Glyph g="fail">This lane stopped</Glyph></div>
+    <div className="sec-b"><div className="out" style={{ marginTop: 0 }}>{reason.trim()}</div><p style={{ margin: "10px 0 0", fontSize: 13.5 }} className="muted">Fix the cause, then start a new lane with the same task. The branch and checkout are kept.</p></div>
+  </section>;
 }

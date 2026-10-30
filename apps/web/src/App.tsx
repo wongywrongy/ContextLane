@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
-import { SetupPage, SettingsPage, ModelsPage, ClaimGuard } from "./pages/Setup";
+import { SetupPage, ClaimGuard } from "./pages/Setup";
+import { SettingsPage, ModelsPage } from "./pages/Settings";
 import { ProjectShell, Shell } from "./components/Shell";
 import { InboxPage } from "./pages/Inbox";
 import { ProjectsPage } from "./pages/Projects";

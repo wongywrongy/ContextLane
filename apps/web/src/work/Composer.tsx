@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { LaneEvent } from "@contextlanes/protocol";
+import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { postJson } from "../api";
-import { Section } from "../components/ui";
+import { laneNumber } from "../components/ui";
 import { queuedPrompts } from "./model";
 
-export function Composer({ lane, events, interrupt }: { lane: string; events: LaneEvent[]; interrupt: () => void }) {
+/** Message box from the Console board: queued messages on top, Enter queues, ⌘/Ctrl+Enter sends now. */
+export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEvent[]; agent: string }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
@@ -13,21 +14,29 @@ export function Composer({ lane, events, interrupt }: { lane: string; events: La
     if (!text.trim() || sending) return;
     setSending(true); setNotice("");
     try {
-      const result = await postJson<{ delivered: boolean }>(`/api/lanes/${lane}/prompt`, { text, immediate });
+      const result = await postJson<{ delivered: boolean }>(`/api/lanes/${lane.id}/prompt`, { text, immediate });
       setText("");
-      setNotice(!result.delivered ? "Saved. Waiting for the lane host to reconnect." : immediate ? "Sent now. Interruption requested." : "Queued after the current turn.");
-    } catch (err) { setNotice(err instanceof Error ? err.message : "Could not send the message. Your draft is kept."); }
+      setNotice(!result.delivered ? "Saved. It sends when the lane’s agent reconnects." : immediate ? "Sent now. The current step was interrupted." : "");
+    } catch (err) { setNotice(err instanceof Error ? err.message : "The message could not be sent. Your draft is kept."); }
     finally { setSending(false); }
   };
-  return <Section title="Message" meta="Enter: queue · ⌘/Ctrl+Enter: send now · Esc: interrupt">
-    {queue.length ? <div className="message-queue" aria-label="Queued messages"><span className="lbl">Queued · {queue.length}</span>{queue.map((event) => <p key={event.payload.commandId}>{event.payload.command.kind === "prompt" ? event.payload.command.text : ""}</p>)}</div> : null}
-    <div className="sec-b composer"><label htmlFor="lane-message" className="lbl">Tell this lane what to do</label>
-      <textarea id="lane-message" value={text} maxLength={100_000} rows={3} placeholder="Add a detail or change direction…" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
+  return <section className="compose" aria-label="Message the agent">
+    {queue.map((event) => <div className="q" key={event.payload.commandId}>
+      <span className="lbl" style={{ fontSize: 11 }}>Queued</span>
+      <span className="txt">“{event.payload.command.kind === "prompt" ? event.payload.command.text : ""}”</span>
+      <span className="mono muted" style={{ fontSize: 11.5 }}>sends after this step</span>
+    </div>)}
+    <div className="bd">
+      <label htmlFor="lane-message" className="lbl" style={{ display: "block", marginBottom: 6 }}>Message {agent} in lane {laneNumber(lane.id)}</label>
+      <textarea id="lane-message" rows={2} value={text} maxLength={100_000} placeholder="Answer, redirect, or add to the plan…" onChange={(e) => setText(e.target.value)} onKeyDown={(event) => {
         if (event.nativeEvent.isComposing) return;
         if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(event.metaKey || event.ctrlKey); }
       }} />
-      <div className="composer-actions"><span className="muted">Shift+Enter for a new line</span><button className="btn ghost" onClick={interrupt}>Interrupt</button><button className="btn ghost" disabled={sending || !text.trim()} onClick={() => void send(true)}>Send now</button><button className="btn" disabled={sending || !text.trim()} onClick={() => void send(false)}>Queue</button></div>
+      <div className="row">
+        <span className="keys"><span className="kbd2">↵</span> queue · <span className="kbd2">⌘↵</span> send now · <span className="kbd2">⇧↵</span> new line</span>
+        <button className="btn sm" disabled={sending || !text.trim()} onClick={() => void send(false)}>{sending ? "Sending…" : "Send"}</button>
+      </div>
       {notice ? <p role="status">{notice}</p> : null}
     </div>
-  </Section>;
+  </section>;
 }

@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
-import type { LaneState } from "@contextlanes/protocol";
+import { useEffect, useRef, type ReactNode } from "react";
+import type { LaneState, StepKind } from "@contextlanes/protocol";
 
 /** A section: the one container every group of content lives in. */
-export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; children?: ReactNode; footer?: ReactNode }) {
+export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string }) {
   return (
-    <section className={`sec${props.tone ? ` ${props.tone}` : ""}`}>
+    <section className={`sec${props.tone ? ` ${props.tone}` : ""}`} id={props.id}>
       <div className="sec-h">
+        {props.icon}
         <h3>{props.title}</h3>
         {props.meta ? <span className="m">{props.meta}</span> : null}
         {props.end ? <div className="e">{props.end}</div> : null}
@@ -26,47 +27,106 @@ export function PageHeader(props: { title: string; meta?: ReactNode; end?: React
   );
 }
 
-/** Empty states say what will be here and when, instead of leaving a blank box. */
+/** Empty states say what will be here, instead of leaving a blank box. */
 export function Empty(props: { children: ReactNode }) {
   return <div className="empty">{props.children}</div>;
 }
 
-const STATE_LABEL: Record<LaneState, string> = {
-  draft: "Draft", setting_up: "Setting up", working: "Working", needs_you: "Needs you", in_review: "In review",
-  merged: "Merged", cleaned: "Cleaned up", failed: "Failed", paused: "Paused", archived: "Archived",
+/** Lane states map onto the seven glyphs of the legend: shape and colour, plus a word. */
+export const GLYPH: Record<LaneState, [glyph: "work" | "think" | "wait" | "fail" | "done" | "idle" | "pause", label: string]> = {
+  draft: ["idle", "Draft"], setting_up: ["think", "Setting up"], working: ["work", "Working"], needs_you: ["wait", "Needs you"],
+  in_review: ["wait", "In review"], merged: ["done", "Merged"], cleaned: ["done", "Cleaned up"], failed: ["fail", "Failed"],
+  paused: ["pause", "Paused"], archived: ["idle", "Archived"],
 };
-
-export function StateGlyph({ state, label = false }: { state: LaneState; label?: boolean }) {
-  return (
-    <span className="gl" title={STATE_LABEL[state]}>
-      <i className={`g ${state}`} aria-hidden="true" />
-      {label ? STATE_LABEL[state] : <span className="sr-only" style={{ position: "absolute", left: -9999 }}>{STATE_LABEL[state]}</span>}
-    </span>
-  );
+export function Glyph({ g, children }: { g: string; children?: ReactNode }) {
+  return <span className={`gl ${g}`}><i className={`g ${g}`} aria-hidden="true" />{children}</span>;
+}
+export function StateGlyph({ state, label = false, idle = false }: { state: LaneState; label?: boolean; idle?: boolean }) {
+  const [g, text] = idle ? ["idle", "Idle"] : GLYPH[state];
+  return label ? <Glyph g={g}>{text}</Glyph> : <i className={`g ${g}`} role="img" aria-label={text} title={text} />;
 }
 
-export function LaneBadge({ id, colour }: { id: string; colour: string }) {
-  return <span className="lb" style={{ background: `var(--${colour})` }}>{id.slice(id.lastIndexOf("/") + 1)}</span>;
+export function laneNumber(id: string): string { return id.slice(id.lastIndexOf("/") + 1); }
+export function LaneBadge({ id, colour, large = false }: { id: string; colour: string; large?: boolean }) {
+  return <span className={`lb ${colour}${large ? " lg" : ""}`}>{laneNumber(id)}</span>;
 }
 
+export const AGENT_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp" };
 const MARKS: Record<string, [string, string]> = {
   "claude-code": ["cc", "CC"], codex: ["cx", "CX"], opencode: ["oc", "OC"], hermes: ["ha", "HA"], ollama: ["ol", "OL"], "llama.cpp": ["lc", "LC"],
 };
-
 /** One mark system for agents and runtimes; official logos can replace these at build time. */
-export function AgentMark({ agent }: { agent: string }) {
+export function AgentMark({ agent, small = false }: { agent: string; small?: boolean }) {
   const [cls, text] = MARKS[agent] ?? ["oc", agent.slice(0, 2).toUpperCase()];
-  return <span className={`am ${cls}`} title={agent}>{text}</span>;
+  return <span className={`am ${cls}${small ? " sm" : ""}`} title={AGENT_NAMES[agent] ?? agent}>{text}</span>;
 }
 
-const STEP_PATHS = {
-  look: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12m10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
-  change: 'm4 16-1 5 5-1L20 8l-4-4L4 16m10-10 4 4',
-  run: 'm8 4 12 8-12 8V4',
-  mind: 'M6 6h8a4 4 0 0 1 0 8H8m0 0 3-3m-3 3 3 3M5 3v6m-3-3h6',
-  you: 'M4 4h16v12h-9l-5 4v-4H4V4m8 4v3m0 2v1',
-  team: 'M9 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6m-6 10v-2a6 6 0 0 1 12 0v2m3-13a3 3 0 0 1 0 6m1 2a5 5 0 0 1 3 5',
-};
-export function StepIcon({ family }: { family: keyof typeof STEP_PATHS }) {
-  return <span className={`step-icon ${family}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={STEP_PATHS[family]} /></svg><span>{family}</span></span>;
+/** Step icons from the design canvas, one per kind. Families tint the tile. */
+const ICONS = {
+  read: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6M9 16h6" /></>,
+  search: <><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></>,
+  fetch: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14.4 0 17M12 3.5c-2.5 2.6-2.5 14.4 0 17" /></>,
+  edit: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></>,
+  delete: <path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" />,
+  move: <path d="M4 8h14l-3-3M20 16H6l3 3" />,
+  execute: <><rect x="3" y="4.5" width="18" height="15" rx="2" /><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5" /></>,
+  test: <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3" /><path d="M7.5 15h9" /></>,
+  environment: <><rect x="4" y="4" width="16" height="6" rx="1.5" /><rect x="4" y="14" width="16" height="6" rx="1.5" /><path d="M8 7h.01M8 17h.01" /></>,
+  plan: <><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11" /><circle cx="5" cy="18" r="1.2" /></>,
+  think: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /><circle cx="12" cy="12" r="2.5" /></>,
+  permission: <><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z" /><path d="m9 12 2 2 4-4" /></>,
+  question: <><path d="M4 5h16v11H9l-5 4z" /><path d="M10 9a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.2M12 14.2v.1" /></>,
+  checkpoint: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
+  handoff: <><path d="M4 12h7M11 12l5-5h4M11 12l5 5h4" /><path d="m18 5 2 2-2 2M18 15l2 2-2 2" /></>,
+  subagent: <><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="12" r="2" /><path d="M6 7v10M6 12h4a4 4 0 0 0 4-4V8M8 12h8" /></>,
+  message: <><path d="M4 5h16v11H9l-5 4z" /><path d="M8 9.5h8M8 12.5h5" /></>,
+  folder: <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />,
+} as const;
+export type IconName = keyof typeof ICONS;
+export function Icon({ name }: { name: IconName }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICONS[name]}</svg>;
+}
+export type Family = "look" | "change" | "run" | "mind" | "you" | "team";
+export function iconFor(kind: StepKind | "message" | "question"): IconName {
+  if (kind === "other") return "read";
+  if (kind === "helper") return "subagent";
+  return kind in ICONS ? kind as IconName : "read";
+}
+export function Tile({ family, icon, small = false, label }: { family: Family; icon: IconName; small?: boolean; label?: string }) {
+  return <span className={`k ${family}${small ? " sm" : ""}`} role={label ? "img" : undefined} aria-label={label}><Icon name={icon} /></span>;
+}
+
+/** Each project gets one of six covers, stable for its id. */
+export function coverFor(id: string): string {
+  let hash = 0;
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return `cv-${(hash % 6) + 1}`;
+}
+
+/** Short age: now, 4m, 3h, 2d. */
+export function ago(iso: string, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
+export function tildePath(path: string, home?: string | null): string {
+  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+}
+
+/** A modal dialog: Escape and the backdrop close it, focus returns where it was. */
+export function Dialog({ title, meta, onClose, children, footer, wide = false }: { title: string; meta?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current!;
+    if (!dialog.open) dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return <dialog ref={ref} className="dlg" style={wide ? { width: "min(820px, calc(100vw - 32px))" } : undefined} aria-label={title}
+    onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="dlg-h"><h2>{title}</h2>{meta ? <span className="m">{meta}</span> : null}<button className="x" aria-label="Close" onClick={onClose}>×</button></div>
+    <div className="dlg-b">{children}</div>
+    {footer ? <div className="dlg-f">{footer}</div> : null}
+  </dialog>;
 }

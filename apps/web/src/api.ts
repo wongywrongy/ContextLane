@@ -49,6 +49,11 @@ export function useProjectStream(project: string, onEvent: (e: LaneEvent) => voi
   }, [project, onEvent, onOpen]);
 }
 
+/** Answer one inbox item with one of its options. Only the owner's session can do this. */
+export async function answerItem(item: InboxItem, optionId: string | null): Promise<void> {
+  await postJson("/api/answers", { lane: item.lane, requestId: item.id.slice(item.id.indexOf("#") + 1), optionId, via: window.matchMedia("(max-width: 760px)").matches ? "phone" : "web" });
+}
+
 type InboxQuery = [InboxItem[] | null, Error | null, () => void];
 export const InboxContext = createContext<InboxQuery | null>(null);
 export function useInbox(): InboxQuery {

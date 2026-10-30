@@ -1,32 +1,52 @@
 import { useState } from "react";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { postJson } from "../api";
-import { Section } from "../components/ui";
+import { READY } from "../features";
+import { Glyph, Tile, laneNumber } from "../components/ui";
 
-export function Inspector({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
-  const session = events.findLast((e) => e.type === "agent.session");
+/** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
+export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: LaneEvent[]; openTerminal: () => void }) {
   const usage = events.findLast((e) => e.type === "usage");
   const plan = events.findLast((e) => e.type === "agent.plan");
-  const [notice, setNotice] = useState("");
-  const control = async (kind: "mode" | "model", value: string) => {
-    try { await postJson(`/api/lanes/${lane.id}/${kind}`, { [kind]: value }); setNotice("Change requested. The agent will confirm it here."); }
-    catch (err) { setNotice(err instanceof Error ? err.message : "Could not change the agent setting."); }
+  const [copied, setCopied] = useState("");
+  const copy = async (text: string, what: string) => {
+    try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
   };
-  return <>
-    <Section title="Plan" meta={lane.goal ?? "this lane"}>
-      {plan?.type === "agent.plan" ? <ol className="plan-list inspector-plan">{plan.payload.entries.map((entry, i) => <li key={i} className={entry.status}><span>{entry.status.replaceAll("_", " ")}</span>{entry.text}</li>)}</ol> : <p className="sec-b muted">The agent's plan appears here when it reports one.</p>}
-    </Section>
-    <Section title="Context" meta={lane.agent}>
-      <div className="sec-b inspector-context">
-        {session?.type === "agent.session" ? <>
-          {session.payload.models.length ? <label>Model<select aria-label="Model" value={session.payload.currentModel ?? ""} onChange={(e) => void control("model", e.target.value)}>{session.payload.models.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select></label> : <p>Model: {lane.model ?? "Agent default"}</p>}
-          {session.payload.modes.length ? <label>Mode<select aria-label="Mode" value={session.payload.currentMode ?? ""} onChange={(e) => void control("mode", e.target.value)}>{session.payload.modes.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select></label> : null}
-        </> : <p className="muted">Agent settings appear after its session connects.</p>}
-        {usage?.type === "usage" ? <><p className="mono">{usage.payload.contextUsed.toLocaleString()} / {usage.payload.contextSize.toLocaleString()} tokens</p><meter min={0} max={Math.max(1, usage.payload.contextSize)} value={usage.payload.contextUsed} aria-label="Reported context use" />{usage.payload.costUsd !== undefined ? <p>Reported cost: {new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(usage.payload.costUsd)}</p> : null}</> : <p className="muted">Context use appears when the agent reports it.</p>}
-        {notice ? <p role="status">{notice}</p> : null}
-      </div>
-    </Section>
-    <Section title="Checkout"><div className="sec-b"><p className="mono inspector-path">{lane.branch}</p><p className="mono inspector-path">{lane.worktree}</p></div></Section>
-    <Section title="Environment"><p className="sec-b muted">This lane's app services and private preview links arrive with recipes in phase 2.</p></Section>
-  </>;
+  const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
+  const done = entries.filter((e) => e.status === "completed").length;
+  const used = usage?.type === "usage" ? usage.payload : null;
+  const share = used && used.contextSize ? Math.min(1, used.contextUsed / used.contextSize) : 0;
+  const ringColour = share > .85 ? "var(--bad)" : share > .6 ? "var(--you)" : "var(--ok)";
+  return <aside className="pane r" aria-label="Lane details">
+    <section className="ps">
+      <div className="ps-h"><span className="lbl">Plan</span>{entries.length ? <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done} of {entries.length}</span></div> : null}</div>
+      {entries.length ? <div className="plan">{entries.map((entry, i) => <Glyph key={i} g={entry.status === "completed" ? "done" : entry.status === "in_progress" ? "think" : "idle"}>{entry.text}</Glyph>)}</div>
+        : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows the agent’s plan when it writes one.</p>}
+    </section>
+    <section className="ps">
+      <div className="ps-h"><span className="lbl">Context</span></div>
+      {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
+        <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
+      </div> : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows how full the agent’s context is once it reports it.</p>}
+    </section>
+    <section className="ps">
+      <div className="ps-h"><span className="lbl">Checkout</span></div>
+      <dl className="kv2"><dt>Branch</dt><dd className="mono">{lane.branch}</dd><dt>Folder</dt><dd className="mono">{lane.worktree}</dd><dt>Started</dt><dd>{new Date(lane.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd></dl>
+    </section>
+    {READY.run ? <section className="ps"><div className="ps-h"><span className="lbl">Environment</span></div>{/* Phase 2: services with glyphs and private links, from env.status events. */}</section> : null}
+    <section className="ps">
+      <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Lane</span></div>
+      <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the terminal</button>
+      <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}><Tile family="look" icon="read" small />Copy the terminal command</button>
+      <button className="act" onClick={() => void copy(lane.branch, "Branch")}><Tile family="change" icon="move" small />Copy the branch name</button>
+      {READY.handoff ? <><button className="act"><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act"><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
+      {READY.review ? <button className="act"><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
+      {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
+      <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
+    </section>
+  </aside>;
+}
+
+function compact(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
 }

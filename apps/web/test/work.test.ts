@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
+import { isIdle, loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
 
 const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
 const event = (seq: number, type: LaneEvent["type"], payload: unknown, at = "2026-01-01T11:00:00Z") => ({ lane: base.id, seq, at, type, payload }) as LaneEvent;
@@ -50,4 +50,11 @@ it("clips the two-hour timeline and distinguishes actual idle, working and human
   expect(segments[0]?.from).toBe(start);
   expect(segments.at(-1)?.to).toBe(end);
   expect(segments.reduce((sum, s) => sum + s.to - s.from, 0)).toBe(end - start);
+});
+
+it("shows a working lane as idle once its agent has finished its turn", () => {
+  expect(isIdle(base, [])).toBe(false);
+  expect(isIdle(base, [event(1, "agent.turn", { active: true })])).toBe(false);
+  expect(isIdle(base, [event(1, "agent.turn", { active: true }), event(2, "agent.turn", { active: false, stopReason: "end_turn" })])).toBe(true);
+  expect(isIdle({ ...base, state: "needs_you" }, [event(1, "agent.turn", { active: false })])).toBe(false);
 });

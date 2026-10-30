@@ -60,6 +60,13 @@ export function stepsFor(events: LaneEvent[]): Step[] {
   return steps;
 }
 
+/** A working lane whose agent has finished its turn is idle: it waits for your next message. */
+export function isIdle(lane: Lane, events: LaneEvent[]): boolean {
+  if (lane.state !== "working") return false;
+  const turn = events.findLast((e) => e.lane === lane.id && e.type === "agent.turn");
+  return turn?.type === "agent.turn" && !turn.payload.active;
+}
+
 export function queuedPrompts(events: LaneEvent[]) {
   const started = new Set(events.flatMap((e) => e.type === "agent.turn" && e.payload.commandId ? [e.payload.commandId] : e.type === "agent.command.result" && !e.payload.ok ? [e.payload.commandId] : []));
   return events.filter((e): e is Extract<LaneEvent, { type: "agent.command" }> => e.type === "agent.command" && e.payload.command.kind === "prompt" && !started.has(e.payload.commandId));

@@ -11,7 +11,7 @@ This is the build plan. The product brief is in [BRIEF.md](BRIEF.md), the system
 
 ## Milestone status
 
-The current goal is **headless onboarding in under five minutes**: terminal setup does ownership and access; the browser has only Agent, Project and First lane. External credentials and physical-device/timing acceptance remain above. Phase 2 is outside this goal.
+Phase 1 is implemented. On 2026-10-30 the web app was rebuilt from the mockups (see below); the next goal is phase 2. External credentials and device acceptance remain in Needs Kyle.
 
 | Milestone | Status | Evidence / next step |
 |---|---|---|
@@ -20,7 +20,8 @@ The current goal is **headless onboarding in under five minutes**: terminal setu
 | 1.3 Terminals | Done | Validated WebSocket + PTY bridge, xterm, detach/reconnect, fake Runner tests, real tmux + CLI test and Chromium against a transient systemd daemon |
 | 1.4 Work page | Done against DESIGN.md | Six families, measured diffs/tests, inline answers, composer and inspector, React Flow + ELK overview and two-hour timeline; desktop/phone browser flow passes |
 | 1.5 Setup and install | Implemented; fresh-machine/device acceptance needs Kyle | Shell claim, automatic Serve, expiring sign-in link/QR, three gated steps, repo discovery, browser login and optional post-lane setup; 86 tests and both Chromium widths pass |
-| Phase 2 | Pending | Outside the current goal |
+| UI to the mockups | Done | Every phase-1 page ported from `docs/mockups/` with the canvas class names; later-phase tabs and actions hidden behind `apps/web/src/features.ts`; walkthrough at 1440px and 390px with no page errors or sideways scrolling; `scripts/check-setup.mjs` passes at both widths |
+| Phase 2 | Pending | Next. Flip `READY.review` and `READY.run` as each part works |
 
 ## Current capabilities
 
@@ -33,7 +34,23 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
 | `apps/cli` | `status`, `lanes`, `lane start`, `term` (tmux attach), `inbox`, `answer`, `setup`, `add` | `arch` waits for phase 3 |
 | `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice | Other tools await their phases |
-| `apps/web` | Shell, global nav, project tabs, the section and glyph components, Projects and Inbox from the API, Work with live events and an xterm terminal with resize, connection status and reconnect | Setup, Settings and Models work; later-phase pages keep explicit empty states |
+| `apps/web` | Ported from `docs/mockups/`: top bar with inbox count and ⌘K jump; Projects (Needs you with inline answers, project tiles, Add repositories dialog with discovery and a contained folder browser); Work (lanes grouped by goal, controls, step trail, permission card, message box, inspector, overview graph, terminal); Inbox (list and detail with what led here); Setup (machine and browser columns, Done / Now / Next steps); Settings; Models | Review, Run, Architecture and Insights tabs and their lane actions are built but hidden until their phase (`features.ts`) |
+
+## UI rebuilt to the mockups (2026-10-30)
+
+The earlier pages were written from DESIGN.md without the boards and drifted from them. They were rebuilt directly from the canvas: `docs/mockups/` holds every board as an image, `docs/mockups/README.md` maps each board to its route and files, and `app.css` uses the canvas class names. What changed beyond layout:
+
+- **Project discovery** (`apps/daemon/src/projects.ts`) first reads Claude Code and Codex session history (`~/.claude/projects`, `~/.codex/sessions`) for the folders agents worked in, including ones outside home, newest first. The home walk then stops at each repository, skips folders with more than 300 subfolders (named in the dialog), goes five levels deep and stops after 6,000 folders or 3 seconds. Before, one large folder such as `~/data` used up the 2,000-folder budget and repositories elsewhere were never found. Repositories git refuses (another owner) or without commits are listed with a one-sentence reason instead of disappearing. Lane checkouts are excluded.
+- **Folder browser** lives inside the Add repositories dialog (fixed height, scrolls), with breadcrumbs, a git tag and an Add button on each repository, and a path field for `~` and paths outside home.
+- **Lane names** skip leftovers: if `lane/01-task`, its checkout folder or tmux session `cl-project-01` already exists (from an earlier install or a kept branch), the lane uses `-2`, `-3`… Existing shells are never killed. Before, the lane failed with a raw git or tmux error.
+- **Failed lanes** open anyway and show why they stopped.
+- **Idle lanes** (working, but the agent finished its turn) show the idle glyph and "Idle · waiting for your message".
+- **Agents get only working tools.** `LIVE_TOOLS` in `packages/toolbox` is `ask_owner` today; a tool joins when its daemon route works.
+- `GET /api/lanes` lists every project's lanes for the home page and ⌘K.
+
+Not built from the boards yet (left out rather than faked): the "Ask" part of ⌘K, composer chips (@ file, / command, attach image), Watching only / Take over, context compaction count and "fresh session from handoff", the usage line on Projects, picking repositories from GitHub in Add repositories, per-project branch in the band. Fonts still load from Google Fonts.
+
+Known issue: a lane host unit from an older database with the same lane id (`contextlanes-lane-<project>-NN`) makes `systemd-run` fail for the new lane. Stop the old unit or use a fresh project id; a later fix should pick a free unit name the same way lane names do.
 
 ## Principles
 
@@ -118,9 +135,9 @@ Validation: 61 tests pass with real fixture services enabled. Chromium at 1440px
 Goal: a new user over SSH reaches a running lane without typing a path or setup code, in under five minutes.
 
 - `contextlanes setup` checks linger and prints the exact sudo command only when needed; claims for the shell user; uses Tailscale Serve automatically when signed in; prints a single-use, ten-minute sign-in URL and the same URL as a terminal QR code. With no Tailscale it prints one install-link line and the exact SSH tunnel fallback.
-- Browser steps are **Agent → Project → First lane**, each marked Done or Not done. Continue stays disabled until its prerequisite is done. Agent requires at least one Ready agent; Project requires an added repository; a working lane completes the last step.
+- Browser steps are **Sign in → Connect an agent → Add projects → Start your first lane**, each marked Done, Now or Next; the current step is the first one not done. Agent requires at least one Ready agent; Project requires an added repository; a working lane completes the last step.
 - Agents have one status: **Ready**, **Install**, **Sign in**. Installed CLIs appear first, the rest under **Other agents**. Install uses fixed pinned packages under `~/.local`; Sign in opens only that agent’s fixed login command in the owner’s browser terminal. Login completion refreshes readiness. Known failures give an actionable sentence; raw process/network exceptions are not rendered.
-- Project scan walks home at most four levels deep and 2,000 folders, excluding hidden folders, node_modules and directory symlinks. Repositories show name, path and current branch; none are selected initially. The folder browser resolves canonical paths and refuses links/paths outside home. Explicit owner-entered paths and `contextlanes add [path]` accept `~`; CLI add defaults to the current folder. Discovery, browsing and branch APIs are owner-only.
+- Project discovery reads agent session history, then walks home (see "UI rebuilt to the mockups" for the current rules). Repositories show name, path and current branch; none are selected initially. The folder browser resolves canonical paths and refuses links/paths outside home. Explicit owner-entered paths and `contextlanes add [path]` accept `~`; CLI add defaults to the current folder. Discovery, browsing and branch APIs are owner-only.
 - First lane reads local branches from Git, prefers `origin/HEAD` as default (then main/master/first local branch), offers only Ready agents, and supplies an example task placeholder. Notifications and local endpoints are post-lane Projects cards, with Web Push first and ntfy/Telegram under **Other ways**. The public URL comes from Serve. Local helper execution remains phase 3.
 - A passkey is offered only after owner sign-in at the configured HTTPS tailnet address, labelled **Add a passkey for this address**. It never blocks onboarding.
 

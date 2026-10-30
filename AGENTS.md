@@ -31,7 +31,8 @@ pnpm dev              # daemon on :4600 and the web app with /api proxied
 - **No shell strings.** Run commands through the injected `Runner` with argument arrays, so tests can fake git, tmux and systemd.
 - **Agents never approve.** Only `/api/answers` resolves a permission. Never add auto-allow timers.
 - **Loopback only.** The daemon binds `127.0.0.1`; identity comes from Tailscale headers.
-- **UI:** every group of content in a `Section`; one main column per page; side column only as an inspector; state is a glyph plus a word, never colour alone. Copy is plain and specific.
+- **UI:** match the board in `docs/mockups/` for the page you touch, using the classes already in `apps/web/src/styles/app.css`; do not invent new layouts. Every group of content in a section; one main column per page; side column only as an inspector; state is a glyph plus a word, never colour alone. Copy is plain and specific.
+- **Show only what works.** Hide a tab, block or action until its phase works (`apps/web/src/features.ts`); give agents only working tools (`LIVE_TOOLS`). No placeholder numbers.
 - **Tests with every change:** unit tests next to the package in `test/`; API tests through `fastify.inject`.
 - **ESM, strict TypeScript, `.js` extensions in Node imports**, no default exports except React pages.
 - Keep dependencies few and pinned to exact versions.

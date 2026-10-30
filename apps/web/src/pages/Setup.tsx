@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
-import type { DetectedAgent, Project, SetupSettings, SetupStatus } from "@contextlanes/protocol";
+import type { DetectedAgent, Project, SetupStatus } from "@contextlanes/protocol";
 import { postJson, useJson, RequestError, errorMessage } from "../api";
-import { Empty, PageHeader, Section } from "../components/ui";
-import { PushSettings } from "../components/PushSettings";
-import { AgentsSection } from "../setup/Agents";
-import { ProjectsSection } from "../setup/Projects";
-import { FirstLane } from "../setup/FirstLane";
+import { Empty, Section, Tile, type Family, type IconName } from "../components/ui";
+import { AddRepoDialog } from "../components/AddRepo";
+import { useLaneForm } from "../components/NewLane";
+import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
+import { PasskeyButton } from "./Settings";
 
+/** Setup from the Setup board: the machine's part on the left, the browser's steps on the right. */
 export function SetupPage() {
   const [status, error, reload] = useJson<SetupStatus>("/api/setup/status");
   const route = useLocation();
@@ -25,117 +26,97 @@ export function SetupPage() {
     void pending.current.request.then(() => { if (active) { setSignedIn(true); reload(); } }, (e) => { if (active) { setSignInError(errorMessage(e)); setSignedIn(true); } });
     return () => { active = false; };
   }, [token, reload]);
-  return <><header className="top"><Link className="wm" to="/">Context<span className="ln">Lanes</span></Link><span>Setup</span></header>
-    <main className="page setup-page">
-      {!signedIn ? <Section title="Signing you in"><Empty>Opening your private setup session…</Empty></Section> : signInError ? <Section title="Get a new sign-in link"><div className="setup-body"><p role="alert">{signInError}</p><code>contextlanes setup</code></div></Section> : !status ? <Section title="Connection"><Empty>{error ? "The daemon could not be reached. Check the service and reload." : "Connecting…"}</Empty></Section> : !status.authorized ? <SignIn status={status} reload={reload} /> : <Wizard status={status} />}
-    </main></>;
+  return <main className="setup">
+    <div className="hero"><Link className="wm" to="/">Context<span className="ln">Lanes</span></Link><span className="w2">setup</span>
+      <p>Install it once on a machine that stays on. Then finish here, from any browser on your network.</p></div>
+    <div className="cols">
+      <div className="col">
+        <section className="sec"><div className="sec-h"><span className="stepn">1</span><h3>On the always-on machine</h3></div>
+          <div className="term"><span className="c"># in the machine’s SSH session</span>{"\n"}$ contextlanes setup{"\n\n"}<span className="ok">✓</span> keeps lanes running after you log out{"\n"}<span className="ok">✓</span> turns on Tailscale for a private HTTPS address{"\n"}<span className="ok">✓</span> prints a sign-in link and a QR code{"\n\n"}Open the link here. It works once, for 10 minutes.{status?.publicUrl ? <>{"\n\n"}Reachable at <span className="y">{status.publicUrl}</span></> : null}</div>
+        </section>
+        <section className="sec"><div className="sec-h"><h3>Why an always-on machine</h3></div>
+          {([["run", "environment", "Lanes keep working when your laptop sleeps."], ["you", "permission", "Your phone can answer agents from anywhere on your network."], ["look", "read", "Each lane gets its own checkout and shell, so agents never collide."], ["mind", "think", "GPUs for local models usually live there anyway."]] as [Family, IconName, string][])
+            .map(([family, icon, text]) => <div className="sec-r why" key={text}><Tile family={family} icon={icon} small />{text}</div>)}
+        </section>
+      </div>
+      {!signedIn ? <Section title="Signing you in"><Empty>Opening your private setup session…</Empty></Section>
+        : !status ? <Section title="Connection"><Empty>{error ? "The ContextLanes service could not be reached. Check that it is running, then reload." : "Connecting…"}</Empty></Section>
+        : <BrowserSteps status={status} reload={reload} signInError={signInError} />}
+    </div>
+  </main>;
 }
-function SignIn({ status, reload }: { status: SetupStatus; reload: () => void }) {
-  return <Section title="Open a sign-in link"><div className="setup-body"><p>In this machine’s SSH session, run the command below and open the link it prints.</p><code>contextlanes setup</code>
-    {status.hasPasskey && <Action done={reload} run={async () => {
-      if (!window.PublicKeyCredential?.parseRequestOptionsFromJSON) throw new RequestError("Use a current browser at the HTTPS address where you added the passkey.");
-      const result = await postJson<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }>("/api/setup/login/options", {});
-      const credential = await navigator.credentials.get({ publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(result.options) }) as PublicKeyCredential | null;
-      if (!credential) throw new RequestError("Sign-in was cancelled; try again when you are ready.");
-      await postJson("/api/setup/login", { challengeId: result.challengeId, response: credential.toJSON() });
-    }}>Sign in with a passkey</Action>}
-  </div></Section>;
+
+type StepState = "done" | "now" | "next";
+function Step({ n, state, title, optional, desc, children, change }: { n: number; state: StepState; title: string; optional?: boolean; desc: ReactNode; children?: ReactNode; change?: () => void }) {
+  return <div className={`sst ${state}`}>
+    <span className="num">{state === "done" ? "✓" : n}</span>
+    <div style={{ minWidth: 0 }}>
+      <h3>{title}{optional ? <span className="opt"> · optional</span> : null}</h3>
+      <p className="d">{desc}</p>
+      {children ? <div className="body">{children}</div> : null}
+    </div>
+    <span className={`state ${state}`}>{state === "done" ? <>{change ? <button className="lnk" style={{ fontWeight: 500, color: "var(--muted)", marginRight: 10 }} onClick={change}>Change</button> : null}<i className="g done" />Done</> : state === "now" ? "Now" : optional ? "Any time" : "Next"}</span>
+  </div>;
 }
-function Wizard({ status }: { status: SetupStatus }) {
-  const [agents, agentError, reloadAgents] = useJson<DetectedAgent[]>("/api/setup/agents");
-  const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
-  const [step, setStep] = useState(0);
-  const ready = !agentError && !!agents?.some((a) => a.status === "Ready");
+
+function BrowserSteps({ status, reload, signInError }: { status: SetupStatus; reload: () => void; signInError: string }) {
+  const [agents, agentError, reloadAgents] = useJson<DetectedAgent[]>(status.authorized ? "/api/setup/agents" : null);
+  const [projects, , reloadProjects] = useJson<Project[]>(status.authorized ? "/api/projects" : null);
+  const [opened, setOpened] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+  const signed = status.authorized;
+  const ready = !!agents?.some((a) => a.status === "Ready");
   const hasProject = !!projects?.length;
-  const done = [ready, hasProject, status.hasLane];
-  const titles = ["Agent", "Project", "First lane"];
-  return <>
-    <PageHeader title={titles[step]!} meta="Three steps to your first running lane" />
-    <Section title="Setup progress"><ol className="setup-progress">{titles.map((title, i) => <li key={title}><button className={step === i ? "current" : ""} disabled={i > 0 && !ready || i > 1 && !hasProject} aria-current={step === i ? "step" : undefined} onClick={() => setStep(i)}>
-      <span>{i + 1}. {title}</span><span className="setup-state"><i className={`g ${done[i] ? "merged" : "draft"}`} />{done[i] ? "Done" : "Not done"}</span>
-    </button></li>)}</ol></Section>
-    {step === 0 && <AgentsSection agents={agents} error={agentError} reload={reloadAgents} />}
-    {step === 1 && <ProjectsSection projects={projects} reload={reloadProjects} />}
-    {step === 2 && <FirstLane projects={projects ?? []} agents={agents ?? []} />}
-    <div className="setup-actions">{step > 0 && <button className="btn ghost" onClick={() => setStep(step - 1)}>Back</button>}{step < 2 && <button className="btn" disabled={!ready || step === 1 && !hasProject} onClick={() => setStep(step + 1)}>Continue</button>}<Link to="/">Open projects</Link></div>
-  </>;
+  const done = [signed, ready, hasProject, status.hasLane];
+  const current = opened ?? done.findIndex((d) => !d);
+  const state = (i: number): StepState => i === current ? "now" : done[i] ? "done" : "next";
+  const finished = signed && status.hasLane;
+  return <section className="sec" aria-label="From any browser">
+    <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of 4 done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
+    <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Run contextlanes setup on the machine and open the link it prints."}>
+      {!signed ? <>
+        {signInError ? <p role="alert" style={{ margin: 0 }}>{signInError} Run <code>contextlanes setup</code> again for a new link.</p> : null}
+        {status.hasPasskey ? <div><Action run={async () => {
+          if (!window.PublicKeyCredential?.parseRequestOptionsFromJSON) throw new RequestError("Use a current browser at the HTTPS address where you added the passkey.");
+          const result = await postJson<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }>("/api/setup/login/options", {});
+          const credential = await navigator.credentials.get({ publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(result.options) }) as PublicKeyCredential | null;
+          if (!credential) throw new RequestError("Sign-in was cancelled; try again when you are ready.");
+          await postJson("/api/setup/login", { challengeId: result.challengeId, response: credential.toJSON() });
+        }} done={reload}>Sign in with a passkey</Action></div> : null}
+      </> : status.hasLane ? <PasskeyButton /> : null}
+    </Step>
+    <Step n={2} state={state(1)} title="Connect an agent" change={done[1] && current !== 1 ? () => setOpened(1) : undefined}
+      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready. You can message, approve and interrupt them here; they keep their own logins.` : "ContextLanes talks to each agent over ACP, so you can message, approve and interrupt it here. Agents keep their own logins."}>
+      {state(1) === "now" ? <><AgentRows agents={agents} error={agentError} reload={reloadAgents} />{opened === 1 ? <div><button className="btn" disabled={!ready} onClick={() => setOpened(null)}>Continue</button></div> : null}</> : null}
+    </Step>
+    <Step n={3} state={state(2)} title="Add projects" change={done[2] && current !== 2 ? () => setOpened(2) : undefined}
+      desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents already work in, or any folder on the machine. Each lane gets its own checkout."}>
+      {state(2) === "now" ? <div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => setAdding(true)}>{hasProject ? "Add more" : "Add repositories"}</button>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
+    </Step>
+    <Step n={4} state={state(3)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : "Give an agent one task. It gets its own branch, checkout and shell, and keeps going when you close this tab."}>
+      {state(3) === "now" && projects?.length ? <FirstLane projects={projects} /> : null}
+    </Step>
+    <Step n={5} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
+      {finished ? <div className="choice">
+        <Link to="/settings#notifications"><b>Phone push</b><span>install as an app</span></Link>
+        <Link to="/settings#notifications"><b>Telegram</b><span>reply to answer</span></Link>
+        <Link to="/settings#notifications"><b>ntfy</b><span>self-hosted</span></Link>
+      </div> : null}
+    </Step>
+    <Step n={6} state="next" optional title="Local models" desc={<>Point ContextLanes at Ollama or llama.cpp on this machine.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
+    {finished ? <div className="sec-f"><span>You’re set up.</span><div style={{ marginLeft: "auto" }}><Link className="btn sm" to="/">Open projects</Link></div></div> : null}
+    {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={() => { reloadProjects(); setOpened(null); }} /> : null}
+  </section>;
 }
 
-export function PasskeySection() {
-  const [status, , reload] = useJson<SetupStatus>("/api/setup/status");
-  if (!status?.authorized || status.hasPasskey || location.protocol !== "https:" || status.publicUrl !== location.origin) return null;
-  return <Section title="Sign in next time"><div className="setup-body"><p>This passkey will work at this address.</p><Action done={reload} run={async () => {
-    if (!window.PublicKeyCredential?.parseCreationOptionsFromJSON) throw new RequestError("Use a current browser that supports passkeys, then try again.");
-    const result = await postJson<{ options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }>("/api/setup/passkey/options", {});
-    const credential = await navigator.credentials.create({ publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(result.options) }) as PublicKeyCredential | null;
-    if (!credential) throw new RequestError("Passkey creation was cancelled; try again when you are ready.");
-    await postJson("/api/setup/passkey", { challengeId: result.challengeId, response: credential.toJSON() });
-  }}>Add a passkey for this address</Action></div></Section>;
-}
-
-export function NotificationsSection() {
-  return <><PushSettings /><OtherNotifications /></>;
-}
-
-function OtherNotifications() {
-  const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
-  const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
-  async function save(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setBusy(true); setMessage("");
-    const f = new FormData(e.currentTarget); const value = (key: string) => String(f.get(key) ?? "").trim();
-    const old = settings?.notifications ?? {};
-    const notifications = { ...(value("publicUrl") ? { publicUrl: value("publicUrl") } : {}),
-      ...(value("topic") ? { ntfy: { topic: value("topic"), url: value("ntfyUrl") || "https://ntfy.sh", ...(value("ntfyToken") ? { token: value("ntfyToken") } : {}) } } : {}),
-      ...(value("botToken") ? { telegram: { botToken: value("botToken"), chatId: value("chatId"), ownerId: value("ownerId") } } : {}),
-      ...(old.webPush ? { webPush: { ...old.webPush, subject: value("subject") || old.webPush.subject } } : {}),
-      ...(value("quietStart") && value("quietEnd") ? { quiet: { start: value("quietStart"), end: value("quietEnd"), timeZone: value("timeZone") || "UTC" } } : {}) };
-    try { await postJson("/api/setup/settings", { notifications }); setMessage("Notifications saved."); reload(); }
-    catch (e) { setMessage(errorMessage(e)); } finally { setBusy(false); }
-  }
-  const n = settings?.notifications;
-  return <><Section title="Notification settings" meta="Optional · requests keep waiting"><div className="setup-body">
-    {!settings ? <p>Loading settings…</p> : <form className="setup-form" onSubmit={save} key={JSON.stringify(n)}>
-      <label>Public HTTPS app URL<input name="publicUrl" type="url" defaultValue={n?.publicUrl} /></label>
-      <details className="notification-others"><summary>Other ways</summary><fieldset><legend>ntfy</legend><label>Private topic<input name="topic" defaultValue={n?.ntfy?.topic} /></label><label>Server URL<input name="ntfyUrl" type="url" defaultValue={n?.ntfy?.url ?? "https://ntfy.sh"} /></label><label>Publishing token (optional)<input name="ntfyToken" type="password" autoComplete="off" defaultValue={n?.ntfy?.token} /></label><p>Subscribe to this private topic in the phone’s ntfy app.</p></fieldset>
-      <fieldset><legend>Telegram</legend><label>Bot token<input name="botToken" type="password" autoComplete="off" defaultValue={n?.telegram?.botToken} /></label><label>Chat ID<input name="chatId" defaultValue={n?.telegram?.chatId} /></label><label>Owner user ID<input name="ownerId" defaultValue={n?.telegram?.ownerId} /></label><p>Start a conversation with the bot first. Only this user in this chat can answer.</p></fieldset></details>
-      <fieldset><legend>Quiet hours</legend><label>Start<input name="quietStart" type="time" defaultValue={n?.quiet?.start} /></label><label>End<input name="quietEnd" type="time" defaultValue={n?.quiet?.end} /></label><label>Time zone<input name="timeZone" defaultValue={n?.quiet?.timeZone ?? "UTC"} /></label></fieldset>
-      {n?.webPush && <label>Push contact<input name="subject" defaultValue={n.webPush.subject} /></label>}
-      <button className="btn" disabled={busy}>{busy ? "Saving…" : "Save notifications"}</button>
-    </form>}
-    <p role="status">{message}</p>
-  </div></Section></>;
-}
-
-export function LocalModelsSection() {
-  const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
-  const [name, setName] = useState(""); const [provider, setProvider] = useState<"ollama" | "llama.cpp">("ollama"); const [url, setUrl] = useState("http://127.0.0.1:11434");
-  const model = { name, provider, url };
-  return <Section title="Local models" meta="optional · helpers arrive in phase 3"><div className="setup-body">
-    <p>Save an existing Ollama or llama.cpp endpoint. This check contacts its health endpoint; it does not download a model.</p>
-    {settings?.localModels?.map((m) => <p key={m.name}>{m.name} · {m.provider} · <code>{m.url}</code></p>)}
-    <label>Model name<input value={name} onChange={(e) => setName(e.target.value)} /></label>
-    <label>Provider<select value={provider} onChange={(e) => { setProvider(e.target.value as typeof provider); setUrl(e.target.value === "ollama" ? "http://127.0.0.1:11434" : "http://127.0.0.1:8080"); }}><option>ollama</option><option>llama.cpp</option></select></label>
-    <label>Loopback URL<input value={url} onChange={(e) => setUrl(e.target.value)} /></label>
-    <Action done={reload} run={async () => { await postJson("/api/setup/model/probe", model); await postJson("/api/setup/settings", { localModels: [...(settings?.localModels ?? []).filter((m) => m.name !== name), model] }); }}>Check and save model</Action>
-  </div></Section>;
-}
-
-export function SettingsPage() {
-  const [projects, , reload] = useJson<Project[]>("/api/projects");
-  return <main className="page setup-page"><PageHeader title="Settings" meta="Saved to ~/.config/contextlanes/config.toml" /><Section title="Setup"><div className="setup-body"><Link to="/setup">Open setup wizard</Link></div></Section><PasskeySection /><ProjectsSection projects={projects} reload={reload} /><NotificationsSection /><LaneSettings /></main>;
-}
-function LaneSettings() {
-  const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings"); const [max, setMax] = useState(6);
-  return <Section title="Lanes"><div className="setup-body"><p>Current limit: {settings?.lanes?.maxConcurrent ?? "…"} active lanes.</p><label>Maximum concurrent lanes<input type="number" min={1} max={100} value={max} onChange={(e) => setMax(Number(e.target.value))} /></label><Action done={reload} run={() => postJson("/api/setup/settings", { lanes: { maxConcurrent: max, launchHosts: settings?.lanes?.launchHosts ?? true } })}>Save lane limit</Action></div></Section>;
-}
-export function ModelsPage() {
-  const [agents, error, reload] = useJson<DetectedAgent[]>("/api/setup/agents");
-  return <main className="page setup-page"><PageHeader title="Models" meta="Agent commands, logins and local endpoints" /><AgentsSection agents={agents} error={error} reload={reload} /><LocalModelsSection /><Section title="Local helper"><Empty>Measured helper work and routing arrive in phases 3 and 4.</Empty></Section></main>;
+function FirstLane({ projects }: { projects: Project[] }) {
+  const form = useLaneForm(projects);
+  return <div className="agents">{form.fields}<div className="sec-f"><button className="btn" disabled={!form.canStart} onClick={() => void form.start()}>{form.busy ? "Starting…" : "Start lane"}</button></div></div>;
 }
 
 export function ClaimGuard({ children }: { children: ReactNode }) {
   const [status, error] = useJson<SetupStatus>("/api/setup/status");
   if (status && !status.authorized) return <Navigate to="/setup" replace />;
-  if (!status) return <main className="page"><Section title="Connection"><Empty>{error ? "Cannot reach ContextLanes. Check the daemon and reload." : "Connecting…"}</Empty></Section></main>;
+  if (!status) return <main className="pg"><Section title="Connection"><Empty>{error ? "ContextLanes could not be reached. Check that the service is running, then reload." : "Connecting…"}</Empty></Section></main>;
   return children;
 }
