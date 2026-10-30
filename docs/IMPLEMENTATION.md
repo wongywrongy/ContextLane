@@ -328,8 +328,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B6 Add from GitHub, branch in the band | projects | Done: see B6 |
 | 3.1 Code map | architecture | Done: CodeGraph 1.6.2 in a sandboxed worker; see 3.1 |
 | 3.2 Architecture page and `contextlanes arch` | architecture | Done: see 3.2 |
-| 3.3 Collision warnings | architecture, review | Next |
-| 3.4 Local model runtime | models | Not started |
+| 3.3 Collision warnings | architecture, review | Done: see 3.3 |
+| 3.4 Local model runtime | models | Next |
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Not started |
 | 3.6 Local helper (`delegate`) | models, work-lane | Not started |
 | 3.7 Insights | insights | Not started |
@@ -535,6 +535,14 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Shown in Needs you, both lanes' Work headers, the Architecture inspector box (with its action, e.g. "Rebase 02 after checkpoint 1", which queues that message to lane 02 for after lane 01 merges) and the Review result "Shares a file with 02".
 - Agents hear about a collision only when the owner presses the action.
 - **Done when:** a two-lane fixture fires once, does not repeat, and clears on merge.
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/collisions.ts` checks every 30 seconds (and 5 seconds after start) for two or more open lanes changing one module on the code map, so a new overlap is seen within a minute. It records `collision.detected` once on every lane in it, with the files and a suggested order, and `collision.cleared` when the overlap ends (a lane merges, is archived or drops the change).
+- Order, as decided: a lane whose changed modules use the other lane's changes waits; otherwise the lane nearer review goes first, then the smaller change. The reason is shown ("02 is nearer review").
+- The Inbox and Needs you get one Collision item, on the lane that should wait, linking to Architecture. Review shows "Shares models/tournament.py with 02 · Architecture →"; the Work header shows "Also changed by 02". The Architecture inspector's box shows both lanes, the order and its reason, and the action "Rebase 02 after 01 merges".
+- Agents are told nothing by default. The action records `collision.planned`; when the first lane merges, the next check sends the waiting lane one message to rebase onto its base and resolve the module, and records `collision.told`.
+- Tests: `collisions.test.ts` (order rules; recorded once, Inbox item, cleared; the note sent only after the merge, and only once).
 
 ### 3.4 Local model runtime (models)
 

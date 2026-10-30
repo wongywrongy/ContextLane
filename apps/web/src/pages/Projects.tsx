@@ -5,7 +5,7 @@ import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api"
 import { AddRepoDialog } from "../components/AddRepo";
 import { Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
 
-const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment" };
+const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment", collision: "subagent" };
 
 /** Home: what needs you, then one tile per project. */
 export function ProjectsPage() {
@@ -85,7 +85,7 @@ function NeedRow({ item, lane, project, answered }: { item: InboxItem; lane?: La
     <span className="what">{item.title}{error ? <span role="alert" style={{ display: "block" }}>{error}</span> : null}</span>
     <span className="act"><span className="t">{ago(item.since)}</span>
       {item.kind === "permission" && allow && deny ? <><button className="btn sm" disabled={busy} onClick={() => void respond(allow.id)}>{allow.label}</button><button className="btn ghost sm" disabled={busy} onClick={() => void respond(deny.id)}>{deny.label}</button></>
-        : <Link className="btn ghost sm" to={item.kind === "review" ? reviewLink(item.lane) : `/inbox?item=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Reply" : "Open"}</Link>}
+        : <Link className="btn ghost sm" to={item.kind === "review" ? reviewLink(item.lane) : item.kind === "collision" ? `/p/${item.lane.split("/")[0]}/architecture` : `/inbox?item=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Reply" : "Open"}</Link>}
     </span>
   </div>;
 }

@@ -59,7 +59,7 @@ export const ActivityQuery = z.object({ since: z.iso.datetime().optional() });
 export const InboxItem = z.object({
   id: z.string(),
   lane: LaneId,
-  kind: z.enum(["permission", "question", "review", "approval"]),
+  kind: z.enum(["permission", "question", "review", "approval", "collision"]),
   title: z.string(),
   since: z.string(),
   options: z.array(z.object({ id: z.string(), label: z.string(), kind: z.string() })).default([]),
@@ -105,3 +105,7 @@ export type Health = z.infer<typeof Health>;
 export const OutsideAgent = z.object({ agent: z.enum(["claude-code", "codex"]), pid: z.number().int(), cwd: z.string(), startedAt: z.string(), running: z.boolean(), endedAt: z.string().nullable(), session: z.string().nullable() });
 export type OutsideAgent = z.infer<typeof OutsideAgent>;
 export const TakeOverRequest = z.object({ pid: z.number().int().positive(), startedAt: z.iso.datetime() });
+
+/** Collisions still open in a project, for Architecture and Review. */
+export type Collision = { module: string; lanes: string[]; order: string[]; files: Record<string, string[]>; reason: string; since: string; planned: boolean };
+export const PlanCollisionRequest = z.object({ module: z.string().min(1).max(300), lane: LaneId });

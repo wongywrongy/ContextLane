@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
+import { sharing } from "./Review";
 import type { InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
 import { postJson, useInbox, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
@@ -135,6 +136,7 @@ function LaneView({ lane, events, error, reload, view, setView }: { lane: Lane; 
     <div className="ph">
       <LaneBadge id={lane.id} colour={lane.colour} large /><AgentMark agent={lane.agent} />
       <h2>{lane.task}</h2><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
+      {sharing(events, lane.id).map((c) => <Link key={c.module} className="lnk" style={{ fontSize: 13 }} to={`/p/${lane.project}/architecture`}><Glyph g="wait">Also changed by {c.others.map((o) => o.slice(o.lastIndexOf("/") + 1)).join(" and ")}: {c.module}</Glyph></Link>)}
       <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · {ago(lane.createdAt)}</span></div>
     </div>
 

@@ -17,3 +17,4 @@ export { Notifier, quietNow } from "./notifications/notifier.js";
 export { Updater, UpdateError, type UpdateDeps } from "./update.js";
 export { layoutOf, setLink, releaseVersion, type Layout } from "./layout.js";
 export { CodeMaps, CODEMAP_WORKER } from "./codemap.js";
+export { Collisions, mergeOrder } from "./collisions.js";

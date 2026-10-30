@@ -314,7 +314,14 @@ export class Store {
         AND r.seq = (SELECT MAX(r2.seq) FROM event r2 WHERE r2.lane = r.lane AND r2.type = 'recipe.requested')
         AND NOT EXISTS (SELECT 1 FROM approval a WHERE a.project = l.project AND a.recipe_hash = json_extract(r.payload, '$.hash'))
       GROUP BY r.lane, hash ORDER BY at`).all() as Row[];
+    const collisions = this.db.prepare(`SELECT d.lane, d.at, d.seq, json_extract(d.payload, '$.module') AS module, json_extract(d.payload, '$.order') AS ord FROM event d JOIN lane l ON l.id = d.lane
+      WHERE d.type = 'collision.detected' AND l.state NOT IN ('merged', 'cleaned', 'archived') AND d.lane = json_extract(d.payload, '$.order[1]')
+        AND NOT EXISTS (SELECT 1 FROM event c WHERE c.lane = d.lane AND c.type = 'collision.cleared' AND c.seq > d.seq AND json_extract(c.payload, '$.module') = json_extract(d.payload, '$.module'))
+      ORDER BY d.at`).all() as Row[];
+    const number = (id: string) => id.slice(id.lastIndexOf("/") + 1);
     return [
+      ...collisions.map((r) => { const order = JSON.parse(String(r.ord)) as string[]; return { id: `${r.lane}#collision-${r.seq}`, lane: String(r.lane), kind: "collision" as const,
+        title: `${r.module}: lanes ${order.map(number).join(" and ")} are both changing it; ${number(order[0]!)} should merge first`, since: String(r.at), options: [] }; }),
       ...recipes.map((r) => ({ id: `${r.lane}#recipe-${r.hash}`, lane: String(r.lane), kind: "approval" as const, title: `Approve the recipe ${String(r.hash).slice(0, 7)} on the Run page`, since: String(r.at), options: [] })),
       ...asks.map((r) => ({ id: `${r.lane}#${r.rid}`, lane: String(r.lane), kind: r.kind === "question" ? "question" as const : "permission" as const, title: String(r.title), since: String(r.at), options: JSON.parse(String(r.options)) })),
       ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: (r.at as string) ?? now(), options: [] })),

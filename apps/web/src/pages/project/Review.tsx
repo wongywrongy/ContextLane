@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, Lane, LaneEvent } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
 
 const WORDS = { strong: "Strong", mixed: "Mixed", weak: "Weak" } as const;
@@ -21,6 +21,16 @@ function CheckRow({ check }: { check: Checkpoint["checks"][number] }) {
   const right = !c ? (check.ms < 1000 ? `${check.ms} ms` : `${Math.round(check.ms / 100) / 10} s`)
     : c.total !== null ? `${c.passed} / ${c.total}` : c.tool;
   return <div className="rvr" title={check.detail || undefined}><i className={`g ${warned ? "wait" : check.passed ? "done" : "fail"}`} role="img" aria-label={warned ? "Look closer" : check.passed ? "Passed" : "Failed"} /><span>{words}</span><span className="r">{right}{c && c.total !== null ? <span className="muted"> · {c.tool}</span> : null}</span></div>;
+}
+
+/** Collisions this lane is still in, from its own events. */
+export function sharing(events: LaneEvent[], lane: string): { module: string; others: string[] }[] {
+  const open = new Map<string, string[]>();
+  for (const e of events) {
+    if (e.type === "collision.detected") open.set(e.payload.module, e.payload.lanes.filter((l) => l !== lane));
+    else if (e.type === "collision.cleared") open.delete(e.payload.module);
+  }
+  return [...open].map(([module, others]) => ({ module, others }));
 }
 
 const clean = (c: Checkpoint) => c.checks.every((check) => check.passed) && !c.unplanned.length;
@@ -87,6 +97,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
     <div className="rv3">
       <Section title="Result" end={results ? <span className="mono muted" style={{ fontSize: 12 }}>{results} {results === 1 ? "check" : "checks"}</span> : undefined}>
         {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
+        {sharing(history, lane.id).map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
         {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
         {!results ? <div className="rvr muted">The recipe has no checks.</div> : null}
       </Section>

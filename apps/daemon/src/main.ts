@@ -15,6 +15,8 @@ import { releaseVersion, layoutOf, exists } from "./layout.js";
 import { homedir } from "node:os";
 import { installBackupTimer } from "./install.js";
 import { confineGit, socketPath } from "./sandbox.js";
+import { CodeMaps } from "./codemap.js";
+import { Collisions } from "./collisions.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -39,18 +41,22 @@ async function main(): Promise<void> {
   const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
   await setup.initialize();
   const runtime = new Runtime({ store, bus, config, run });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run });
+  const codemaps = new CodeMaps({ run, store, config });
+  const collisions = new Collisions({ store, bus, codemaps, hosts });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();
   await app.listen({ host: config.listen.host, port: config.listen.port });
   notifier.start();
   runtime.watch();
+  collisions.start();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
 
   const stop = async () => {
     await notifier.close();
     runtime.close();
+    collisions.close();
     await app.close();
     await hosts.close();
     store.close();

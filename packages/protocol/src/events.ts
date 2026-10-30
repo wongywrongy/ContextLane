@@ -77,6 +77,12 @@ const payloads = {
   /** The approved checkpoint was rebased or merged onto its base; a retry after a failed push continues from this head. */
   "checkpoint.updated": z.object({ checkpointId: z.string(), head: z.string() }),
   "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
+  /** Two or more open lanes changed one module. `order` is the suggested merge order; the rest wait. */
+  "collision.detected": z.object({ module: z.string(), lanes: z.array(z.string()), files: z.record(z.string(), z.array(z.string())), order: z.array(z.string()), reason: z.string() }),
+  "collision.cleared": z.object({ module: z.string(), lanes: z.array(z.string()) }),
+  /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */
+  "collision.planned": z.object({ module: z.string(), first: z.string(), message: z.string() }),
+  "collision.told": z.object({ module: z.string(), first: z.string() }),
   "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative() }),
   "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional(), source: z.literal("acp").default("acp") }),
   "usage.turn": TurnUsage,

@@ -5,9 +5,9 @@ import { apiFetch, answerItem, errorMessage, reviewLink, useInbox, useJson } fro
 import { AGENT_NAMES, Empty, Glyph, LaneBadge, Tile, ago, iconFor, laneNumber, type IconName } from "../components/ui";
 import { loadHistory, stepsFor } from "../work/model";
 
-const KINDS = [["all", "All"], ["permission", "Permissions"], ["question", "Questions"], ["review", "Reviews"], ["approval", "Approvals"]] as const;
-const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment" };
-const KIND_WORD: Record<InboxItem["kind"], string> = { permission: "Permission", question: "Question", review: "Review", approval: "Approval" };
+const KINDS = [["all", "All"], ["permission", "Permissions"], ["question", "Questions"], ["review", "Reviews"], ["approval", "Approvals"], ["collision", "Collisions"]] as const;
+const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment", collision: "subagent" };
+const KIND_WORD: Record<InboxItem["kind"], string> = { permission: "Permission", question: "Question", review: "Review", approval: "Approval", collision: "Collision" };
 
 /** Inbox: everything waiting on you, oldest first; the selected item with what led to it. */
 export function InboxPage() {
@@ -67,7 +67,7 @@ function Detail({ item, lane, project, answered }: { item: InboxItem; lane?: Lan
       {detail ? <div className="out" style={{ margin: "0 0 14px" }}>{detail}</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {item.options.map((o, i) => <button key={o.id} className={`btn${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}
-        {!item.options.length ? <Link className="btn" to={item.kind === "review" ? reviewLink(item.lane) : `/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>{item.kind === "review" ? "Open the review" : "Open the lane"}</Link> : null}
+        {!item.options.length ? <Link className="btn" to={item.kind === "review" ? reviewLink(item.lane) : item.kind === "collision" ? `/p/${item.lane.split("/")[0]}/architecture` : `/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>{item.kind === "review" ? "Open the review" : item.kind === "collision" ? "Open the architecture" : "Open the lane"}</Link> : null}
       </div>
       {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}
     </div>
