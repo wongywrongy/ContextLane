@@ -2,6 +2,7 @@
 
 ## Needs Kyle
 
+- **The phase 3 gate (30% fewer cloud tokens):** with a local model serving, write 3 to 5 tasks typical of your week for one of your repositories into a `tasks.json` and run `contextlanes bench tasks.json`, answering the lanes' questions as they come. Paste the table it prints under 3.9. Each task runs twice, so it costs about twice its usual tokens.
 - **Local models (phase 3):** add Ollama (or llama.cpp) under Models → Local models, pull the model you want (`ollama pull <name>`), and check it shows Serving after a brief or Insights run. Nothing in phase 3 has run against a real model yet; the code is tested against a fake OpenAI-compatible server. On neo's 24 GB card a 30B coder model fits only quantized (Q4).
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
 - **Terminals on neo:** the native terminal module is gone (see T). Open a lane terminal and an agent login terminal once on neo to confirm; the real tmux test passes in the build container with Python 3.13.
@@ -335,8 +336,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.6 Local helper (`delegate`) | models, work-lane | Done with a fake model; see 3.6 (decision changed) |
 | 3.7 Insights | insights | Done with a fake model; see 3.7 |
 | 3.8 ⌘K Ask | top bar | Done with a fake model; see 3.8 |
-| 3.9 Measure the phase 3 gate | — | Next |
-| 4.1 Hand off, fork, fresh session | work-lane | Not started |
+| 3.9 Measure the phase 3 gate | — | Built; the real run is Kyle's; see 3.9 |
+| 4.1 Hand off, fork, fresh session | work-lane | Next |
 | 4.2 Second-agent review | review | Not started |
 | 4.3 More agents | models | Not started |
 | 4.4 Routing | models | Not started |
@@ -639,6 +640,14 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - `contextlanes bench <tasks.json>`: each task names a repository, a commit, a task and a check command. Each task runs twice in fresh lanes from the same commit with the same agent and model: once with notes, `get_brief` and `delegate` off, once with them on. Record tokens (3.0), time, and whether the check passed, and write a table into this document.
 - Test it with the fake agent. The real run costs tokens and is Kyle's.
 - Gate: at least 30% fewer cloud tokens, with checks passing at the same rate.
+
+#### What was done (2026-10-30)
+
+- `contextlanes bench <tasks.json>` posts the tasks to `POST /api/bench` and prints progress, then a Markdown table ready for this document. A task is `{ "project", "base", "task", "check": [argv], "agent", "model", "timeoutMinutes" }`.
+- `apps/daemon/src/bench.ts` starts both lanes of a task at once from the same base, with the same agent and model, in "accept edits" mode. The baseline lane starts without project notes and is offered neither `get_brief` nor `delegate` (`baseline` on the lane's `lane.created` event); the other gets all of phase 3. A run ends when its agent's turn ends with nothing queued, or it fails or times out; then the task's check runs in that lane's checkout in the sandbox. Tokens are the agent's own reported usage (3.0). Results are saved under `<data>/bench/`.
+- The bench never answers a permission: commands the agents want to run still come to the Inbox.
+- Tests: `bench.test.ts` with a fake lane manager (both lanes, tokens, checks, the table) and the baseline's first message.
+- **The gate itself is not measured.** It needs real agents, a real local model and real tokens on neo. Added to Needs Kyle.
 
 ### 4.1 Hand off, fork, fresh session (work-lane)
 

@@ -22,3 +22,4 @@ export { LocalModels } from "./localmodels.js";
 export { Insights } from "./insights.js";
 export { Briefs } from "./briefs.js";
 export { Helper } from "./helper.js";
+export { Bench } from "./bench.js";

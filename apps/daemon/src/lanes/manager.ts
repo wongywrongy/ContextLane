@@ -80,7 +80,7 @@ export class LaneManager {
       state: "draft",
       colour: laneColour(n),
     });
-    this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree } }));
+    this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, ...(req.baseline ? { baseline: true } : {}) } }));
     if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
     this.emit(store.setLaneState(id, "setting_up"));
 
@@ -90,7 +90,7 @@ export class LaneManager {
       await extra.prepare?.(lane);
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
       // Through the environment, not arguments: every process on the machine can read arguments.
-      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption, extra.firstPrompt, await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "")), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
+      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption, extra.firstPrompt, req.baseline ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "")), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {

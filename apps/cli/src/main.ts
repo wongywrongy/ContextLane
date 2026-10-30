@@ -4,7 +4,8 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { Health, InboxItem, Lane, Project, ProjectBranches, ProjectMap } from "@contextlanes/protocol";
+import { benchTable, type BenchResult, type Health, type InboxItem, type Lane, type Project, type ProjectBranches, type ProjectMap } from "@contextlanes/protocol";
+import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError } from "./client.js";
 import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
 
@@ -19,6 +20,7 @@ const HELP = `contextlanes — run coding agents in parallel lanes
   contextlanes setup                          claim, enable remote access, print sign-in link and QR
   contextlanes add [path]                     add a repository (defaults to the current folder)
   contextlanes arch [project]                 layers, modules and where lanes work  [--json] [--mermaid]
+  contextlanes bench <tasks.json>             each task without and with phase 3's tools; prints the token table
   contextlanes update                         install the newest version and restart; lanes keep running
                                               [--check] only list what's new   [--rollback] go back one version
 
@@ -86,6 +88,21 @@ async function main(argv: string[]): Promise<number> {
     case "add": {
       const project = await addProject(rest[0]);
       console.log(`Added ${project.name}.`);
+      return 0;
+    }
+    case "bench": {
+      if (!rest[0]) return usage();
+      const tasks = JSON.parse(await readFile(rest[0], "utf8")) as unknown;
+      let run = await api<BenchResult>("/api/bench", { method: "POST", body: { tasks } });
+      console.log(`Bench ${run.id} started: ${run.tasks.length} ${run.tasks.length === 1 ? "task" : "tasks"}, two lanes each. Answer their questions in the Inbox as usual.`);
+      let last = "";
+      while (!run.finishedAt) {
+        await new Promise((r) => setTimeout(r, 15_000));
+        run = await api<BenchResult>(`/api/bench/${run.id}`);
+        const line = run.tasks.flatMap((t) => t.runs.map((r) => `${r.lane} ${r.state}`)).join(" · ");
+        if (line !== last) { console.log(line); last = line; }
+      }
+      console.log(`\n${benchTable(run)}`);
       return 0;
     }
     case "arch": {

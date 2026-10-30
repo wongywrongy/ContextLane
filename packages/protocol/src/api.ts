@@ -46,8 +46,17 @@ export const StartLaneRequest = z.object({
   adoption: ServiceProposal.optional(),
   /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */
   base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
+  /** contextlanes bench: "baseline" lanes start without project notes, get_brief or delegate. */
+  baseline: z.boolean().default(false),
 });
 export type StartLaneRequest = z.input<typeof StartLaneRequest>;
+
+/** contextlanes bench: each task runs twice from the same commit, without and with phase 3's tools. */
+export const BenchTask = z.object({ project: ProjectId, base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/).default("main"), task: z.string().min(1).max(4000),
+  check: z.array(z.string().min(1)).min(1).max(50), agent: z.string().default("claude-code"), model: z.string().optional(), timeoutMinutes: z.number().int().min(1).max(240).default(60) });
+export const BenchRequest = z.object({ tasks: z.array(BenchTask).min(1).max(20) });
+export type BenchRun = { lane: string; baseline: boolean; tokens: number | null; minutes: number | null; passed: boolean | null; state: "running" | "checking" | "done" | "failed"; detail: string | null };
+export type BenchResult = { id: string; startedAt: string; finishedAt: string | null; tasks: { task: string; project: string; runs: BenchRun[] }[] };
 
 export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web") });
 export type AnswerRequest = z.input<typeof AnswerRequest>;
@@ -109,3 +118,17 @@ export const TakeOverRequest = z.object({ pid: z.number().int().positive(), star
 /** Collisions still open in a project, for Architecture and Review. */
 export type Collision = { module: string; lanes: string[]; order: string[]; files: Record<string, string[]>; reason: string; since: string; planned: boolean };
 export const PlanCollisionRequest = z.object({ module: z.string().min(1).max(300), lane: LaneId });
+
+/** The table for docs/IMPLEMENTATION.md: tokens without and with phase 3, the change, and checks passed. */
+export function benchTable(r: BenchResult): string {
+  const rows = r.tasks.map((t) => {
+    const off = t.runs.find((x) => x.baseline); const on = t.runs.find((x) => !x.baseline);
+    const change = off?.tokens && on?.tokens ? `${Math.round((1 - on.tokens / off.tokens) * 100)}% fewer` : "–";
+    const pass = (x?: BenchRun) => x?.passed === null || x?.passed === undefined ? "–" : x.passed ? "passed" : "failed";
+    return `| ${t.task.split("\n")[0]!.slice(0, 60)} | ${off?.tokens ?? "–"} | ${on?.tokens ?? "–"} | ${change} | ${pass(off)} / ${pass(on)} |`;
+  });
+  const sum = (b: boolean) => r.tasks.reduce((n, t) => n + (t.runs.find((x) => x.baseline === b)?.tokens ?? 0), 0);
+  const off = sum(true), on = sum(false);
+  return ["| Task | Tokens without | Tokens with | Change | Check (without / with) |", "|---|---|---|---|---|", ...rows,
+    `| **All** | ${off} | ${on} | ${off && on ? `${Math.round((1 - on / off) * 100)}% fewer` : "–"} | |`].join("\n");
+}
