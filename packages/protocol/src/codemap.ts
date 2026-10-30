@@ -11,7 +11,9 @@ export const CodeModule = z.object({ id: z.string(), layer: z.string(), files: z
   hash: z.string().optional(),
   /** Exported symbols, the module's public surface, at most 12. */
   symbols: z.array(z.object({ name: z.string(), kind: z.string(), file: z.string(), signature: z.string().nullable() })).optional(),
-  paths: z.array(z.string()).optional() });
+  paths: z.array(z.string()).optional(),
+  /** Its main language ("TypeScript"), so a layer's label can follow the modules on screen. */
+  tech: z.string().optional() });
 export type CodeModule = z.infer<typeof CodeModule>;
 export const CodeLink = z.object({ source: z.string(), target: z.string(), count: z.number().int(), kinds: z.array(z.string()) });
 /** The busiest symbol pairs behind a link: "solver/model.py → to_solver_input()". */
@@ -31,8 +33,42 @@ export const CodeMap = z.object({
   rules: z.object({ source: z.enum(["recipe", "inferred"]), roots: z.array(z.string()), layers: ArchitectureConfig.shape.layers.optional(),
     /** Large packages split by their first folder ("apps/daemon/http"). */
     split: z.array(z.string()).optional() }),
+  /** Approved tidy (see Tidy): module → area name and module → layer, overriding the folder rules. */
+  areas: z.record(z.string(), z.string()).optional(),
 });
 export type CodeMap = z.infer<typeof CodeMap>;
+
+/** Above this many modules, Architecture starts at areas and opens one at a time. */
+export const AREA_THRESHOLD = 16;
+const CONTAINERS = new Set(["apps", "packages", "libs", "lib", "services", "src", "crates", "cmd", "internal", "modules", "projects", "tools", "plugins"]);
+/** The area a module belongs to: the approved tidy's name, else its top folder ("apps/console" for "apps/console/hooks"). */
+export function areaOf(module: string, map: Pick<CodeMap, "areas">): string {
+  const named = map.areas?.[module];
+  if (named) return named;
+  const parts = module.split("/");
+  return parts.length > 1 && CONTAINERS.has(parts[0]!) ? parts.slice(0, 2).join("/") : parts[0]!;
+}
+export type CodeArea = { name: string; modules: string[]; files: number; layers: string[]; uses: { area: string; count: number }[]; usedBy: { area: string; count: number }[] };
+/** Areas with their modules, layers and the links between areas, summed. */
+export function codeAreas(map: CodeMap, modules = map.modules): CodeArea[] {
+  const by = new Map<string, CodeArea>();
+  for (const m of modules) {
+    const name = areaOf(m.id, map);
+    const a = by.get(name) ?? { name, modules: [], files: 0, layers: [], uses: [], usedBy: [] };
+    a.modules.push(m.id); a.files += m.files; if (!a.layers.includes(m.layer)) a.layers.push(m.layer);
+    by.set(name, a);
+  }
+  const ids = new Set(modules.map((m) => m.id));
+  const add = (list: { area: string; count: number }[], area: string, count: number) => { const e = list.find((x) => x.area === area); if (e) e.count += count; else list.push({ area, count }); };
+  for (const l of map.links) {
+    if (!ids.has(l.source) || !ids.has(l.target)) continue;
+    const from = areaOf(l.source, map), to = areaOf(l.target, map);
+    if (from === to) continue;
+    add(by.get(from)!.uses, to, l.count); add(by.get(to)!.usedBy, from, l.count);
+  }
+  for (const a of by.values()) { a.uses.sort((x, y) => y.count - x.count); a.usedBy.sort((x, y) => y.count - x.count); }
+  return [...by.values()].sort((a, b) => b.files - a.files);
+}
 
 /** A lane on the map: the modules it changed, modules it created, and the files behind each. */
 export type LaneOverlay = { lane: string; modules: Record<string, string[]>; created: string[] };

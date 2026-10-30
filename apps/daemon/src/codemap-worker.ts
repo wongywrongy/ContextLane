@@ -132,7 +132,8 @@ async function main(): Promise<void> {
         const hash = createHash("sha256").update(own.map((f) => `${f}:${files.find((x) => x.path === f)?.contentHash ?? ""}`).join("\n")).digest("hex").slice(0, 16);
         const symbols = cg.getNodesInFiles(own).filter((n) => n.isExported && ["function", "class", "method", "interface", "type_alias", "constant"].includes(n.kind))
           .slice(0, 12).map((n) => ({ name: n.name, kind: n.kind, file: n.filePath, signature: n.signature ? n.signature.split("\n")[0]!.slice(0, 160) : null }));
-        return { id, layer: m.layer, files: m.files, lines: m.lines, tests: m.tests, hash, symbols, paths: own.slice(0, 200) };
+        const top = [...m.languages].sort((a, b) => b[1] - a[1])[0]?.[0];
+        return { id, layer: m.layer, files: m.files, lines: m.lines, tests: m.tests, hash, symbols, paths: own.slice(0, 200), ...(top ? { tech: LANGUAGE[top] ?? top } : {}) };
       }).sort((a, b) => a.id.localeCompare(b.id)),
       links: [...links.values()].map((l) => ({ ...l, kinds: [...l.kinds] })).sort((a, b) => b.count - a.count),
       pairs: agg.pairs.filter((p) => p.source !== p.target).map(({ source, target, from, to, count }) => ({ source, target, from, to, count })),

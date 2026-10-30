@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router";
-import { assign, type CodeMap, type Lane, type Project, type ProjectMap } from "@contextlanes/protocol";
+import { useParams, useSearchParams } from "react-router";
+import { AREA_THRESHOLD, areaOf, assign, codeAreas, type CodeArea, type CodeMap, type Lane, type Project, type ProjectMap } from "@contextlanes/protocol";
 import { useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
@@ -41,24 +41,40 @@ export function ArchitecturePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [traced, setTraced] = useState<number | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  // Large repositories start at areas (AREA_THRESHOLD): the area opened is in the address, so Back closes it.
+  const [params, setParams] = useSearchParams();
+  const area = params.get("area");
+  const openArea = (name: string | null) => { setSelected(null); setTraced(null); setParams(name ? { area: name } : {}); };
+  const [query, setQuery] = useState("");
 
   if (error && !data) return <main className="pg"><PageHeader title="Architecture" /><Section title="Architecture"><Empty>The code map could not be loaded. {error.message}</Empty></Section></main>;
   if (!data) return <main className="pg"><PageHeader title="Architecture" meta="how the code fits together and where lanes touch it" /><Section title="Architecture"><Empty>Reading the code with CodeGraph. The first map of a large repository can take a minute.</Empty></Section></main>;
   if (!map) return <main className="pg"><PageHeader title="Architecture" /><Section title="Architecture"><Empty>{data.error ?? "No code map yet."}</Empty></Section></main>;
 
   const modules = map.modules.concat([...created].filter((id) => !map.modules.some((m) => m.id === id)).map((id) => ({ id, layer: layerForNew(id, map, touched.get(id)?.[0]?.files ?? []), files: touched.get(id)?.[0]?.files.length ?? 0, lines: 0, tests: 0 })));
-  const visible = modules.filter((m) => shown === "all" || shown === "tests" || (shown === "changes" ? touched.has(m.id) : touched.has(m.id) || usesChange.has(m.id)));
   const path = traced === null ? null : map.paths[traced] ?? null;
+  const q = query.trim().toLowerCase();
+  const byFilter = (m: CodeMap["modules"][number]) => shown === "all" || shown === "tests" || (shown === "changes" ? touched.has(m.id) : touched.has(m.id) || usesChange.has(m.id));
+  const big = modules.length > AREA_THRESHOLD;
+  const atAreas = big && !area && !q && !path;
+  const scoped = modules.filter((m) => (!area || areaOf(m.id, map) === area) && (!q || m.id.toLowerCase().includes(q)) && (!path || path.modules.includes(m.id) || !big));
+  const visible = scoped.filter(byFilter);
+  const areas = atAreas ? codeAreas(map, modules).filter((a) => shown === "all" || shown === "tests" || a.modules.some((id) => modules.some((m) => m.id === id && byFilter(m)))) : [];
   const focus = selected ? modules.find((m) => m.id === selected) ?? null : null;
   const synced = agoText(map.syncedAt);
   return <main className="pg stack">
     <div className="arw">
       <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
-        <Section title="Architecture" meta={`${visible.length} of ${modules.length} modules · CodeGraph, synced ${synced}`}
+        <Section title="Architecture" meta={atAreas ? `${areas.length} ${areas.length === 1 ? "area" : "areas"} · ${modules.length} modules · CodeGraph, synced ${synced}` : `${visible.length} of ${modules.length} modules · CodeGraph, synced ${synced}`}
           end={<div className="seg" role="group" aria-label="Show">{(["all", "lanes", "changes", "tests"] as const).map((f) => <button key={f} className={shown === f ? "on" : ""} aria-pressed={shown === f} onClick={() => setFilter(f)}>{f === "all" ? "Show all" : f[0]!.toUpperCase() + f.slice(1)}</button>)}</div>}>
+          {big ? <div className="sec-r" style={{ gap: 10, minHeight: 48 }}>
+            {area ? <><button className="lnk" onClick={() => openArea(null)}>All areas</button><span className="muted">›</span><b className="mono" style={{ fontSize: 13.5 }}>{area}</b></> : <span className="muted" style={{ fontSize: 13.5 }}>{q ? "Modules matching your search" : path ? `Tracing ${path.name}` : "Open an area to see its modules"}</span>}
+            <input className="in" type="search" placeholder="Find a module" aria-label="Find a module" value={query} onChange={(e) => setQuery(e.target.value)} style={{ marginLeft: "auto", maxWidth: 240, minHeight: 34 }} />
+          </div> : null}
           {data.error ? <div className="sec-f" role="status" style={{ fontSize: 13 }}>{data.error} Showing the last map.</div> : null}
-          {!visible.length ? <Empty>{shown === "changes" || shown === "lanes" ? "No open lane has changed code yet. Show all to see every module." : "CodeGraph found no code it can read here."}</Empty>
-            : <Diagram map={map} modules={visible} touched={touched} created={created} usesChange={usesChange} tests={shown === "tests"} selected={selected} select={setSelected} path={path} />}
+          {atAreas ? <AreaGrid areas={areas} map={map} touched={touched} usesChange={usesChange} open={openArea} />
+            : !visible.length ? <Empty>{q ? `No module matches "${query}".` : shown === "changes" || shown === "lanes" ? "No open lane has changed code here yet. Show all to see every module." : "CodeGraph found no code it can read here."}</Empty>
+            : <Diagram map={map} modules={visible} touched={touched} created={created} usesChange={usesChange} tests={shown === "tests"} selected={selected} select={setSelected} path={path} onlySelected={visible.length > AREA_THRESHOLD} />}
           <div className="alegend" aria-label="Key">
             <span><i className="ln" />calls or imports</span><span><i className="ed" />a lane edits it</span><span><i className="tw" />two lanes edit it</span><span><i />uses a change</span>
           </div>
@@ -71,11 +87,18 @@ export function ArchitecturePage() {
       </div>
       <aside className="sec insp" aria-label="Selected module">
         {focus ? <Inspector project={project} map={map} module={focus} touched={touched} lanes={lanes} startHere={() => setStarting(focus.id)} root={projects?.find((p) => p.id === project)?.path ?? null} />
-          : <div className="ps"><span className="lbl">Selected module</span><p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>Choose a module to see what uses it, which tests cover it and what agents are told about it.</p></div>}
+          : <div className="ps"><span className="lbl">{atAreas ? "Areas" : "Selected module"}</span><p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>{atAreas ? "Each area is a top folder of the repository. Open one to see its modules and how they connect, or find a module by name." : "Choose a module to see what uses it, which tests cover it and what agents are told about it."}</p></div>}
       </aside>
     </div>
     {starting && projects ? <NewLaneDialog projects={projects} project={project} task={`In ${starting}: `} onClose={() => setStarting(null)} /> : null}
   </main>;
+}
+
+/** The main language of the modules on screen in a layer, by files; the map's layer label when unknown. */
+function techOf(modules: { files: number; tech?: string }[]): string | null {
+  const counts = new Map<string, number>();
+  for (const m of modules) if (m.tech) counts.set(m.tech, (counts.get(m.tech) ?? 0) + m.files);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
 /** A module only a lane has: its layer by the same rules as the map's. */
@@ -84,9 +107,9 @@ function layerForNew(id: string, map: CodeMap, files: string[]): string {
   return layer && map.layers.some((l) => l.name === layer) ? layer : map.layers.find((l) => l.name === "Logic")?.name ?? map.layers.at(-1)?.name ?? "Logic";
 }
 
-function Diagram({ map, modules, touched, created, usesChange, tests, selected, select, path }: {
+function Diagram({ map, modules, touched, created, usesChange, tests, selected, select, path, onlySelected }: {
   map: CodeMap; modules: CodeMap["modules"]; touched: Map<string, { lane: Lane; files: string[] }[]>; created: Set<string>; usesChange: Set<string>;
-  tests: boolean; selected: string | null; select: (id: string) => void; path: CodeMap["paths"][number] | null;
+  tests: boolean; selected: string | null; select: (id: string) => void; path: CodeMap["paths"][number] | null; onlySelected: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [boxes, setBoxes] = useState<Record<string, Box>>({});
@@ -108,7 +131,8 @@ function Diagram({ map, modules, touched, created, usesChange, tests, selected, 
   }, [ids]);
   const shownIds = new Set(modules.map((m) => m.id));
   const onPath = (a: string, b: string) => !!path && path.modules.some((m, i) => m === a && path.modules[i + 1] === b);
-  const links = map.links.filter((l) => shownIds.has(l.source) && shownIds.has(l.target)).slice(0, 120);
+  // Many modules: draw only the selected module's links (or the traced path), so the lines stay readable.
+  const links = map.links.filter((l) => shownIds.has(l.source) && shownIds.has(l.target) && (!onlySelected || onPath(l.source, l.target) || l.source === selected || l.target === selected)).slice(0, 120);
   return <div className="lays" ref={wrap} style={{ gridTemplateColumns: `repeat(${Math.max(1, layers.length)}, minmax(0,1fr))` }}>
     <svg className="links" aria-hidden="true">
       {links.map((l) => {
@@ -124,7 +148,7 @@ function Diagram({ map, modules, touched, created, usesChange, tests, selected, 
       })}
     </svg>
     {layers.map((layer) => <div className="lay" key={layer.name}>
-      <div className="lay-h">{layer.name}{layer.tech ? <span className="t">{layer.tech}</span> : null}</div>
+      <div className="lay-h">{layer.name}{(techOf(modules.filter((m) => m.layer === layer.name)) ?? layer.tech) ? <span className="t">{techOf(modules.filter((m) => m.layer === layer.name)) ?? layer.tech}</span> : null}</div>
       {modules.filter((m) => m.layer === layer.name).map((m) => {
         const by = touched.get(m.id) ?? [];
         const quiet = (path && !path.modules.includes(m.id)) || (tests && !m.tests);
@@ -165,4 +189,22 @@ function Inspector({ project, map, module, touched, lanes, startHere, root }: { 
       {editor && root ? <a className="lnk" style={{ fontWeight: 600 }} href={editorLink(editor, `${root}/${module.id}`)}>Open in editor →</a> : null}
     </div>
   </>;
+}
+
+/** Areas (large repositories): one card per top folder with its size, layers, lanes and what it uses. */
+function AreaGrid({ areas, map, touched, usesChange, open }: { areas: CodeArea[]; map: CodeMap; touched: Map<string, { lane: Lane; files: string[] }[]>; usesChange: Set<string>; open: (name: string) => void }) {
+  if (!areas.length) return <Empty>No open lane has changed code yet. Show all to see every area.</Empty>;
+  return <div className="areas">{areas.map((a) => {
+    const lanes = new Map<string, Lane>();
+    let two = false;
+    for (const id of a.modules) { const by = touched.get(id) ?? []; if (by.length >= 2) two = true; for (const t of by) lanes.set(t.lane.id, t.lane); }
+    const uses = a.modules.some((id) => usesChange.has(id)) && !lanes.size;
+    const cls = ["mod", "area", two ? "two" : lanes.size ? `edit ${[...lanes.values()][0]!.colour}` : "", uses ? "uses" : ""].filter(Boolean).join(" ");
+    return <button key={a.name} className={cls} onClick={() => open(a.name)} aria-label={`Open ${a.name}`}>
+      <span className="nm">{a.name}</span>
+      <span className="sb">{a.modules.length} {a.modules.length === 1 ? "module" : "modules"} · {a.files} files{lanes.size ? <span className="e">{[...lanes.values()].map((l) => <LaneBadge key={l.id} id={l.id} colour={l.colour} />)}</span> : null}</span>
+      <span className="ly">{a.layers.join(" · ")}</span>
+      {a.uses.length ? <span className="us">uses {a.uses.slice(0, 3).map((u) => u.area).join(", ")}{a.uses.length > 3 ? ` +${a.uses.length - 3}` : ""}</span> : <span className="us">uses no other area</span>}
+    </button>;
+  })}<span className="sr-only">{map.modules.length} modules in {areas.length} areas</span></div>;
 }
