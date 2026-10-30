@@ -86,3 +86,11 @@ export const HelperToggle = z.object({ kind: HelperKind, on: z.boolean() });
 /** Models → Add from ACP registry. */
 export type RegistryAgent = { id: string; name: string; version: string; description: string; website: string | null; license: string | null; install: "npm" | "download" | "uv" | null; installed: boolean };
 export const RegistryInstall = z.object({ id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}$/) });
+
+/** A lane that starts on a schedule (a systemd user timer). It never merges; its result waits in the Inbox. */
+export const Schedule = z.object({ id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/), project: z.string().min(1), task: z.string().min(1).max(4000), agent: z.string().min(1).max(60),
+  model: z.string().max(200).optional(), mode: z.enum(["ask", "edits", "plan"]).default("ask"), base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/).default("main"),
+  /** systemd OnCalendar, e.g. "Mon..Fri 07:30" or "*-*-* 02:00". */
+  when: z.string().min(3).max(100).regex(/^[\w*.,:\-/ ~]+$/, "a systemd calendar expression") });
+export type Schedule = z.infer<typeof Schedule>;
+export type ScheduleView = Schedule & { next: string | null; lastLane: string | null };

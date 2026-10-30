@@ -19,6 +19,7 @@ import { Ask } from "../ask.js";
 import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
+import type { Schedules } from "../schedules.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
 const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
@@ -45,7 +46,7 @@ import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -239,6 +240,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const secondReviews = new SecondReviews({ store, bus, lanes: deps.lanes, run });
   app.get<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.estimate(z.uuid().parse(req.params.id)));
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.start(z.uuid().parse(req.params.id), SecondReviewRequest.parse(req.body).agent));
+  if (deps.schedules) {
+    const schedules = deps.schedules;
+    app.get("/api/schedules", async () => schedules.list());
+    app.post("/api/schedules", async (req) => schedules.add(req.body));
+    app.delete<{ Params: { id: string } }>("/api/schedules/:id", async (req) => schedules.remove(z.string().regex(/^[a-z0-9-]+$/).parse(req.params.id)));
+    app.post<{ Params: { id: string } }>("/api/schedules/:id/run", async (req) => schedules.runNow(z.string().regex(/^[a-z0-9-]+$/).parse(req.params.id)));
+  }
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));

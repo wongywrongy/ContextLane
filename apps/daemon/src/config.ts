@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AgentSpec, NotificationConfig, Passkey, LocalModel, AddProjectRequest, RoutingRule } from "@contextlanes/protocol";
+import { AgentSpec, NotificationConfig, Passkey, LocalModel, AddProjectRequest, RoutingRule, Schedule } from "@contextlanes/protocol";
 import { parse, stringify } from "smol-toml";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -45,6 +45,7 @@ export const Config = z.object({
   /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
   checker: z.object({ chromium: z.string().optional() }).prefault({}),
   routing: z.array(RoutingRule).default([]),
+  schedules: z.array(Schedule).default([]),
   /** The local helper (delegate): which local model, and the redo rate above which a kind turns itself off. */
   helper: z.object({ model: z.string().optional(), redoLimit: z.number().min(0).max(1).default(0.25) }).prefault({}),
   /** Open in editor: {host} is this machine's name, {path} the folder. Default: VS Code over Remote-SSH. */

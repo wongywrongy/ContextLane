@@ -2,6 +2,7 @@
 
 ## Needs Kyle
 
+- **Board for Scheduled lanes:** they live in Settings with existing classes because no board shows them. Design one if they should look different.
 - **The phase 3 gate (30% fewer cloud tokens):** with a local model serving, write 3 to 5 tasks typical of your week for one of your repositories into a `tasks.json` and run `contextlanes bench tasks.json`, answering the lanes' questions as they come. Paste the table it prints under 3.9. Each task runs twice, so it costs about twice its usual tokens.
 - **Local models (phase 3):** add Ollama (or llama.cpp) under Models → Local models, pull the model you want (`ollama pull <name>`), and check it shows Serving after a brief or Insights run. Nothing in phase 3 has run against a real model yet; the code is tested against a fake OpenAI-compatible server. On neo's 24 GB card a 30B coder model fits only quantized (Q4).
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
@@ -341,8 +342,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 4.2 Second-agent review | review | Done; see 4.2 |
 | 4.3 More agents | models | Done; Hermes is not in the registry; see 4.3 |
 | 4.4 Routing | models | Done; see 4.4 |
-| 4.5 Scheduled lanes | — (needs a board) | Next |
-| 4.6 Shared skills | insights | Not started |
+| 4.5 Scheduled lanes | — (needs a board) | Done; see 4.5 |
+| 4.6 Shared skills | insights | Next |
 | 4.7 Final board pass | all | Not started |
 
 ### 3.0 Usage and cost
@@ -702,6 +703,13 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - A lane template (project, task, agent, model, mode, base) plus a schedule, run as a systemd user timer with `Persistent=true`. Each run starts a lane, and its result lands in the Inbox. A scheduled lane never merges.
 - No board: use a section in Settings, Lanes, with existing classes, and ask for a board in Needs Kyle.
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/schedules.ts`: a schedule (name, project, task, agent, mode, branch, and a systemd calendar expression such as `Mon..Fri 07:30`) is checked with `systemd-analyze calendar`, then written as `contextlanes-schedule-<name>.timer` (`Persistent=true`, so a run missed while the machine was off happens at the next boot) and a oneshot service that runs `contextlanes schedule run <name>`. The CLI asks the daemon to start the lane exactly as New lane does, with the goal "Scheduled: <name>". Nothing merges by itself; questions and the checkpoint wait in the Inbox.
+- Settings → Scheduled lanes lists them with the next run (systemd's own answer), the last lane started, Run now and Remove. Units carry the installer's marker line and anything else is never overwritten.
+- No board exists for this; it uses Settings' existing sections and forms. Added to Needs Kyle for a design pass.
+- Tests: `schedules.test.ts` (calendar refused or accepted by systemd's output format, which was checked against systemd here; unit contents; enable; run; remove).
 
 ### 4.6 Shared skills (insights)
 

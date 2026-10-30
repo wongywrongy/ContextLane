@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
@@ -44,7 +44,7 @@ export function SettingsPage() {
   return <main className="pg narrow">
     <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
     <div className="setw">
-      <nav className="setnav" aria-label="Settings"><a href="#machine">This machine</a><a href="#access">Access</a><a href="#projects">Projects</a><a href="#notifications">Notifications</a><a href="#lanes">Lanes</a><a href="#data">Data</a></nav>
+      <nav className="setnav" aria-label="Settings"><a href="#machine">This machine</a><a href="#access">Access</a><a href="#projects">Projects</a><a href="#notifications">Notifications</a><a href="#lanes">Lanes</a><a href="#schedules">Scheduled lanes</a><a href="#data">Data</a></nav>
       <div className="col">
         <Section id="machine" title="This machine">
           {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
@@ -90,6 +90,7 @@ export function SettingsPage() {
           </div>
         </div>
         <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
+        <ScheduledLanes />
         <Section id="data" title="Data">
           <div className="sec-r"><span className="muted" style={{ width: 120 }}>Backups</span>{machine ? <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>{machine.backups.scheduled === null ? "Schedule not reported" : machine.backups.scheduled ? "Nightly" : "Not scheduled"} · {machine.backups.directory}{machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : " · no run reported"}</span> : <span className="muted">Backup status not available</span>}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
           <div className="sec-r"><span className="muted" style={{ width: 120 }}>Export</span><span>Everything as JSON · known secrets masked</span><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => {
@@ -159,6 +160,39 @@ export function ModelsPage() {
     <RoutingSection settings={settings} agents={agents} reload={reloadSettings} />
     {registry ? <RegistryDialog onClose={() => { setRegistry(false); reload(); }} /> : null}
   </main>;
+}
+
+/** Scheduled lanes (no board yet): a lane that starts on a schedule, through a systemd user timer. */
+function ScheduledLanes() {
+  const [list, error, reload] = useJson<ScheduleView[]>("/api/schedules");
+  const [projects] = useJson<Project[]>("/api/projects");
+  const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
+  const [message, setMessage] = useState("");
+  const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
+  return <Section id="schedules" title="Scheduled lanes" meta="started by a timer on this machine · never merged without you">
+    {error ? <div className="sec-r muted">{error.message}</div> : null}
+    {(list ?? []).map((s) => <div className="sec-r" key={s.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) auto", gap: 14, alignItems: "center" }}>
+      <span style={{ minWidth: 0 }}><b>{s.task}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{s.id} · {s.project} · {AGENT_NAMES[s.agent] ?? s.agent}{s.lastLane ? ` · last ${s.lastLane}` : ""}</span></span>
+      <span className="mono" style={{ fontSize: 12.5 }}>{s.when}<span className="muted" style={{ display: "block" }}>{s.next ? `next ${s.next}` : "not scheduled"}</span></span>
+      <span style={{ display: "flex", gap: 8 }}><Action small ghost run={() => postJson(`/api/schedules/${s.id}/run`, {})} done={reload}>Run now</Action><Action small ghost run={() => postJson(`/api/schedules/${s.id}`, {}, "DELETE")} done={reload}>Remove</Action></span>
+    </div>)}
+    {list && !list.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None. A nightly dependency bump or a weekly docs pass are good first ones.</div> : null}
+    <div className="sec-b opts">
+      <Form title="Add a scheduled lane" save={async (f) => {
+        setMessage("");
+        await postJson("/api/schedules", { id: v(f, "id"), project: v(f, "project"), task: v(f, "task"), agent: v(f, "agent"), mode: v(f, "mode"), base: v(f, "base") || "main", when: v(f, "when") }).then(reload, (e) => { setMessage(errorMessage(e)); throw e; });
+      }}>
+        <div className="two"><label className="field">Name <span className="hint">lowercase, e.g. nightly-deps</span><input className="in mono" name="id" required pattern="[a-z0-9][a-z0-9-]*" /></label>
+          <label className="field">When <span className="hint">systemd calendar, e.g. Mon..Fri 07:30</span><input className="in mono" name="when" required defaultValue="*-*-* 02:00" /></label></div>
+        <label className="field">Task<textarea className="in" name="task" rows={2} required /></label>
+        <div className="two"><label className="field">Project<select className="in" name="project">{(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label className="field">Agent<select className="in" name="agent">{(agents ?? []).filter((a) => a.status === "Ready").map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label></div>
+        <div className="two"><label className="field">Mode<select className="in" name="mode" defaultValue="ask"><option value="ask">Ask first</option><option value="edits">Accept edits</option><option value="plan">Plan only</option></select></label>
+          <label className="field">Branch<input className="in mono" name="base" defaultValue="main" /></label></div>
+      </Form>
+      {message ? <p role="alert">{message}</p> : null}
+    </div>
+  </Section>;
 }
 
 /** Routing (models.webp): which agent and model a new lane gets, by words in its task. */

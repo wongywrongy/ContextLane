@@ -20,6 +20,7 @@ import { Collisions } from "./collisions.js";
 import { LocalModels } from "./localmodels.js";
 import { Briefs } from "./briefs.js";
 import { Insights } from "./insights.js";
+import { Schedules } from "./schedules.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -49,7 +50,10 @@ async function main(): Promise<void> {
   const briefs = new Briefs({ config, store, codemaps, models: localModels });
   const insights = new Insights({ config, store, bus, models: localModels, codemaps, briefs });
   const collisions = new Collisions({ store, bus, codemaps, hosts });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights });
+  // Timers call the CLI of the running install, through `current` when this is a managed install.
+  const cli = join(layout.managed && await exists(layout.current) ? layout.current : root, "apps/cli/dist/main.js");
+  const schedules = new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();

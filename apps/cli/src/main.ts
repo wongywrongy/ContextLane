@@ -90,6 +90,13 @@ async function main(argv: string[]): Promise<number> {
       console.log(`Added ${project.name}.`);
       return 0;
     }
+    case "schedule": {
+      // Run by the systemd timers that Settings → Scheduled lanes writes.
+      if (rest[0] !== "run" || !rest[1]) return usage();
+      const lane = await api<Lane>(`/api/schedules/${rest[1]}/run`, { method: "POST", body: {} });
+      console.log(`Started ${lane.id} for schedule ${rest[1]}.`);
+      return 0;
+    }
     case "bench": {
       if (!rest[0]) return usage();
       const tasks = JSON.parse(await readFile(rest[0], "utf8")) as unknown;
