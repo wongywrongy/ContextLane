@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { READY } from "../features";
 import { Glyph, Tile, laneNumber } from "../components/ui";
+import { postJson } from "../api";
 import { environmentFrom, SERVICE_GLYPH } from "./model";
 
 /** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
@@ -12,6 +13,12 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const [copied, setCopied] = useState("");
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
+  };
+  const sendCheckpoint = async () => {
+    const said = events.findLast((e) => e.type === "agent.message" && e.payload.role === "agent");
+    const summary = said?.type === "agent.message" ? said.payload.text.trim().slice(0, 2000) : "";
+    try { await postJson(`/api/lanes/${lane.id}/checkpoint`, { summary: summary || lane.task }); setCopied("Checks started. The lane moves to Review when they finish."); }
+    catch (err) { setCopied(err instanceof Error ? err.message : "The checkpoint could not start."); }
   };
   const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
   const done = entries.filter((e) => e.status === "completed").length;
@@ -42,7 +49,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}><Tile family="look" icon="read" small />Copy the terminal command</button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch")}><Tile family="change" icon="move" small />Copy the branch name</button>
       {READY.handoff ? <><button className="act"><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act"><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
-      {READY.review ? <button className="act"><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
+      {READY.review ? <button className="act" disabled={lane.state !== "working"} onClick={() => void sendCheckpoint()}><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>

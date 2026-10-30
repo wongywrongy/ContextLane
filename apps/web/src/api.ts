@@ -49,6 +49,8 @@ export function useProjectStream(project: string, onEvent: (e: LaneEvent) => voi
   }, [project, onEvent, onOpen]);
 }
 
+export function reviewLink(lane: string): string { return `/p/${lane.split("/")[0]}/review?lane=${encodeURIComponent(lane)}`; }
+
 /** Answer one inbox item with one of its options. Only the owner's session can do this. */
 export async function answerItem(item: InboxItem, optionId: string | null): Promise<void> {
   await postJson("/api/answers", { lane: item.lane, requestId: item.id.slice(item.id.indexOf("#") + 1), optionId, via: window.matchMedia("(max-width: 760px)").matches ? "phone" : "web" });

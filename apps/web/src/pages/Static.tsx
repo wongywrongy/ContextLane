@@ -1,15 +1,6 @@
 import { Empty, PageHeader, Section } from "../components/ui";
 
 /** Pages whose data arrives in later phases. Each keeps its final structure so layout work is done once. */
-export function ReviewPage() {
-  return (
-    <main className="pg">
-      <PageHeader title="Review" meta="decide on finished work" />
-      <Section title="Checkpoints"><Empty>Result, process, plan vs done, before and after, steps and files for each checkpoint (phase 2).</Empty></Section>
-    </main>
-  );
-}
-
 export function ArchitecturePage() {
   return (
     <main className="pg">

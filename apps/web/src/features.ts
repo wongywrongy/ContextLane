@@ -5,7 +5,7 @@
  */
 export const READY = {
   /** Phase 2: Review tab, "Send checkpoint to review", review rows in Needs you. */
-  review: false,
+  review: true,
   /** Phase 2: Run tab and the Environment block in the lane inspector. */
   run: true,
   /** Phase 3: Architecture tab. */

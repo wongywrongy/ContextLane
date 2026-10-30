@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import type { InboxItem, Lane, LaneEvent, Project } from "@contextlanes/protocol";
-import { answerItem, errorMessage, useInbox, useJson } from "../api";
+import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AGENT_NAMES, Empty, Glyph, LaneBadge, Tile, ago, iconFor, laneNumber, type IconName } from "../components/ui";
 import { loadHistory, stepsFor } from "../work/model";
 
@@ -67,7 +67,7 @@ function Detail({ item, lane, project, answered }: { item: InboxItem; lane?: Lan
       {detail ? <div className="out" style={{ margin: "0 0 14px" }}>{detail}</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {item.options.map((o, i) => <button key={o.id} className={`btn${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}
-        {!item.options.length ? <Link className="btn" to={`/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>Open the lane</Link> : null}
+        {!item.options.length ? <Link className="btn" to={item.kind === "review" ? reviewLink(item.lane) : `/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>{item.kind === "review" ? "Open the review" : "Open the lane"}</Link> : null}
       </div>
       {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}
     </div>

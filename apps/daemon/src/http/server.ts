@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
-import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, StartEnvRequest } from "@contextlanes/protocol";
+import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -20,6 +20,7 @@ import { slugify } from "../lanes/naming.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Checker } from "../checker.js";
+import { Review } from "../review.js";
 import { laneRecipe, readRecipe } from "../recipes.js";
 import { Runtime } from "../runtime.js";
 import { refuseUnlessOwner } from "./owner.js";
@@ -36,6 +37,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const run = deps.run ?? runCommand;
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
+  const review = new Review({ store, bus, hosts: deps.hosts, run });
   const streams = new Set<ServerResponse>();
   app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
   app.register(websocket, {
@@ -178,6 +180,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // ── checkpoints ──
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/checkpoint", async (req, reply) => reply.code(202).send(await checker.begin(laneParam(req.params), CheckpointRequest.parse(req.body).summary)));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req, reply) => {
+    if (refuseUnlessOwner(req, reply, store, config)) return reply;
+    return review.approve(laneParam(req.params));
+  });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
+    if (refuseUnlessOwner(req, reply, store, config)) return reply;
+    return reply.code(202).send(review.requestChanges(laneParam(req.params), RequestChanges.parse(req.body).note));
+  });
   app.get<{ Params: { project: string } }>("/api/projects/:project/checkpoints", async (req) => store.checkpoints(ProjectId.parse(req.params.project)));
   app.get<{ Params: { id: string; file: string } }>("/api/checkpoints/:id/shots/:file", async (req, reply) => {
     if (!store.checkpoint(req.params.id) || !/^\d+-(before|after)\.png$/.test(req.params.file)) throw new NotFound("no such screenshot");

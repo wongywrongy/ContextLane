@@ -95,6 +95,7 @@ export function ProjectShell() {
   const active = work.lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const waiting = inbox?.filter((i) => i.lane.startsWith(`${project}/`)).length ?? 0;
   const tabs = TABS.filter(([, , ready]) => ready);
+  const reviews = work.lanes.filter((l) => l.state === "in_review").length;
   const up = [...new Set(environments?.lanes.flatMap((l) => l.environment?.services.filter((s) => s.state === "healthy").map((s) => s.name) ?? []) ?? [])];
   return (
     <>
@@ -111,7 +112,7 @@ export function ProjectShell() {
         </div>
       </section>
       {tabs.length > 1 ? <nav className="tabs" aria-label="Project">
-        {tabs.map(([path, label]) => <NavLink key={path} to={`/p/${project}/${path}`}>{label}</NavLink>)}
+        {tabs.map(([path, label]) => <NavLink key={path} to={`/p/${project}/${path}`}>{label}{path === "review" && reviews ? <span className="ib dark">{reviews}</span> : null}</NavLink>)}
       </nav> : null}
       <Outlet context={{ ...work, environments, reloadEnvironments } satisfies WorkContext} />
     </>

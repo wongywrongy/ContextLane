@@ -62,6 +62,7 @@ export const InboxItem = z.object({
 });
 export type InboxItem = z.infer<typeof InboxItem>;
 
+export const RequestChanges = z.object({ note: z.string().trim().min(1).max(10_000) });
 export const CheckpointRequest = z.object({ summary: z.string().trim().min(1).max(2000) });
 
 /** A change ready for review: measured evidence only. */

@@ -66,6 +66,7 @@ const payloads = {
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional(), state: ServiceState.optional(), detail: z.string().optional() }),
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
+  "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
   "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative() }),
   "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional() }),
 } as const;

@@ -269,7 +269,7 @@ export class Store {
          ORDER BY q.at`,
       )
       .all() as Row[];
-    const reviews = this.db.prepare("SELECT id, task FROM lane WHERE state = 'in_review' ORDER BY created_at").all() as Row[];
+    const reviews = this.db.prepare("SELECT l.id, l.task, (SELECT MAX(c.created_at) FROM checkpoint c WHERE c.lane = l.id) AS at FROM lane l WHERE l.state = 'in_review' ORDER BY l.created_at").all() as Row[];
     const recipes = this.db.prepare(`SELECT r.lane, MIN(r.at) AS at, json_extract(r.payload, '$.hash') AS hash FROM event r JOIN lane l ON l.id = r.lane
       WHERE r.type = 'recipe.requested' AND l.state NOT IN ('merged', 'cleaned', 'archived')
         AND NOT EXISTS (SELECT 1 FROM approval a WHERE a.project = l.project AND a.recipe_hash = json_extract(r.payload, '$.hash'))
@@ -277,7 +277,7 @@ export class Store {
     return [
       ...recipes.map((r) => ({ id: `${r.lane}#recipe-${r.hash}`, lane: String(r.lane), kind: "approval" as const, title: `Approve the recipe ${String(r.hash).slice(0, 7)} on the Run page`, since: String(r.at), options: [] })),
       ...asks.map((r) => ({ id: `${r.lane}#${r.rid}`, lane: String(r.lane), kind: r.kind === "question" ? "question" as const : "permission" as const, title: String(r.title), since: String(r.at), options: JSON.parse(String(r.options)) })),
-      ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: now(), options: [] })),
+      ...reviews.map((r) => ({ id: `${r.id}#review`, lane: String(r.id), kind: "review" as const, title: `Review: ${r.task}`, since: (r.at as string) ?? now(), options: [] })),
     ];
   }
 

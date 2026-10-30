@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import type { Health, InboxItem, Lane, Project } from "@contextlanes/protocol";
-import { answerItem, errorMessage, useInbox, useJson } from "../api";
+import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { Glyph, LaneBadge, StateGlyph, Tile, ago, coverFor, type IconName } from "../components/ui";
 
@@ -77,7 +77,7 @@ function NeedRow({ item, lane, project, answered }: { item: InboxItem; lane?: La
     <span className="what">{item.title}{error ? <span role="alert" style={{ display: "block" }}>{error}</span> : null}</span>
     <span className="act"><span className="t">{ago(item.since)}</span>
       {item.kind === "permission" && allow && deny ? <><button className="btn sm" disabled={busy} onClick={() => void respond(allow.id)}>{allow.label}</button><button className="btn ghost sm" disabled={busy} onClick={() => void respond(deny.id)}>{deny.label}</button></>
-        : <Link className="btn ghost sm" to={`/inbox?item=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Reply" : "Open"}</Link>}
+        : <Link className="btn ghost sm" to={item.kind === "review" ? reviewLink(item.lane) : `/inbox?item=${encodeURIComponent(item.id)}`}>{item.kind === "question" ? "Reply" : "Open"}</Link>}
     </span>
   </div>;
 }
