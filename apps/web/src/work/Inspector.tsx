@@ -4,6 +4,7 @@ import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { READY } from "../features";
 import { Glyph, Tile, laneNumber } from "../components/ui";
 import { postJson } from "../api";
+import { editorLink, useEditor } from "../components/editor";
 import { environmentFrom, SERVICE_GLYPH } from "./model";
 
 /** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
@@ -12,6 +13,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const compactions = new Set(events.filter((e) => e.type === "usage.compaction").map((e) => `${e.payload.sessionId}/${e.payload.compactionId}`)).size;
   const plan = events.findLast((e) => e.type === "agent.plan");
   const [copied, setCopied] = useState("");
+  const editor = useEditor();
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
   };
@@ -49,6 +51,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the terminal</button>
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}><Tile family="look" icon="read" small />Copy the terminal command</button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch")}><Tile family="change" icon="move" small />Copy the branch name</button>
+      {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open in editor</a> : null}
       {READY.handoff ? <><button className="act"><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act"><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
       {READY.review ? <button className="act" disabled={lane.state !== "working"} onClick={() => void sendCheckpoint()}><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}

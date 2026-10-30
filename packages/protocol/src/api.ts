@@ -100,3 +100,8 @@ export type Checkpoint = z.infer<typeof Checkpoint>;
 
 export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string() });
 export type Health = z.infer<typeof Health>;
+
+/** A Claude Code or Codex session in a project's folder that no lane started (Work, "Watching only"). */
+export const OutsideAgent = z.object({ agent: z.enum(["claude-code", "codex"]), pid: z.number().int(), cwd: z.string(), startedAt: z.string(), running: z.boolean(), endedAt: z.string().nullable(), session: z.string().nullable() });
+export type OutsideAgent = z.infer<typeof OutsideAgent>;
+export const TakeOverRequest = z.object({ pid: z.number().int().positive(), startedAt: z.iso.datetime() });

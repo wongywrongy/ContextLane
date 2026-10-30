@@ -33,8 +33,10 @@ export function stepsFor(events: LaneEvent[]): Step[] {
     if (event.type === "agent.message" || event.type === "agent.thought") {
       const thought = event.type === "agent.thought";
       const family = thought ? "mind" : event.payload.role === "user" ? "you" : "mind";
-      if (textRun?.event.type === event.type && textRun.family === family) textRun.text += event.payload.text;
-      else { textRun = { seq: event.seq, at: event.at, family, title: thought ? "Thinking" : family === "you" ? "Your message" : "Agent", type: thought ? "thought" : "text", text: event.payload.text, event }; steps.push(textRun); }
+      const attached = event.type === "agent.message" ? [...(event.payload.files ?? []).map((f) => f.split("/").at(-1)!), ...(event.payload.images ? [`${event.payload.images} ${event.payload.images === 1 ? "picture" : "pictures"}`] : [])] : [];
+      const text = attached.length ? `${event.payload.text}\n\nAttached: ${attached.join(", ")}` : event.payload.text;
+      if (textRun?.event.type === event.type && textRun.family === family && !attached.length) textRun.text += text;
+      else { textRun = { seq: event.seq, at: event.at, family, title: thought ? "Thinking" : family === "you" ? "Your message" : "Agent", type: thought ? "thought" : "text", text, event }; steps.push(textRun); }
       continue;
     }
     textRun = undefined;

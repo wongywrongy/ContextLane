@@ -128,6 +128,6 @@ export class Review {
       return [store.appendEvent(id, { type: "checkpoint.decided", payload: { checkpointId: checkpoint.id, decision: "changes", note } }), store.setLaneState(id, "working", "changes requested"), store.appendEvent(id, { type: "agent.message", payload: { text: note, role: "user" } })];
     });
     for (const event of events) bus.publish(event);
-    return { delivered: hosts.command(id, { kind: "prompt", text: note, immediate: false }).delivered };
+    return { delivered: hosts.command(id, { kind: "prompt", text: note, immediate: false, files: [], images: [] }).delivered };
   }
 }

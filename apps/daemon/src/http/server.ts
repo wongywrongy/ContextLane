@@ -7,7 +7,8 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest } from "@contextlanes/protocol";
+import { OutsideAgents } from "../outside.js";
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -17,6 +18,7 @@ import type { Store } from "../db/store.js";
 import type { HostLinks } from "../hosts.js";
 import { NotFound, Refused, type LaneManager } from "../lanes/manager.js";
 import { slugify } from "../lanes/naming.js";
+import { attach, laneFiles } from "../attachments.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Checker } from "../checker.js";
@@ -30,7 +32,7 @@ import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -163,12 +165,25 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = laneParam(req.params);
     return store.events(lane, LaneEventsQuery.parse(req.query).after);
   });
-  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/prompt", async (req, reply) => {
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/prompt", { bodyLimit: 24 * 1024 * 1024 }, async (req, reply) => {
     const lane = laneParam(req.params);
     if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
     const body = PromptRequest.parse(req.body);
-    bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user" } }));
-    return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...body }) });
+    const prompt = await attach(config, store.getLane(lane)!, body);
+    bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } }));
+    return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...prompt }) });
+  });
+  const outside = deps.outside ?? new OutsideAgents({ run, store, lanes: deps.lanes, data: config.paths.data, lanesDir: config.paths.lanes });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/outside-agents", async (req) => ({ agents: await outside.list(ProjectId.parse(req.params.project)) }));
+  app.post<{ Params: { project: string } }>("/api/projects/:project/takeover", async (req) => {
+    const body = TakeOverRequest.parse(req.body);
+    return outside.takeOver(ProjectId.parse(req.params.project), body.pid, body.startedAt);
+  });
+  app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
+  app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no such lane");
+    return { files: await laneFiles(run, lane, FileQuery.parse(req.query).q) };
   });
   for (const action of ["cancel", "mode", "model"] as const) {
     app.post<{ Params: { project: string; n: string } }>(`/api/lanes/:project/:n/${action}`, async (req, reply) => {

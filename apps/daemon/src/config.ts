@@ -42,6 +42,8 @@ export const Config = z.object({
   }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
   /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
   checker: z.object({ chromium: z.string().optional() }).prefault({}),
+  /** Open in editor: {host} is this machine's name, {path} the folder. Default: VS Code over Remote-SSH. */
+  editor: z.object({ url: z.string().min(1).max(500).default("vscode://vscode-remote/ssh-remote+{host}{path}") }).prefault({}),
   /**
    * Per-lane Postgres databases: `admin` creates and drops copies (needs CREATEDB) and never leaves
    * the daemon; `app` is a non-admin login that owns each copy and is what lane services get.

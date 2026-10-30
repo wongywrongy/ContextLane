@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import type { InboxItem, Lane, LaneEvent, Project } from "@contextlanes/protocol";
+import type { InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
 import { postJson, useInbox, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
@@ -83,7 +83,30 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
         </div>)}
       </div>
     </div>
+    <Watching project={lanes[0]?.project ?? null} choose={choose} />
   </aside>;
+}
+
+/** "Watching only": Claude Code or Codex sessions in this project that no lane started. Never stopped from here. */
+function Watching({ project: fromLanes, choose }: { project: string | null; choose: (id: string | null) => void }) {
+  const params = useParams();
+  const project = params.project ?? fromLanes;
+  const [data, , reload] = useJson<{ agents: OutsideAgent[] }>(project ? `/api/projects/${project}/outside-agents` : null);
+  const [message, setMessage] = useState("");
+  useEffect(() => { const t = setInterval(reload, 15_000); return () => clearInterval(t); }, [reload]);
+  const agents = data?.agents ?? [];
+  if (!agents.length) return null;
+  const take = (a: OutsideAgent) => { setMessage(""); void postJson<Lane>(`/api/projects/${project}/takeover`, { pid: a.pid, startedAt: a.startedAt }).then((lane) => { reload(); choose(lane.id); }, (err: Error) => setMessage(err.message)); };
+  return <div className="ps">
+    <div className="ps-h" style={{ marginBottom: 8 }}><span className="lbl">Watching only</span></div>
+    {agents.map((a) => <div key={`${a.pid}${a.startedAt}`} style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}><AgentMark agent={a.agent} small /><span style={{ fontSize: 14 }}>Terminal session</span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>pid {a.pid}</span></div>
+      <span className="muted" style={{ fontSize: 12.5 }}>{a.running ? "Started outside ContextLanes. Close it there, then take it over to talk to it here." : `Ended ${ago(a.endedAt!)}. Take it over to continue in a lane.`}</span>
+      <span className="mono muted" style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>{a.cwd}</span>
+      <div><button className="btn sm ghost" disabled={a.running} title={a.running ? "Close it first" : undefined} onClick={() => take(a)}>{a.running ? "Close it first" : "Take over"}</button></div>
+    </div>)}
+    {message ? <p role="alert" style={{ margin: 0, fontSize: 13 }}>{message}</p> : null}
+  </div>;
 }
 
 function LaneView({ lane, events, error, reload, view, setView }: { lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {

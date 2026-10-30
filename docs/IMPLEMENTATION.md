@@ -324,8 +324,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | S2. Daemon git runs in the sandbox | — | Done: every daemon git and gh runs in the lane sandbox with hooks and fsmonitor off; see S2 |
 | B3 Per-lane databases | run | Done: Postgres template copies and SQLite copies; real Postgres 16 test passes; see B3 |
 | B4 Review packet gaps | review | Done: test counts from tool output, changed areas on screenshots; see B4 |
-| B5 Composer, editor link, watching only | work-lane | Next |
-| B6 Add from GitHub, branch in the band | projects | Not started |
+| B5 Composer, editor link, watching only | work-lane | Done: @ file, / command, pictures, Open in editor, Watching only and Take over; see B5 |
+| B6 Add from GitHub, branch in the band | projects | Next |
 | 3.1 Code map | architecture | Not started |
 | 3.2 Architecture page and `contextlanes arch` | architecture | Not started |
 | 3.3 Collision warnings | architecture, review | Not started |
@@ -466,6 +466,16 @@ The plan's split (sandbox for most commands, a config allow-list for push and `g
 - **Open in editor**, decided: config `editor.url` with `{host}` and `{path}`, defaulting to the VS Code Remote-SSH URL. Used on Work, Architecture and Review.
 - **Watching only:** list Claude Code and Codex processes whose working folder is inside a project and that no lane started (process list and `/proc/<pid>/cwd` through Runner). Show the agent, pid, folder and start time.
 - **Take over**, decided: never kill. The button stays disabled ("Close it first") while the process runs. Once it has exited, Take over starts a lane in a new worktree from that folder's HEAD, carries uncommitted changes over as a patch, and tries ACP `session/load` with the session id from the agent's log. If loading fails, it starts fresh with a handoff written from the end of the log. Write down which way worked for each adapter.
+
+#### What was done (2026-10-30)
+
+- **@ file** searches the lane's files (`GET /api/lanes/:p/:n/files?q=`, tracked and new, not ignored) and sends each pick as an ACP `resource_link`, which every ACP agent must accept. The daemon refuses a path that is not a file inside the checkout after resolving symlinks.
+- **/ command** lists what the agent reported in `available_commands_update` (now carried on `agent.session`) and puts `/name` at the start of the message, which is how ACP invokes them.
+- **Attach image** (and paste) appears only when the agent's `initialize` response has `promptCapabilities.image`. Pictures (PNG, JPEG, WebP, GIF, 5 MB, three per message) are saved under `<lanes>/.attachments/<lane>/` and the command carries the path, so the event log stays small; the lane host reads and sends them as ACP `image` blocks.
+- **Open in editor**: `[editor] url` in config, default `vscode://vscode-remote/ssh-remote+{host}{path}`, served by `GET /api/editor` and used in the Work inspector.
+- **Watching only**: `apps/daemon/src/outside.ts` lists `claude` and `codex` processes (not the ACP adapters, logins or MCP servers) whose folder is in the project or a lane and whose cgroup is not a lane's, and finds the session log each is writing. Ended sessions stay listed for 12 hours.
+- **Take over**, as decided: disabled while the process runs. Afterwards it starts a lane from that folder's branch, applies its uncommitted diff and copies its new files, and starts the agent with a handoff built from the session log (the first request and the latest exchanges, about 8,000 characters). The session itself is not resumed: Claude Code keeps sessions per folder, and the lane works in a new folder. The original folder is not touched.
+- Tests: `attachments.test.ts` (paths, symlinks, pictures kept out of the log, file search, the handoff as first message) and `outside.test.ts` (process matching, both log formats, a real repository taken over with its changes). Not tried against real Claude Code or Codex sessions.
 
 ### B6 Add from GitHub, branch in the band (projects)
 

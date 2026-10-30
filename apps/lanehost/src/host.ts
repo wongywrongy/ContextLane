@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
-import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type McpServer, type SessionConfigOption, type Usage } from "@agentclientprotocol/sdk/unstable";
+import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type ContentBlock, type McpServer, type SessionConfigOption, type Usage } from "@agentclientprotocol/sdk/unstable";
+import { readFile } from "node:fs/promises";
+import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { SafeMode, type CommandEnvelope, type NewLaneEvent } from "@contextlanes/protocol";
 import type { AgentSpec } from "./agents.js";
 import { Coalescer, mapPermission } from "./map.js";
@@ -39,7 +42,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
   opts.signal?.addEventListener("abort", abort, { once: true });
   const ctx = connection.agent;
   try {
-    await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
+    const init = await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
     let builder = ctx.buildSession({ cwd: opts.cwd, mcpServers: [], _meta: { claudeCode: { options: { allowDangerouslySkipPermissions: false, permissionMode: "default" } } } });
     for (const server of opts.mcpServers ?? []) builder = builder.withMcpServer(server);
@@ -51,12 +54,14 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     let configOptions = session.newSessionResponse.configOptions ?? [];
     const modelOption = () => configOptions.find((o) => o.type === "select" && (o.category === "model" || o.id === "model"));
     const modelValues = (option: SessionConfigOption | undefined) => !option || option.type !== "select" ? [] : option.options.flatMap((o) => "options" in o ? o.options : [o]);
+    let commands: { name: string; description: string }[] = [];
+    const canImage = !!init.agentCapabilities?.promptCapabilities?.image;
     const reportSession = () => {
       const model = modelOption();
       emit({ type: "agent.session", payload: { sessionId: session.sessionId, currentMode,
         currentModel: model?.type === "select" ? model.currentValue : undefined,
         modes: (session.modes?.availableModes ?? []).filter((m) => SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success).map((m) => ({ id: m.id, label: m.name })),
-        models: modelValues(model).map((m) => ({ id: m.value, label: m.name })) } });
+        models: modelValues(model).map((m) => ({ id: m.value, label: m.name })), commands, images: canImage } });
     };
     const setMode = async (mode: string) => {
       SafeMode.parse(mode);
@@ -79,7 +84,12 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     else if (currentMode) SafeMode.parse(currentMode);
     if (opts.model) await setModel(opts.model);
     reportSession();
-    const prompts: { text: string; commandId?: string }[] = opts.task ? [{ text: opts.task }] : [];
+    type Queued = { text: string; commandId?: string; files?: string[]; images?: { mimeType: string; path: string }[] };
+    const prompts: Queued[] = opts.task ? [{ text: opts.task }] : [];
+    // @ file arrives as ACP resource links, which every agent must accept; pictures only when the agent said it takes them.
+    const blocks = async (q: Queued): Promise<ContentBlock[]> => [{ type: "text", text: q.text },
+      ...(q.files ?? []).map((f) => ({ type: "resource_link" as const, uri: pathToFileURL(resolve(opts.cwd, f)).href, name: basename(f) })),
+      ...(canImage ? await Promise.all((q.images ?? []).map(async (i) => ({ type: "image" as const, mimeType: i.mimeType, data: (await readFile(i.path)).toString("base64") }))) : [])];
     let running = false;
     let stopped = false;
     const drain = async () => {
@@ -87,7 +97,8 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       running = true;
       try {
         while (prompts.length && !stopped) {
-          const { text, commandId } = prompts.shift()!;
+          const queued = prompts.shift()!;
+          const { commandId } = queued;
           const turnId = randomUUID();
           const before = await logs.read();
           const costBefore = sessionCost;
@@ -96,13 +107,14 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           emit({ type: "agent.turn", payload: { active: true, commandId } });
           const tick = setInterval(() => coalescer.flush(), 100);
           try {
-            const done = session.prompt(text);
+            const done = session.prompt(await blocks(queued));
             void done.catch(() => {});
             for (;;) {
               const message = await session.nextUpdate();
               if (message.kind === "stop") break;
               if (message.update.sessionUpdate === "current_mode_update") { currentMode = message.update.currentModeId; reportSession(); }
               if (message.update.sessionUpdate === "config_option_update") { configOptions = message.update.configOptions; reportSession(); }
+              if (message.update.sessionUpdate === "available_commands_update") { commands = message.update.availableCommands.map((c) => ({ name: c.name, description: c.description })); reportSession(); }
               if (message.update.sessionUpdate === "usage_update") for (const limit of reportedLimits(message.update._meta)) emit({ type: "usage.limit", payload: limit });
               if (message.update.sessionUpdate === "usage_update" && message.update.cost?.currency === "USD") {
                 sessionCost = message.update.cost.amount;
@@ -146,9 +158,9 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           pending.resolve(command.optionId);
         } else if (command.kind === "prompt") {
           if (command.immediate) {
-            prompts.unshift({ text: command.text, commandId });
+            prompts.unshift({ text: command.text, commandId, files: command.files, images: command.images });
             if (running) await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
-          } else prompts.push({ text: command.text, commandId });
+          } else prompts.push({ text: command.text, commandId, files: command.files, images: command.images });
           void drain();
         } else if (command.kind === "cancel") {
           await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });

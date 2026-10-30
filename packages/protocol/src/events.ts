@@ -48,13 +48,17 @@ const payloads = {
   "lane.state": z.object({ from: LaneState, to: LaneState, reason: z.string().optional() }),
   "agent.plan": z.object({ entries: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })) }),
   "agent.thought": z.object({ text: z.string() }),
-  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]) }),
+  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional() }),
   "agent.command": z.object({ commandId: z.uuid(), command: LaneCommand }),
   "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
   "agent.session": z.object({
     sessionId: z.string(), currentMode: z.string().optional(), currentModel: z.string().optional(),
     modes: z.array(z.object({ id: z.string(), label: z.string() })),
     models: z.array(z.object({ id: z.string(), label: z.string() })),
+    /** Slash commands the agent offers (ACP available_commands_update); sent as "/name args". */
+    commands: z.array(z.object({ name: z.string(), description: z.string() })).optional(),
+    /** Whether the agent takes pictures in a prompt (ACP promptCapabilities.image). */
+    images: z.boolean().optional(),
   }),
   "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional(), commandId: z.uuid().optional() }),
   "agent.error": z.object({ message: z.string() }),
