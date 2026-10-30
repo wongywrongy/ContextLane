@@ -317,8 +317,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | Milestone | Board | Status |
 |---|---|---|
 | S. Credentials and lane sandbox (security) | — | Done: see Credentials and sandbox |
-| 3.0 Usage and cost | work-lane, models | Next |
-| B1 This machine and Data | settings | Not started |
+| 3.0 Usage and cost | work-lane, models | Done — 5047be0; `pnpm check`: 183 passed, 8 opt-in checks skipped; fake ACP + JSONL + API totals; Chromium at 1440px/390px; real account comparison in Needs Kyle; see Usage implementation and adapter evidence |
+| B1 This machine and Data | settings | Next |
 | B2 Run and Projects facts | run, projects | Not started |
 | B3 Per-lane databases | run | Not started |
 | B4 Review packet gaps | review | Not started |
