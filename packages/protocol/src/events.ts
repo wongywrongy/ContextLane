@@ -36,6 +36,8 @@ export const PermissionOption = z.object({
   kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]),
 });
 export type PermissionOption = z.infer<typeof PermissionOption>;
+const diffStat = z.object({ added: z.number().int().nonnegative(), removed: z.number().int().nonnegative() });
+const testResult = z.object({ name: z.string(), passed: z.boolean() });
 
 const payloads = {
   "lane.created": z.object({ task: z.string(), agent: z.string(), branch: z.string(), worktree: z.string() }),
@@ -50,12 +52,12 @@ const payloads = {
     modes: z.array(z.object({ id: z.string(), label: z.string() })),
     models: z.array(z.object({ id: z.string(), label: z.string() })),
   }),
-  "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional() }),
+  "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional(), commandId: z.uuid().optional() }),
   "agent.error": z.object({ message: z.string() }),
   "notification.sent": z.object({ requestId: z.string(), channel: NotificationChannel, target: z.string().default("") }),
   "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),
-  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]) }),
-  "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]), summary: z.string().optional() }),
+  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional() }),
+  "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional() }),
   "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional() }),
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional() }),

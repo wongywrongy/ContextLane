@@ -91,6 +91,9 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `env.status`, `check.result`, `checkpoint.created` | Runtime and checker |
 | `helper.delegated` | The local helper did work, with tokens saved |
 | `usage` | Context window use reported by the agent |
+| `agent.command`, `agent.command.result` | Durable owner controls and host acknowledgements |
+| `agent.session`, `agent.turn`, `agent.error` | Reported settings, active prompt IDs and failures |
+| `notification.sent`, `notification.failed` | Delivery evidence; never permission decisions |
 
 ## Interfaces
 
@@ -101,6 +104,7 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `GET /api/health` | Version and host |
 | `GET /api/projects`, `POST /api/projects` | List and register repos |
 | `GET /api/projects/:project/lanes` | Lanes in a project |
+| `GET /api/projects/:project/activity?since=` | Timeline events and preceding lifecycle/turn states |
 | `GET /api/projects/:project/stream` | Server-sent events for every lane in the project |
 | `POST /api/lanes` | Start a lane |
 | `GET /api/lanes/:project/:n/events?after=` | Event history |

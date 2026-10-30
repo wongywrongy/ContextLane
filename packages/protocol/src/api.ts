@@ -45,6 +45,8 @@ export type StartLaneRequest = z.input<typeof StartLaneRequest>;
 export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web") });
 export type AnswerRequest = z.input<typeof AnswerRequest>;
 export const AskOwnerRequest = z.object({ requestId: z.uuid(), question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) });
+export const LaneEventsQuery = z.object({ after: z.coerce.number().int().nonnegative().default(0) });
+export const ActivityQuery = z.object({ since: z.iso.datetime().optional() });
 
 /** One thing waiting on you, derived from the event log. */
 export const InboxItem = z.object({

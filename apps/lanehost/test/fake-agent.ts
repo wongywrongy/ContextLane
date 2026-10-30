@@ -25,6 +25,19 @@ export function fakeAgent() {
       const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("");
       turns.push(text);
       await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Started ${text}. ` } } });
+      if (text === "showcase") {
+        const update = (update: import("@agentclientprotocol/sdk").SessionUpdate) => client.notify(methods.client.session.update, { sessionId: params.sessionId, update });
+        await update({ sessionUpdate: "plan", entries: [{ content: "Read the current config", status: "completed", priority: "medium" }, { content: "Change validation and run checks", status: "in_progress", priority: "high" }] });
+        await update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "I will keep the validation at the boundary." } });
+        await update({ sessionUpdate: "tool_call", toolCallId: "read", title: "Read config.ts", kind: "read", status: "completed", locations: [{ path: "src/config.ts" }] });
+        await update({ sessionUpdate: "tool_call", toolCallId: "edit", title: "Validate the project path", kind: "edit", locations: [{ path: "src/config.ts" }] });
+        await update({ sessionUpdate: "tool_call_update", toolCallId: "edit", status: "failed" });
+        await update({ sessionUpdate: "tool_call_update", toolCallId: "edit", status: "completed", content: [{ type: "diff", path: "src/config.ts", oldText: "same\nold\n", newText: "same\nnew\nextra\n" }] });
+        await update({ sessionUpdate: "tool_call", toolCallId: "test", title: "Run project checks", kind: "execute" });
+        await update({ sessionUpdate: "tool_call_update", toolCallId: "test", status: "completed", content: [{ type: "content", content: { type: "text", text: "TAP version 13\nok 1 - valid path\nok 2 - rejects outside path\n" } }] });
+        await update({ sessionUpdate: "usage_update", used: 1024, size: 8192 });
+        await update({ sessionUpdate: "tool_call", toolCallId: "helper", title: "Ask a helper to read validation", name: "Agent", kind: "other", status: "completed" });
+      }
       if (text === "permission") {
         const result = await client.request(methods.client.session.requestPermission, { sessionId: params.sessionId,
           toolCall: { toolCallId: "tool-1", title: "Run fixture check", kind: "execute" },

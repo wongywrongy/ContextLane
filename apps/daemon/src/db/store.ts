@@ -175,6 +175,13 @@ export class Store {
     return rows.map(toEvent);
   }
 
+  activity(project: ProjectId, since: string): LaneEvent[] {
+    const rows = this.db.prepare(`SELECT e.* FROM event e JOIN lane l ON l.id = e.lane WHERE l.project = ? AND
+      (e.at >= ? OR (e.type IN ('lane.state', 'agent.turn') AND e.seq =
+        (SELECT MAX(p.seq) FROM event p WHERE p.lane = e.lane AND p.type = e.type AND p.at < ?))) ORDER BY e.lane, e.seq`).all(project, since, since) as Row[];
+    return rows.map(toEvent);
+  }
+
   /** Everything waiting on the owner: unanswered permission requests and lanes in review. */
   inbox(): InboxItem[] {
     const asks = this.db

@@ -89,3 +89,7 @@ Meaning is never carried by colour alone: every state has a shape, every step ki
 ## Copy
 
 Plain words. Say what happened and what to do: "Claude wants to run a command", "Allow once", "Keeps running when you close this tab". No AI jargon in the UI.
+
+**Work overview:** goal cards lead to numbered lane cards; a dashed amber gate appears only for lanes awaiting an answer or review. Nodes include words and glyphs. The two-hour strip uses event times and idle periods; a new lane may have only a tiny mark at the right edge. Timeline rows are keyboard-accessible alternatives to graph selection.
+
+**Work · one lane:** navigation stays on the left; one step trail and composer form the main column; the right column inspects only this lane. Steps have timestamps and named family tiles. Thinking and long output start collapsed. Measured changes use green/red diff bars; test pips have passed/failed names and numerical totals. Failed-then-fixed tools retain a red outline and word label. The composer preserves failed drafts. Phones use a horizontal lane strip, stacked inspector and 16px composer text to avoid keyboard zoom.

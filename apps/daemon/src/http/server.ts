@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
-import { PushSubscription, AskOwnerRequest } from "@contextlanes/protocol";
+import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -77,6 +77,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return store.addProject({ id, name: body.name ?? basename(body.path), path: body.path });
   });
   app.get<{ Params: { project: string } }>("/api/projects/:project/lanes", async (req) => store.listLanes(ProjectId.parse(req.params.project)));
+  app.get<{ Params: { project: string } }>("/api/projects/:project/activity", async (req) => {
+    const { since } = ActivityQuery.parse(req.query);
+    return store.activity(ProjectId.parse(req.params.project), since ?? new Date(Date.now() - 2 * 60 * 60_000).toISOString());
+  });
 
   // ── lanes ──
   app.post("/api/lanes", async (req, reply) => {
@@ -85,7 +89,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   app.get<{ Params: { project: string; n: string }; Querystring: { after?: string } }>("/api/lanes/:project/:n/events", async (req) => {
     const lane = laneParam(req.params);
-    return store.events(lane, Number(req.query.after ?? 0));
+    return store.events(lane, LaneEventsQuery.parse(req.query).after);
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/prompt", async (req, reply) => {
     const lane = laneParam(req.params);

@@ -75,7 +75,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     else if (currentMode) SafeMode.parse(currentMode);
     if (opts.model) await setModel(opts.model);
     reportSession();
-    const prompts = opts.task ? [opts.task] : [];
+    const prompts: { text: string; commandId?: string }[] = opts.task ? [{ text: opts.task }] : [];
     let running = false;
     let stopped = false;
     const drain = async () => {
@@ -83,8 +83,8 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       running = true;
       try {
         while (prompts.length && !stopped) {
-          const text = prompts.shift()!;
-          emit({ type: "agent.turn", payload: { active: true } });
+          const { text, commandId } = prompts.shift()!;
+          emit({ type: "agent.turn", payload: { active: true, commandId } });
           const tick = setInterval(() => coalescer.flush(), 100);
           try {
             const done = session.prompt(text);
@@ -92,11 +92,13 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
             for (;;) {
               const message = await session.nextUpdate();
               if (message.kind === "stop") break;
+              if (message.update.sessionUpdate === "current_mode_update") { currentMode = message.update.currentModeId; reportSession(); }
+              if (message.update.sessionUpdate === "config_option_update") { configOptions = message.update.configOptions; reportSession(); }
               coalescer.push(message.update);
             }
             const result = await done;
             coalescer.flush();
-            emit({ type: "agent.turn", payload: { active: false, stopReason: result.stopReason } });
+            emit({ type: "agent.turn", payload: { active: false, stopReason: result.stopReason, commandId } });
           } catch (err) {
             if (!stopped) emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
           } finally { clearInterval(tick); coalescer.flush(); }
@@ -115,9 +117,9 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           pending.resolve(command.optionId);
         } else if (command.kind === "prompt") {
           if (command.immediate) {
-            prompts.unshift(command.text);
+            prompts.unshift({ text: command.text, commandId });
             if (running) await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
-          } else prompts.push(command.text);
+          } else prompts.push({ text: command.text, commandId });
           void drain();
         } else if (command.kind === "cancel") {
           await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });

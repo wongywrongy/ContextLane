@@ -16,7 +16,7 @@ export function PermissionCard({ item, answered }: { item: InboxItem; answered: 
   };
   return (
     <div className="permission-card">
-      <div className="permission-title"><i className="g needs_you" aria-hidden="true" /><strong>{item.title}</strong><Link className="mono" to={`/p/${item.lane.split("/")[0]}/work`}>{item.lane}</Link></div>
+      <div className="permission-title"><i className="g needs_you" aria-hidden="true" /><strong>{item.title}</strong><Link className="mono" to={`/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>{item.lane}</Link></div>
       <div className="permission-actions">
         {item.options.filter((o) => o.kind === "allow_once" || o.kind === "reject_once").map((option) => <button key={option.id} className={`btn${option.kind === "reject_once" ? " ghost" : ""}`} disabled={busy} onClick={() => void respond(option.id)}>{option.label}</button>)}
         {item.kind === "review" ? <Link className="btn" to={`/p/${item.lane.split("/")[0]}/review`}>Open review</Link> : null}

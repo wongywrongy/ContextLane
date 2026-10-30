@@ -1,12 +1,13 @@
 import { NavLink, Outlet, useParams } from "react-router";
-import type { Health, InboxItem } from "@contextlanes/protocol";
-import { useJson } from "../api";
+import type { Health } from "@contextlanes/protocol";
+import { useJson, useLiveInbox, InboxContext } from "../api";
 
 export function Shell() {
   const [health, down] = useJson<Health>("/api/health");
-  const [inbox] = useJson<InboxItem[]>("/api/inbox");
+  const inboxQuery = useLiveInbox();
+  const [inbox] = inboxQuery;
   return (
-    <>
+    <InboxContext.Provider value={inboxQuery}>
       <header className="top">
         <NavLink className="wm" to="/">Context<span className="ln">Lanes</span></NavLink>
         <nav className="gnav" aria-label="Main">
@@ -18,7 +19,7 @@ export function Shell() {
         <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "…"}</span>
       </header>
       <Outlet />
-    </>
+    </InboxContext.Provider>
   );
 }
 

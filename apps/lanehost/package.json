@@ -11,7 +11,9 @@
       "default": "./dist/index.js"
     }
   },
-  "bin": { "contextlanes-lanehost": "./dist/main.js" },
+  "bin": {
+    "contextlanes-lanehost": "./dist/main.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -19,6 +21,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "2.0.2",
     "@contextlanes/protocol": "workspace:*",
+    "diff": "9.0.0",
     "zod": "4.6.5"
   }
 }

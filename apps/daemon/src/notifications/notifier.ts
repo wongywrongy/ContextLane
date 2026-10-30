@@ -59,7 +59,7 @@ export class Notifier {
     if (this.stopped || quietNow(config.quiet, this.deps.now?.())) return;
     for (const item of store.inbox().filter((item) => item.kind === "permission" || item.kind === "question")) {
       const requestId = item.id.slice(item.id.indexOf("#") + 1);
-      const page = `${config.publicUrl ?? ""}/p/${item.lane.split("/")[0]}/work`;
+      const page = `${config.publicUrl ?? ""}/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`;
       const send = async (channel: NotificationChannel, fn: () => Promise<unknown>, target = "") => {
         if (store.notified(item.lane, requestId, channel, target) || store.answered(item.lane, requestId)) return;
         try {

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import type { LaneEvent } from "@contextlanes/protocol";
+import { createContext, useContext, useCallback, useEffect, useState } from "react";
+import type { LaneEvent, InboxItem } from "@contextlanes/protocol";
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -32,10 +32,30 @@ export async function postJson<T>(path: string, body: unknown, method = "POST"):
 }
 
 /** One server-sent-event stream per project; every lane event arrives here. */
-export function useProjectStream(project: string, onEvent: (e: LaneEvent) => void): void {
+export function useProjectStream(project: string, onEvent: (e: LaneEvent) => void, onOpen?: () => void): void {
   useEffect(() => {
     const source = new EventSource(`/api/projects/${project}/stream`);
+    if (onOpen) source.onopen = onOpen;
     source.addEventListener("lane", (msg) => onEvent(JSON.parse((msg as MessageEvent<string>).data) as LaneEvent));
     return () => source.close();
-  }, [project, onEvent]);
+  }, [project, onEvent, onOpen]);
+}
+
+type InboxQuery = [InboxItem[] | null, Error | null, () => void];
+export const InboxContext = createContext<InboxQuery | null>(null);
+export function useInbox(): InboxQuery {
+  const value = useContext(InboxContext);
+  if (!value) throw new Error("Inbox must be inside the app shell");
+  return value;
+}
+export function useLiveInbox(): InboxQuery {
+  const result = useJson<InboxItem[]>("/api/inbox");
+  const reload = result[2];
+  useEffect(() => {
+    const source = new EventSource("/api/stream");
+    source.onopen = reload;
+    source.addEventListener("lane", (message) => { if (/permission\.|lane.state/.test(JSON.parse((message as MessageEvent<string>).data).type)) reload(); });
+    return () => source.close();
+  }, [reload]);
+  return result;
 }

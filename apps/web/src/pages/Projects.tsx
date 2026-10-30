@@ -1,11 +1,11 @@
 import { Link } from "react-router";
-import type { InboxItem, Project } from "@contextlanes/protocol";
-import { useJson } from "../api";
+import type { Project } from "@contextlanes/protocol";
+import { useJson, useInbox } from "../api";
 import { Empty, PageHeader, Section } from "../components/ui";
 
 export function ProjectsPage() {
   const [projects] = useJson<Project[]>("/api/projects");
-  const [inbox] = useJson<InboxItem[]>("/api/inbox");
+  const [inbox] = useInbox();
   return (
     <main className="page">
       <Section tone="you" title="Needs you" meta={inbox ? `${inbox.length}` : ""} end={<Link to="/inbox">Open inbox →</Link>}>

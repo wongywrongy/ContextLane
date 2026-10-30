@@ -58,3 +58,15 @@ export function AgentMark({ agent }: { agent: string }) {
   const [cls, text] = MARKS[agent] ?? ["oc", agent.slice(0, 2).toUpperCase()];
   return <span className={`am ${cls}`} title={agent}>{text}</span>;
 }
+
+const STEP_PATHS = {
+  look: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12m10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
+  change: 'm4 16-1 5 5-1L20 8l-4-4L4 16m10-10 4 4',
+  run: 'm8 4 12 8-12 8V4',
+  mind: 'M6 6h8a4 4 0 0 1 0 8H8m0 0 3-3m-3 3 3 3M5 3v6m-3-3h6',
+  you: 'M4 4h16v12h-9l-5 4v-4H4V4m8 4v3m0 2v1',
+  team: 'M9 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6m-6 10v-2a6 6 0 0 1 12 0v2m3-13a3 3 0 0 1 0 6m1 2a5 5 0 0 1 3 5',
+};
+export function StepIcon({ family }: { family: keyof typeof STEP_PATHS }) {
+  return <span className={`step-icon ${family}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={STEP_PATHS[family]} /></svg><span>{family}</span></span>;
+}

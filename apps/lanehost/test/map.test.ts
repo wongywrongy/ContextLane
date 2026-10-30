@@ -39,3 +39,11 @@ describe("ACP to ContextLanes events", () => {
     expect(() => resolveAgent("nope")).toThrow(/unknown agent/);
   });
 });
+
+it("keeps measured ACP line diffs and individual TAP outcomes in tool updates", () => {
+  const event = mapUpdate({ sessionUpdate: "tool_call_update", toolCallId: "edit", status: "completed", content: [
+    { type: "diff", path: "/tmp/file.ts", oldText: "same\nold\n", newText: "same\nnew\nextra\n" },
+    { type: "content", content: { type: "text", text: "TAP version 13\nok 1 - reads config\nnot ok 2 - rejects input\nok 3 - optional # SKIP no device\n" } },
+  ] });
+  expect(event).toMatchObject({ type: "tool.update", payload: { diff: { added: 2, removed: 1 }, tests: [{ name: "reads config", passed: true }, { name: "rejects input", passed: false }] } });
+});
