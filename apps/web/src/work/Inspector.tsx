@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import type { Lane, LaneEvent } from "@contextlanes/protocol";
+import { Link, useNavigate } from "react-router";
+import type { DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
 import { READY } from "../features";
-import { Glyph, Tile, laneNumber } from "../components/ui";
-import { postJson } from "../api";
+import { AGENT_NAMES, Dialog, Glyph, Tile, laneNumber } from "../components/ui";
+import { errorMessage, postJson, useJson } from "../api";
 import { editorLink, useEditor } from "../components/editor";
 import { environmentFrom, SERVICE_GLYPH } from "./model";
 
@@ -14,6 +14,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const plan = events.findLast((e) => e.type === "agent.plan");
   const [copied, setCopied] = useState("");
   const editor = useEditor();
+  const [handoff, setHandoff] = useState<"fresh" | "agent" | "fork" | null>(null);
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
   };
@@ -40,6 +41,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
       </div> : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows how full the agent’s context is once it reports it.</p>}
+      {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Fresh session from a handoff</button> : null}
     </section>
     <section className="ps">
       <div className="ps-h"><span className="lbl">Checkout</span></div>
@@ -52,11 +54,12 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}><Tile family="look" icon="read" small />Copy the terminal command</button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch")}><Tile family="change" icon="move" small />Copy the branch name</button>
       {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open in editor</a> : null}
-      {READY.handoff ? <><button className="act"><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act"><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
+      {READY.handoff ? <><button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button><button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Fork into a new lane</button></> : null}
       {READY.review ? <button className="act" disabled={lane.state !== "working"} onClick={() => void sendCheckpoint()}><Tile family="you" icon="checkpoint" small />Send checkpoint to review</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>
+    {handoff ? <HandoffDialog lane={lane} kind={handoff} onClose={() => setHandoff(null)} /> : null}
   </aside>;
 }
 
@@ -72,4 +75,26 @@ function EnvironmentBlock({ lane, events }: { lane: Lane; events: LaneEvent[] })
 
 function compact(n: number): string {
   return n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
+}
+
+/** Fresh session, hand off or fork (4.1): what happens, which agent, and a note for the next session. */
+function HandoffDialog({ lane, kind, onClose }: { lane: Lane; kind: "fresh" | "agent" | "fork"; onClose: () => void }) {
+  const [agents] = useJson<DetectedAgent[]>(kind === "fresh" ? null : "/api/setup/agents");
+  const [agent, setAgent] = useState(kind === "agent" ? "" : lane.agent);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const ready = (agents ?? []).filter((a) => a.status === "Ready" && (kind !== "agent" || a.id !== lane.agent));
+  const go = () => {
+    setBusy(true); setError("");
+    const body = { ...(kind !== "fresh" && agent ? { agent } : {}), ...(note.trim() ? { note: note.trim() } : {}) };
+    void postJson<Lane>(`/api/lanes/${lane.id}/${kind === "fork" ? "fork" : "handoff"}`, body).then((r) => { onClose(); if (kind === "fork") navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(r.id)}`); }, (e) => setError(errorMessage(e))).finally(() => setBusy(false));
+  };
+  const title = kind === "fresh" ? "Fresh session" : kind === "agent" ? "Hand off to another agent" : "Fork into a new lane";
+  return <Dialog title={title} onClose={onClose} footer={<div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={busy || (kind === "agent" && !agent)} onClick={go}>{busy ? "Starting…" : kind === "fork" ? "Fork" : "Write the handoff"}</button></div>}>
+    <p style={{ margin: "0 0 12px", fontSize: 14 }}>{kind === "fork" ? `A new lane starts from ${lane.branch} with its uncommitted changes, and its agent starts from a summary of this lane's conversation. This lane keeps going.` : `${AGENT_NAMES[lane.agent] ?? lane.agent} writes a handoff, its session ends, and ${kind === "fresh" ? "a fresh session" : "the agent you choose"} continues in the same checkout from that handoff. Takes a minute or two.`}</p>
+    {kind !== "fresh" ? <label className="field">Agent<select className="in" value={agent} onChange={(e) => setAgent(e.target.value)}>{kind === "agent" ? <option value="">Choose…</option> : null}{(kind === "fork" ? (agents ?? []).filter((a) => a.status === "Ready") : ready).map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label> : null}
+    <label className="field" style={{ marginTop: 10 }}>Note for the next session <span className="hint">optional</span><textarea className="in" rows={3} value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} /></label>
+  </Dialog>;
 }

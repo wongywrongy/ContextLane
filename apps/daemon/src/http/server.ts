@@ -7,7 +7,7 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
 import { Collisions } from "../collisions.js";
@@ -17,6 +17,7 @@ import { Helper } from "../helper.js";
 import { Insights } from "../insights.js";
 import { Ask } from "../ask.js";
 import { Bench } from "../bench.js";
+import { Handoffs } from "../handoff.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
 const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
@@ -231,6 +232,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const bench = new Bench({ config, store, bus, lanes: deps.lanes, run });
   app.post("/api/bench", async (req) => bench.start(BenchRequest.parse(req.body).tasks));
   app.get<{ Params: { id: string } }>("/api/bench/:id", async (req) => (await bench.get(z.uuid().parse(req.params.id))) ?? Promise.reject(new NotFound("no such bench run")));
+  const handoffs = new Handoffs({ config, store, bus, hosts: deps.hosts, lanes: deps.lanes, run });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/handoff", async (req, reply) => reply.code(202).send(await handoffs.replace(laneParam(req.params), HandoffRequest.parse(req.body ?? {}))));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/fork", async (req) => handoffs.fork(laneParam(req.params), HandoffRequest.parse(req.body ?? {})));
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));

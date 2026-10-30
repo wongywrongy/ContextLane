@@ -337,8 +337,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.7 Insights | insights | Done with a fake model; see 3.7 |
 | 3.8 ⌘K Ask | top bar | Done with a fake model; see 3.8 |
 | 3.9 Measure the phase 3 gate | — | Built; the real run is Kyle's; see 3.9 |
-| 4.1 Hand off, fork, fresh session | work-lane | Next |
-| 4.2 Second-agent review | review | Not started |
+| 4.1 Hand off, fork, fresh session | work-lane | Done; see 4.1 |
+| 4.2 Second-agent review | review | Next |
 | 4.3 More agents | models | Not started |
 | 4.4 Routing | models | Not started |
 | 4.5 Scheduled lanes | — (needs a board) | Not started |
@@ -655,6 +655,13 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Fresh session: the same, keeping the same agent. The Context block shows the handoff's size.
 - Fork into a new lane: a new lane from this lane's HEAD, with the task and handoff copied.
 - Handoffs are saved and listed in Insights. Set `READY.handoff`.
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/handoff.ts`. **Fresh session** (Context block) and **Hand off to another agent** (Lane actions): the current agent is asked for a handoff (under 400 words: the task, what is done, what is left, failures, rules) and its turn is awaited for up to five minutes. Then its host stops and a new host starts in the same checkout with the same or the chosen agent, whose first message is the handoff plus the owner's note. `lane.handoff` records it; the handoff is kept under `<data>/handoffs/<project>/` (counted on Insights).
+- **Fork into a new lane**: a new lane from this lane's branch, with its uncommitted diff and new files copied in, whose agent starts from a handoff built from this lane's conversation (no wait on the agent). `lane.forked` records it on the original lane. Both lanes carry on.
+- If the agent is not connected, the handoff stops with a sentence suggesting Fork. `READY.handoff` is on.
+- Tests: `handoff.test.ts` (hand off to another agent with the note; agent not connected; fork with changes).
 
 ### 4.2 Second-agent review (review)
 

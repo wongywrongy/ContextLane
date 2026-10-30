@@ -79,6 +79,9 @@ const payloads = {
   "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
   /** Two or more open lanes changed one module. `order` is the suggested merge order; the rest wait. */
   "collision.detected": z.object({ module: z.string(), lanes: z.array(z.string()), files: z.record(z.string(), z.array(z.string())), order: z.array(z.string()), reason: z.string() }),
+  /** The lane's agent session was replaced: a fresh session of the same agent, or another agent, starting from a handoff. */
+  "lane.handoff": z.object({ from: z.string(), to: z.string(), model: z.string().nullable(), chars: z.number().int(), file: z.string() }),
+  "lane.forked": z.object({ from: z.string(), to: z.string() }),
   "collision.cleared": z.object({ module: z.string(), lanes: z.array(z.string()) }),
   /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */
   "collision.planned": z.object({ module: z.string(), first: z.string(), message: z.string() }),

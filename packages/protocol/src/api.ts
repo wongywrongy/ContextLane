@@ -132,3 +132,6 @@ export function benchTable(r: BenchResult): string {
   return ["| Task | Tokens without | Tokens with | Change | Check (without / with) |", "|---|---|---|---|---|", ...rows,
     `| **All** | ${off} | ${on} | ${off && on ? `${Math.round((1 - on / off) * 100)}% fewer` : "–"} | |`].join("\n");
 }
+
+/** Hand off (another agent), fresh session (same agent) or fork (a new lane from this one). */
+export const HandoffRequest = z.object({ agent: z.string().min(1).max(60).optional(), model: z.string().max(200).optional(), note: z.string().max(2000).optional() });

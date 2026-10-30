@@ -382,6 +382,11 @@ export class Store {
   }
 
   /** A new token for this lane's host and toolbox. Only its hash is kept. */
+  /** Hand off: the lane keeps its checkout and branch, with another agent (and model) from now on. Recorded by lane.handoff. */
+  setLaneAgent(id: string, agent: string, model: string | null): void {
+    this.db.prepare("UPDATE lane SET agent = ?, model = ? WHERE id = ?").run(agent, model, id);
+  }
+
   mintLaneToken(lane: string): string {
     const token = `cl-lane-${randomBytes(32).toString("base64url")}`;
     this.db.prepare("UPDATE lane SET token_hash = ? WHERE id = ?").run(createHash("sha256").update(token).digest("hex"), lane);

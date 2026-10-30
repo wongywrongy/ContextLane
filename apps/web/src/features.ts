@@ -13,5 +13,5 @@ export const READY = {
   /** Phase 3: Insights tab. */
   insights: true,
   /** Phase 4: hand off to another agent, fork into a new lane. */
-  handoff: false,
+  handoff: true,
 } as const;
