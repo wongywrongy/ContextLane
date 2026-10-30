@@ -732,6 +732,10 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
 - Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
 
+#### Setup order (2026-10-30)
+
+Setup now maps the workspace before asking for a lane: after Add projects, step 4 "Get to know your projects" maps each one with CodeGraph and shows, per project, its modules and layers, whether `.contextlanes.json` exists and is approved, services already listening outside a lane (Adopt on Run) and agent sessions started outside ContextLanes (Take over on Work). Continue waits for every map. Start your first lane follows and can be skipped; Continue and Skip are remembered in that browser. No server change: it reads `/map`, `/environments` and `/outside-agents`.
+
 #### Review of the phase 3–4 work (2026-10-30)
 
 An independent read of `773e700..a0a3f2b` found that the daemon, which runs outside the sandbox, followed symlinks in lane checkouts. Fixed with `apps/daemon/src/safefs.ts` (real path inside the checkout, no final symlink, no FIFO or device, size cap), used by `delegate`, module briefs, fork, take over and skills. Also fixed: registry entries whose arguments or environment would turn off permission prompts are refused rather than trimmed; a bench baseline lane is refused `get_brief` and `delegate`, not only hidden from them; hand off checks the agent name with `Object.hasOwn`; local model URLs keep their base path. Schedules, the new routes' auth, database names, the PTY host and attachments were checked and left as they were. Tests: `safefs.test.ts`, and additions to `helper.test.ts` and `registry.test.ts`.

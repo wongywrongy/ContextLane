@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
-import type { DetectedAgent, Project, SetupStatus } from "@contextlanes/protocol";
+import type { DetectedAgent, OutsideAgent, Project, ProjectEnvironments, ProjectMap, SetupStatus } from "@contextlanes/protocol";
 import { postJson, saveSession, useJson, RequestError, errorMessage } from "../api";
-import { Empty, Section, Tile, type Family, type IconName } from "../components/ui";
+import { Empty, Glyph, Section, Tile, type Family, type IconName } from "../components/ui";
 import { AddRepoDialog } from "../components/AddRepo";
 import { useLaneForm } from "../components/NewLane";
 import { AgentRows } from "../setup/Agents";
@@ -67,12 +67,19 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
   const signed = status.authorized;
   const ready = !!agents?.some((a) => a.status === "Ready");
   const hasProject = !!projects?.length;
-  const done = [signed, ready, hasProject, status.hasLane];
+  // Step 4 waits for every project's map, then for the owner to read it and continue (remembered in this browser).
+  const [mapped, setMapped] = useState<Record<string, boolean>>({});
+  const remembered = (key: string) => { try { return localStorage.getItem(key) === "1"; } catch { return false; } };
+  const remember = (key: string) => { try { localStorage.setItem(key, "1"); } catch { /* this browser only */ } };
+  const [seen, setSeen] = useState(() => remembered("cl-projects-surveyed"));
+  const [skipped, setSkipped] = useState(() => remembered("cl-skip-first-lane"));
+  const surveyed = hasProject && projects!.every((p) => mapped[p.id]);
+  const done = [signed, ready, hasProject, status.hasLane || seen, status.hasLane || skipped];
   const current = opened ?? done.findIndex((d) => !d);
   const state = (i: number): StepState => i === current ? "now" : done[i] ? "done" : "next";
-  const finished = signed && status.hasLane;
+  const finished = signed && (status.hasLane || skipped);
   return <section className="sec" aria-label="From any browser">
-    <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of 4 done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
+    <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of {done.length} done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
     <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Run contextlanes setup on the machine and open the link it prints."}>
       {!signed ? <>
         {signedOut ? <p role="status" style={{ margin: 0 }}>You were signed out because ContextLanes changed how it keeps you signed in. This happens once. Sign in again below.</p> : null}
@@ -94,20 +101,53 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
       desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents already work in, or any folder on the machine. Each lane gets its own checkout."}>
       {state(2) === "now" ? <div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => setAdding(true)}>{hasProject ? "Add more" : "Add repositories"}</button>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
     </Step>
-    <Step n={4} state={state(3)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : "Give an agent one task. It gets its own branch, checkout and shell, and keeps going when you close this tab."}>
-      {state(3) === "now" && projects?.length ? <FirstLane projects={projects} /> : null}
+    <Step n={4} state={state(3)} title="Get to know your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
+      desc={done[3] && current !== 3 ? "Mapped. Architecture and Run show the detail." : "ContextLanes maps each repository with CodeGraph on this machine and checks how it runs, so lanes start with what is already known."}>
+      {state(3) === "now" && projects?.length ? <><div className="agents">{projects.map((p) => <ProjectSurvey key={p.id} project={p} done={() => setMapped((m) => m[p.id] ? m : { ...m, [p.id]: true })} />)}</div>
+        <div><button className="btn" disabled={!surveyed} onClick={() => { remember("cl-projects-surveyed"); setSeen(true); setOpened(null); }}>{surveyed ? "Continue" : "Mapping…"}</button></div></> : null}
     </Step>
-    <Step n={5} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
+    <Step n={5} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped. Start one from any project's Work tab." : "Give an agent one task. It gets its own branch, checkout and shell, and keeps going when you close this tab."}>
+      {state(4) === "now" && projects?.length ? <><FirstLane projects={projects} /><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
+    </Step>
+    <Step n={6} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
       {finished ? <div className="choice">
         <Link to="/settings#notifications"><b>Phone push</b><span>install as an app</span></Link>
         <Link to="/settings#notifications"><b>Telegram</b><span>reply to answer</span></Link>
         <Link to="/settings#notifications"><b>ntfy</b><span>self-hosted</span></Link>
       </div> : null}
     </Step>
-    <Step n={6} state="next" optional title="Local models" desc={<>Point ContextLanes at Ollama or llama.cpp on this machine.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
+    <Step n={7} state="next" optional title="Local models" desc={<>Point ContextLanes at Ollama or llama.cpp on this machine.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
     {finished ? <div className="sec-f"><span>You’re set up.</span><div style={{ marginLeft: "auto" }}><Link className="btn sm" to="/">Open projects</Link></div></div> : null}
     {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={() => { reloadProjects(); setOpened(null); }} /> : null}
   </section>;
+}
+
+/** One project in step 4: its code map, how it runs, and anything already running for it outside ContextLanes. */
+function ProjectSurvey({ project, done }: { project: Project; done: () => void }) {
+  const [map, mapError] = useJson<ProjectMap>(`/api/projects/${project.id}/map`);
+  const [env] = useJson<ProjectEnvironments>(`/api/projects/${project.id}/environments`);
+  const [outside] = useJson<{ agents: OutsideAgent[] }>(`/api/projects/${project.id}/outside-agents`);
+  const finished = !!map || !!mapError;
+  useEffect(() => { if (finished) done(); }, [finished, done]);
+  const m = map?.map;
+  const recipe = env?.recipe ?? null;
+  const services = env?.facts.outside?.filter((s) => !s.adoptedLane) ?? [];
+  const sessions = outside?.agents ?? [];
+  return <div className="sec-r wrap" style={{ alignItems: "flex-start" }}>
+    <span className="grow survey">
+      <b>{project.name} <span className="mono muted" style={{ fontSize: 12, fontWeight: 400 }}>{project.id}</span></b>
+      {!finished ? <Glyph g="think">Mapping with CodeGraph…</Glyph>
+        : m ? <Glyph g="done">{m.modules.length} modules in {m.layers.map((l) => l.name).join(", ") || "one layer"} · {m.files} files</Glyph>
+        : <Glyph g="fail">Not mapped: {map?.error ?? mapError?.message}</Glyph>}
+      {env ? recipe ? recipe.error ? <Glyph g="fail">.contextlanes.json is invalid: {recipe.error}</Glyph>
+          : recipe.approved ? <Glyph g="done">Runs from its approved recipe: {recipe.recipe?.services.map((x) => x.name).join(", ") || "no services"}</Glyph>
+          : <Glyph g="wait">Has a recipe waiting for you. <Link to={`/p/${project.id}/run`}>Review it on Run</Link></Glyph>
+        : <Glyph g="idle">No .contextlanes.json, so lanes cannot start the app yet. Lanes still edit, test and review.</Glyph> : null}
+      {services.length ? <Glyph g="wait">{services.length} {services.length === 1 ? "service" : "services"} already running outside a lane ({services.map((x) => `:${x.port}`).join(", ")}). <Link to={`/p/${project.id}/run`}>Adopt on Run</Link></Glyph> : null}
+      {sessions.length ? <Glyph g="wait">{sessions.length} agent {sessions.length === 1 ? "session" : "sessions"} started outside ContextLanes. <Link to={`/p/${project.id}/work`}>Take over on Work</Link></Glyph> : null}
+    </span>
+    {m ? <Link className="btn ghost sm" to={`/p/${project.id}/architecture`}>Architecture</Link> : null}
+  </div>;
 }
 
 function FirstLane({ projects }: { projects: Project[] }) {

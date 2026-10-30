@@ -107,6 +107,10 @@ a.btn.ghost { color: var(--ink); }
 .g.idle { border-radius: 50%; border: 2px solid #A39C90; }
 .g.pause { border-left: 3.5px solid #A39C90; border-right: 3.5px solid #A39C90; width: 11px; }
 .gl { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+/* Setup step 4: one project's facts, each a glyph and a sentence that may wrap. */
+.survey { display: grid; gap: 6px; }
+.survey .gl { align-items: flex-start; white-space: normal; font-weight: 500; color: var(--text-2); }
+.survey .gl > .g { margin-top: 3px; flex: none; }
 .gl.work { color: var(--ink); } .gl.think { color: #5B3FE0; } .gl.wait { color: var(--you-ink); } .gl.fail { color: var(--bad-ink); } .gl.done { color: var(--ok-ink); } .gl.idle, .gl.pause { color: var(--muted); }
 
 /* ── lanes, agents, step tiles ── */
