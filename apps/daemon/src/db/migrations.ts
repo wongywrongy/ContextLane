@@ -79,4 +79,7 @@ export const MIGRATIONS: readonly string[] = [
   CREATE TABLE notification_cursor (id INTEGER PRIMARY KEY CHECK (id = 1), offset INTEGER NOT NULL);`,
   /* 4 */ `CREATE TABLE owner_session (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);`,
   /* 5 */ `CREATE TABLE setup_link (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL, origin TEXT NOT NULL);`,
+  /* 6 */ `ALTER TABLE environment ADD COLUMN setup TEXT;
+  ALTER TABLE environment ADD COLUMN started_at TEXT;
+  ALTER TABLE environment ADD COLUMN error TEXT;`,
 ];

@@ -8,28 +8,30 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
-import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest } from "@contextlanes/protocol";
+import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, LogsQuery, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
 import type { Store } from "../db/store.js";
 import type { HostLinks } from "../hosts.js";
-import { NotFound, type LaneManager } from "../lanes/manager.js";
+import { NotFound, Refused, type LaneManager } from "../lanes/manager.js";
 import { slugify } from "../lanes/naming.js";
 import { readRecipe } from "../recipes.js";
+import { Runtime } from "../runtime.js";
 import { refuseUnlessOwner } from "./owner.js";
 import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime };
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { store, bus, config } = deps;
   const run = deps.run ?? runCommand;
+  const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const streams = new Set<ServerResponse>();
   app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
   app.register(websocket, {
@@ -65,7 +67,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
-    if (err instanceof SetupError || err instanceof ProjectError) return reply.code(err.statusCode).send({ error: err.message });
+    if (err instanceof SetupError || err instanceof ProjectError || err instanceof Refused) return reply.code(err.statusCode).send({ error: err.message });
     if (err instanceof NotFound) return reply.code(404).send({ error: "That project or lane could not be found; return to Projects and choose it again." });
     return reply.code(500).send({ error: "This action could not finish; check the daemon logs and try again." });
   });
@@ -151,6 +153,19 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     });
   }
 
+  // ── environments ──
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/stop", async (req) => runtime.stop(laneParam(req.params)));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/restart", async (req) => {
+    await runtime.stop(laneParam(req.params));
+    return runtime.start(laneParam(req.params));
+  });
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/logs", async (req) => {
+    const { service, lines } = LogsQuery.parse(req.query);
+    return runtime.logs(laneParam(req.params), service, lines);
+  });
+
   // Register after the websocket plugin has installed its upgrade hook.
   app.register(async (terminal) => {
     terminal.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/terminal", {
@@ -193,6 +208,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (original.kind !== "question" || original.title !== body.question || JSON.stringify(original.options.map((o) => o.label)) !== JSON.stringify(body.options)) return reply.code(409).send({ error: "question ID already has different content" });
       const answer = store.answer(lane, body.requestId);
       return answer ? { optionId: answer.optionId, label: original.options.find((o) => o.id === answer.optionId)?.label ?? null } : reply.code(202).send({ pending: true, requestId: body.requestId });
+    }
+    if (req.params.tool === "env_status") return runtime.status(lane);
+    if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
+    if (req.params.tool === "get_logs") {
+      const { service, lines } = LogsQuery.parse(req.body);
+      return runtime.logs(lane, service, lines);
     }
     return reply.code(501).send({ error: `${req.params.tool} is not available yet; see docs/IMPLEMENTATION.md` });
   });

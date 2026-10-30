@@ -3,6 +3,7 @@ import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
 import { LaneCommand } from "./commands.js";
 import { NotificationChannel } from "./notifications.js";
+import { ServiceState } from "./recipe.js";
 
 /**
  * Everything that happens is an event in one append-only log. Pages, the inbox, the CLI
@@ -62,7 +63,7 @@ const payloads = {
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
   "recipe.requested": z.object({ hash: z.string() }),
   "recipe.approved": z.object({ hash: z.string() }),
-  "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional() }),
+  "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional(), state: ServiceState.optional(), detail: z.string().optional() }),
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
   "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative() }),

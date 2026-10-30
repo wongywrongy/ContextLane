@@ -35,6 +35,40 @@ export const Recipe = z.strictObject({
 });
 export type Recipe = z.infer<typeof Recipe>;
 
+export const ServiceState = z.enum(["starting", "healthy", "failed", "stopped"]);
+export type ServiceState = z.infer<typeof ServiceState>;
+
+export const ServiceStatus = z.object({
+  name: z.string(),
+  unit: z.string(),
+  port: z.number().int(),
+  url: z.string().nullable(),
+  state: ServiceState,
+  detail: z.string().nullable(),
+  /** Newest last, one per health probe. */
+  probes: z.array(z.boolean()),
+  ms: z.number().nullable(),
+  lastFailure: z.string().nullable(),
+  healthPath: z.string(),
+  healthStatus: z.number().int(),
+});
+export type ServiceStatus = z.infer<typeof ServiceStatus>;
+
+/** A lane's environment as recorded: what setup did and how each service is doing. */
+export const EnvironmentView = z.object({
+  lane: z.string(),
+  recipeHash: z.string(),
+  services: z.array(ServiceStatus),
+  setup: z.object({ ignored: z.array(z.string()), cache: z.enum(["none", "linked", "copied"]), seconds: z.number(), steps: z.number().int(), disk: z.number().nullable() }).nullable(),
+  startedAt: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export type EnvironmentView = z.infer<typeof EnvironmentView>;
+
+export const StartEnvRequest = z.object({ services: z.array(z.string()).optional() });
+export const LogsQuery = z.object({ service: z.string().min(1), lines: z.coerce.number().int().positive().max(500).default(100) });
+export type LogLine = { at: string; text: string };
+
 export const RecipeHash = z.string().regex(/^[a-f0-9]{64}$/);
 export const ApproveRecipeRequest = z.object({ hash: RecipeHash });
 

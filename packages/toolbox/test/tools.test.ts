@@ -10,8 +10,8 @@ describe("toolbox", () => {
     expect(() => TOOLS.delegate.input.parse({ kind: "deploy", task: "x" })).toThrow();
   });
   it("gives agents only the tools that work today", () => {
-    expect(LIVE_TOOLS).toEqual(["ask_owner"]);
+    expect(LIVE_TOOLS).toEqual(["ask_owner", "env_status", "env_start", "get_logs"]);
     const server = createToolbox({ daemonUrl: "http://127.0.0.1:4600", lane: "shuttleworks/01" }) as unknown as { _registeredTools: Record<string, unknown> };
-    expect(Object.keys(server._registeredTools)).toEqual(["ask_owner"]);
+    expect(Object.keys(server._registeredTools)).toEqual(LIVE_TOOLS);
   });
 });

@@ -105,3 +105,8 @@ export function hostCommand(lane: Lane, config: Config): string[] {
 }
 
 export class NotFound extends Error {}
+
+/** The request was understood but cannot happen now; the message says why, in plain words. */
+export class Refused extends Error {
+  constructor(message: string, readonly statusCode = 409) { super(message); }
+}

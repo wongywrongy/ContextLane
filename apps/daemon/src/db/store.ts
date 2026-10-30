@@ -3,6 +3,7 @@ import { chmodSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import {
   canTransition,
+  type EnvironmentView,
   type InboxItem,
   type Lane,
   type LaneEvent,
@@ -142,6 +143,35 @@ export class Store {
       this.db.prepare("UPDATE lane SET state = ? WHERE id = ?").run(to, id);
       return this.appendEvent(id, { type: "lane.state", payload: { from: lane.state, to, ...(reason ? { reason } : {}) } });
     });
+  }
+
+  // ── environments ────────────────────────────────────────────────────────
+
+  environment(lane: LaneId): EnvironmentView | null {
+    const r = this.db.prepare("SELECT * FROM environment WHERE lane = ?").get(lane) as Row | undefined;
+    if (!r) return null;
+    const ports = JSON.parse(String(r.ports)) as Record<string, number>;
+    const hostnames = JSON.parse(String(r.hostnames)) as Record<string, string | null>;
+    const health = JSON.parse(String(r.health)) as Record<string, Pick<EnvironmentView["services"][number], "state" | "detail" | "probes" | "ms" | "lastFailure" | "healthPath" | "healthStatus">>;
+    const services = (JSON.parse(String(r.units)) as { name: string; unit: string }[]).map((u) => ({ ...u, port: ports[u.name]!, url: hostnames[u.name] ?? null, ...health[u.name]! }));
+    return { lane, recipeHash: String(r.recipe_hash), services, setup: r.setup ? JSON.parse(String(r.setup)) : null, startedAt: (r.started_at as string) ?? null, error: (r.error as string) ?? null };
+  }
+
+  saveEnvironment(env: EnvironmentView): void {
+    const by = <T,>(pick: (s: EnvironmentView["services"][number]) => T) => JSON.stringify(Object.fromEntries(env.services.map((s) => [s.name, pick(s)])));
+    this.db.prepare(`INSERT INTO environment (lane, recipe_hash, units, ports, hostnames, health, updated_at, setup, started_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(lane) DO UPDATE SET recipe_hash = excluded.recipe_hash, units = excluded.units, ports = excluded.ports, hostnames = excluded.hostnames, health = excluded.health, updated_at = excluded.updated_at, setup = excluded.setup, started_at = excluded.started_at, error = excluded.error`)
+      .run(env.lane, env.recipeHash, JSON.stringify(env.services.map(({ name, unit }) => ({ name, unit }))), by((s) => s.port), by((s) => s.url),
+        by(({ state, detail, probes, ms, lastFailure, healthPath, healthStatus }) => ({ state, detail, probes, ms, lastFailure, healthPath, healthStatus })), now(), env.setup ? JSON.stringify(env.setup) : null, env.startedAt, env.error);
+  }
+
+  /** Environments with a service that should be up, for the health loop. */
+  liveEnvironments(): EnvironmentView[] {
+    return (this.db.prepare("SELECT lane FROM environment").all() as Row[]).map((r) => this.environment(String(r.lane))!).filter((e) => e.services.some((s) => s.state !== "stopped"));
+  }
+
+  recipeAlreadyRequested(lane: LaneId, hash: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM event WHERE lane = ? AND type = 'recipe.requested' AND json_extract(payload, '$.hash') = ? LIMIT 1").get(lane, hash);
   }
 
   // ── events ──────────────────────────────────────────────────────────────

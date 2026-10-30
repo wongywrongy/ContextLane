@@ -10,6 +10,7 @@ import { LaneManager } from "./lanes/manager.js";
 import { runCommand } from "./run.js";
 import { SetupManager } from "./setup.js";
 import { Notifier } from "./notifications/notifier.js";
+import { Runtime } from "./runtime.js";
 
 const VERSION = "0.1.0";
 
@@ -23,16 +24,19 @@ async function main(): Promise<void> {
   const lanes = new LaneManager({ store, bus, config, run: runCommand });
   const setup = new SetupManager(config, store, runCommand, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
   await setup.initialize();
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup });
+  const runtime = new Runtime({ store, bus, config, run: runCommand });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();
   await app.listen({ host: config.listen.host, port: config.listen.port });
   notifier.start();
+  runtime.watch();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
 
   const stop = async () => {
     await notifier.close();
+    runtime.close();
     await app.close();
     await hosts.close();
     store.close();
