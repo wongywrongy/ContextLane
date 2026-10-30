@@ -6,6 +6,7 @@
 - **The phase 3 gate (30% fewer cloud tokens):** with a local model serving, write 3 to 5 tasks typical of your week for one of your repositories into a `tasks.json` and run `contextlanes bench tasks.json`, answering the lanes' questions as they come. Paste the table it prints under 3.9. Each task runs twice, so it costs about twice its usual tokens.
 - **Local models (phase 3):** add Ollama (or llama.cpp) under Models → Local models, pull the model you want (`ollama pull <name>`), and check it shows Serving after a brief or Insights run. Nothing in phase 3 has run against a real model yet; the code is tested against a fake OpenAI-compatible server. On neo's 24 GB card a 30B coder model fits only quantized (Q4).
 - **3.0 real usage acceptance:** run a real Claude lane with your signed-in account and compare its `/api/usage?project=<id>` totals with Claude Code's own usage report. The fake ACP agent, Claude/Codex JSONL fixtures and desktop/phone browser checks cover implementation; no paid model turn was started for this milestone.
+- **Skills over ACP:** add one project skill in Insights, start one lane each with Claude Code, Codex and OpenCode, and ask each to list its skills. They read the files from the checkout (see 4.6); what is unchecked is whether each ACP adapter turns skill loading on.
 - **Terminals on neo:** the native terminal module is gone (see T). Open a lane terminal and an agent login terminal once on neo to confirm; the real tmux test passes in the build container with Python 3.13.
 - **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
 - **bubblewrap on other machines:** lanes refuse to start without a working `bwrap`. neo has it. `install.sh` now requires it, and a fresh machine needs `sudo apt install bubblewrap`. Ubuntu 24.04 needs its AppArmor profile for `bwrap`, which neo has at `/etc/apparmor.d/bwrap`; other distributions have not been tried.
@@ -343,8 +344,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 4.3 More agents | models | Done; Hermes is not in the registry; see 4.3 |
 | 4.4 Routing | models | Done; see 4.4 |
 | 4.5 Scheduled lanes | — (needs a board) | Done; see 4.5 |
-| 4.6 Shared skills | insights | Next |
-| 4.7 Final board pass | all | Not started |
+| 4.6 Shared skills | insights | Done; see 4.6 |
+| 4.7 Final board pass | all | Next |
 
 ### 3.0 Usage and cost
 
@@ -715,6 +716,19 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - Accepted Insights suggestions of type notes go into project notes.
 - Skills: per-project files linked into each new lane in the place that lane's agent reads them, excluded from git. Check per agent (Claude Code, Codex, OpenCode) and write down where each one looks.
+
+#### What was done (2026-10-30)
+
+- Notes suggestions: Add to notes on an Insights card appends the line to project notes (`<data>/notes/<project>.md`), which go before every new lane's first prompt.
+- `apps/daemon/src/skills.ts`: skills are kept per project at `<data>/skills/<project>/<name>/SKILL.md` (front matter `name` and `description`, then the instructions; the open Agent Skills format all three agents read). When a lane starts, after its worktree exists and before the agent starts, each skill is copied into the checkout as `contextlanes-<name>`. Copied, not linked, because the lane sandbox hides the data folder. `.claude/skills/contextlanes-*/` and `.agents/skills/contextlanes-*/` go in the repository's `info/exclude` (the common git folder, so every worktree shares it), so they never show as changes or get committed. A copy that fails is reported on the lane and does not stop it. Baseline bench lanes get none.
+- Where each agent looks, from their docs on 2026-10-30:
+  - Claude Code: `.claude/skills/<name>/SKILL.md` ([docs](https://code.claude.com/docs/en/skills)).
+  - Codex: `.agents/skills` in every folder from the working folder up to the repository root, then `~/.agents/skills` and `/etc/codex/skills` ([docs](https://learn.chatgpt.com/docs/build-skills)). Older notes say `.codex/skills`; current Codex does not read it.
+  - OpenCode: `.opencode/skills`, `.claude/skills` or `.agents/skills` in the project ([docs](https://opencode.ai/docs/skills)). It gets `.agents/skills`, so it does not load a skill twice.
+  - Other registry agents: `.agents/skills`, the shared name.
+- Insights → What every lane starts with → Skills: add, edit and remove, with where they go.
+- Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
+- Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
 
 ### 4.7 Final board pass
 

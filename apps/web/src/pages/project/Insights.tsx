@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import type { InsightsView, Project, Suggestion } from "@contextlanes/protocol";
+import type { InsightsView, Project, ProjectSkill, Suggestion } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
@@ -89,7 +89,33 @@ export function InsightsPage() {
       {notes !== null ? <div className="sec-b"><textarea className="in" rows={8} value={notes} maxLength={8000} onChange={(e) => setNotes(e.target.value)} aria-label="Project notes" />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn sm" onClick={() => void postJson(`/api/projects/${project}/notes`, { text: notes }, "PUT").then(() => { setNotes(null); reload(); }, (e) => setMessage(errorMessage(e)))}>Save</button><button className="btn ghost sm" onClick={() => setNotes(null)}>Cancel</button></div></div> : null}
       <div className="sec-r"><Tile family="look" icon="read" small /><span style={{ flex: 1 }}><b>Module briefs</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{view.startsWith.briefs} written, rebuilt when their files change; agents ask with get_brief</span></span><span className="mono muted" style={{ fontSize: 12 }}>on demand</span><Link className="btn ghost sm" to={`/p/${project}/architecture`}>Architecture</Link></div>
+      <SkillsBlock project={project} />
     </Section>
     {starting && projects ? <NewLaneDialog projects={projects} project={project} task={starting} onClose={() => setStarting(null)} /> : null}
   </main>;
+}
+
+/** Shared skills (4.6): SKILL.md files copied into each new lane where its agent reads them. */
+function SkillsBlock({ project }: { project: string }) {
+  const [skills, , reload] = useJson<ProjectSkill[]>(`/api/projects/${project}/skills`);
+  const [editing, setEditing] = useState<ProjectSkill | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const blank = { name: "", description: "", body: "" };
+  const save = async (form: HTMLFormElement) => {
+    const d = new FormData(form);
+    try { await postJson(`/api/projects/${project}/skills`, { name: d.get("name"), description: d.get("description"), body: d.get("body") }, "PUT"); setEditing(null); setError(null); reload(); }
+    catch (e) { setError(errorMessage(e)); }
+  };
+  const remove = async (name: string) => { try { await postJson(`/api/projects/${project}/skills/${name}`, {}, "DELETE"); reload(); } catch (e) { setError(errorMessage(e)); } };
+  return <>
+    <div className="sec-r"><Tile family="run" icon="checkpoint" small /><span style={{ flex: 1 }}><b>Skills</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{skills?.length ? `${skills.length} copied into every new lane: .claude/skills for Claude Code, .agents/skills for Codex and OpenCode, kept out of git` : "None yet. Steps an agent loads only when the task needs them, like how to cut a release."}</span></span><button className="btn ghost sm" onClick={() => setEditing(blank)}>Add</button></div>
+    {skills?.map((s) => <div className="sec-r" key={s.name}><span className="mono" style={{ fontSize: 12.5, minWidth: 140 }}>{s.name}</span><span className="muted" style={{ flex: 1, fontSize: 13 }}>{s.description}</span><button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button><button className="btn ghost sm" onClick={() => void remove(s.name)}>Remove</button></div>)}
+    {editing ? <form className="sec-b" onSubmit={(e) => { e.preventDefault(); void save(e.currentTarget); }}>
+      <div className="two"><label className="field">Name <span className="hint">lowercase, digits and dashes</span><input className="in" name="name" required pattern="[a-z0-9][a-z0-9-]{0,40}" defaultValue={editing.name} readOnly={!!editing.name} /></label>
+        <label className="field">When to use it <span className="hint">the agent reads this to decide</span><input className="in" name="description" required maxLength={300} defaultValue={editing.description} /></label></div>
+      <label className="field">Instructions<textarea className="in" name="body" rows={8} required maxLength={20000} defaultValue={editing.body} /></label>
+      {error ? <p className="muted" role="alert">{error}</p> : null}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn sm" type="submit">Save</button><button className="btn ghost sm" type="button" onClick={() => { setEditing(null); setError(null); }}>Cancel</button></div>
+    </form> : null}
+  </>;
 }

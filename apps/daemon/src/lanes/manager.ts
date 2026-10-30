@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { access, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { Skills } from "../skills.js";
 import { laneColour, laneId, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
@@ -88,6 +89,9 @@ export class LaneManager {
       await mkdir(dirname(lane.worktree), { recursive: true });
       await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, req.base], { cwd: project.path });
       await extra.prepare?.(lane);
+      // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
+      // A skill that fails to copy is reported, not fatal: the lane still works without it.
+      if (!req.baseline) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
       // Through the environment, not arguments: every process on the machine can read arguments.
       if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config, req.adoption, extra.firstPrompt, req.baseline ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "")), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });

@@ -20,6 +20,7 @@ import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import type { Schedules } from "../schedules.js";
+import { Skills } from "../skills.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
 const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
@@ -247,6 +248,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     app.delete<{ Params: { id: string } }>("/api/schedules/:id", async (req) => schedules.remove(z.string().regex(/^[a-z0-9-]+$/).parse(req.params.id)));
     app.post<{ Params: { id: string } }>("/api/schedules/:id/run", async (req) => schedules.runNow(z.string().regex(/^[a-z0-9-]+$/).parse(req.params.id)));
   }
+  const skills = new Skills({ config, store, run });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/skills", async (req) => skills.list(ProjectId.parse(req.params.project)));
+  app.put<{ Params: { project: string } }>("/api/projects/:project/skills", async (req) => skills.save(ProjectId.parse(req.params.project), req.body));
+  app.delete<{ Params: { project: string; name: string } }>("/api/projects/:project/skills/:name", async (req) => skills.remove(ProjectId.parse(req.params.project), req.params.name));
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));

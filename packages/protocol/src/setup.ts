@@ -94,3 +94,7 @@ export const Schedule = z.object({ id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40
   when: z.string().min(3).max(100).regex(/^[\w*.,:\-/ ~]+$/, "a systemd calendar expression") });
 export type Schedule = z.infer<typeof Schedule>;
 export type ScheduleView = Schedule & { next: string | null; lastLane: string | null };
+
+/** A project skill every new lane gets, in the folder its agent reads skills from (SKILL.md with name and description). */
+export const ProjectSkill = z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "lowercase letters, digits and dashes"), description: z.string().trim().min(1).max(300), body: z.string().trim().min(1).max(20_000) });
+export type ProjectSkill = z.infer<typeof ProjectSkill>;

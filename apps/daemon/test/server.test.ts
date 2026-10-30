@@ -133,4 +133,14 @@ describe("http api", () => {
     expect((await answer("request", "once")).statusCode).toBe(409);
     expect(store.events("demo/01").filter((e) => e.type === "permission.answered")).toHaveLength(1);
   });
+
+  it("saves, lists and removes a project's shared skills", async () => {
+    const { app } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/skillshop" } });
+    const skill = { name: "deploy-check", description: "Check a deploy.", body: "Run the smoke tests." };
+    expect((await app.inject({ method: "PUT", url: "/api/projects/skillshop/skills", payload: skill })).json()).toEqual([skill]);
+    expect((await app.inject({ url: "/api/projects/skillshop/skills" })).json()).toEqual([skill]);
+    expect((await app.inject({ method: "PUT", url: "/api/projects/skillshop/skills", payload: { ...skill, name: "Bad Name" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "DELETE", url: "/api/projects/skillshop/skills/deploy-check" })).json()).toEqual([]);
+  });
 });
