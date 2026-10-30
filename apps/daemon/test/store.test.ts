@@ -15,7 +15,7 @@ function seeded() {
 describe("store", () => {
   it("migrates an empty database", () => {
     const store = Store.open(":memory:");
-    expect(store.schemaVersion()).toBe(9);
+    expect(store.schemaVersion()).toBe(10);
     expect(store.listProjects()).toEqual([]);
   });
 
@@ -67,5 +67,21 @@ describe("store", () => {
     expect(store.inbox().map((i) => i.id)).toEqual(["shuttleworks/01#recipe-bbbbbbb2"]);
     store.approveRecipe("shuttleworks", "bbbbbbb2");
     expect(store.inbox()).toEqual([]);
+  });
+
+  it("keeps working after a COMMIT fails, and finds events by type", () => {
+    const store = Store.open(":memory:");
+    const db = (store as unknown as { db: import("node:sqlite").DatabaseSync }).db;
+    db.exec("PRAGMA foreign_keys = ON; CREATE TABLE parent (id INTEGER PRIMARY KEY); CREATE TABLE child (p INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED);");
+    // A deferred foreign key fails at COMMIT, the way a full disk would.
+    expect(() => store.tx(() => db.exec("INSERT INTO child VALUES (7)"))).toThrow();
+    expect(() => store.tx(() => store.tx(() => db.exec("INSERT INTO parent VALUES (1)")))).not.toThrow();
+    store.addProject({ id: "shop", name: "Shop", path: "/code/shop" });
+    store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "t", agent: "claude-code", model: null, mode: "default", branch: "b", worktree: "/w", terminal: "t", hostUnit: "u", base: "main", state: "draft", colour: "lc1" } as never);
+    store.appendEvent("shop/01", { type: "agent.error", payload: { message: "x" } });
+    store.appendEvent("shop/01", { type: "lane.renamed", payload: { from: "t", task: "u" } });
+    expect(store.eventsOfType(["lane.renamed"]).map((e) => e.payload.task)).toEqual(["u"]);
+    expect(store.eventsOfType(["agent.error"], { lanes: [] })).toEqual([]);
+    expect(store.lastSeq("shop/01")).toBe(2);
   });
 });

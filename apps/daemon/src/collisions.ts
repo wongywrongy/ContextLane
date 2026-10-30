@@ -39,7 +39,9 @@ export class Collisions {
   constructor(private deps: { store: Store; bus: EventBus; codemaps: CodeMaps; hosts: HostLinks }) {}
 
   start(everyMs = 30_000): void {
-    const tick = () => void this.check().catch((err) => console.error("Collision check failed:", err));
+    // One pass at a time: a slow git on a big repository must not stack passes up and repeat events.
+    let busy = false;
+    const tick = () => { if (busy) return; busy = true; void this.check().catch((err) => console.error("Collision check failed:", err)).finally(() => { busy = false; }); };
     this.timer = setInterval(tick, everyMs);
     this.timer.unref();
     setTimeout(tick, 5_000).unref();
@@ -127,8 +129,7 @@ export class Collisions {
   }
 
   private events(lane: string): LaneEvent[] {
-    const all: LaneEvent[] = [];
-    for (;;) { const page = this.deps.store.events(lane, all.at(-1)?.seq ?? 0); if (!page.length) return all.filter((e) => e.type.startsWith("collision.")); all.push(...page); }
+    return this.deps.store.eventsOfType(["collision.detected", "collision.cleared", "collision.planned", "collision.told"], { lanes: [lane] }).sort((a, b) => a.seq - b.seq);
   }
   private emit(e: LaneEvent): void { this.deps.bus.publish(e); }
 }

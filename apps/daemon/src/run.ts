@@ -22,8 +22,10 @@ export type Runner = {
   terminal?: (cmd: string, args: string[], opts: TerminalSize & { cwd: string }) => TerminalProcess;
 };
 
+/** Commands without their own timeout are stopped after five minutes, so one hung tool never wedges a loop or a request. */
+export const DEFAULT_TIMEOUT = 300_000;
 export const runCommand: Runner = async (cmd, args, opts) => {
-  const { stdout } = await exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
+  const { stdout } = await exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout ?? DEFAULT_TIMEOUT, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
   return { stdout };
 };
 

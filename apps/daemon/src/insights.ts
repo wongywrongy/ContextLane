@@ -47,20 +47,21 @@ export class Insights {
     this.timer.unref();
   }
   close(): void { if (this.timer) clearInterval(this.timer); }
+  private tried = new Map<string, number>();
   private async tick(): Promise<void> {
     if (!this.deps.models.pick("insights")) return;
     for (const p of this.deps.store.listProjects()) {
       const last = (await this.saved(p.id))?.generatedAt;
-      const nightly = new Date(this.now()).getHours() >= 2 && (!last || this.now() - Date.parse(last) > 20 * 3600_000);
+      // A failed run (model down) waits 6 hours before the nightly one tries again, not a minute.
+      const tried = this.tried.get(p.id) ?? 0;
+      const nightly = new Date(this.now()).getHours() >= 2 && (!last || this.now() - Date.parse(last) > 20 * 3600_000) && this.now() - tried > 6 * 3600_000;
       const afterMerge = (this.due.get(p.id) ?? Infinity) <= this.now();
-      if (nightly || afterMerge) { this.due.delete(p.id); await this.generate(p.id).catch(() => {}); }
+      if (nightly || afterMerge) { this.due.delete(p.id); this.tried.set(p.id, this.now()); await this.generate(p.id).catch(() => {}); }
     }
   }
 
   private events(lanes: Lane[], since: number): LaneEvent[] {
-    const out: LaneEvent[] = [];
-    for (const lane of lanes) { let after = 0; for (;;) { const page = this.deps.store.events(lane.id, after); if (!page.length) break; out.push(...page.filter((e) => Date.parse(e.at) >= since)); after = page.at(-1)!.seq; } }
-    return out;
+    return this.deps.store.eventsSince(lanes.map((l) => l.id), new Date(since).toISOString());
   }
 
   /** The week's facts and the evidence stats the model may cite. */

@@ -90,4 +90,6 @@ export const MIGRATIONS: readonly string[] = [
   /* 9 */ `ALTER TABLE project ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE project ADD COLUMN position INTEGER;
   ALTER TABLE project ADD COLUMN removed_at TEXT;`,
+  /* 10 */ `CREATE INDEX event_lane_type ON event(lane, type, seq);
+  CREATE INDEX event_at ON event(at);`,
 ];

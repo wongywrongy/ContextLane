@@ -22,9 +22,9 @@ export class Handoffs {
   private busy = new Set<string>();
   constructor(private deps: { config: Config; store: Store; bus: EventBus; hosts: HostLinks; lanes: LaneManager; run: Runner; waitMs?: number }) {}
 
-  private all(lane: string): LaneEvent[] {
+  private all(lane: string, after = 0): LaneEvent[] {
     const out: LaneEvent[] = [];
-    for (;;) { const page = this.deps.store.events(lane, out.at(-1)?.seq ?? 0); if (!page.length) return out; out.push(...page); }
+    for (;;) { const page = this.deps.store.events(lane, out.at(-1)?.seq ?? after); if (!page.length) return out; out.push(...page); }
   }
   private async keep(lane: Lane, text: string): Promise<string> {
     const file = join(this.deps.config.paths.data, "handoffs", lane.project, `${lane.id.split("/")[1]}-${Date.now()}.md`);
@@ -35,12 +35,13 @@ export class Handoffs {
 
   /** Asks the lane's agent for its handoff and waits for the turn to end (at most five minutes). */
   private async askForHandoff(lane: Lane): Promise<string> {
-    const before = this.all(lane.id).at(-1)?.seq ?? 0;
+    const before = this.deps.store.lastSeq(lane.id);
     const sent = this.deps.hosts.command(lane.id, { kind: "prompt", text: ASK, immediate: false, files: [], images: [] });
     if (!sent.delivered) throw new Refused("The lane's agent is not connected, so it cannot write a handoff. Use Fork instead, which builds one from the lane's history.");
     const deadline = Date.now() + (this.deps.waitMs ?? 300_000);
+    const after: LaneEvent[] = [];
     for (;;) {
-      const after = this.all(lane.id).filter((e) => e.seq > before);
+      after.push(...this.all(lane.id, after.at(-1)?.seq ?? before));
       const end = after.findIndex((e) => e.type === "agent.turn" && !e.payload.active && e.payload.commandId === sent.commandId);
       if (end >= 0) {
         const text = after.slice(0, end).filter((e): e is Extract<LaneEvent, { type: "agent.message" }> => e.type === "agent.message" && e.payload.role === "agent").map((e) => e.payload.text).join("").trim();

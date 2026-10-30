@@ -144,11 +144,7 @@ export class Helper {
   }
 
   private events(): LaneEvent[] {
-    const out: LaneEvent[] = [];
-    for (const lane of this.deps.store.listLanes()) {
-      let after = 0;
-      for (;;) { const page = this.deps.store.events(lane.id, after); if (!page.length) break; out.push(...page.filter((e) => e.type === "helper.delegated" || e.type === "helper.redone")); after = page.at(-1)!.seq; }
-    }
-    return out.sort((a, b) => a.at.localeCompare(b.at));
+    return this.deps.store.eventsOfType(["helper.delegated", "helper.redone"]);
   }
+
 }

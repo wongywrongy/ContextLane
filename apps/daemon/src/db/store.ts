@@ -59,21 +59,51 @@ export class Store {
       })));
   }
 
-  /** Run fn in a transaction; nested calls become savepoints. */
+  /**
+   * Run fn in a transaction; nested calls become savepoints. depth only drops once the COMMIT or
+   * RELEASE has gone through, and a failed COMMIT (disk full) resets to a clean state, so one failed
+   * write never leaves every later write broken.
+   */
   tx<T>(fn: () => T): T {
+    const outer = this.depth === 0;
     const sp = `sp${this.depth}`;
-    this.db.exec(this.depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT ${sp}`);
+    this.db.exec(outer ? "BEGIN IMMEDIATE" : `SAVEPOINT ${sp}`);
     this.depth++;
-    try {
-      const out = fn();
+    let out: T;
+    try { out = fn(); } catch (err) {
       this.depth--;
-      this.db.exec(this.depth === 0 ? "COMMIT" : `RELEASE ${sp}`);
-      return out;
-    } catch (err) {
-      this.depth--;
-      this.db.exec(this.depth === 0 ? "ROLLBACK" : `ROLLBACK TO ${sp}; RELEASE ${sp}`);
+      try { if (outer) { if (this.db.isTransaction) this.db.exec("ROLLBACK"); } else this.db.exec(`ROLLBACK TO ${sp}; RELEASE ${sp}`); }
+      catch { if (this.db.isTransaction) this.db.exec("ROLLBACK"); this.depth = 0; }
       throw err;
     }
+    try { this.db.exec(outer ? "COMMIT" : `RELEASE ${sp}`); }
+    catch (err) { if (this.db.isTransaction) this.db.exec("ROLLBACK"); this.depth = 0; throw err; }
+    this.depth--;
+    return out;
+  }
+
+  /** The lane's newest event number, 0 when it has none. */
+  lastSeq(lane: LaneId): number {
+    return Number((this.db.prepare("SELECT MAX(seq) AS seq FROM event WHERE lane = ?").get(lane) as { seq: number | null }).seq ?? 0);
+  }
+
+  /** Every event since a time in some lanes, oldest first (Insights' week). */
+  eventsSince(lanes: LaneId[], since: string): LaneEvent[] {
+    if (!lanes.length) return [];
+    const rows = this.db.prepare(`SELECT * FROM event WHERE lane IN (${lanes.map(() => "?").join(",")}) AND at >= ? ORDER BY at, seq`).all(...lanes, since) as Row[];
+    return rows.map(toEvent);
+  }
+
+  /** Events of some types, oldest first, using the (lane, type, seq) index; `lanes` limits which lanes. */
+  eventsOfType<T extends LaneEvent["type"]>(types: T[], opts: { lanes?: LaneId[]; since?: string; afterSeq?: number } = {}): Extract<LaneEvent, { type: T }>[] {
+    if (!types.length || opts.lanes?.length === 0) return [];
+    const where = [`type IN (${types.map(() => "?").join(",")})`];
+    const args: (string | number)[] = [...types];
+    if (opts.lanes) { where.push(`lane IN (${opts.lanes.map(() => "?").join(",")})`); args.push(...opts.lanes); }
+    if (opts.since) { where.push("at >= ?"); args.push(opts.since); }
+    if (opts.afterSeq !== undefined) { where.push("seq > ?"); args.push(opts.afterSeq); }
+    const rows = this.db.prepare(`SELECT * FROM event WHERE ${where.join(" AND ")} ORDER BY at, seq`).all(...args) as Row[];
+    return rows.map(toEvent) as Extract<LaneEvent, { type: T }>[];
   }
 
   close(): void {

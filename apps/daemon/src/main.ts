@@ -21,6 +21,7 @@ import { LocalModels } from "./localmodels.js";
 import { Briefs } from "./briefs.js";
 import { Insights } from "./insights.js";
 import { Schedules } from "./schedules.js";
+import { recover } from "./recover.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   // Timers call the CLI of the running install, through `current` when this is a managed install.
   const cli = join(layout.managed && await exists(layout.current) ? layout.current : root, "apps/cli/dist/main.js");
   const schedules = new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli });
+  for (const line of await recover({ store, bus, config, run }).catch((err) => { console.error("Startup recovery failed:", err); return []; })) console.log(`Recovered: ${line}`);
   const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
@@ -64,18 +66,28 @@ async function main(): Promise<void> {
   insights.start();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
 
+  // Stop within seconds: open requests (a long model call, a clone) are cut rather than waited for, so
+  // systemd's restart during an update never hits its kill timeout. A second signal is ignored.
+  let stopping = false;
   const stop = async () => {
-    await notifier.close();
-    runtime.close();
-    collisions.close();
-    insights.close();
-    await app.close();
-    await hosts.close();
-    store.close();
+    if (stopping) return;
+    stopping = true;
+    setTimeout(() => { console.error("Shutdown took too long; exiting."); process.exit(0); }, 10_000).unref();
+    try {
+      await notifier.close();
+      runtime.close();
+      collisions.close();
+      insights.close();
+      await app.close();
+      await hosts.close();
+      store.close();
+    } catch (err) { console.error("Shutdown error:", err); }
     process.exit(0);
   };
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  process.on("SIGINT", () => void stop());
+  process.on("SIGTERM", () => void stop());
+  // A stray rejection is logged and the daemon keeps serving; systemd restarts it only on a real crash.
+  process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
 }
 
 main().catch((err) => {

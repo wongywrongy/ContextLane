@@ -163,4 +163,12 @@ describe("http api", () => {
     expect((await app.inject({ url: "/api/lanes" })).json()).toEqual([]);
     expect(store.projectRecord({ path: "/code/ara" })).toMatchObject({ id: "ara", removed: true });
   });
+
+  it("gives two lanes started at once their own numbers", async () => {
+    const { app } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const [a, b] = await Promise.all(["One", "Two"].map((task) => app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task } })));
+    expect([a!.statusCode, b!.statusCode]).toEqual([201, 201]);
+    expect([a!.json().id, b!.json().id].sort()).toEqual(["shop/01", "shop/02"]);
+  });
 });

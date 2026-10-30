@@ -47,6 +47,13 @@ export class LaneManager {
     throw new Refused(`Branches lane/${String(n).padStart(2, "0")}-… are all taken in this repository; delete old lane branches and try again.`);
   }
 
+  private queue: Promise<unknown> = Promise.resolve();
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
   /**
    * `prepare` runs after the checkout exists and before the agent starts (Take over copies changes in);
    * `firstPrompt` replaces the task as the agent's first message while the lane keeps its short task.
@@ -56,34 +63,39 @@ export class LaneManager {
     const { store, config } = this.deps;
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
-    const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
-    if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
+    // Reserved one at a time, from the limit check to the lane row, so two starts never take the same
+    // number or both pass the limit. The slow part (checkout, terminal, agent) runs outside the lock.
+    const { lane, id } = await this.serial(async () => {
+      const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
+      if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
 
-    if (config.lanes.launchHosts) await requireSandbox(this.deps.run, config);
+      if (config.lanes.launchHosts) await requireSandbox(this.deps.run, config);
 
-    const n = store.nextLaneNumber(project.id);
-    const id = laneId(project.id, n);
-    const names = await this.freeNames(project.path, project.id, id, n, req.task);
-    const lane = store.insertLane({
-      id,
-      n,
-      project: project.id,
-      goal: req.goal ?? null,
-      task: req.task,
-      agent: req.agent,
-      model: req.model ?? null,
-      mode: req.mode,
-      branch: names.branch,
-      worktree: names.worktree,
-      terminal: names.terminal,
-      hostUnit: names.hostUnit,
-      base: req.base,
-      state: "draft",
-      colour: laneColour(n),
+      const n = store.nextLaneNumber(project.id);
+      const id = laneId(project.id, n);
+      const names = await this.freeNames(project.path, project.id, id, n, req.task);
+      const lane = store.insertLane({
+        id,
+        n,
+        project: project.id,
+        goal: req.goal ?? null,
+        task: req.task,
+        agent: req.agent,
+        model: req.model ?? null,
+        mode: req.mode,
+        branch: names.branch,
+        worktree: names.worktree,
+        terminal: names.terminal,
+        hostUnit: names.hostUnit,
+        base: req.base,
+        state: "draft",
+        colour: laneColour(n),
+      });
+      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, ...(req.baseline ? { baseline: true } : {}) } }));
+      if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
+      this.emit(store.setLaneState(id, "setting_up"));
+      return { lane, id };
     });
-    this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, ...(req.baseline ? { baseline: true } : {}) } }));
-    if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
-    this.emit(store.setLaneState(id, "setting_up"));
 
     try {
       await mkdir(dirname(lane.worktree), { recursive: true });

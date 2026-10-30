@@ -10,17 +10,24 @@ export class EventBus {
     this.emitter.emit("*", event);
   }
 
+  // Each listener runs on its own: one that throws is logged, and the publisher and the others go on.
   subscribeAll(fn: (event: LaneEvent) => void): () => void {
-    this.emitter.on("*", fn);
-    return () => this.emitter.off("*", fn);
+    const safe = guard(fn);
+    this.emitter.on("*", safe);
+    return () => this.emitter.off("*", safe);
   }
 
   subscribe(project: ProjectId, fn: (e: LaneEvent) => void): () => void {
-    this.emitter.on(project, fn);
-    return () => this.emitter.off(project, fn);
+    const safe = guard(fn);
+    this.emitter.on(project, safe);
+    return () => this.emitter.off(project, safe);
   }
 }
 
 export function projectOf(lane: string): ProjectId {
   return lane.slice(0, lane.lastIndexOf("/"));
+}
+
+function guard(fn: (e: LaneEvent) => void): (e: LaneEvent) => void {
+  return (e) => { try { fn(e); } catch (err) { console.error(`Event listener failed on ${e.type}:`, err); } };
 }

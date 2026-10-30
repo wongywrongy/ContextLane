@@ -21,6 +21,8 @@ import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import type { Schedules } from "../schedules.js";
 import { Skills } from "../skills.js";
+import { hostUnit } from "../lanes/naming.js";
+import { Terminals } from "../terminal/tmux.js";
 import { Tidy } from "../tidy.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
@@ -57,7 +59,8 @@ const TOOLS_ROUTE = "/api/lanes/:project/:n/tools";
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
-  const app = Fastify({ logger: false });
+  // forceCloseConnections: shutdown cuts open requests and streams instead of waiting for them.
+  const app = Fastify({ logger: false, forceCloseConnections: true });
   const { store, bus, config } = deps;
   const run = deps.run ?? runCommand;
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
@@ -105,7 +108,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
     if (err instanceof SetupError || err instanceof ProjectError || err instanceof Refused) return reply.code(err.statusCode).send({ error: err.message });
     if (err instanceof NotFound) return reply.code(404).send({ error: "That project or lane could not be found; return to Projects and choose it again." });
-    return reply.code(500).send({ error: "This action could not finish; check the daemon logs and try again." });
+    // Fastify's own request errors (bad JSON, body too large) keep their status and message.
+    const status = (err as { statusCode?: number }).statusCode;
+    if (status && status >= 400 && status < 500) return reply.code(status).send({ error: (err as Error).message });
+    console.error(`${_req.method} ${_req.url} failed:`, err);
+    return reply.code(500).send({ error: "This action could not finish; check the daemon logs (journalctl --user -u contextlanes) and try again." });
   });
 
   if (deps.setup) setupRoutes(app, deps.setup, store, run, auth);
@@ -171,11 +178,19 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (e) bus.publish(e);
     return store.getLane(id);
   });
-  /** Archive hides a finished lane from lists. Its branch and history stay; a failed lane's checkout stays on disk. */
+  /**
+   * Archive hides a finished, failed or paused lane from lists and stops what it still runs (agent host,
+   * app services, terminal). Its branch and history stay; a failed lane's checkout stays on disk.
+   */
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/archive", async (req) => {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
-    if (!["cleaned", "failed"].includes(lane.state)) throw new Refused(lane.state === "merged" ? "Clean up a merged lane first, then archive it." : "Only a cleaned-up or failed lane can be archived.", 409);
+    if (!["cleaned", "failed", "paused"].includes(lane.state)) throw new Refused(lane.state === "merged" ? "Clean up a merged lane first, then archive it." : "Only a cleaned-up, failed or paused lane can be archived.", 409);
+    if (lane.state !== "cleaned") {
+      await runtime.stop(lane.id).catch(() => {});
+      await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
+      await new Terminals(run).kill(lane.terminal).catch(() => {});
+    }
     bus.publish(store.setLaneState(lane.id, "archived"));
     return store.getLane(lane.id);
   });
@@ -429,7 +444,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     streams.add(res);
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     res.write("retry: 2000\n\n");
-    const write = (e: import("@contextlanes/protocol").LaneEvent) => { res.write(`event: lane\ndata: ${JSON.stringify(e)}\n\n`); };
+    // A client that stops reading (a phone asleep on a bad network) is dropped at 1 MB queued; it
+    // reconnects and replays from the log instead of the daemon buffering without limit.
+    const write = (e: import("@contextlanes/protocol").LaneEvent) => { if (res.writableLength > 1_000_000) { res.destroy(); return; } res.write(`event: lane\ndata: ${JSON.stringify(e)}\n\n`); };
     const off = project ? bus.subscribe(project, write) : bus.subscribeAll(write);
     const beat = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
     res.on("close", () => {
