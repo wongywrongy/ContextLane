@@ -22,6 +22,7 @@ export const Lane = z.object({
   branch: z.string(),
   worktree: z.string(),
   terminal: z.string(),
+  hostUnit: z.string().nullable(),
   state: LaneState,
   colour: z.enum(LANE_COLOURS),
   createdAt: z.string(),

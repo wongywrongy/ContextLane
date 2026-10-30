@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 
-function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[] } = {}) {
+function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[]; units?: string[] } = {}) {
   const calls: string[] = [];
   const run: Runner = async (cmd, args) => {
     calls.push([cmd, ...args].join(" "));
     if (cmd === "git" && args[0] === "branch" && opts.taken?.includes(args[2]!)) return { stdout: `  ${args[2]}\n` };
     if (cmd === "tmux" && args[0] === "list-sessions") return { stdout: (opts.sessions ?? []).join("\n") };
+    if (cmd === "systemctl" && args[1] === "list-units") return { stdout: (opts.units ?? []).map((u) => `${u}.service loaded failed failed lane host\n`).join("") };
     if (opts.fail && cmd === "git") throw new Error("not a git repository");
     return { stdout: "" };
   };
@@ -55,6 +56,16 @@ describe("http api", () => {
     expect(lane).toMatchObject({ state: "working", branch: "lane/01-billing-3", terminal: "cl-shop-01-3" });
     expect(lane.worktree).toMatch(/01-billing-3$/);
     expect(calls.find((c) => c.startsWith("git worktree"))).toMatch(/^git worktree add -b lane\/01-billing-3 /);
+  });
+
+  it("gives the host a free unit name when an old unit still holds the lane id", async () => {
+    const { app, calls, store } = setup({ units: ["contextlanes-lane-shop-01", "contextlanes-lane-shop-01-2"] });
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing" } })).json();
+    expect(lane).toMatchObject({ state: "working", hostUnit: "contextlanes-lane-shop-01-3", branch: "lane/01-billing-3" });
+    expect(store.getLane("shop/01")!.hostUnit).toBe("contextlanes-lane-shop-01-3");
+    expect(calls.find((c) => c.startsWith("systemd-run"))).toContain("--unit=contextlanes-lane-shop-01-3");
+    expect(calls.join("\n")).not.toMatch(/systemctl --user (stop|kill|reset-failed)/);
   });
 
   it("marks the lane failed when setup breaks", async () => {

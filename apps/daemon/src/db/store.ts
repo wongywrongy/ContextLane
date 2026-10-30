@@ -97,8 +97,8 @@ export class Store {
   insertLane(l: Omit<Lane, "createdAt"> & { n: number }): Lane {
     this.db
       .prepare(
-        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, branch, worktree, terminal, state, colour, created_at)
-         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @branch, @worktree, @terminal, @state, @colour, @createdAt)`,
+        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, branch, worktree, terminal, host_unit, state, colour, created_at)
+         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @branch, @worktree, @terminal, @hostUnit, @state, @colour, @createdAt)`,
       )
       .run({ ...l, goal: l.goal ?? null, model: l.model ?? null, createdAt: now() });
     return this.getLane(l.id)!;
@@ -285,6 +285,7 @@ function toLane(r: Row): Lane {
     branch: String(r.branch),
     worktree: String(r.worktree),
     terminal: String(r.terminal),
+    hostUnit: (r.host_unit as string) ?? null,
     state: r.state as LaneState,
     colour: r.colour as Lane["colour"],
     createdAt: String(r.created_at),

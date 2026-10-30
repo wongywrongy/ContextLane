@@ -23,20 +23,23 @@ export class LaneManager {
 
   /**
    * Lane numbers restart with a fresh database, and branches and tmux sessions outlive their lanes,
-   * so lane/01-x or cl-project-01 may already exist. Add -2, -3… until the branch, the checkout
-   * folder and the terminal session are all free. Existing shells are never killed. A failed check
-   * counts as free; the setup step then reports the real problem.
+   * so lane/01-x, cl-project-01 or a contextlanes-lane-project-01 unit may already exist. Add -2, -3…
+   * until the branch, the checkout folder, the terminal session and the host unit are all free.
+   * Existing shells and units are never touched. A failed check counts as free; the setup step then
+   * reports the real problem.
    */
-  private async freeNames(repo: string, project: string, id: Lane["id"], n: number, task: string): Promise<{ branch: string; worktree: string; terminal: string }> {
+  private async freeNames(repo: string, project: string, id: Lane["id"], n: number, task: string): Promise<{ branch: string; worktree: string; terminal: string; hostUnit: string }> {
     const sessions = new Set((await this.deps.run("tmux", ["list-sessions", "-F", "#{session_name}"]).then((r) => r.stdout, () => "")).split("\n").map((s) => s.trim()).filter(Boolean));
+    const units = new Set((await this.deps.run("systemctl", ["--user", "list-units", "--all", "--plain", "--no-legend", "--type=service", "contextlanes-lane-*"]).then((r) => r.stdout, () => "")).split("\n").map((line) => line.trim().split(/\s+/)[0]!.replace(/\.service$/, "")).filter(Boolean));
     for (let i = 1; i <= 50; i++) {
       const suffix = i === 1 ? "" : `-${i}`;
       const branch = `${branchName(n, task)}${suffix}`;
       const worktree = `${worktreePath(this.deps.config.paths.lanes, project, n, task)}${suffix}`;
       const terminal = `${terminalSession(id)}${suffix}`;
+      const unit = `${hostUnit(id)}${suffix}`;
       const listed = await this.deps.run("git", ["branch", "--list", branch], { cwd: repo }).then((r) => r.stdout.trim(), () => "");
       const used = await access(worktree).then(() => true, () => false);
-      if (!listed && !used && !sessions.has(terminal)) return { branch, worktree, terminal };
+      if (!listed && !used && !sessions.has(terminal) && !units.has(unit)) return { branch, worktree, terminal, hostUnit: unit };
     }
     throw new Error(`Branches lane/${String(n).padStart(2, "0")}-… are all taken in this repository; delete old lane branches and try again.`);
   }
@@ -64,6 +67,7 @@ export class LaneManager {
       branch: names.branch,
       worktree: names.worktree,
       terminal: names.terminal,
+      hostUnit: names.hostUnit,
       state: "draft",
       colour: laneColour(n),
     });
@@ -92,7 +96,7 @@ export class LaneManager {
 export function hostCommand(lane: Lane, config: Config): string[] {
   const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
-  return ["--user", `--unit=${hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
+  return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
     `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
     config.lanes.host.command, ...config.lanes.host.args, "--lane", lane.id, "--task", lane.task, "--agent", lane.agent,
     "--socket", join(config.paths.data, "lanes.sock"), "--mode", lane.mode,

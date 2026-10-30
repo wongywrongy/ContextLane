@@ -42,15 +42,13 @@ The earlier pages were written from DESIGN.md without the boards and drifted fro
 
 - **Project discovery** (`apps/daemon/src/projects.ts`) first reads Claude Code and Codex session history (`~/.claude/projects`, `~/.codex/sessions`) for the folders agents worked in, including ones outside home, newest first. The home walk then stops at each repository, skips folders with more than 300 subfolders (named in the dialog), goes five levels deep and stops after 6,000 folders or 3 seconds. Before, one large folder such as `~/data` used up the 2,000-folder budget and repositories elsewhere were never found. Repositories git refuses (another owner) or without commits are listed with a one-sentence reason instead of disappearing. Lane checkouts are excluded.
 - **Folder browser** lives inside the Add repositories dialog (fixed height, scrolls), with breadcrumbs, a git tag and an Add button on each repository, and a path field for `~` and paths outside home.
-- **Lane names** skip leftovers: if `lane/01-task`, its checkout folder or tmux session `cl-project-01` already exists (from an earlier install or a kept branch), the lane uses `-2`, `-3`… Existing shells are never killed. Before, the lane failed with a raw git or tmux error.
+- **Lane names** skip leftovers: if `lane/01-task`, its checkout folder, tmux session `cl-project-01` or host unit `contextlanes-lane-project-01` already exists (from an earlier install or a kept branch), the lane uses `-2`, `-3`… Existing shells and units are never killed. Before, the lane failed with a raw git or tmux error.
 - **Failed lanes** open anyway and show why they stopped.
 - **Idle lanes** (working, but the agent finished its turn) show the idle glyph and "Idle · waiting for your message".
 - **Agents get only working tools.** `LIVE_TOOLS` in `packages/toolbox` is `ask_owner` today; a tool joins when its daemon route works.
 - `GET /api/lanes` lists every project's lanes for the home page and ⌘K.
 
 Not built from the boards yet (left out rather than faked): the "Ask" part of ⌘K, composer chips (@ file, / command, attach image), Watching only / Take over, context compaction count and "fresh session from handoff", the usage line on Projects, picking repositories from GitHub in Add repositories, per-project branch in the band. Fonts still load from Google Fonts.
-
-Known issue: a lane host unit from an older database with the same lane id (`contextlanes-lane-<project>-NN`) makes `systemd-run` fail for the new lane. Stop the old unit or use a fresh project id; a later fix should pick a free unit name the same way lane names do.
 
 ## Principles
 
