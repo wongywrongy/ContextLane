@@ -326,8 +326,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | B4 Review packet gaps | review | Done: test counts from tool output, changed areas on screenshots; see B4 |
 | B5 Composer, editor link, watching only | work-lane | Done: @ file, / command, pictures, Open in editor, Watching only and Take over; see B5 |
 | B6 Add from GitHub, branch in the band | projects | Done: see B6 |
-| 3.1 Code map | architecture | Next |
-| 3.2 Architecture page and `contextlanes arch` | architecture | Not started |
+| 3.1 Code map | architecture | Done: CodeGraph 1.6.2 in a sandboxed worker; see 3.1 |
+| 3.2 Architecture page and `contextlanes arch` | architecture | Next |
 | 3.3 Collision warnings | architecture, review | Not started |
 | 3.4 Local model runtime | models | Not started |
 | 3.5 Module briefs, `get_brief`, project notes | architecture, insights | Not started |
@@ -499,6 +499,16 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - `GET /api/projects/:p/map` and a `map.synced` event.
 - **Done when:** fixture repos (a TypeScript monorepo and a Python app) give the expected modules and edges, and a file change shows up in the map within 5 seconds. Record index time and size for this repository and Kyle's largest one; that answers the open question.
 
+#### What was done (2026-10-30)
+
+- CodeGraph (`@colbymchenry/codegraph` 1.6.2, MIT) is pinned in the daemon. Its library ships inside a per-platform package with its own Node and WebAssembly grammars (about 285 MB on linux-x64; pnpm shares it between releases). Its anonymous telemetry is on by default; ContextLanes turns it off (`CODEGRAPH_TELEMETRY=0`, `DO_NOT_TRACK=1`).
+- `apps/daemon/src/codemap-worker.ts` runs CodeGraph in its own process inside the lane sandbox, the same reasoning as the terminals: its parser can run out of memory on large trees, and its index sits in the project folder, which lanes can write. The index is `<project>/.codegraph/` (CodeGraph allows no other place) and is added to `.git/info/exclude`, never `.gitignore`.
+- The map comes from CodeGraph's own module query (`getModuleAggregation`): links with counts and the busiest symbol pairs behind each, test files that import each module, and main paths from its route manifest followed along the busiest link toward the data layer.
+- Modules and layers (`packages/protocol/src/codemap.ts`): `architecture.layers` from `.contextlanes.json` when present, else inferred. A monorepo's packages are modules (split by folder above 25 code files); otherwise two levels under `src/`, `lib/` or `app/`, where a file at the second level is its own module (`models/tournament.py`). Layers come from folder names (Web, API, Logic, Data), with React/Vue/Svelte files in Web. Tests, config and docs are not modules.
+- Instead of a file watcher, the index syncs incrementally whenever the map is asked for and is older than 20 seconds; a sync of this repository takes well under a second. A lane's position comes from `git diff` against its base plus its uncommitted files, so lanes need no index of their own; modules that exist only in a lane are marked new.
+- `GET /api/projects/:p/map`. Measured here: this repository (152 files) indexes in 4.6 s with an 8.9 MB index. Kyle's largest repository is still to be measured.
+- Tests: `codemap.test.ts` covers the rules, and builds a real map of a small Python app with CodeGraph: layers, links, test coverage, a lane overlay with a new module, and a clean `git status` afterwards.
+
 ### 3.2 Architecture page and `contextlanes arch` (architecture)
 
 - Match the board:
@@ -621,7 +631,7 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - **Safety finding:** Codex's current default `agent` mode delegates approvals to auto review. ContextLanes forces `INITIAL_AGENT_MODE=read-only`, selects a human-approval mode before prompting, and excludes `agent` and full-access modes. Source: [`AgentMode.ts`](https://github.com/agentclientprotocol/codex-acp/blob/ac8d9251de43ab8648a89eb0520e0c606ad78be5/src/AgentMode.ts).
 - **Resolved from current Tailscale docs:** named [Tailscale Services](https://tailscale.com/docs/features/tailscale-services) can give separate `name.<tailnet>.ts.net` addresses through `serve --service=svc:name`; they require a tagged host plus admin service definition/host approval. The phase-1 wizard uses the user-owned device address and an unused HTTPS port. Phase 2 may use Services as a named fallback; custom wildcard domains still need the planned DNS/certificate integration. This was documentation research, not a change to Kyle’s tailnet.
 - **OpenCode login detection limit:** its [CLI docs](https://opencode.ai/docs/cli/#list-1) document `auth list` as a provider list, without a stable JSON login-status API. The wizard accepts a recognized positive credential count in its human-readable output; otherwise it shows Sign in. It never treats command success alone as a login. Local-model and environment-provided credentials can also work without an interactive provider login.
-- How long does CodeGraph take to index the largest repo, and how big is the index?
+- How long does CodeGraph take to index the largest repo, and how big is the index? This repository: 4.6 s, 8.9 MB (152 files). Kyle's largest still to measure.
 - Per-lane databases: decided in B3 (Postgres template databases or copied SQLite files, chosen in the recipe).
 - Which delegate kinds clear the redo-rate bar on the local GPU, and how many local jobs can run before lanes wait?
 - `node:sqlite` still emits an experimental warning on the tested Node 24.11.0. The Store tests and full local check pass, so it remains behind the existing `Store` API; long-running production durability is not established by this milestone.

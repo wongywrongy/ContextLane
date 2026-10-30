@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ArchitectureConfig } from "./codemap.js";
 import type { RunFacts } from "./resources.js";
 
 /**
@@ -45,6 +46,8 @@ export const Recipe = z.strictObject({
   services: z.array(RecipeService).max(10).default([]).refine((s) => new Set(s.map((x) => x.name)).size === s.length, "service names must be unique"),
   checks: z.array(RecipeStep).max(20).default([]),
   database: RecipeDatabase.optional(),
+  /** Layers for the Architecture page; inferred from folder names when absent. Never run. */
+  architecture: ArchitectureConfig.optional(),
   /** Pages for before and after screenshots. */
   screenshots: z.array(z.string().startsWith("/")).max(5).default(["/"]),
 });

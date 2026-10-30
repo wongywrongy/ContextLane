@@ -9,6 +9,7 @@ import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
+import { CodeMaps } from "../codemap.js";
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -32,7 +33,7 @@ import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -179,6 +180,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const body = TakeOverRequest.parse(req.body);
     return outside.takeOver(ProjectId.parse(req.params.project), body.pid, body.startedAt);
   });
+  const codemaps = deps.codemaps ?? new CodeMaps({ run, store, config });
+  app.get<{ Params: { project: string } }>("/api/projects/:project/map", async (req) => codemaps.project(ProjectId.parse(req.params.project)));
   app.get("/api/editor", async () => ({ url: config.editor.url.replaceAll("{host}", encodeURIComponent(config.host.name)) }));
   app.get<{ Params: { project: string; n: string }; Querystring: { q?: string } }>("/api/lanes/:project/:n/files", async (req) => {
     const lane = store.getLane(laneParam(req.params));

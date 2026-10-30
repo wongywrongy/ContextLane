@@ -11,3 +11,4 @@ export * from "./usage.js";
 export * from "./machine.js";
 export * from "./resources.js";
 export * from "./testsummary.js";
+export * from "./codemap.js";
