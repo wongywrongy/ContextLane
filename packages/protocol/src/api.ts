@@ -23,6 +23,8 @@ export const Lane = z.object({
   worktree: z.string(),
   terminal: z.string(),
   hostUnit: z.string().nullable(),
+  /** The branch this lane started from and merges back to. Older lanes have none recorded. */
+  base: z.string().nullable(),
   state: LaneState,
   colour: z.enum(LANE_COLOURS),
   createdAt: z.string(),
@@ -59,6 +61,35 @@ export const InboxItem = z.object({
   options: z.array(z.object({ id: z.string(), label: z.string(), kind: z.string() })).default([]),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
+
+export const CheckpointRequest = z.object({ summary: z.string().trim().min(1).max(2000) });
+
+/** A change ready for review: measured evidence only. */
+export const CheckResult = z.object({ name: z.string(), passed: z.boolean(), ms: z.number(), detail: z.string() });
+export type CheckResult = z.infer<typeof CheckResult>;
+export const Screenshot = z.object({ path: z.string(), url: z.string().nullable(), before: z.string().nullable(), after: z.string().nullable(), note: z.string().nullable() });
+export type Screenshot = z.infer<typeof Screenshot>;
+export const ChangedFile = z.object({ path: z.string(), added: z.number().int(), removed: z.number().int() });
+export type ChangedFile = z.infer<typeof ChangedFile>;
+export const Checkpoint = z.object({
+  id: z.string(),
+  lane: LaneId,
+  base: z.string(),
+  head: z.string(),
+  summary: z.string(),
+  checks: z.array(CheckResult),
+  screenshots: z.array(Screenshot),
+  files: z.array(ChangedFile),
+  plan: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })),
+  /** Changed files nothing in the plan mentions. */
+  unplanned: z.array(z.string()),
+  process: z.array(z.object({ label: z.string(), ok: z.boolean() })),
+  signal: z.enum(["strong", "mixed", "weak"]),
+  decision: z.enum(["approved", "changes"]).nullable(),
+  prUrl: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type Checkpoint = z.infer<typeof Checkpoint>;
 
 export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string() });
 export type Health = z.infer<typeof Health>;

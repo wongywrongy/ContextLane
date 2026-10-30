@@ -43,7 +43,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
   const runtime = new Runtime({ store, bus, config, run, freePort: async () => port++, fetch: (async () => new Response("ok", { status: state.health })) as typeof fetch });
   const app = buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime });
   store.addProject({ id: "shop", name: "Shop", path: repo });
-  store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "cl-shop-01", hostUnit: null, state: "working", colour: "lc1" });
+  store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "cl-shop-01", hostUnit: null, base: null, state: "working", colour: "lc1" });
   await writeFile(join(worktree, RECIPE_FILE), JSON.stringify(recipe));
   const approve = async () => store.approveRecipe("shop", (await readRecipe(store, store.getProject("shop")!, worktree))!.hash);
   return { root, repo, worktree, store, runtime, app, calls, state, seen, approve };

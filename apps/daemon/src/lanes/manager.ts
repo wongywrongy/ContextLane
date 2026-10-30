@@ -68,6 +68,7 @@ export class LaneManager {
       worktree: names.worktree,
       terminal: names.terminal,
       hostUnit: names.hostUnit,
+      base: req.base,
       state: "draft",
       colour: laneColour(n),
     });

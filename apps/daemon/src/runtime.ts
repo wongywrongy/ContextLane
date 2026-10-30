@@ -146,6 +146,47 @@ export class Runtime {
     return lane;
   }
 
+  /** The lane's approved recipe, or null when the project has none. */
+  async recipeFor(lane: Lane): Promise<Recipe | null> {
+    const view = await laneRecipe(this.deps.store, this.deps.store.getProject(lane.project)!, lane);
+    return view ? this.approved(lane, view) : null;
+  }
+
+  /**
+   * Run a service from a temporary checkout of another commit, for the "before" screenshot. The
+   * checkout holds nothing of value, so it is removed by force whatever happens.
+   */
+  async fromCommit<T>(lane: Lane, recipe: Recipe, commit: string, use: (port: number) => Promise<T>): Promise<T> {
+    const { run, store, config } = this.deps;
+    const project = store.getProject(lane.project)!;
+    const service = recipe.services.find((s) => s.name === "web") ?? recipe.services[0]!;
+    const dir = join(config.paths.data, "before", randomBytes(6).toString("hex"));
+    const units: string[] = [];
+    await mkdir(dirname(dir), { recursive: true });
+    await run("git", ["worktree", "add", "--detach", dir, commit], { cwd: project.path });
+    try {
+      const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, await (this.deps.freePort ?? freePort)()] as const)));
+      const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
+      await this.prepare({ ...lane, worktree: dir }, project, recipe, shared);
+      for (const each of recipe.services) {
+        const unit = `contextlanes-env-before-${randomBytes(4).toString("hex")}`;
+        await run("systemd-run", serviceArgs(unit, dir, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }));
+        units.push(unit);
+      }
+      const deadline = Date.now() + service.health.timeoutSeconds * 1000;
+      for (;;) {
+        const status = await this.fetch(`http://127.0.0.1:${ports[service.name]}${service.health.path}`, { redirect: "manual", signal: AbortSignal.timeout(2000) }).then(async (r) => { await r.body?.cancel(); return r.status; }, () => 0);
+        if (status === service.health.status) break;
+        if (Date.now() >= deadline) throw new Error(`${service.name} did not become healthy from ${commit.slice(0, 7)}.`);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return await use(ports[service.name]!);
+    } finally {
+      await Promise.allSettled(units.map((unit) => run("systemctl", ["--user", "stop", unit])));
+      await run("git", ["worktree", "remove", "--force", dir], { cwd: project.path }).catch(() => {});
+    }
+  }
+
   private approved(lane: Lane, view: RecipeView | null): Recipe {
     const { store, bus } = this.deps;
     if (!view) throw new Refused("This project has no .contextlanes.json yet, so there is nothing to start.");

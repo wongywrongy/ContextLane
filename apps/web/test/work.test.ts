@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { environmentFrom, isIdle, loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
 
-const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", hostUnit: null, state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
+const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", hostUnit: null, base: null, state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
 const event = (seq: number, type: LaneEvent["type"], payload: unknown, at = "2026-01-01T11:00:00Z") => ({ lane: base.id, seq, at, type, payload }) as LaneEvent;
 
 it("merges reconnect history once and loads beyond the first 500 events", async () => {

@@ -3,6 +3,7 @@ import { chmodSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import {
   canTransition,
+  type Checkpoint,
   type EnvironmentView,
   type InboxItem,
   type Lane,
@@ -115,8 +116,8 @@ export class Store {
   insertLane(l: Omit<Lane, "createdAt"> & { n: number }): Lane {
     this.db
       .prepare(
-        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, branch, worktree, terminal, host_unit, state, colour, created_at)
-         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @branch, @worktree, @terminal, @hostUnit, @state, @colour, @createdAt)`,
+        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, branch, worktree, terminal, host_unit, base, state, colour, created_at)
+         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
       )
       .run({ ...l, goal: l.goal ?? null, model: l.model ?? null, createdAt: now() });
     return this.getLane(l.id)!;
@@ -172,6 +173,32 @@ export class Store {
 
   recipeAlreadyRequested(lane: LaneId, hash: string): boolean {
     return !!this.db.prepare("SELECT 1 FROM event WHERE lane = ? AND type = 'recipe.requested' AND json_extract(payload, '$.hash') = ? LIMIT 1").get(lane, hash);
+  }
+
+  // ── checkpoints ─────────────────────────────────────────────────────────
+
+  insertCheckpoint(c: Checkpoint): void {
+    const { id, lane, base, head, summary, checks, screenshots, createdAt, decision, prUrl, ...packet } = c;
+    this.db.prepare("INSERT INTO checkpoint (id, lane, base, head, summary, checks, screenshots, decision, created_at, packet, pr_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, lane, base, head, summary, JSON.stringify(checks), JSON.stringify(screenshots), decision, createdAt, JSON.stringify(packet), prUrl);
+  }
+
+  checkpoint(id: string): Checkpoint | null {
+    const r = this.db.prepare("SELECT * FROM checkpoint WHERE id = ?").get(id) as Row | undefined;
+    return r ? toCheckpoint(r) : null;
+  }
+
+  checkpoints(project: ProjectId): Checkpoint[] {
+    return (this.db.prepare("SELECT c.* FROM checkpoint c JOIN lane l ON l.id = c.lane WHERE l.project = ? ORDER BY c.created_at DESC").all(project) as Row[]).map(toCheckpoint);
+  }
+
+  latestCheckpoint(lane: LaneId): Checkpoint | null {
+    const r = this.db.prepare("SELECT * FROM checkpoint WHERE lane = ? ORDER BY created_at DESC LIMIT 1").get(lane) as Row | undefined;
+    return r ? toCheckpoint(r) : null;
+  }
+
+  decideCheckpoint(id: string, decision: "approved" | "changes", prUrl?: string): void {
+    this.db.prepare("UPDATE checkpoint SET decision = ?, pr_url = ? WHERE id = ?").run(decision, prUrl ?? null, id);
   }
 
   // ── events ──────────────────────────────────────────────────────────────
@@ -321,6 +348,11 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function toCheckpoint(r: Row): Checkpoint {
+  return { id: String(r.id), lane: String(r.lane), base: String(r.base), head: String(r.head), summary: String(r.summary), checks: JSON.parse(String(r.checks)), screenshots: JSON.parse(String(r.screenshots)),
+    ...JSON.parse(String(r.packet)), decision: (r.decision as Checkpoint["decision"]) ?? null, prUrl: (r.pr_url as string) ?? null, createdAt: String(r.created_at) };
+}
+
 function toProject(r: Row): Project {
   return { id: String(r.id), name: String(r.name), path: String(r.path), remote: (r.remote as string) ?? null, recipeHash: (r.recipe_hash as string) ?? null };
 }
@@ -338,6 +370,7 @@ function toLane(r: Row): Lane {
     worktree: String(r.worktree),
     terminal: String(r.terminal),
     hostUnit: (r.host_unit as string) ?? null,
+    base: (r.base as string) ?? null,
     state: r.state as LaneState,
     colour: r.colour as Lane["colour"],
     createdAt: String(r.created_at),

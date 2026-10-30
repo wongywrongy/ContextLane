@@ -32,8 +32,8 @@ export const TOOLS = {
     input: z.object({ question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) }),
   },
   checkpoint: {
-    phase: 1,
-    description: "Say this lane is ready for review. Starts the checks and builds the review packet.",
+    phase: 2,
+    description: "Say this lane is ready for review. Commit your work first. Starts the checks and builds the review packet in the background; the owner reviews it.",
     input: z.object({ summary: z.string() }),
   },
   get_brief: {
@@ -55,4 +55,4 @@ export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
  * Tools agents are given today. A tool joins this list only when its daemon route works; until
  * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
  */
-export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url"];
+export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint"];

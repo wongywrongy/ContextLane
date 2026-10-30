@@ -36,7 +36,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("runs a lane's service as 
       services: [{ name: "web", command: [process.execPath, "server.cjs", "$PORT", "100%", "$KEEP"], env: { GREETING: "hello" } }],
     }));
     store.addProject({ id: "fixture", name: "Fixture", path: repo });
-    store.insertLane({ id: "fixture/01", n: 1, project: "fixture", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "lane/01", worktree, terminal: "t", hostUnit: null, state: "working", colour: "lc1" });
+    store.insertLane({ id: "fixture/01", n: 1, project: "fixture", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "lane/01", worktree, terminal: "t", hostUnit: null, base: null, state: "working", colour: "lc1" });
     store.approveRecipe("fixture", (await readRecipe(store, store.getProject("fixture")!, worktree))!.hash);
 
     const env = await runtime.start("fixture/01");

@@ -85,7 +85,7 @@ describe("recipe approval", () => {
     const { root, store, approve, view, app } = await setup();
     await writeFile(join(root, RECIPE_FILE), RECIPE);
     const { hash } = await view();
-    store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "b", worktree: root, terminal: "t", hostUnit: null, state: "working", colour: "lc1" });
+    store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "b", worktree: root, terminal: "t", hostUnit: null, base: null, state: "working", colour: "lc1" });
     store.appendEvent("shop/01", { type: "recipe.requested", payload: { hash } });
     expect((await app.inject({ url: "/api/inbox" })).json()).toMatchObject([{ lane: "shop/01", kind: "approval", options: [] }]);
     await approve(hash);

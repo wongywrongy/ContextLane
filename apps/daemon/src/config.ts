@@ -42,6 +42,8 @@ export const Config = z.object({
       server: z.string().regex(/^[\w-]+$/).default("srv0"),
     }).optional(),
   }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
+  /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
+  checker: z.object({ chromium: z.string().optional() }).prefault({}),
   lanes: z.object({
     maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),

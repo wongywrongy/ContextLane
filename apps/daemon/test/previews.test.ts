@@ -104,7 +104,7 @@ describe("previews in the runtime", () => {
     const store = Store.open(":memory:");
     const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: root, lanes: root } }), run, freePort: async () => 20100, fetch: (async () => new Response("ok")) as typeof fetch });
     store.addProject({ id: "shop", name: "Shop", path: root });
-    store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "b", worktree: root, terminal: "t", hostUnit: null, state: "working", colour: "lc1" });
+    store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "b", worktree: root, terminal: "t", hostUnit: null, base: null, state: "working", colour: "lc1" });
     await writeFile(join(root, RECIPE_FILE), JSON.stringify({ services: [{ name: "web", command: ["node"] }] }));
     store.approveRecipe("shop", (await readRecipe(store, store.getProject("shop")!, root))!.hash);
     return { root, store, runtime, inner };
