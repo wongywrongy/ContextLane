@@ -8,3 +8,4 @@ export * from "./commands.js";
 export * from "./notifications.js";
 export * from "./setup.js";
 export * from "./usage.js";
+export * from "./machine.js";

@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary } from "@contextlanes/protocol";
-import { errorMessage, postJson, RequestError, useJson, saveSession } from "../api";
+import type { DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
 import { AgentMark, Empty, Glyph, PageHeader, Section } from "../components/ui";
@@ -36,18 +36,29 @@ export function SettingsPage() {
   const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
   const [adding, setAdding] = useState(false);
+  const [machine, machineError, reloadMachine] = useJson<MachineInfo>("/api/machine");
+  const [updates, setUpdates] = useState<UpdateCheck | null>(null);
   const n = settings?.notifications ?? {};
   const saveNotifications = async (patch: Partial<NonNullable<SetupSettings["notifications"]>>) => { await postJson("/api/setup/settings", { notifications: { ...n, ...patch } }); reload(); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
     <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
     <div className="setw">
-      <nav className="setnav" aria-label="Settings"><a href="#access">Access</a><a href="#projects">Projects</a><a href="#notifications">Notifications</a><a href="#lanes">Lanes</a></nav>
+      <nav className="setnav" aria-label="Settings"><a href="#machine">This machine</a><a href="#access">Access</a><a href="#projects">Projects</a><a href="#notifications">Notifications</a><a href="#lanes">Lanes</a><a href="#data">Data</a></nav>
       <div className="col">
+        <Section id="machine" title="This machine">
+          {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
+            <div className="sec-r"><span className="muted" style={{ width: 120 }}>Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os} · {machine.linger === null ? "linger not reported" : machine.linger ? "always on" : "linger off"}</span></div>
+            <div className="sec-r"><span className="muted" style={{ width: 120 }}>Version</span><code>{machine.version}</code><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => setUpdates(await postJson<UpdateCheck>("/api/machine/updates", {}))}>Check for updates</Action></div></div>
+            <div className="sec-r"><span className="muted" style={{ width: 120 }}>Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user} · {machine.service === null ? "service not reported" : machine.service ? "systemd user service" : "interactive process"} · {machine.address}</span></div>
+          </>}
+          {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
+        </Section>
         <Section id="access" title="Access">
           <div className="sec-r"><span className="muted" style={{ width: 120 }}>Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <span>Only on this machine. Run <code>contextlanes setup</code> to turn on Tailscale.</span>}</div>
           <div className="sec-r"><span className="muted" style={{ width: 120 }}>Owner</span><span>{status?.tailnetLogin ?? "Signed in with a setup link"}</span></div>
           <div className="sec-r"><span className="muted" style={{ width: 120 }}>Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><span className="muted">Not added.</span><PasskeyButton /></>}</div>
+          <div className="sec-r"><span className="muted" style={{ width: 120 }}>Public internet</span><span>Off · tailnet or SSH tunnel only</span></div>
         </Section>
         <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add repo</button>}>
           {projects?.map((p) => <div className="sec-r" key={p.id}><b>{p.name}</b><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{p.path}</span></div>)}
@@ -79,6 +90,14 @@ export function SettingsPage() {
           </div>
         </div>
         <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
+        <Section id="data" title="Data">
+          <div className="sec-r"><span className="muted" style={{ width: 120 }}>Backups</span>{machine ? <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>{machine.backups.scheduled === null ? "Schedule not reported" : machine.backups.scheduled ? "Nightly" : "Not scheduled"} · {machine.backups.directory}{machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : " · no run reported"}</span> : <span className="muted">Backup status not available</span>}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
+          <div className="sec-r"><span className="muted" style={{ width: 120 }}>Export</span><span>Everything as JSON · known secrets masked</span><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => {
+            const data = await getJson<DataExport>("/api/data/export");
+            const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+            const link = document.createElement("a"); link.href = url; link.download = "contextlanes-export.json"; link.click(); URL.revokeObjectURL(url);
+          }}>Export</Action></div></div>
+        </Section>
       </div>
     </div>
     {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={reloadProjects} /> : null}

@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 import { UsageSummary } from "@contextlanes/protocol";
 import { signedIn } from "./signed-in.js";
 
 const stores: Store[] = [];
-afterEach(() => { for (const store of stores.splice(0)) store.close(); });
+const roots: string[] = [];
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
 it("sums all turns by lane and UTC day, validates filters and preserves missing cost/cache data", async () => {
   const store = Store.open(":memory:"); stores.push(store);
-  const bus = new EventBus(), config = Config.parse({ lanes: { launchHosts: false } });
+  const root = await mkdtemp(join(tmpdir(), "cl-usage-api-")); roots.push(root);
+  const bus = new EventBus(), config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });

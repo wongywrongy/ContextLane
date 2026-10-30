@@ -23,6 +23,16 @@ export async function installService(options: { root: string; home: string; node
   }
   await run("systemctl", ["--user", "daemon-reload"]);
   await run("systemctl", ["--user", "enable", "--now", "contextlanes.service"]);
+  await installBackupTimer(options);
+}
+
+export async function installBackupTimer({ root, home, node, run, config = join(home, ".config/contextlanes/config.toml") }: { root: string; home: string; node: string; run: Runner; config?: string }): Promise<void> {
+  const directory = join(home, ".config/systemd/user");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeOwned(join(directory, "contextlanes-backup.service"), `${MARKER}\n[Unit]\nDescription=ContextLanes nightly database backup\n\n[Service]\nType=oneshot\nExecStart=${systemdExecQuote(node)} ${systemdExecQuote(join(root, "apps/daemon/dist/backup-main.js"))}\nEnvironment=${systemdQuote(`CONTEXTLANES_CONFIG=${config}`)}\nUMask=0077\n`, 0o600);
+  await writeOwned(join(directory, "contextlanes-backup.timer"), `${MARKER}\n[Unit]\nDescription=ContextLanes nightly database backup\n\n[Timer]\nOnCalendar=*-*-* 03:10:00\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n`, 0o600);
+  await run("systemctl", ["--user", "daemon-reload"]);
+  await run("systemctl", ["--user", "enable", "--now", "contextlanes-backup.timer"]);
 }
 /** Writes a file this installer owns. Ours carry the marker line; anything else is left alone. */
 async function writeOwned(path: string, content: string, mode: number): Promise<void> {

@@ -310,7 +310,7 @@ it("installs an absolute user service without replacing unrelated files", async 
   const f = await fixture(); const options = { root: join(f.root, "app with spaces%$"), home: f.root, node: process.execPath, run: f.run };
   await installService(options); const unit = await readFile(join(f.root, ".config/systemd/user/contextlanes.service"), "utf8");
   expect(unit).toContain(`WorkingDirectory=${options.root.replace(/%/g, "%%")}\n`); expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
-  expect(f.calls.slice(-2)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }]);
+  expect(f.calls.slice(-4)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }, { cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes-backup.timer"] }]);
   expect((await stat(join(f.root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755); await installService(options);
   await expect(installService({ ...options, root: "bad\npath" })).rejects.toThrow("line breaks");
   await writeFile(join(f.root, ".local/bin/contextlanes"), "user work"); await expect(installService(options)).rejects.toThrow("Refusing to overwrite"); expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");

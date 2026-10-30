@@ -51,6 +51,14 @@ export class Store {
     return (this.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
   }
 
+  snapshot(): Record<string, Row[]> {
+    return this.tx(() => Object.fromEntries((this.db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
+      .map(({ name }) => {
+        if (!/^[a-z_]+$/.test(name)) throw new Error("Unexpected database table name");
+        return [name, this.db.prepare(`SELECT * FROM ${name}`).all() as Row[]];
+      })));
+  }
+
   /** Run fn in a transaction; nested calls become savepoints. */
   tx<T>(fn: () => T): T {
     const sp = `sp${this.depth}`;

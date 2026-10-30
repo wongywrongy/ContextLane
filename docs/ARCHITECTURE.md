@@ -103,6 +103,8 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | Route | Purpose |
 |---|---|
 | `GET /api/health` | Version and host |
+| `GET /api/machine`, `POST /api/machine/updates`, `GET /api/data/export` | Machine/backup observations, fetch-only CLI update check, redacted JSON download |
+| `GET /api/usage?project=&since=` | Per-lane and UTC-day token/cost totals, with reported agent limits |
 | `POST /api/tickets` | A one-use, 30-second ticket for one stream or terminal path |
 | `GET /api/projects`, `POST /api/projects` | List and register repos |
 | `GET /api/projects/:project/lanes` | Lanes in a project |

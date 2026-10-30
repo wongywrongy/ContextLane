@@ -27,6 +27,7 @@ import { Auth } from "./auth.js";
 import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
+import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 
 export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
@@ -90,6 +91,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.post("/api/tickets", async (req) => ({ ticket: auth.ticket(TicketRequest.parse(req.body).path) }));
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
+  app.get("/api/machine", async () => machineInfo(config, deps.version, run));
+  app.post("/api/machine/updates", async () => checkForUpdates(run));
+  app.get("/api/data/export", async (_req, reply) => {
+    if (!deps.setup) throw new Refused("Setup is unavailable in this daemon.");
+    return reply.header("cache-control", "no-store").header("content-disposition", 'attachment; filename="contextlanes-export.json"').send(exportData(store, deps.setup, config, deps.version));
+  });
   app.get("/api/usage", async (req) => {
     const { project, since } = UsageQuery.parse(req.query);
     return store.usage(project, since);

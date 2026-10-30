@@ -371,6 +371,13 @@ Comes first so real token numbers pile up before the phase 3 tools exist; 3.9 co
 - Access, Public internet: a read-only row that says it is off. No toggle.
 - **Not here:** lane history retention and summaries (needs 3.4), installing updates from the browser.
 
+#### Machine and data implementation evidence (2026-10-30)
+
+- Settings reads OS, user, daemon PID, linger and the backup timer's last exit through OS facts and injected commands. Unavailable facts remain unknown. Public internet is read-only and off. Check for updates invokes the existing updater with `--check`; installation remains an SSH command.
+- Installation and managed daemon startup provision an owned systemd user service/timer at 03:10 with `Persistent=true`. Source checkouts do not install a timer. Nightly backups use the updater's shared `VACUUM INTO` implementation, keep seven private copies under `<data>/backups/nightly`, and do not prune the updater's five rollback copies. Backup failure never deletes the source database.
+- Authenticated JSON export contains all database tables and configuration, reuses `redactedSettings`, masks stored authentication hashes, lane tokens, push credentials, credential fields, configured secret values and agent/host/toolbox environments. Unknown credentials pasted into ordinary prose cannot be reliably identified; review exports before sharing them. The export is not an import format.
+- `machine.test.ts` checks live WAL database copies, retention, private permissions, corrupt/missing input, timer ownership/idempotence, machine facts and unavailable services, CLI-only update checking, export redaction and preserved token counts. The updater regression suite also passes. Chromium verified Settings at 1440px and 390px: machine facts, update results, authenticated export download, no page errors and no horizontal scrolling. A real nightly timer firing has not been observed.
+
 ### B2 Run and Projects facts (run, projects)
 
 - Run: **Disk** per lane (size of the worktree, cached, refreshed every few minutes). **Certificate** days left for the preview mode in use, read from a TLS handshake to the preview host.

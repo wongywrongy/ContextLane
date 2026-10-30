@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { installService } from "./install.js";
 import { BUILT_MARKER, MANAGED_MARKER, exists, linkTarget, runningRelease, setLink, shortSha, type Layout } from "./layout.js";
 import type { Runner } from "./run.js";
+import { backupDatabase } from "./backup.js";
 
 export class UpdateError extends Error {}
 
@@ -240,19 +241,9 @@ export class Updater {
   /** A consistent copy taken while the daemon keeps running (VACUUM INTO). The newest five are kept. */
   private async backup(sha: string): Promise<{ file: string; userVersion: number | null } | null> {
     if (!(await exists(this.database))) return null;
-    const dir = join(this.deps.data, "backups");
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    const file = join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${shortSha(sha)}.sqlite`);
-    const db = new DatabaseSync(this.database, { readOnly: true });
-    let userVersion: number | null;
-    try {
-      userVersion = Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
-      db.prepare("VACUUM INTO ?").run(file);
-    } finally { db.close(); }
-    const old = (await readdir(dir)).filter((f) => f.endsWith(".sqlite")).sort();
-    for (const f of old.slice(0, Math.max(0, old.length - KEEP_BACKUPS))) await unlink(join(dir, f)).catch(() => {});
+    const backup = await backupDatabase(this.database, join(this.deps.data, "backups"), shortSha(sha), KEEP_BACKUPS);
     this.log("Saved a copy of the database.");
-    return { file, userVersion };
+    return backup;
   }
   private async restore(file: string): Promise<void> {
     for (const suffix of ["-wal", "-shm"]) await unlink(`${this.database}${suffix}`).catch(() => {});

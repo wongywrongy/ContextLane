@@ -2,7 +2,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EventBus } from "./bus.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, configPath } from "./config.js";
 import { Store } from "./db/store.js";
 import { HostLinks } from "./hosts.js";
 import { buildServer } from "./http/server.js";
@@ -11,7 +11,9 @@ import { runCommand } from "./run.js";
 import { SetupManager } from "./setup.js";
 import { Notifier } from "./notifications/notifier.js";
 import { Runtime } from "./runtime.js";
-import { releaseVersion } from "./layout.js";
+import { releaseVersion, layoutOf, exists } from "./layout.js";
+import { homedir } from "node:os";
+import { installBackupTimer } from "./install.js";
 import { socketPath } from "./sandbox.js";
 import { fileURLToPath } from "node:url";
 
@@ -19,8 +21,12 @@ async function main(): Promise<void> {
   // The commit this release was built from; `contextlanes update` waits for it after a restart.
   const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), "0.1.0");
   const config = loadConfig();
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const layout = await layoutOf(root, homedir());
   mkdirSync(config.paths.data, { recursive: true, mode: 0o700 });
   const store = Store.open(join(config.paths.data, "contextlanes.sqlite"));
+  if (layout.managed) await installBackupTimer({ root: await exists(layout.current) ? layout.current : layout.repo, home: homedir(), node: process.execPath, run: runCommand, config: configPath() })
+    .catch((err) => console.error("Nightly backups could not be scheduled:", err));
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   // shortcut: releases before migration 8 kept the socket in the data folder; drop this once none remain.

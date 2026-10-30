@@ -11,8 +11,8 @@ When a page and its board disagree, the board wins unless the data does not exis
 | [work-overview.webp](work-overview.webp) | `/p/:project/work` | `work/Overview.tsx` | Yes |
 | [inbox.webp](inbox.webp) | `/inbox` | `pages/Inbox.tsx` | Yes. Review items open the Review page; approval items open the lane |
 | [setup.webp](setup.webp) | `/setup` | `pages/Setup.tsx`, `setup/Agents.tsx` | Yes. The terminal block shows `contextlanes setup` rather than the install line; agents use Ready / Install / Sign in instead of toggles |
-| [settings.webp](settings.webp) | `/settings` | `pages/Settings.tsx` | Access, Projects, Notifications, Lanes. Machine and data sections later |
-| [models.webp](models.webp) | `/models` | `pages/Settings.tsx` (`ModelsPage`) | Agents and local models. Limits, helper stats and routing in phases 3–4 |
+| [settings.webp](settings.webp) | `/settings` | `pages/Settings.tsx` | This machine, Access, Projects, Notifications, Lanes and Data. History retention waits for Insights |
+| [models.webp](models.webp) | `/models` | `pages/Settings.tsx` (`ModelsPage`) | Agents, reported 5h/7d limits (unknown otherwise) and local models. Helper stats and routing in phases 3–4 |
 | [review.webp](review.webp) | `/p/:project/review` | `pages/project/Review.tsx` | Yes, except Ask Codex to review, Shares a file with 02 (phase 3), changed-area highlights on screenshots and test counts. |
 | [run.webp](run.webp) | `/p/:project/run` | `pages/project/Run.tsx` | Yes, except the Database fact, the watched list with Adopt into a lane, and certificate days |
 | [architecture.webp](architecture.webp) | `/p/:project/architecture` | `pages/Static.tsx` | Phase 3 (`READY.architecture`) |
