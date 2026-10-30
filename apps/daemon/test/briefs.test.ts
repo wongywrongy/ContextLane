@@ -21,7 +21,7 @@ async function fixture(withModel = true) {
     modules: [{ id: "models/tournament.py", layer: "Data", files: 1, lines: 404, tests: 0, hash, symbols: [{ name: "Tournament", kind: "class", file: "models/tournament.py", signature: null }], paths: ["models/tournament.py"] }] } as CodeMap);
   const codemaps = { map: async () => ({ map: map(), error: null }) } as unknown as CodeMaps;
   const prompts: string[] = [];
-  const fetch = (async (_u: string, init: RequestInit) => { prompts.push(String(init.body)); return Response.json({ model: "qwen3-coder", choices: [{ message: { content: "Tournament records. Times are UTC. The solver reads them through to_solver_input()." } }] }); }) as unknown as typeof globalThis.fetch;
+  const fetch = (async (_u: string, init?: RequestInit) => { if (!init?.body) return Response.json({ models: [] }); prompts.push(String(init.body)); return Response.json({ model: "qwen3-coder", choices: [{ message: { content: "Tournament records. Times are UTC. The solver reads them through to_solver_input()." } }] }); }) as unknown as typeof globalThis.fetch;
   const config = Config.parse({ paths: { data: join(root, "data") }, localModels: withModel ? [{ name: "qwen3-coder", provider: "ollama", url: "http://127.0.0.1:11434" }] : [] });
   const run: Runner = async () => ({ stdout: "" });
   return { briefs: new Briefs({ config, store, codemaps, models: new LocalModels({ config, run, fetch }) }), prompts, change: () => { hash = "h2"; }, config };

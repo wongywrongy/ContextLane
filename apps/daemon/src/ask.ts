@@ -19,8 +19,8 @@ export class Ask {
     const { store, codemaps, briefs, models } = this.deps;
     const p = store.getProject(project);
     if (!p) throw new NotFound("no such project");
-    const model = models.pick();
-    if (!model) throw new Refused("Add a local model under Models to ask questions.");
+    const model = await models.forJob("ask");
+    if (!model) throw new Refused("Add a local model for Ask under Models to ask questions.");
     const sources = new Map<string, { kind: AskAnswer["sources"][number]["kind"]; label: string; text: string }>();
     const notes = await briefs.notes(project);
     if (notes.trim()) sources.set("notes", { kind: "notes", label: "Project notes", text: notes.slice(0, 3000) });

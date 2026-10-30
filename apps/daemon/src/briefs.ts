@@ -65,14 +65,14 @@ export class Briefs {
     const size = (await Promise.all((module.paths ?? []).map((f) => stat(join(root, f)).then((s) => s.size, () => 0)))).reduce((a, b) => a + b, 0);
     const stale = !!saved && saved.hash !== module.hash;
     return { module: module.id, text: saved?.text ?? null, edited: saved?.edited ?? false, stale, model: saved?.model ?? null, writtenAt: saved?.writtenAt ?? null,
-      tokens: saved ? estimateTokens(saved.text) : null, filesTokens: Math.ceil(size / 4), canWrite: !!this.deps.models.pick(), facts: this.facts(map, module.id) };
+      tokens: saved ? estimateTokens(saved.text) : null, filesTokens: Math.ceil(size / 4), canWrite: !!this.deps.models.pick("briefs"), facts: this.facts(map, module.id) };
   }
 
   /** Writes (or rewrites) a brief with the local model. One write per module at a time. */
   async write(project: ProjectId, query: { module?: string; path?: string }): Promise<ModuleBrief> {
     const { map, module, root } = await this.module(project, query);
-    const model = this.deps.models.pick();
-    if (!model) throw new Refused("Add a local model under Models to write briefs.");
+    const model = await this.deps.models.forJob("briefs");
+    if (!model) throw new Refused("Add a local model for briefs under Models to write briefs.");
     const key = `${project}\0${module.id}`;
     let job = this.writing.get(key);
     if (!job) {

@@ -40,4 +40,29 @@ describe("local models", () => {
     const down = await new LocalModels({ config: config(), run, fetch: (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof globalThis.fetch }).status();
     expect(down[0]).toMatchObject({ state: "down" });
   });
+
+  it("sends each job to an endpoint with its role, the free one first, skipping one that is down", async () => {
+    const neo = { ...ollama, label: "neo", roles: ["helper", "briefs"] as const };
+    const cayde = { ...ollama, url: "http://cayde.tail1234.ts.net:11434", label: "cayde", roles: ["helper"] as const };
+    const small = { name: "qwen3:4b", provider: "ollama" as const, url: "http://127.0.0.1:11434", roles: ["insights"] as const };
+    let caydeUp = true;
+    const fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = new URL(String(url));
+      if (u.hostname.startsWith("cayde") && !caydeUp) throw new Error("down");
+      if (!init?.body) return Response.json({ models: [] });
+      await new Promise((r) => setTimeout(r, 30));
+      return Response.json({ model: "m", choices: [{ message: { content: "ok" } }] });
+    }) as unknown as typeof globalThis.fetch;
+    const models = new LocalModels({ config: config([neo, cayde, small] as never), run, fetch });
+    expect(models.candidates("helper").map((m) => m.label)).toEqual(["neo", "cayde"]);
+    expect(models.candidates("insights").map((m) => m.name)).toEqual(["qwen3:4b"]);
+    expect(models.pick("ask")).toBeNull();
+    // neo is busy, so the next helper job goes to cayde.
+    const busy = models.chat(neo, [{ role: "user", content: "long" }]);
+    expect((await models.forJob("helper"))?.label).toBe("cayde");
+    await busy;
+    const down = new LocalModels({ config: config([cayde, neo] as never), run, fetch });
+    caydeUp = false;
+    expect((await down.forJob("helper"))?.label).toBe("neo");
+  });
 });

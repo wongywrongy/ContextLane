@@ -48,7 +48,7 @@ export class Insights {
   }
   close(): void { if (this.timer) clearInterval(this.timer); }
   private async tick(): Promise<void> {
-    if (!this.deps.models.pick()) return;
+    if (!this.deps.models.pick("insights")) return;
     for (const p of this.deps.store.listProjects()) {
       const last = (await this.saved(p.id))?.generatedAt;
       const nightly = new Date(this.now()).getHours() >= 2 && (!last || this.now() - Date.parse(last) > 20 * 3600_000);
@@ -123,14 +123,14 @@ export class Insights {
   async view(project: ProjectId): Promise<InsightsView> {
     const measured = await this.measure(project);
     const saved = await this.saved(project);
-    return { project, ...measured, generatedAt: saved?.generatedAt ?? null, model: saved?.model ?? null, error: null, canWrite: !!this.deps.models.pick(),
+    return { project, ...measured, generatedAt: saved?.generatedAt ?? null, model: saved?.model ?? null, error: null, canWrite: !!this.deps.models.pick("insights"),
       summary: saved?.summary ?? [], suggestions: (saved?.suggestions ?? []).filter((s) => !s.dismissed) };
   }
 
   /** Writes the summary and suggestions with the local model. One run per project at a time. */
   async generate(project: ProjectId): Promise<InsightsView> {
-    const model = this.deps.models.pick();
-    if (!model) throw new Refused("Add a local model under Models to write insights.");
+    const model = await this.deps.models.forJob("insights");
+    if (!model) throw new Refused("Add a local model for Insights under Models to write insights.");
     let job = this.running.get(project);
     if (!job) {
       job = (async () => {

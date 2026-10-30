@@ -37,8 +37,9 @@ export class Helper {
   async status(): Promise<HelperStatus[]> {
     const limit = this.deps.config.helper.redoLimit;
     const overrides = await this.overrides();
-    const model = this.deps.models.pick(this.deps.config.helper.model);
-    const answering = model ? await this.deps.models.reachable(model) : false;
+    const chosen = await this.deps.models.forJob("helper", this.deps.config.helper.model);
+    const model = chosen ?? this.deps.models.pick("helper", this.deps.config.helper.model);
+    const answering = chosen ? await this.deps.models.reachable(chosen) : false;
     const events = this.events();
     const weekAgo = Date.now() - 7 * 86400_000;
     return KINDS.map((kind) => {
@@ -80,7 +81,7 @@ export class Helper {
   async delegate(lane: Lane, body: { kind: HelperKind; task: string; files: string[] }): Promise<{ result: string; tokensSaved: number }> {
     const status = (await this.status()).find((s) => s.kind === body.kind)!;
     if (status.state === "off") throw new Refused(`The local helper's ${body.kind} is off: ${status.reason ?? "turned off"} Do this yourself.`);
-    const model = this.deps.models.pick(this.deps.config.helper.model)!;
+    const model = (await this.deps.models.forJob("helper", this.deps.config.helper.model))!;
     let input = ""; let command: string | null = null; let prompt: string;
     if (body.kind === "check") {
       const recipe = await this.deps.runtime.recipeFor(lane).catch(() => null);

@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
+import { LOCAL_ROLES, LocalRole as LocalRoleSchema, type LocalRole } from "@contextlanes/protocol";
 import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
@@ -9,6 +10,8 @@ import { Action } from "../setup/ui";
 
 /** Offered only at the HTTPS address the passkey will belong to. */
 /** One project in Settings: rename, pin, move, remove. Nothing here touches the repository on disk. */
+const LOCAL_ROLE_KEYS = LocalRoleSchema.options;
+
 function ProjectRow({ project, first, last, move, changed }: { project: Project; first: boolean; last: boolean; move: (by: -1 | 1) => void; changed: () => void }) {
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -144,18 +147,24 @@ function LaneLimit({ settings, reload }: { settings: SetupSettings | null; reloa
 }
 
 /** One local endpoint, as on models.webp: server and host, model, this machine's GPU memory, state. */
-function LocalRow({ m }: { m: (LocalModelStatus | (LocalModel & { state: null })) }) {
+function LocalRow({ m, save, remove }: { m: (LocalModelStatus | (Omit<LocalModel, "label" | "roles"> & { label: string | null; roles: LocalRole[]; state: null })); save: (change: { roles?: LocalRole[]; label?: string }) => Promise<void>; remove: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
   const host = new URL(m.url).host;
   const status = m.state ? m as LocalModelStatus : null;
   const gpu = status?.gpu;
-  return <div className="sec-r lmrow">
+  return <><div className="sec-r lmrow">
     <AgentMark agent={m.provider} />
-    <span style={{ minWidth: 0 }}><b>{m.provider === "ollama" ? "Ollama" : "llama.cpp"}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{host} · OpenAI API</span></span>
+    <span style={{ minWidth: 0 }}><b>{m.label || (m.provider === "ollama" ? "Ollama" : "llama.cpp")}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{host} · {m.roles.length ? m.roles.join(", ") : "every job"}</span>
+      <button className="lnk" style={{ fontSize: 12.5 }} onClick={() => setEditing((e) => !e)}>{editing ? "Close" : "Edit"}</button></span>
     <span style={{ minWidth: 0 }}><span className="mono" style={{ fontSize: 13 }}>{m.name}</span><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{status ? status.running ? `working${status.waiting ? ` · ${status.waiting} waiting` : ""}` : status.waiting ? `${status.waiting} waiting` : status.loaded.length ? `loaded: ${status.loaded.join(", ")}` : "nothing loaded" : ""}</span></span>
     <span style={{ minWidth: 0 }}>{gpu ? <><span className="mono muted" style={{ display: "flex", fontSize: 12 }}>{gpu.name} · {Math.round(gpu.totalMb / 1024)} GB<span style={{ marginLeft: "auto", color: "var(--ink)" }}>{(gpu.usedMb / 1024).toFixed(1)} GB</span></span>
       <span className="meter" aria-label={`${Math.round(gpu.usedMb / gpu.totalMb * 100)}% of GPU memory used`}><i style={{ width: `${Math.min(100, gpu.usedMb / Math.max(1, gpu.totalMb) * 100)}%` }} /></span></> : <span className="muted" style={{ fontSize: 12.5 }}>{status && !status.local ? "on another machine" : status ? "no GPU reading" : ""}</span>}</span>
     <span style={{ textAlign: "right" }}>{status ? <Glyph g={status.state === "serving" ? "done" : status.state === "idle" ? "idle" : "fail"}>{status.state === "serving" ? "Serving" : status.state === "idle" ? "Idle" : "Down"}</Glyph> : null}{status?.detail ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{status.detail}</span> : null}</span>
-  </div>;
+  </div>{editing ? <form className="sec-b" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); void save({ label: String(f.get("label") ?? "").trim() || undefined, roles: LOCAL_ROLE_KEYS.filter((r) => f.get(`role-${r}`)) }).then(() => setEditing(false)); }}>
+    <label className="field">Name<input className="in" name="label" maxLength={40} defaultValue={m.label ?? ""} /></label>
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "10px 0" }}>{LOCAL_ROLE_KEYS.map((r) => <label key={r} style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 14 }}><input type="checkbox" name={`role-${r}`} defaultChecked={m.roles.includes(r)} />{LOCAL_ROLES[r]}</label>)}</div>
+    <div style={{ display: "flex", gap: 8 }}><button className="btn sm">Save</button><Action small ghost run={remove}>Remove endpoint</Action></div>
+  </form> : null}</>;
 }
 
 export function ModelsPage() {
@@ -171,19 +180,25 @@ export function ModelsPage() {
     <Section title="Agents" meta="each keeps its own login · talks over ACP" end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    <Section title="Local models" meta="agents call these directly; ContextLanes watches them" end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
-      {(local ?? models.map((m) => ({ ...m, state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m} />)}
-      {!models.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None saved. Add Ollama or llama.cpp below; module briefs, the local helper and Insights use it.</div> : null}
+    <Section title="Local models" meta="endpoints on this machine or your tailnet · each job goes to a free one with its role" end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+      {(local ?? models.map((m) => ({ ...m, label: m.label ?? null, roles: m.roles ?? [], state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m}
+        save={async (change) => { await postJson("/api/setup/settings", { localModels: models.map((x) => x.name === m.name && x.url === m.url ? { ...x, ...change } : x) }); reloadSettings(); reloadLocal(); }}
+        remove={async () => { await postJson("/api/setup/settings", { localModels: models.filter((x) => !(x.name === m.name && x.url === m.url)) }); reloadSettings(); }} />)}
+      {!models.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None saved. Add Ollama or llama.cpp below; module briefs, the local helper, Insights and Ask use them.</div> : null}
       <div className="opts in-sec">
-        <Form title="Add a local model" save={async (f) => {
-          const model = { name: v(f, "name"), provider: v(f, "provider") as "ollama" | "llama.cpp", url: v(f, "url") };
+        <Form title="Add an endpoint" save={async (f) => {
+          const roles = LOCAL_ROLE_KEYS.filter((r) => f.get(`role-${r}`));
+          const model = { name: v(f, "name"), provider: v(f, "provider") as "ollama" | "llama.cpp", url: v(f, "url"), ...(v(f, "label") ? { label: v(f, "label") } : {}), ...(roles.length ? { roles } : {}) };
           await postJson("/api/setup/model/probe", model);
-          await postJson("/api/setup/settings", { localModels: [...models.filter((m) => m.name !== model.name), model] });
+          await postJson("/api/setup/settings", { localModels: [...models.filter((m) => !(m.name === model.name && m.url === model.url)), model] });
           reloadSettings();
         }}>
           <div className="two"><label className="field">Model<input className="in" name="name" required placeholder="qwen3-coder" /></label>
             <label className="field">Runs on<select className="in" name="provider" defaultValue="ollama"><option value="ollama">Ollama</option><option value="llama.cpp">llama.cpp</option></select></label></div>
-          <label className="field">Address <span className="hint">this machine or your tailnet; checked before saving</span><input className="in mono" name="url" required defaultValue="http://127.0.0.1:11434" /></label>
+          <div className="two"><label className="field">Address <span className="hint">this machine or your tailnet; checked before saving</span><input className="in mono" name="url" required defaultValue="http://127.0.0.1:11434" /></label>
+            <label className="field">Name <span className="hint">optional, e.g. neo 4090</span><input className="in" name="label" maxLength={40} /></label></div>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}><legend>Use it for <span className="hint">none ticked = every job</span></legend>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>{LOCAL_ROLE_KEYS.map((r) => <label key={r} style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 14 }}><input type="checkbox" name={`role-${r}`} />{LOCAL_ROLES[r]}</label>)}</div></fieldset>
         </Form>
       </div>
     </Section>

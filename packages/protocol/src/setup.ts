@@ -17,13 +17,20 @@ export const LoginOwnerRequest = z.object({ challengeId: z.uuid(), response: Aut
 export const SignInRequest = z.object({ token: z.string().regex(/^[\w-]{43}$/) });
 export const SetupLink = z.object({ url: z.url(), expiresAt: z.iso.datetime(), messages: z.array(z.string()), tunnel: z.string().optional() });
 export type SetupLink = z.infer<typeof SetupLink>;
+/** What a local endpoint is used for. An endpoint with no roles takes every job. */
+export const LocalRole = z.enum(["briefs", "helper", "insights", "ask", "tidy"]);
+export type LocalRole = z.infer<typeof LocalRole>;
+export const LOCAL_ROLES: Record<LocalRole, string> = { briefs: "Module briefs", helper: "Local helper (delegate)", insights: "Insights", ask: "Ask", tidy: "Tidy the code map" };
 export const LocalModel = z.object({ name: z.string().min(1).max(100), provider: z.enum(["ollama", "llama.cpp"]),
+  /** A name for this endpoint, e.g. "neo 4090"; the same model may be served by several. */
+  label: z.string().trim().max(40).optional(),
+  roles: z.array(LocalRole).max(5).optional(),
   /** This machine, or another of yours on the tailnet (100.64.0.0/10 or a *.ts.net name), never the internet. */
   url: z.url().refine((url) => { const u = new URL(url); return ["http:", "https:"].includes(u.protocol) && (["127.0.0.1", "localhost"].includes(u.hostname) || u.hostname.endsWith(".ts.net") || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(u.hostname)); }, "Use an endpoint on this machine or on your tailnet."),
 });
 export type LocalModel = z.infer<typeof LocalModel>;
 /** Models page: one served model per endpoint, what it has loaded and how full its GPU is. */
-export type LocalModelStatus = { name: string; provider: "ollama" | "llama.cpp"; url: string; local: boolean; state: "serving" | "idle" | "down"; loaded: string[]; memory: number | null;
+export type LocalModelStatus = { name: string; provider: "ollama" | "llama.cpp"; url: string; label: string | null; roles: LocalRole[]; local: boolean; state: "serving" | "idle" | "down"; loaded: string[]; memory: number | null;
   gpu: { name: string; totalMb: number; usedMb: number } | null; waiting: number; running: boolean; detail: string | null };
 /** Routing: which agent and model a new lane gets, by words in its task. The first rule that matches wins. */
 export const RoutingRule = z.object({ words: z.array(z.string().trim().min(2).max(40)).min(1).max(20), agent: z.string().min(1).max(60), model: z.string().max(200).optional(), label: z.string().max(40).optional() });

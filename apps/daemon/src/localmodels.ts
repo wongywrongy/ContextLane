@@ -1,4 +1,4 @@
-import type { LocalModel, LocalModelStatus } from "@contextlanes/protocol";
+import type { LocalModel, LocalModelStatus, LocalRole } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
 import { parseGpus } from "./resources.js";
@@ -29,8 +29,23 @@ export class LocalModels {
     this.seen.set(model.url, { at: Date.now(), ok });
     return ok;
   }
-  /** The configured model for a job, or null when there is none to use. */
-  pick(name?: string): LocalModel | null { const all = this.list(); return (name ? all.find((m) => m.name === name) : all[0]) ?? null; }
+  /** Endpoints that take a job: those given the role, or with no roles at all; optionally only one model. */
+  candidates(role: LocalRole, name?: string): LocalModel[] {
+    return this.list().filter((m) => (!m.roles?.length || m.roles.includes(role)) && (!name || m.name === name));
+  }
+  /** Whether any endpoint is set up for a job (no network). */
+  pick(role: LocalRole, name?: string): LocalModel | null { return this.candidates(role, name)[0] ?? null; }
+  /**
+   * The endpoint to run a job on: among those with the role, the answering one with the shortest queue,
+   * so the same model on two machines shares the work and one that is down is skipped. When none answers,
+   * the first, so the error names it.
+   */
+  async forJob(role: LocalRole, name?: string): Promise<LocalModel | null> {
+    const all = this.candidates(role, name);
+    const up = (await Promise.all(all.map(async (m) => (await this.reachable(m)) ? m : null))).filter((m): m is LocalModel => !!m);
+    const load = (m: LocalModel) => { const q = this.queue(m.url); return q.waiting + (q.running ? 1 : 0); };
+    return up.sort((a, b) => load(a) - load(b))[0] ?? all[0] ?? null;
+  }
 
   private queue(url: string) {
     const key = new URL(url).host;
@@ -72,7 +87,7 @@ export class LocalModels {
       const local = ["127.0.0.1", "localhost"].includes(new URL(m.url).hostname);
       const q = this.queue(m.url);
       const gpu = local && gpus[0] ? { name: gpus[0].name, totalMb: gpus[0].memoryTotalMiB ?? 0, usedMb: gpus[0].memoryUsedMiB ?? 0 } : null;
-      const base = { name: m.name, provider: m.provider, url: m.url, local, gpu, waiting: q.waiting, running: q.running };
+      const base = { name: m.name, provider: m.provider, url: m.url, label: m.label ?? null, roles: m.roles ?? [], local, gpu, waiting: q.waiting, running: q.running };
       if (m.provider === "ollama") {
         const [tags, ps] = await Promise.all([get(m, "/api/tags"), get(m, "/api/ps")]);
         if (!tags) return { ...base, state: "down", loaded: [], memory: null, detail: "Ollama did not answer." };
