@@ -54,7 +54,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("runs a lane's service as 
 
     await runtime.poll();
     expect(store.environment("fixture/01")!.services[0]).toMatchObject({ state: "healthy" });
-    await exec("systemctl", ["--user", "kill", "-sKILL", web.unit]);
+    await exec("systemctl", ["--user", "kill", "--kill-whom=main", "-sKILL", web.unit]);
     await new Promise((resolve) => setTimeout(resolve, 200));
     await runtime.poll();
     expect(store.environment("fixture/01")!.services[0]!.state).toBe("failed");
