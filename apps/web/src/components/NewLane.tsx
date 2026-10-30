@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { DetectedAgent, Lane, Project, ProjectBranches, ServiceProposal } from "@contextlanes/protocol";
+import { routeTask, type DetectedAgent, type Lane, type Project, type ProjectBranches, type ServiceProposal, type SetupSettings } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, Dialog } from "./ui";
 
@@ -16,7 +16,11 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const [error, setError] = useState("");
   const project = projects.find((p) => p.id === chosenProject) ?? projects[0];
   const ready = (agents ?? []).filter((a) => a.status === "Ready");
-  const agent = ready.find((a) => a.id === chosenAgent) ?? ready[0];
+  // Routing (Models): until the owner picks an agent, the first rule whose words are in the task picks it.
+  const [settings] = useJson<SetupSettings>("/api/setup/settings");
+  const rule = !chosenAgent ? routeTask(settings?.routing ?? [], task) : null;
+  const routed = rule && ready.some((a) => a.id === rule.agent) ? rule : null;
+  const agent = ready.find((a) => a.id === (chosenAgent || routed?.agent)) ?? ready[0];
   const [branches, branchError] = useJson<ProjectBranches>(project ? `/api/projects/${project.id}/branches` : null);
   const base = chosenBase && chosenBase.project === project?.id && branches?.branches.includes(chosenBase.branch) ? chosenBase.branch : branches?.defaultBranch ?? "";
   const [lanes] = useJson<Lane[]>(project ? `/api/projects/${project.id}/lanes` : null);
@@ -30,7 +34,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, base, task: task.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -38,7 +42,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const fields = <div className="form">
     <div className="two">
       <label className="field">Project<select className="in" aria-label="Project" value={project?.id ?? ""} disabled={!!adoption} onChange={(e) => setProject(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <label className="field">Agent<select className="in" aria-label="Agent" value={agent?.id ?? ""} disabled={!ready.length} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label>
+      <label className="field">Agent<select className="in" aria-label="Agent" value={agent?.id ?? ""} disabled={!ready.length} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select>{routed && agent?.id === routed.agent ? <span className="hint">picked by your routing rule{routed.model ? ` · ${routed.model}` : ""}</span> : null}</label>
     </div>
     <div className="two">
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>
@@ -49,7 +53,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
     {blocked && agents ? <p role="alert" style={{ margin: 0 }}>{blocked}{!ready.length ? <> <Link to="/models">Open Models</Link></> : null}</p> : null}
     {error ? <p role="alert" style={{ margin: 0 }}>{error}</p> : null}
   </div>;
-  return { fields, start, canStart, busy };
+  return { routed, fields, start, canStart, busy };
 }
 
 export function NewLaneDialog({ projects, project, onClose, adoption, task }: { projects: Project[]; project?: string; onClose: () => void; adoption?: ServiceProposal; task?: string }) {

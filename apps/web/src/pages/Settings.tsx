@@ -1,9 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
-import { AgentMark, Dialog, Empty, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 
@@ -156,8 +156,36 @@ export function ModelsPage() {
       </div>
     </Section>
     {models.length ? <HelperSection /> : null}
+    <RoutingSection settings={settings} agents={agents} reload={reloadSettings} />
     {registry ? <RegistryDialog onClose={() => { setRegistry(false); reload(); }} /> : null}
   </main>;
+}
+
+/** Routing (models.webp): which agent and model a new lane gets, by words in its task. */
+function RoutingSection({ settings, agents, reload }: { settings: SetupSettings | null; agents: DetectedAgent[] | null; reload: () => void }) {
+  const rules = settings?.routing ?? [];
+  const [error, setError] = useState("");
+  const save = (next: RoutingRule[]) => { setError(""); void postJson("/api/setup/settings", { routing: next }).then(reload, (e) => setError(errorMessage(e))); };
+  const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
+  return <Section title="Routing" meta="which agent and model a new lane gets · first match wins">
+    {rules.map((r, i) => <div className="sec-r" key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) auto auto", gap: 14, alignItems: "center" }}>
+      <span>{r.words.join(", ")}</span><span className="mono" style={{ fontSize: 13 }}>{AGENT_NAMES[r.agent] ?? r.agent}{r.model ? ` → ${r.model}` : ""}</span><span className="mono muted" style={{ fontSize: 12 }}>{r.label ?? ""}</span>
+      <button className="lnk" onClick={() => save(rules.filter((_, j) => j !== i))}>Remove</button>
+    </div>)}
+    <div className="sec-r muted" style={{ fontSize: 13.5 }}>{rules.length ? "Anything else uses the first ready agent." : "No rules: New lane uses the first ready agent. Add one to send, say, docs and fixtures to a local model."}</div>
+    <div className="sec-b opts">
+      <Form title="Add a rule" save={async (f) => {
+        const words = v(f, "words").split(",").map((w) => w.trim()).filter(Boolean);
+        save([...rules, { words, agent: v(f, "agent"), ...(v(f, "model") ? { model: v(f, "model") } : {}), ...(v(f, "label") ? { label: v(f, "label") } : {}) }]);
+      }}>
+        <label className="field">Words in the task <span className="hint">comma-separated, e.g. docs, fixture, rename</span><input className="in" name="words" required /></label>
+        <div className="two"><label className="field">Agent<select className="in" name="agent">{(agents ?? []).map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label>
+          <label className="field">Model <span className="hint">optional</span><input className="in mono" name="model" /></label></div>
+        <label className="field">Label <span className="hint">optional, e.g. saves cloud</span><input className="in" name="label" maxLength={40} /></label>
+      </Form>
+      {error ? <p role="alert">{error}</p> : null}
+    </div>
+  </Section>;
 }
 
 /** Add from ACP registry: agents that speak ACP, installed with npm, a checked download, or uv. */

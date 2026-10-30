@@ -25,7 +25,16 @@ export type LocalModel = z.infer<typeof LocalModel>;
 /** Models page: one served model per endpoint, what it has loaded and how full its GPU is. */
 export type LocalModelStatus = { name: string; provider: "ollama" | "llama.cpp"; url: string; local: boolean; state: "serving" | "idle" | "down"; loaded: string[]; memory: number | null;
   gpu: { name: string; totalMb: number; usedMb: number } | null; waiting: number; running: boolean; detail: string | null };
+/** Routing: which agent and model a new lane gets, by words in its task. The first rule that matches wins. */
+export const RoutingRule = z.object({ words: z.array(z.string().trim().min(2).max(40)).min(1).max(20), agent: z.string().min(1).max(60), model: z.string().max(200).optional(), label: z.string().max(40).optional() });
+export type RoutingRule = z.infer<typeof RoutingRule>;
+export const routeTask = (rules: RoutingRule[], task: string): RoutingRule | null => {
+  const text = task.toLowerCase();
+  return rules.find((r) => r.words.some((w) => new RegExp(`\\b${w.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(text))) ?? null;
+};
+
 export const SetupSettings = z.object({
+  routing: z.array(RoutingRule).max(30).optional(),
   agents: z.record(z.string().regex(/^[\w-]+$/), AgentSpec).optional(),
   notifications: NotificationConfig.optional(), localModels: z.array(LocalModel).max(20).optional(),
   lanes: z.object({ maxConcurrent: z.number().int().min(1).max(100), launchHosts: z.boolean() }).optional(),

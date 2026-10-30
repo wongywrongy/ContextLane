@@ -160,7 +160,7 @@ export class SetupManager {
     return { host: this.config.host, access: { owner: this.config.access.owner }, agents: agentsView, localModels: this.config.localModels,
       notifications: { ...n, ...(n.ntfy ? { ntfy: { ...n.ntfy, ...(n.ntfy.token ? { token: SECRET_MASK } : {}) } } : {}),
         ...(n.telegram ? { telegram: { ...n.telegram, botToken: SECRET_MASK } } : {}), ...(n.webPush ? { webPush: { ...n.webPush, privateKey: SECRET_MASK } } : {}) },
-      lanes: { maxConcurrent: this.config.lanes.maxConcurrent, launchHosts: this.config.lanes.launchHosts } };
+      lanes: { maxConcurrent: this.config.lanes.maxConcurrent, launchHosts: this.config.lanes.launchHosts }, routing: this.config.routing };
   }
   async settings(body: unknown): Promise<void> {
     const { lanes, ...b } = SetupSettings.parse(keepSecrets(body, this.config));

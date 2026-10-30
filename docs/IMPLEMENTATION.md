@@ -340,8 +340,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 4.1 Hand off, fork, fresh session | work-lane | Done; see 4.1 |
 | 4.2 Second-agent review | review | Done; see 4.2 |
 | 4.3 More agents | models | Done; Hermes is not in the registry; see 4.3 |
-| 4.4 Routing | models | Next |
-| 4.5 Scheduled lanes | — (needs a board) | Not started |
+| 4.4 Routing | models | Done; see 4.4 |
+| 4.5 Scheduled lanes | — (needs a board) | Next |
 | 4.6 Shared skills | insights | Not started |
 | 4.7 Final board pass | all | Not started |
 
@@ -690,6 +690,13 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - Rules map a kind of task (keywords the owner writes) to an agent, a model and a label. New lane pre-fills from the first rule that matches, and the owner can change it.
 - Insights can suggest a rule. It is added only with a click.
+
+#### What was done (2026-10-30)
+
+- `[[routing]]` rules in config (`words`, `agent`, optional `model` and `label`), edited in Models → Routing. `routeTask` (protocol) picks the first rule with one of its words at the start of a word in the task, case-insensitive and literal.
+- New lane picks the routed agent (and model) until the owner chooses one, and says "picked by your routing rule".
+- Not built: Insights suggesting a rule. Its suggestion actions are a fixed list, and a rule from a model's reading of a week is the kind of change that should be the owner's; it can be added as an action later.
+- Tests: `routing.test.ts`.
 
 ### 4.5 Scheduled lanes
 
