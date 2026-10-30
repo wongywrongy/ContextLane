@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,7 +42,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
   bus.subscribeAll((e) => seen.push(e));
   let port = 20100;
   const runtime = new Runtime({ store, bus, config, run, freePort: async () => port++, fetch: (async () => new Response("ok", { status: state.health })) as typeof fetch });
-  const app = buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime });
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime }), store);
   store.addProject({ id: "shop", name: "Shop", path: repo });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "cl-shop-01", hostUnit: null, base: null, state: "working", colour: "lc1" });
   await writeFile(join(worktree, RECIPE_FILE), JSON.stringify(recipe));
@@ -149,7 +150,7 @@ describe("services", () => {
 
   it("writes a literal dollar through systemd", () => {
     const service = { name: "x", command: ["sh", "$PORT", "$NOT_OURS"], port: { env: "PORT" }, health: { path: "/", status: 200, timeoutSeconds: 1 }, env: {} };
-    expect(serviceArgs("u", "/w", service, { PORT: "1" }).slice(-3)).toEqual(["sh", "1", "$$NOT_OURS"]);
+    expect(serviceArgs("u", "/w", service, { PORT: "1" }, ["bwrap", "--"]).slice(-3)).toEqual(["sh", "1", "$$NOT_OURS"]);
   });
 
   it("marks a service that never answers as failed and keeps recent probes", async () => {

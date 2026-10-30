@@ -11,7 +11,7 @@ describe("toolbox", () => {
   });
   it("gives agents only the tools that work today", () => {
     expect(LIVE_TOOLS).toEqual(["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint"]);
-    const server = createToolbox({ daemonUrl: "http://127.0.0.1:4600", lane: "shuttleworks/01" }) as unknown as { _registeredTools: Record<string, unknown> };
+    const server = createToolbox({ daemonUrl: "http://127.0.0.1:4600", lane: "shuttleworks/01", token: "cl-lane-test" }) as unknown as { _registeredTools: Record<string, unknown> };
     expect(Object.keys(server._registeredTools)).toEqual(LIVE_TOOLS);
   });
 });

@@ -28,7 +28,8 @@ export const SetupSettings = z.object({
 export type SetupSettings = z.infer<typeof SetupSettings>;
 export const AgentId = z.enum(["claude-code", "codex", "opencode"]);
 export type AgentId = z.infer<typeof AgentId>;
-export const SetupStatus = z.object({ claimed: z.boolean(), authorized: z.boolean(), hasPasskey: z.boolean(),
+export const TicketRequest = z.object({ path: z.string().regex(/^\/api\/(stream|projects\/[\w-]+\/stream|lanes\/[\w-]+\/\d+\/terminal|setup\/agents\/[\w-]+\/terminal)$/) });
+export const SetupStatus = z.object({ claimed: z.boolean(), authorized: z.boolean(), hasPasskey: z.boolean(), signedOut: z.boolean().default(false),
   tailnetLogin: z.string().nullable(), publicUrl: z.string().nullable(), controlFile: z.string().optional(), hasLane: z.boolean(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;

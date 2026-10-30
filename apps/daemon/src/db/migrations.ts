@@ -85,4 +85,6 @@ export const MIGRATIONS: readonly string[] = [
   /* 7 */ `ALTER TABLE lane ADD COLUMN base TEXT;
   ALTER TABLE checkpoint ADD COLUMN packet TEXT NOT NULL DEFAULT '{}';
   ALTER TABLE checkpoint ADD COLUMN pr_url TEXT;`,
+  /* 8 */ `ALTER TABLE lane ADD COLUMN token_hash TEXT;
+  DELETE FROM owner_session;`,
 ];

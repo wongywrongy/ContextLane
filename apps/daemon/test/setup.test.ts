@@ -38,7 +38,8 @@ async function fixture() {
   const secret = await readFile(setup.controlFile, "utf8");
   const claim = () => app.inject({ method: "POST", url: "/api/setup/local", headers: { host: "localhost", authorization: `Bearer ${secret}` }, payload: {} });
   const remote = { host: "neo.test.ts.net", origin: "https://neo.test.ts.net", "tailscale-user-login": "kyle@example.com" };
-  return { root, home, path, config, store, app, setup, secret, claim, run, calls, changed, find, http, bus, remote };
+  const owner = { authorization: `Bearer ${secret}` };
+  return { root, home, path, config, store, app, setup, secret, owner, claim, run, calls, changed, find, http, bus, remote };
 }
 
 describe("headless setup", () => {
@@ -63,18 +64,16 @@ describe("headless setup", () => {
     expect((await redeem({ ...f.remote, host: "elsewhere.test.ts.net", origin: "https://elsewhere.test.ts.net" })).statusCode).toBe(401);
     const results = await Promise.all([redeem(), redeem()]); expect(results.map((r) => r.statusCode).sort()).toEqual([200, 401]);
     const accepted = results.find((r) => r.statusCode === 200)!;
-    expect(accepted.headers["set-cookie"]).toContain("HttpOnly; SameSite=Strict"); expect(accepted.headers["set-cookie"]).toContain("Secure");
-    f.config.access.allowLocal = false;
+    expect(accepted.headers["set-cookie"]).toBeUndefined(); expect(accepted.headers["cache-control"]).toBe("no-store");
     expect((await f.app.inject("/api/projects")).statusCode).toBe(401);
-    const cookie = String(accepted.headers["set-cookie"]).split(";")[0]!;
-    expect((await f.app.inject({ url: "/api/projects", headers: { cookie } })).statusCode).toBe(200);
+    expect((await f.app.inject({ url: "/api/projects", headers: { authorization: `Bearer ${accepted.json().token}` } })).statusCode).toBe(200);
+    expect((await f.app.inject({ url: "/api/projects", headers: { authorization: `Bearer ${f.secret}` } })).statusCode).toBe(200);
     expect((await f.app.inject({ url: "/api/projects", headers: { "tailscale-user-login": "other@example.com" } })).statusCode).toBe(403);
-    expect((await f.app.inject({ url: "/api/projects", headers: { cookie: "cl-owner=invented" } })).statusCode).toBe(401);
+    expect((await f.app.inject({ url: "/api/projects", headers: { authorization: "Bearer invented" } })).statusCode).toBe(401);
     const expiring = await f.setup.shellSetup();
     expect(Date.parse(expiring.expiresAt) - Date.now()).toBeGreaterThan(599000);
     f.store.db.prepare("UPDATE setup_link SET expires = ?").run(Date.now() - 1);
     expect(() => f.setup.signIn(new URL(expiring.url).hash.slice(8), new URL(expiring.url).origin)).toThrow("used or expired");
-    f.config.access.allowLocal = true;
     expect((await f.app.inject({ url: "/api/setup/settings", headers: { host: "rebind.example" } })).statusCode).toBe(401);
     expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: f.home } })).statusCode).toBe(403);
   });
@@ -133,7 +132,7 @@ describe("headless setup", () => {
     expect(first.id).not.toBe(second.id);
     expect((await f.setup.addProject({ path: "~/two/repo" })).id).toBe(second.id);
     await f.setup.initialize(); expect(f.store.listProjects()).toHaveLength(2);
-    const lane = (await f.app.inject({ method: "POST", url: "/api/lanes", payload: { project: first.id, task: "First task" } })).json();
+    const lane = (await f.app.inject({ method: "POST", url: "/api/lanes", headers: f.owner, payload: { project: first.id, task: "First task" } })).json();
     expect(lane.state).toBe("working"); expect(f.store.hasStartedLane()).toBe(true);
     f.store.setLaneState(lane.id, "failed", "Fixture later failure");
     expect((await f.app.inject("/api/setup/status")).json().hasLane).toBe(true);
@@ -164,10 +163,10 @@ describe("headless setup", () => {
     await f.app.ready();
     await expect(f.app.injectWS("/api/setup/agents/codex/terminal")).rejects.toThrow("401");
     await f.claim();
+    const ticket = async (agent: string) => `/api/setup/agents/${agent}/terminal?ticket=${(await f.app.inject({ method: "POST", url: "/api/tickets", headers: { authorization: `Bearer ${f.secret}` }, payload: { path: `/api/setup/agents/${agent}/terminal` } })).json().ticket}`;
     await expect(f.app.injectWS("/api/setup/agents/codex/terminal", { headers: { ...f.remote, "tailscale-user-login": "another@example.com" } })).rejects.toThrow("403");
-    await expect(f.app.injectWS("/api/setup/agents/codex/terminal", { headers: { ...f.remote, origin: "https://evil.example" } })).rejects.toThrow("403");
-    await expect(f.app.injectWS("/api/setup/agents/bash/terminal", { headers: { host: "localhost" } })).rejects.toThrow("400");
-    const ws = await f.app.injectWS("/api/setup/agents/codex/terminal?command=bash", { headers: { host: "localhost" } });
+    await expect(f.app.injectWS(await ticket("codex"), { headers: { ...f.remote, origin: "https://evil.example" } })).rejects.toThrow("403");
+    const ws = await f.app.injectWS(`${await ticket("codex")}&command=bash`, { headers: { host: "localhost" } });
     ws.send(JSON.stringify({ type: "input", data: "login-input" }));
     await vi.waitFor(() => expect(pty.write).toHaveBeenCalledWith("login-input"));
     expect(f.run.terminal).toHaveBeenCalledWith("/fixture/bin/codex", ["login", "--device-auth"], { cwd: f.home, cols: 80, rows: 24 });
@@ -175,7 +174,7 @@ describe("headless setup", () => {
     const closed = once(ws, "close"); ws.terminate(); await closed;
     await vi.waitFor(() => expect(pty.kill).toHaveBeenCalledOnce());
     vi.mocked(f.run.terminal).mockImplementation(() => { throw new Error("secret raw PTY failure"); });
-    const failed = await f.app.injectWS("/api/setup/agents/claude-code/terminal", { headers: { host: "localhost" } });
+    const failed = await f.app.injectWS(await ticket("claude-code"), { headers: { host: "localhost" } });
     const [code, reason] = await once(failed, "close"); expect(code).toBe(1011); expect(String(reason)).toContain("install the native terminal build"); expect(String(reason)).not.toContain("secret raw");
   });
   it("preserves occupied routes, reuses this app’s route and keeps the node owner", async () => {
@@ -208,9 +207,9 @@ describe("headless setup", () => {
   it("maps unexpected failures to a recovery sentence and ends live streams before shutdown", async () => {
     const f = await fixture(); await f.claim();
     f.run.mockRejectedValueOnce(new Error("raw secret stack"));
-    const failed = await f.app.inject({ method: "POST", url: "/api/projects", payload: { path: "~/missing" } });
+    const failed = await f.app.inject({ method: "POST", url: "/api/projects", headers: f.owner, payload: { path: "~/missing" } });
     expect(failed.body).not.toContain("raw secret"); expect(failed.json().error).toContain("choose another folder");
-    const subscribe = vi.spyOn(f.bus, "subscribeAll"); const response = f.app.inject({ url: "/api/stream" }).then((r) => r);
+    const subscribe = vi.spyOn(f.bus, "subscribeAll"); const response = f.app.inject({ url: "/api/stream", headers: { authorization: `Bearer ${f.secret}` } }).then((r) => r);
     await vi.waitFor(() => expect(subscribe).toHaveBeenCalled()); await f.app.close(); expect((await response).body).toContain("retry: 2000");
   });
   it("serves SPA routes but not unknown API routes or traversal", async () => {
@@ -302,8 +301,7 @@ describe("project discovery", () => {
   });
   it("reads registered repo branches and selects remote HEAD rather than the current feature branch", async () => {
     const f = await fixture(); await f.claim(); const project = await f.setup.addProject({ path: "~/repo" });
-    const branches = (await f.app.inject(`/api/projects/${project.id}/branches`)).json(); expect(branches).toEqual({ branches: ["feature", "trunk"], defaultBranch: "trunk" });
-    f.config.access.allowLocal = false;
+    const branches = (await f.app.inject({ url: `/api/projects/${project.id}/branches`, headers: f.owner })).json(); expect(branches).toEqual({ branches: ["feature", "trunk"], defaultBranch: "trunk" });
     for (const path of ["/api/setup/projects/scan", "/api/setup/projects/folders", `/api/projects/${project.id}/branches`]) expect((await f.app.inject(path)).statusCode).toBe(401);
   });
 });

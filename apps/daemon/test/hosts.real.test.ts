@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -23,7 +23,8 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("keeps two real systemd la
   const url = `http://127.0.0.1:${port}`;
   const lanes: Lane[] = [];
   const api = async <T,>(path: string, data?: unknown): Promise<T> => {
-    const response = await fetch(`${url}${path}`, data ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) } : {});
+    const authorization = `Bearer ${await readFile(join(root, "data/setup-token"), "utf8").catch(() => "")}`;
+    const response = await fetch(`${url}${path}`, data ? { method: "POST", headers: { "content-type": "application/json", authorization }, body: JSON.stringify(data) } : { headers: { authorization } });
     if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
     return response.json() as Promise<T>;
   };
@@ -31,7 +32,8 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("keeps two real systemd la
     const repo = join(root, "repo");
     await runCommand("git", ["init", "-b", "main", repo]);
     await runCommand("git", ["-c", "user.name=ContextLanes", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Fixture"], { cwd: repo });
-    const config = join(root, "config.toml");
+    const config = join(root, "etc/config.toml");
+    await mkdir(join(root, "etc"));
     await writeFile(config, stringify({ access: { owner: "fixture@example.invalid" }, listen: { port }, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, agents: { "claude-code": executable, codex: executable }, lanes: { host, launchHosts: true } }));
     await runCommand("systemd-run", ["--user", `--unit=${unit}`, "--collect", `--working-directory=${process.cwd()}`, `--setenv=CONTEXTLANES_CONFIG=${config}`,
       process.execPath, "--import", loader, "--conditions=source", resolve("apps/daemon/src/main.ts")]);

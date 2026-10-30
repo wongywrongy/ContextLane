@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -44,22 +45,21 @@ async function fixture(opts: { ghFails?: boolean } = {}) {
   const bus = new EventBus();
   const config = Config.parse({ paths: { data: root, lanes: root } });
   const hosts = new HostLinks({ store, bus });
-  const app = buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts, config, version: "test", run });
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts, config, version: "test", run }), store);
   store.addProject({ id: "shop", name: "Shop", path: repo });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "t", hostUnit: null, base: "main", state: "working", colour: "lc1" });
   const head = (await git(worktree, "rev-parse", "HEAD")).stdout.trim();
   const base = (await git(worktree, "merge-base", "main", "HEAD")).stdout.trim();
   store.insertCheckpoint({ id: "c1", lane: "shop/01", base, head, summary: "Adds the feature", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
   store.setLaneState("shop/01", "in_review", "checkpoint");
-  const cookie = `cl-owner=${store.ownerSession()}`;
-  const approve = (headers: Record<string, string> = { cookie }) => app.inject({ method: "POST", url: "/api/lanes/shop/01/approve", headers, payload: {} });
+  const approve = (headers: Record<string, string> = {}) => app.inject({ method: "POST", url: "/api/lanes/shop/01/approve", headers, payload: {} });
   const onRemote = async (ref: string) => (await git(remote, "rev-parse", ref)).stdout.trim();
   /** Someone else lands work on main, on the remote. */
   const moveMain = async (file: string, text: string) => {
     await writeFile(join(repo, file), text);
     await git(repo, "add", "."); await git(repo, "commit", "-m", "Main moved"); await git(repo, "push", "origin", "main");
   };
-  return { git, remote, repo, worktree, store, app, calls, state, approve, onRemote, moveMain, head, cookie };
+  return { git, remote, repo, worktree, store, app, calls, state, approve, onRemote, moveMain, head };
 }
 
 describe("approve and merge", () => {
@@ -85,8 +85,8 @@ describe("approve and merge", () => {
 
   it("refuses anything but the owner's session", async () => {
     const { approve, store, calls } = await fixture();
-    expect((await approve({})).statusCode).toBe(403);
-    expect((await approve({ "tailscale-user-login": "x@example.com" })).statusCode).toBe(403);
+    expect((await approve({ authorization: "" })).statusCode).toBe(401);
+    expect((await approve({ authorization: "", "tailscale-user-login": "x@example.com" })).statusCode).toBe(401);
     expect(calls).toEqual([]);
     expect(store.getLane("shop/01")!.state).toBe("in_review");
   });
@@ -153,7 +153,7 @@ describe("cleanup", () => {
   async function merged() {
     const f = await fixture();
     await f.approve();
-    const clean = (headers: Record<string, string> = { cookie: f.cookie }) => f.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", headers, payload: {} });
+    const clean = (headers: Record<string, string> = {}) => f.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", headers, payload: {} });
     return { ...f, clean };
   }
   const exists = (path: string) => access(path).then(() => true, () => false);
@@ -200,10 +200,9 @@ describe("cleanup", () => {
 
   it("refuses a lane that is not merged, and anyone but the owner", async () => {
     const open = await fixture();
-    const cookie = open.cookie;
-    expect((await open.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", headers: { cookie }, payload: {} })).statusCode).toBe(409);
+    expect((await open.app.inject({ method: "POST", url: "/api/lanes/shop/01/cleanup", payload: {} })).statusCode).toBe(409);
     const { clean, worktree } = await merged();
-    expect((await clean({})).statusCode).toBe(403);
+    expect((await clean({ authorization: "" })).statusCode).toBe(401);
     expect(await exists(worktree)).toBe(true);
   });
 
@@ -218,21 +217,21 @@ describe("cleanup", () => {
 
 describe("request changes", () => {
   it("sends the note to the same lane as a message and puts the lane back to work", async () => {
-    const { app, store, cookie } = await fixture();
-    const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", headers: { cookie }, payload: { note: "Rename the table" } });
+    const { app, store } = await fixture();
+    const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { note: "Rename the table" } });
     expect(res.statusCode).toBe(202);
     expect(store.getLane("shop/01")!.state).toBe("working");
     expect(store.latestCheckpoint("shop/01")!.decision).toBe("changes");
     const events = store.events("shop/01");
     expect(events.find((e) => e.type === "agent.message")).toMatchObject({ payload: { text: "Rename the table", role: "user" } });
     expect(store.pendingCommands("shop/01")).toMatchObject([{ payload: { command: { kind: "prompt", text: "Rename the table" } } }]);
-    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", headers: { cookie }, payload: { note: "Again" } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { note: "Again" } })).statusCode).toBe(409);
   });
 
   it("refuses an empty note and anyone but the owner", async () => {
-    const { app, cookie } = await fixture();
-    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", headers: { cookie }, payload: { note: "  " } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { note: "Sneaky" } })).statusCode).toBe(403);
+    const { app } = await fixture();
+    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { note: "  " } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", headers: { authorization: "" }, payload: { note: "Sneaky" } })).statusCode).toBe(401);
   });
 });
 

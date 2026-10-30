@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import type { InboxItem, Lane, LaneEvent, Project } from "@contextlanes/protocol";
-import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
+import { apiFetch, answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AGENT_NAMES, Empty, Glyph, LaneBadge, Tile, ago, iconFor, laneNumber, type IconName } from "../components/ui";
 import { loadHistory, stepsFor } from "../work/model";
 
@@ -48,7 +48,7 @@ function Detail({ item, lane, project, answered }: { item: InboxItem; lane?: Lan
   const [error, setError] = useState("");
   useEffect(() => {
     const abort = new AbortController();
-    void loadHistory(item.lane, fetch, abort.signal).then(setEvents, () => {});
+    void loadHistory(item.lane, apiFetch, abort.signal).then(setEvents, () => {});
     return () => abort.abort();
   }, [item.lane]);
   const requestId = item.id.slice(item.id.indexOf("#") + 1);

@@ -57,12 +57,6 @@ export class SetupManager {
       if (!this.store.getProject(id)) this.store.addProject({ id, name: p.name ?? basename(p.path), path: p.path });
     }
   }
-  authorized(login: unknown, cookie: string | undefined, hostname = "127.0.0.1"): boolean {
-    if (!this.claimed) return false;
-    if (typeof login === "string" && this.config.access.owner) return login === this.config.access.owner;
-    const token = cookie?.split(";").map((p) => p.trim()).find((p) => p.startsWith("cl-owner="))?.slice(9);
-    return !!(token && this.store.validOwnerSession(token)) || (typeof login !== "string" && this.config.access.allowLocal && ["127.0.0.1", "localhost"].includes(hostname));
-  }
   async checkShell(token: string | undefined): Promise<void> {
     const actual = await readFile(this.controlFile, "utf8");
     if (!token || Buffer.byteLength(token) !== Buffer.byteLength(actual) || !timingSafeEqual(Buffer.from(token), Buffer.from(actual))) throw new SetupError("Run contextlanes setup in this machine’s SSH session.", 403);

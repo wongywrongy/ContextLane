@@ -1,5 +1,5 @@
 import { access, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { laneColour, laneId, StartLaneRequest, type Lane } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
@@ -7,6 +7,7 @@ import type { Store } from "../db/store.js";
 import type { Runner } from "../run.js";
 import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
+import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -52,6 +53,8 @@ export class LaneManager {
     const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
     if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
 
+    if (config.lanes.launchHosts) await requireSandbox(this.deps.run, config);
+
     const n = store.nextLaneNumber(project.id);
     const id = laneId(project.id, n);
     const names = await this.freeNames(project.path, project.id, id, n, req.task);
@@ -79,7 +82,8 @@ export class LaneManager {
       await mkdir(dirname(lane.worktree), { recursive: true });
       await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, req.base], { cwd: project.path });
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
-      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config));
+      // Through the environment, not arguments: every process on the machine can read arguments.
+      if (config.lanes.launchHosts) await this.deps.run("systemd-run", hostCommand(lane, config), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(id) } });
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {
@@ -98,10 +102,10 @@ export function hostCommand(lane: Lane, config: Config): string[] {
   const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
   return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
-    `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
+    `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, "--setenv=CONTEXTLANES_LANE_TOKEN", ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
     // name=value keeps a task that starts with "-" a value; $$ keeps systemd from expanding $ in the task or JSON.
-    ...[config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, `--task=${lane.task}`, `--agent=${lane.agent}`,
-      `--socket=${join(config.paths.data, "lanes.sock")}`, `--mode=${lane.mode}`,
+    ...[...sandbox(config, { socket: true }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, `--task=${lane.task}`, `--agent=${lane.agent}`,
+      `--socket=${socketPath(config)}`, `--mode=${lane.mode}`,
       `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []),
       ...(config.agents[lane.agent] ? [`--agent-spec=${JSON.stringify(config.agents[lane.agent])}`] : [])].map((arg) => arg.replaceAll("$", "$$$$"))];
 }

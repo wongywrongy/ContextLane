@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { describe, expect, it } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 
@@ -16,7 +17,7 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = buildServer({ store, bus, lanes, hosts, config, version: "test" });
+  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test" }), store);
   return { app, store, calls };
 }
 
@@ -64,7 +65,7 @@ describe("http api", () => {
     const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing" } })).json();
     expect(lane).toMatchObject({ state: "working", hostUnit: "contextlanes-lane-shop-01-3", branch: "lane/01-billing-3" });
     expect(store.getLane("shop/01")!.hostUnit).toBe("contextlanes-lane-shop-01-3");
-    expect(calls.find((c) => c.startsWith("systemd-run"))).toContain("--unit=contextlanes-lane-shop-01-3");
+    expect(calls.find((c) => c.startsWith("systemd-run") && c.includes("--unit="))).toContain("--unit=contextlanes-lane-shop-01-3");
     expect(calls.join("\n")).not.toMatch(/systemctl --user (stop|kill|reset-failed)/);
   });
 

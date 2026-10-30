@@ -6,6 +6,7 @@ import { SetupError } from "../setup.js";
 import type { Store } from "../db/store.js";
 import type { Runner } from "../run.js";
 import { connectTerminal } from "../terminal/socket.js";
+import type { Auth } from "./auth.js";
 
 export function requestOrigin(req: FastifyRequest): string {
   const login = req.headers["tailscale-user-login"];
@@ -18,12 +19,17 @@ export function requestOrigin(req: FastifyRequest): string {
 }
 
 const LocalSetupRequest = z.object({ sshHost: z.string().regex(/^[\w.:-]+$/).optional() });
-export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: Store, run: Runner): void {
-  const session = (req: FastifyRequest, token: string) => `cl-owner=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${requestOrigin(req).startsWith("https:") ? "; Secure" : ""}`;
-  app.get("/api/setup/status", async (req) => ({ claimed: setup.claimed, authorized: setup.authorized(req.headers["tailscale-user-login"], req.headers.cookie, req.hostname),
+export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: Store, run: Runner, auth: Auth): void {
+  app.get("/api/setup/status", async (req, reply) => {
+    // Sessions used to be cookies, which every preview port received. The value is ignored; it only tells us to say why this browser was signed out.
+    const signedOut = /(^|;\s*)cl-owner=/.test(req.headers.cookie ?? "");
+    if (signedOut) void reply.header("set-cookie", "cl-owner=; Path=/; Max-Age=0");
+    const bearer = req.headers.authorization?.replace(/^Bearer /, "");
+    return { claimed: setup.claimed, authorized: setup.claimed && !!bearer && await auth.owner(bearer), signedOut,
     hasPasskey: !!setup.config.access.passkey, tailnetLogin: typeof req.headers["tailscale-user-login"] === "string" ? req.headers["tailscale-user-login"] : null,
     publicUrl: setup.config.notifications.publicUrl ?? null, hasLane: store.hasStartedLane(),
-    ...(!req.headers["tailscale-user-login"] && ["localhost", "127.0.0.1"].includes(req.hostname) ? { controlFile: setup.controlFile } : {}) }));
+    ...(!req.headers["tailscale-user-login"] && ["localhost", "127.0.0.1"].includes(req.hostname) ? { controlFile: setup.controlFile } : {}) };
+  });
   app.post("/api/setup/local", async (req) => {
     if (req.headers.origin || req.headers["tailscale-user-login"] || !["127.0.0.1", "localhost"].includes(req.hostname) || !["127.0.0.1", "::1"].includes(req.ip)) throw new SetupError("Run contextlanes setup in this machine’s SSH session.", 403);
     await setup.checkShell(req.headers.authorization?.replace(/^Bearer /, ""));
@@ -31,17 +37,17 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   });
   app.post("/api/setup/sign-in", async (req, reply) => {
     const token = setup.signIn(SignInRequest.parse(req.body).token, requestOrigin(req));
-    return reply.header("set-cookie", session(req, token)).header("cache-control", "no-store").send({ authorized: true });
+    return reply.header("cache-control", "no-store").send({ authorized: true, token });
   });
   app.post("/api/setup/passkey/options", async (req) => setup.registration(requestOrigin(req)));
   app.post("/api/setup/passkey", async (req, reply) => {
     const token = await setup.register(req.body, requestOrigin(req));
-    return reply.header("set-cookie", session(req, token)).send({ saved: true });
+    return reply.header("cache-control", "no-store").send({ saved: true, token });
   });
   app.post("/api/setup/login/options", async (req) => setup.authentication(requestOrigin(req)));
   app.post("/api/setup/login", async (req, reply) => {
     const token = await setup.login(req.body, requestOrigin(req));
-    return reply.header("set-cookie", session(req, token)).send({ authorized: true });
+    return reply.header("cache-control", "no-store").send({ authorized: true, token });
   });
   app.get("/api/setup/settings", async () => setup.redactedSettings());
   app.post("/api/setup/settings", async (req) => { await setup.settings(req.body); return { saved: true }; });

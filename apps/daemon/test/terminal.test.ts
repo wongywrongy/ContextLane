@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner, type TerminalProcess } from "@contextlanes/daemon";
@@ -18,18 +19,19 @@ async function setup() {
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = buildServer({ store, bus, lanes, hosts, config, run, version: "test" });
+  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, run, version: "test" }), store);
   cleanups.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
   const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Terminal" } })).json();
-  return { app, store, run, pty, events, lane };
+  const ticketed = async (path: string) => `${path}?ticket=${(await app.inject({ method: "POST", url: "/api/tickets", payload: { path } })).json().ticket}`;
+  return { app, store, run, pty, events, lane, ticketed };
 }
 
 describe("lane terminal", () => {
   it("attaches through Runner, streams output, accepts input and resize, and only detaches on close", async () => {
-    const { app, store, run, pty, events, lane } = await setup();
+    const { app, store, run, pty, events, lane, ticketed } = await setup();
     const before = store.events(lane.id);
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal", { headers: { host: "contextlanes.test", origin: "https://contextlanes.test", "tailscale-user-login": "kyle@example.com" } });
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"), { headers: { host: "contextlanes.test", origin: "https://contextlanes.test", "tailscale-user-login": "kyle@example.com" } });
     expect(run.terminal).toHaveBeenCalledWith("tmux", ["attach-session", "-t", `=${lane.terminal}`], { cwd: lane.worktree, cols: 80, rows: 24 });
     const output = once(ws, "message");
     events.emit("data", "hello\r\n");
@@ -48,14 +50,14 @@ describe("lane terminal", () => {
     expect(events.listenerCount("exit")).toBe(0);
     expect(store.events(lane.id)).toEqual(before);
     expect(vi.mocked(run).mock.calls.some(([cmd, args]) => cmd === "tmux" && args.includes("kill-session"))).toBe(false);
-    const second = await app.injectWS("/api/lanes/demo/01/terminal");
+    const second = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     expect(run.terminal).toHaveBeenCalledTimes(2);
     second.terminate();
   });
 
   it.each(["not json", '{"type":"resize","cols":0,"rows":24}', '{"type":"input","data":42}'])("refuses malformed input: %s", async (input) => {
-    const { app, pty } = await setup();
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal");
+    const { app, pty, ticketed } = await setup();
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     const closed = once(ws, "close");
     ws.send(input);
     expect((await closed)[0]).toBe(1008);
@@ -65,13 +67,13 @@ describe("lane terminal", () => {
   });
 
   it("detaches if the PTY exits and on daemon shutdown", async () => {
-    const { app, pty, events } = await setup();
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal");
+    const { app, pty, events, ticketed } = await setup();
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     const closed = once(ws, "close");
     events.emit("exit", { exitCode: 0 });
     expect((await closed)[0]).toBe(1000);
     expect(pty.kill).not.toHaveBeenCalled();
-    const next = await app.injectWS("/api/lanes/demo/01/terminal");
+    const next = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     const shutdown = once(next, "close");
     await app.close();
     await shutdown;
@@ -79,28 +81,34 @@ describe("lane terminal", () => {
   });
 
   it("refuses another owner, another origin, invalid ids and missing lanes before spawning", async () => {
-    const { app, run } = await setup();
-    await expect(app.injectWS("/api/lanes/demo/01/terminal", { headers: { "tailscale-user-login": "someone@example.com" } })).rejects.toThrow("403");
+    const { app, run, ticketed } = await setup();
+    const terminal = () => ticketed("/api/lanes/demo/01/terminal");
+    await expect(app.injectWS("/api/lanes/demo/01/terminal")).rejects.toThrow("401");
+    await expect(app.injectWS(await terminal(), { headers: { "tailscale-user-login": "someone@example.com" } })).rejects.toThrow("403");
     for (const origin of ["https://untrusted.example", "null", "file://contextlanes.test"]) {
-      await expect(app.injectWS("/api/lanes/demo/01/terminal", { headers: { host: "contextlanes.test", origin } })).rejects.toThrow("403");
+      await expect(app.injectWS(await terminal(), { headers: { host: "contextlanes.test", origin } })).rejects.toThrow("403");
     }
-    await expect(app.injectWS("/api/lanes/demo/01/terminal", { headers: { host: "rebound.example", origin: "http://rebound.example" } })).rejects.toThrow("403");
-    await expect(app.injectWS("/api/lanes/demo/99/terminal")).rejects.toThrow("404");
-    await expect(app.injectWS("/api/lanes/demo/no/terminal")).rejects.toThrow("400");
+    await expect(app.injectWS(await terminal(), { headers: { host: "rebound.example", origin: "http://rebound.example" } })).rejects.toThrow("403");
+    await expect(app.injectWS(await ticketed("/api/lanes/demo/99/terminal"))).rejects.toThrow("404");
+    expect((await app.inject({ method: "POST", url: "/api/tickets", payload: { path: "/api/lanes/demo/no/terminal" } })).statusCode).toBe(400);
+    await expect(app.injectWS((await ticketed("/api/lanes/demo/02/terminal")).replace("/02/", "/01/"))).rejects.toThrow("401");
     expect(run.terminal).not.toHaveBeenCalled();
+    const spent = await terminal();
+    (await app.injectWS(spent)).terminate();
+    await expect(app.injectWS(spent)).rejects.toThrow("401");
   });
 
   it("reports attach failures without crashing or changing lane state", async () => {
-    const { app, run, store } = await setup();
+    const { app, run, store, ticketed } = await setup();
     vi.mocked(run.terminal!).mockImplementation(() => { throw new Error("no PTY"); });
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal");
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     expect((await once(ws, "close"))[0]).toBe(1011);
     expect(store.getLane("demo/01")?.state).toBe("working");
   });
 
   it("disconnects a slow browser and releases its attach client", async () => {
-    const { app, pty, events } = await setup();
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal");
+    const { app, pty, events, ticketed } = await setup();
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     const [serverSocket] = app.websocketServer.clients;
     vi.spyOn(serverSocket!, "bufferedAmount", "get").mockReturnValue(1_048_577);
     const closed = once(ws, "close");
@@ -110,9 +118,9 @@ describe("lane terminal", () => {
   });
 
   it("refuses binary frames even when the attach client has already exited", async () => {
-    const { app, pty } = await setup();
+    const { app, pty, ticketed } = await setup();
     vi.mocked(pty.kill).mockImplementation(() => { throw new Error("already exited"); });
-    const ws = await app.injectWS("/api/lanes/demo/01/terminal");
+    const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"));
     const closed = once(ws, "close");
     ws.send(Buffer.from("keystrokes"));
     expect((await closed)[0]).toBe(1008);

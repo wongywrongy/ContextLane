@@ -20,7 +20,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("runs a lane's service as 
   const store = Store.open(":memory:");
   // Real systemd, fake links: a fixture must never add routes to the machine's tailnet.
   const previews = { publish: async () => "https://fixture.invalid:4700", unpublish: async () => {} } as unknown as Previews;
-  const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: root, lanes: root } }), run: runCommand, previews });
+  const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: join(root, "data"), lanes: root } }), run: runCommand, previews });
   try {
     await mkdir(repo);
     await git("init", "-b", "main");

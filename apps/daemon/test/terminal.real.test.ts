@@ -1,14 +1,14 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { expect, it, vi } from "vitest";
-import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, runCommand, type Runner } from "@contextlanes/daemon";
+import { buildServer, Config, EventBus, HostLinks, LaneManager, SetupManager, Store, runCommand, type Runner } from "@contextlanes/daemon";
 
 // Opt in on a machine with tmux and a PTY; the ordinary suite fakes every command.
 it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell and tmux history across browser and daemon disconnects, then attaches the CLI", async () => {
   const root = await mkdtemp(join(tmpdir(), "cl-terminal-"));
-  const config = Config.parse({ lanes: { launchHosts: false }, paths: { data: root, lanes: join(root, "lanes") } });
+  const config = Config.parse({ lanes: { launchHosts: false }, paths: { data: root, lanes: join(root, "lanes") }, access: { shellOwner: "fixture" } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
@@ -16,20 +16,24 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
   const fixtureRunner: Runner = Object.assign((cmd: string, args: string[], opts?: Parameters<Runner>[2]) =>
     runCommand(cmd, cmd === "tmux" && args[0] === "new-session" ? [...args, "bash", "--noprofile", "--norc"] : args, opts), { terminal: runCommand.terminal });
   const lanes = new LaneManager({ store, bus, config, run: fixtureRunner });
-  let app = buildServer({ store, bus, lanes, hosts, config, version: "test" });
+  const setup = new SetupManager(config, store, fixtureRunner, { path: join(root, "config.toml") });
+  await setup.initialize();
+  const authorization = `Bearer ${await readFile(setup.controlFile, "utf8")}`;
+  const ticketed = async (base: string, path: string) => `${base.replace("http:", "ws:")}${path}?ticket=${(await (await fetch(`${base}/api/tickets`, { method: "POST", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ path }) })).json() as { ticket: string }).ticket}`;
+  let app = buildServer({ store, bus, lanes, hosts, config, version: "test", setup });
   let session: string | undefined;
   try {
     const repo = join(root, "repo");
     await runCommand("git", ["init", "-b", "main", repo]);
     await runCommand("git", ["-c", "user.name=ContextLanes test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Fixture"], { cwd: repo });
     const project = `terminal-${process.pid}`;
-    await app.inject({ method: "POST", url: "/api/projects", payload: { path: repo, name: project } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project, task: "Persistent terminal" } })).json();
+    await app.inject({ method: "POST", url: "/api/projects", headers: { authorization }, payload: { path: repo, name: project } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization }, payload: { project, task: "Persistent terminal" } })).json();
     expect(lane.state).toBe("working");
     session = lane.terminal;
     let output = "";
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    const ws = new WebSocket(`${address.replace("http:", "ws:")}/api/lanes/${lane.id}/terminal`);
+    const ws = new WebSocket(await ticketed(address, `/api/lanes/${lane.id}/terminal`));
     ws.addEventListener("message", (event) => { output += event.data; });
     await once(ws, "open");
     ws.send(JSON.stringify({ type: "resize", cols: 100, rows: 30 }));
@@ -46,10 +50,10 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
     expect(history).toContain("\n1\n2\n");
     expect(history).toContain("\n79\n80\n");
     await app.close();
-    app = buildServer({ store, bus, lanes, hosts, config, version: "restarted" });
+    app = buildServer({ store, bus, lanes, hosts, config, version: "restarted", setup });
     output = "";
     const restarted = await app.listen({ host: "127.0.0.1", port: 0 });
-    const next = new WebSocket(`${restarted.replace("http:", "ws:")}/api/lanes/${lane.id}/terminal`);
+    const next = new WebSocket(await ticketed(restarted, `/api/lanes/${lane.id}/terminal`));
     next.addEventListener("message", (event) => { output += event.data; });
     await once(next, "open");
     await vi.waitFor(() => expect(output).toContain("READY_still-here"));
@@ -63,7 +67,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
     expect(beforeCli).toContain("AFTER_still-here");
 
     // Run the actual CLI entry point inside a second PTY, against a loopback daemon.
-    app = buildServer({ store, bus, lanes, hosts, config, version: "cli" });
+    app = buildServer({ store, bus, lanes, hosts, config, version: "cli", setup });
     const url = await app.listen({ host: "127.0.0.1", port: 0 });
     const previousUrl = process.env.CONTEXTLANES_URL;
     process.env.CONTEXTLANES_URL = url;

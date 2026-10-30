@@ -335,6 +335,23 @@ export class Store {
     return token;
   }
 
+  /** A new token for this lane's host and toolbox. Only its hash is kept. */
+  mintLaneToken(lane: string): string {
+    const token = `cl-lane-${randomBytes(32).toString("base64url")}`;
+    this.db.prepare("UPDATE lane SET token_hash = ? WHERE id = ?").run(createHash("sha256").update(token).digest("hex"), lane);
+    return token;
+  }
+
+  /** The lane this token belongs to. A cleaned or archived lane's token stops working. */
+  laneForToken(token: string): string | null {
+    const row = this.db.prepare("SELECT id FROM lane WHERE token_hash = ? AND state NOT IN ('cleaned', 'archived')").get(createHash("sha256").update(token).digest("hex")) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  hasLaneToken(lane: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM lane WHERE id = ? AND token_hash IS NOT NULL").get(lane);
+  }
+
   validOwnerSession(token: string): boolean {
     if (!/^[\w-]{43}$/.test(token)) return false;
     return !!this.db.prepare("SELECT 1 FROM owner_session WHERE hash = ? AND expires > ?").get(createHash("sha256").update(token).digest("hex"), Date.now());

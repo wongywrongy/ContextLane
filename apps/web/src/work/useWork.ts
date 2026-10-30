@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { useJson, useProjectStream } from "../api";
+import { apiFetch, useJson, useProjectStream } from "../api";
 import { loadHistory, mergeEvents } from "./model";
 
 export function useWork(project: string) {
@@ -26,7 +26,7 @@ export function useHistory(lane: string, live: LaneEvent[], version: number) {
     if (!lane) return;
     const abort = new AbortController();
     setError("");
-    void loadHistory(lane, fetch, abort.signal).then((events) => { if (!abort.signal.aborted) setHistory({ lane, events }); }, (err) => { if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Could not load steps."); });
+    void loadHistory(lane, apiFetch, abort.signal).then((events) => { if (!abort.signal.aborted) setHistory({ lane, events }); }, (err) => { if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Could not load steps."); });
     return () => abort.abort();
   }, [lane, version]);
   return { events: mergeEvents(history.lane === lane ? history.events : [], live.filter((e) => e.lane === lane)), error };

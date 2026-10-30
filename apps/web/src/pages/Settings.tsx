@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { DetectedAgent, Project, SetupSettings, SetupStatus } from "@contextlanes/protocol";
-import { errorMessage, postJson, RequestError, useJson } from "../api";
+import { errorMessage, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
 import { AgentMark, Empty, Glyph, PageHeader, Section } from "../components/ui";
@@ -16,7 +16,7 @@ export function PasskeyButton() {
     const result = await postJson<{ options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }>("/api/setup/passkey/options", {});
     const credential = await navigator.credentials.create({ publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(result.options) }) as PublicKeyCredential | null;
     if (!credential) throw new RequestError("Passkey creation was cancelled; try again when you are ready.");
-    await postJson("/api/setup/passkey", { challengeId: result.challengeId, response: credential.toJSON() });
+    saveSession((await postJson<{ token: string }>("/api/setup/passkey", { challengeId: result.challengeId, response: credential.toJSON() })).token);
   }}>Add a passkey for this address</Action></div>;
 }
 

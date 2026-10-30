@@ -22,12 +22,10 @@ export const Config = z.object({
     .object({
       /** Tailnet login allowed to use this machine. Null while unclaimed. */
       owner: z.string().nullable().default(null),
-      /** Accept requests without identity headers from loopback (development, CLI on the box). */
-      allowLocal: z.boolean().default(true),
       passkey: Passkey.optional(),
       shellOwner: z.string().optional(),
     })
-    .default({ owner: null, allowLocal: true }),
+    .default({ owner: null }),
   agents: z.record(z.string(), AgentSpec).default({}),
   notifications: NotificationConfig.prefault({}),
   localModels: z.array(LocalModel).default([]),

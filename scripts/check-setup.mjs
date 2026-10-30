@@ -2,14 +2,14 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createServer as httpsServer } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { EventEmitter } from 'node:events';
-import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, runCommand } from '../apps/daemon/dist/index.js';
+import { Config, EventBus, HostLinks, LaneManager, Store, buildServer, runCommand, socketPath } from '../apps/daemon/dist/index.js';
 import { SetupManager } from '../apps/daemon/dist/setup.js';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 const cwd = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -82,17 +82,17 @@ try {
       const config = Config.parse({ paths: { data: join(root, 'data'), lanes: join(root, 'lanes') },
         agents: { 'claude-code': { command: process.execPath, args: ['--import', loader, '--conditions=source', join(cwd, 'apps/lanehost/test/fixtures/fake-stdio.ts')] } } });
       await mkdir(config.paths.data); store = Store.open(join(config.paths.data, 'contextlanes.sqlite'));
-      const bus = new EventBus(); hosts = new HostLinks({ store, bus }); await hosts.listen(join(config.paths.data, 'lanes.sock'));
+      const bus = new EventBus(); hosts = new HostLinks({ store, bus }); await mkdir(dirname(socketPath(config)), { recursive: true }); await hosts.listen(socketPath(config));
       const lanes = new LaneManager({ store, bus, config, run });
       const setup = new SetupManager(config, store, run, { path: configFile, home, user: 'fixture',
         find: async (name) => name === 'claude' ? '/fixture/claude' : name === 'tailscale' ? '/fixture/tailscale' : name === process.execPath ? process.execPath : null,
         portFree: async () => true });
       await setup.initialize(); app = buildServer({ config, store, bus, hosts, lanes, setup, run, version: 'browser-fixture' });
       address = await app.listen({ host: '127.0.0.1', port: 0 }); config.listen.port = Number(new URL(address).port);
-      const api = async (path) => { const result = await fetch(address + path); assert(result.ok, await result.clone().text()); return result.json(); };
+      const api = async (path) => { const result = await fetch(address + path, { headers: { authorization: `Bearer ${await readFile(setup.controlFile, 'utf8')}` } }); assert(result.ok, await result.clone().text()); return result.json(); };
       context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, ignoreHTTPSErrors: true });
-      page = await context.newPage(); const errors = []; page.on('pageerror', (error) => { errors.push(error.message); console.error('Browser error:', error.message); });
-      page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), new URL(response.url()).pathname); });
+      page = await context.newPage(); const errors = [], denied = []; page.on('pageerror', (error) => { errors.push(error.message); console.error('Browser error:', error.message); });
+      page.on('response', (response) => { if (response.status() >= 400) { const path = new URL(response.url()).pathname; console.error('HTTP', response.status(), path); if (response.status() === 401 && path !== '/api/setup/sign-in') denied.push(path); } });
       await page.goto(publicUrl + '/setup'); await page.getByText('Run contextlanes setup on the machine').waitFor();
       assert.equal(await page.getByLabel('Claim code', { exact: true }).count(), 0);
       const started = Date.now();
@@ -111,7 +111,8 @@ try {
       assert.equal(await page.getByRole('button', { name: 'Add repositories', exact: true }).count(), 0);
       assert.equal(await page.getByRole('button', { name: 'Add a passkey for this address' }).count(), 0);
       assert.equal(store.db.prepare('SELECT count(*) AS n FROM setup_link').get().n, 0);
-      assert((await context.cookies()).some((cookie) => cookie.name === 'cl-owner' && cookie.httpOnly && cookie.secure));
+      assert.equal((await context.cookies()).length, 0);
+      assert(await page.evaluate(() => localStorage.getItem('cl-session')));
       assert.equal(new URL(page.url()).hash, '');
       assert.equal(await page.getByRole('heading', { name: 'Local models', exact: true }).count(), 0);
       assert.equal(await page.getByRole('heading', { name: 'Phone notifications', exact: true }).count(), 0);
@@ -158,6 +159,7 @@ try {
       await until(async () => assert(config.access.passkey));
       assert.equal(config.access.passkey.rpId, 'neo.test.ts.net');
       const token = new URL(link).hash.slice(8);
+      assert.deepEqual(denied, []);
       const replay = await page.evaluate(async (token) => (await fetch('/api/setup/sign-in', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) })).status, token);
       assert.equal(replay, 401);
       const persisted = await readFile(configFile, 'utf8'); assert(persisted.includes(publicUrl)); assert(persisted.includes('[access.passkey]'));

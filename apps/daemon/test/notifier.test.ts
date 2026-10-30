@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { NotificationConfig } from "@contextlanes/protocol";
@@ -12,7 +13,7 @@ async function setup() {
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = buildServer({ store, bus, config, hosts, lanes, run, version: "test" });
+  const app = signedIn(buildServer({ store, bus, config, hosts, lanes, run, version: "test" }), store);
   cleanup.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
   await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Notify" } });

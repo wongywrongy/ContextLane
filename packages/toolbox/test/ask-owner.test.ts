@@ -11,7 +11,7 @@ it("keeps one question ID across polling and a daemon outage, without supplying 
       if (calls.length === 2) throw new Error("daemon restarting");
       return Response.json({ optionId: "1", label: "Blue" });
     });
-    const result = callLaneTool({ daemonUrl: "http://127.0.0.1:4600", lane: "demo/01", fetch }, "ask_owner", { question: "Colour?", options: ["Sand", "Blue"] });
+    const result = callLaneTool({ daemonUrl: "http://127.0.0.1:4600", lane: "demo/01", token: "cl-lane-test", fetch }, "ask_owner", { question: "Colour?", options: ["Sand", "Blue"] });
     await vi.advanceTimersByTimeAsync(2000);
     expect(await result).toMatchObject({ ok: true, text: '{"optionId":"1","label":"Blue"}' });
     expect(new Set(calls.map((body) => body.requestId)).size).toBe(1);

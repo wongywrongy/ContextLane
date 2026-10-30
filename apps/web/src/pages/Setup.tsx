@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 import type { DetectedAgent, Project, SetupStatus } from "@contextlanes/protocol";
-import { postJson, useJson, RequestError, errorMessage } from "../api";
+import { postJson, saveSession, useJson, RequestError, errorMessage } from "../api";
 import { Empty, Section, Tile, type Family, type IconName } from "../components/ui";
 import { AddRepoDialog } from "../components/AddRepo";
 import { useLaneForm } from "../components/NewLane";
@@ -21,7 +21,7 @@ export function SetupPage() {
     if (!token) return;
     history.replaceState(history.state, "", location.pathname + location.search);
     setSignedIn(false); setSignInError("");
-    if (pending.current?.token !== token) pending.current = { token, request: postJson("/api/setup/sign-in", { token }) };
+    if (pending.current?.token !== token) pending.current = { token, request: postJson<{ token: string }>("/api/setup/sign-in", { token }).then((r) => saveSession(r.token)) };
     let active = true;
     void pending.current.request.then(() => { if (active) { setSignedIn(true); reload(); } }, (e) => { if (active) { setSignInError(errorMessage(e)); setSignedIn(true); } });
     return () => { active = false; };
@@ -41,7 +41,7 @@ export function SetupPage() {
       </div>
       {!signedIn ? <Section title="Signing you in"><Empty>Opening your private setup session…</Empty></Section>
         : !status ? <Section title="Connection"><Empty>{error ? "The ContextLanes service could not be reached. Check that it is running, then reload." : "Connecting…"}</Empty></Section>
-        : <BrowserSteps status={status} reload={reload} signInError={signInError} />}
+        : <BrowserSteps status={status} reload={reload} signInError={signInError} signedOut={status.signedOut || route.state?.signedOut === true} />}
     </div>
   </main>;
 }
@@ -59,7 +59,7 @@ function Step({ n, state, title, optional, desc, children, change }: { n: number
   </div>;
 }
 
-function BrowserSteps({ status, reload, signInError }: { status: SetupStatus; reload: () => void; signInError: string }) {
+function BrowserSteps({ status, reload, signInError, signedOut }: { status: SetupStatus; reload: () => void; signInError: string; signedOut: boolean }) {
   const [agents, agentError, reloadAgents] = useJson<DetectedAgent[]>(status.authorized ? "/api/setup/agents" : null);
   const [projects, , reloadProjects] = useJson<Project[]>(status.authorized ? "/api/projects" : null);
   const [opened, setOpened] = useState<number | null>(null);
@@ -75,13 +75,14 @@ function BrowserSteps({ status, reload, signInError }: { status: SetupStatus; re
     <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of 4 done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
     <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Run contextlanes setup on the machine and open the link it prints."}>
       {!signed ? <>
+        {signedOut ? <p role="status" style={{ margin: 0 }}>You were signed out because ContextLanes changed how it keeps you signed in. This happens once. Sign in again below.</p> : null}
         {signInError ? <p role="alert" style={{ margin: 0 }}>{signInError} Run <code>contextlanes setup</code> again for a new link.</p> : null}
         {status.hasPasskey ? <div><Action run={async () => {
           if (!window.PublicKeyCredential?.parseRequestOptionsFromJSON) throw new RequestError("Use a current browser at the HTTPS address where you added the passkey.");
           const result = await postJson<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }>("/api/setup/login/options", {});
           const credential = await navigator.credentials.get({ publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(result.options) }) as PublicKeyCredential | null;
           if (!credential) throw new RequestError("Sign-in was cancelled; try again when you are ready.");
-          await postJson("/api/setup/login", { challengeId: result.challengeId, response: credential.toJSON() });
+          saveSession((await postJson<{ token: string }>("/api/setup/login", { challengeId: result.challengeId, response: credential.toJSON() })).token);
         }} done={reload}>Sign in with a passkey</Action></div> : null}
       </> : status.hasLane ? <PasskeyButton /> : null}
     </Step>
@@ -116,7 +117,7 @@ function FirstLane({ projects }: { projects: Project[] }) {
 
 export function ClaimGuard({ children }: { children: ReactNode }) {
   const [status, error] = useJson<SetupStatus>("/api/setup/status");
-  if (status && !status.authorized) return <Navigate to="/setup" replace />;
+  if (status && !status.authorized) return <Navigate to="/setup" replace state={{ signedOut: status.signedOut }} />;
   if (!status) return <main className="pg"><Section title="Connection"><Empty>{error ? "ContextLanes could not be reached. Check that the service is running, then reload." : "Connecting…"}</Empty></Section></main>;
   return children;
 }

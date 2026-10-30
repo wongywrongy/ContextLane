@@ -17,7 +17,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("builds a checkpoint from 
   const git = (cwd: string, ...args: string[]) => exec("git", ["-c", "user.name=CL", "-c", "user.email=cl@example.invalid", ...args], { cwd });
   const store = Store.open(":memory:");
   const bus = new EventBus();
-  const config = Config.parse({ paths: { data: root, lanes: root } });
+  const config = Config.parse({ paths: { data: join(root, "data"), lanes: root } });
   const previews = { publish: async () => "https://fixture.invalid:4700", unpublish: async () => {} } as unknown as Previews;
   const runtime = new Runtime({ store, bus, config, run: runCommand, previews });
   const checker = new Checker({ store, bus, config, run: runCommand, runtime });
@@ -41,7 +41,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("builds a checkpoint from 
     expect(checkpoint.files).toEqual([{ path: "server.cjs", added: 1, removed: 1 }]);
     const [shot] = checkpoint.screenshots;
     expect(shot).toMatchObject({ path: "/", before: "0-before.png", after: "0-after.png", url: "https://fixture.invalid:4700/", note: null });
-    const dir = join(root, "checkpoints", checkpoint.id);
+    const dir = join(root, "data/checkpoints", checkpoint.id);
     const [before, after] = await Promise.all([readFile(join(dir, "0-before.png")), readFile(join(dir, "0-after.png"))]);
     expect(before.subarray(1, 4).toString()).toBe("PNG");
     expect(before.equals(after)).toBe(false);

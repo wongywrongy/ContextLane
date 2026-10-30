@@ -11,6 +11,7 @@ import { NotFound, Refused } from "./lanes/manager.js";
 import { Previews } from "./previews.js";
 import { laneRecipe } from "./recipes.js";
 import type { Runner } from "./run.js";
+import { sandbox } from "./sandbox.js";
 
 const PROBES = 24;
 const LOOPBACK = /^(127\.\d+\.\d+\.\d+|\[::1\]|\[::ffff:127\.\d+\.\d+\.\d+\])$/;
@@ -23,15 +24,15 @@ const literal = (args: string[]) => args.map((a) => a.replaceAll("$", "$$$$"));
 const setenv = (env: Record<string, string>) => Object.entries(env).map(([k, v]) => `--setenv=${k}=${v}`);
 const expand = (args: string[], env: Record<string, string>) => args.map((a) => a.replace(/\$(PORT(?:_[A-Z0-9_]+)?|HOST)\b/g, (whole, name: string) => env[name] ?? whole));
 
-export function serviceArgs(unit: string, dir: string, service: RecipeService, env: Record<string, string>): string[] {
+export function serviceArgs(unit: string, dir: string, service: RecipeService, env: Record<string, string>, wrap: string[]): string[] {
   return ["--user", `--unit=${unit}`, "--collect", `--working-directory=${dir}`, "--property=Restart=on-failure", "--property=RestartSec=2", "--property=TimeoutStopSec=5",
-    ...setenv({ ...service.env, ...env }), "--", ...literal(expand(service.command, env))];
+    ...setenv({ ...service.env, ...env }), "--", ...literal([...wrap, ...expand(service.command, env)])];
 }
 
 /** Run one command to completion in its own unit, so a timeout ends everything it started. */
-export async function oneshot(run: Runner, dir: string, command: string[], env: Record<string, string>, timeoutSeconds: number): Promise<{ ok: boolean; output: string; ms: number }> {
+export async function oneshot(run: Runner, dir: string, command: string[], env: Record<string, string>, timeoutSeconds: number, wrap: string[]): Promise<{ ok: boolean; output: string; ms: number }> {
   const started = Date.now();
-  const args = ["--user", "--wait", "--pipe", "--collect", "--quiet", `--working-directory=${dir}`, `--property=RuntimeMaxSec=${timeoutSeconds}s`, ...setenv(env), "--", ...literal(expand(command, env))];
+  const args = ["--user", "--wait", "--pipe", "--collect", "--quiet", `--working-directory=${dir}`, `--property=RuntimeMaxSec=${timeoutSeconds}s`, ...setenv(env), "--", ...literal([...wrap, ...expand(command, env)])];
   try {
     const { stdout } = await run("systemd-run", args, { timeout: (timeoutSeconds + 15) * 1000 });
     return { ok: true, output: stdout.slice(-4000), ms: Date.now() - started };
@@ -160,7 +161,8 @@ export class Runtime {
     const { run, store, config } = this.deps;
     const project = store.getProject(lane.project)!;
     const service = recipe.services.find((s) => s.name === "web") ?? recipe.services[0]!;
-    const dir = join(config.paths.data, "before", randomBytes(6).toString("hex"));
+    // Beside the lanes: services for this checkout run in the sandbox, which hides the data folder.
+    const dir = join(config.paths.lanes, ".before", randomBytes(6).toString("hex"));
     const units: string[] = [];
     await mkdir(dirname(dir), { recursive: true });
     await run("git", ["worktree", "add", "--detach", dir, commit], { cwd: project.path });
@@ -170,7 +172,7 @@ export class Runtime {
       await this.prepare({ ...lane, worktree: dir }, project, recipe, shared);
       for (const each of recipe.services) {
         const unit = `contextlanes-env-before-${randomBytes(4).toString("hex")}`;
-        await run("systemd-run", serviceArgs(unit, dir, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }));
+        await run("systemd-run", serviceArgs(unit, dir, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }, sandbox(this.deps.config)));
         units.push(unit);
       }
       const deadline = Date.now() + service.health.timeoutSeconds * 1000;
@@ -243,7 +245,7 @@ export class Runtime {
       const port = ports[service.name]!;
       const row: ServiceStatus = { name: service.name, unit, port, url: null, state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
       store.saveEnvironment({ ...current, services: [...current.services.filter((s) => s.name !== service.name), row] });
-      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) })); }
+      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
       catch (err) { this.update(env, row, { state: "failed", detail: err instanceof Error ? err.message.slice(0, 300) : "The service unit could not start." }); continue; }
       this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: service.name, up: false, port, state: "starting" } }));
     }
@@ -284,7 +286,7 @@ export class Runtime {
     }
     const seconds = Math.round((Date.now() - started) / 100) / 10;
     for (const step of recipe.setup) {
-      const result = await oneshot(run, lane.worktree, step.command, env, step.timeoutSeconds);
+      const result = await oneshot(run, lane.worktree, step.command, env, step.timeoutSeconds, sandbox(this.deps.config));
       if (!result.ok) throw new Error(`${step.name} failed: ${result.output.trim().slice(-600)}`);
     }
     const disk = await run("du", ["-sb", lane.worktree]).then((r) => Number(r.stdout.split(/\s/)[0]), () => null);

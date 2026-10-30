@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { EventBus } from "./bus.js";
 import { loadConfig } from "./config.js";
 import { Store } from "./db/store.js";
@@ -12,6 +12,7 @@ import { SetupManager } from "./setup.js";
 import { Notifier } from "./notifications/notifier.js";
 import { Runtime } from "./runtime.js";
 import { releaseVersion } from "./layout.js";
+import { socketPath } from "./sandbox.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -22,7 +23,10 @@ async function main(): Promise<void> {
   const store = Store.open(join(config.paths.data, "contextlanes.sqlite"));
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
-  await hosts.listen(join(config.paths.data, "lanes.sock"));
+  // shortcut: releases before migration 8 kept the socket in the data folder; drop this once none remain.
+  rmSync(join(config.paths.data, "lanes.sock"), { force: true });
+  mkdirSync(dirname(socketPath(config)), { recursive: true, mode: 0o700 });
+  await hosts.listen(socketPath(config));
   const lanes = new LaneManager({ store, bus, config, run: runCommand });
   const setup = new SetupManager(config, store, runCommand, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
   await setup.initialize();

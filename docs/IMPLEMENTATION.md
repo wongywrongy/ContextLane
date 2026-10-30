@@ -2,10 +2,9 @@
 
 ## Needs Kyle
 
-- **Decide how far to trust processes on this machine (security, from the 2026-10-30 audit).** Agents and the services they write run as your Unix user next to the daemon. Two consequences:
-  - Any local process can answer a permission, change a lane's mode, rewrite settings or install an agent adapter through the loopback API, with no header forging, because loopback requests are trusted after the machine is claimed (`access.allowLocal`, on by default). A recipe check that runs a `package.json` script the agent edited can do this without a prompt.
-  - In the default `serve` preview mode, previews are the app's own hostname on another port, and browsers send cookies to every port. Opening a lane preview sends your 30-day owner cookie to code the agent wrote.
-  - Proposed fix: run lane hosts and lane services in sandboxed units that cannot reach the daemon's port or read its data folder, accept only Tailscale identity at the tailnet address (no cookie there), and keep the cookie for SSH-tunnel use on localhost. Until then, prefer `caddy` or `services` preview modes, which use other hostnames.
+- **Terminals crash on neo (found 2026-10-30, not caused by the credentials work).** `node-pty` 1.1.0 segfaults on `spawn` on neo with Node 24.11, in the installed release as well as a clean checkout of main. Opening a browser terminal or an agent login terminal can take the daemon down with it, and `terminal.real.test.ts` cannot run. Needs a rebuild or a version change, checked on neo.
+- **Agents can still reach you through files in your home folder.** See Credentials and sandbox for exactly what remains. If you want this closed, the next step is running lanes as a separate Unix user.
+- **bubblewrap on other machines:** lanes refuse to start without a working `bwrap`. neo has it. `install.sh` now requires it, and a fresh machine needs `sudo apt install bubblewrap`. Ubuntu 24.04 needs its AppArmor profile for `bwrap`, which neo has at `/etc/apparmor.d/bwrap`; other distributions have not been tried.
 - **Real agent accounts:** run `contextlanes setup`, open its sign-in link, and use **Agent → Install / Sign in**. Sign in runs the provider’s fixed command in the browser terminal (`claude auth login`, `codex login --device-auth`, or `opencode auth login`). Complete the provider’s account flow, then choose **Check again** if needed. Real Claude/Codex acceptance still needs your accounts; tests use the SDK fake agent and a fake login terminal. No model call or credential is supplied automatically.
 - **Tailscale / linger privileges:** setup enables Serve automatically when Tailscale is installed and signed in. If it prints a `tailscale up`, HTTPS/operator-access or `sudo loginctl enable-linger <user>` instruction, do that on the host and run `contextlanes setup` again. If Tailscale is missing, install it from the printed link or run the printed SSH tunnel command on your computer. No privileged command runs automatically. Setup reuses a route already pointing at this daemon; other routes are preserved.
 - **Notifications:** after your first lane, use **Settings → Notifications** (Phone notifications) for Web Push; the app generates its VAPID keys when you enable it. Real browser permission/provider delivery still need Kyle. Set a reachable **Push contact** in notification settings if required by your push provider. Under **Other ways**, supply an ntfy topic/server/token or Telegram bot token, numeric chat ID and owner ID, then save. These remain `[notifications]` settings in `~/.config/contextlanes/config.toml`; Serve fills the public URL automatically. Subscribe to ntfy or start a bot conversation as appropriate.
@@ -40,7 +39,7 @@ Phases 1 and 2 are implemented. On 2026-10-30 the web app was rebuilt from the m
 | 2.7 Review page | Done; real merge needs Kyle | `READY.review`; compared with `review.webp`; merge tested with real git against a throwaway bare remote and fake `gh` |
 | 2.8 Cleanup | Done | Refuses unpushed or uncommitted work before touching anything; keeps branches; kills tmux only here |
 | `contextlanes update` | Done | Builds beside the running version, backs up the database, switches with a health check and switches back on failure; `--check`, `--rollback`; end-to-end run with a live lane (see Updating) |
-| Audit of phases 1–2 | Fixes in; two security decisions open | See Audit and Needs Kyle |
+| Audit of phases 1–2 | Fixes in; security item closed | See Audit, and Credentials and sandbox |
 
 ## Current capabilities
 
@@ -49,7 +48,7 @@ Everything below builds, typechecks and has tests (`pnpm check`). A lane can alr
 | Package | What works now | What is stubbed |
 |---|---|---|
 | `packages/protocol` | Lane ids and colours, the lane lifecycle with allowed moves, all event types with validated payloads, HTTP request and response types | — |
-| `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, Tailscale identity checks, detachable terminal clients, recipes, runtime, previews, checker, review and cleanup | `get_brief` and `delegate` return 501 until phase 3 |
+| `apps/daemon` | Config, SQLite event log and migrations, inbox, lane manager, systemd host launch (on by default), durable commands, event acknowledgements, HTTP controls and live stream, credential checks, lane sandbox, detachable terminal clients, recipes, runtime, previews, checker, review and cleanup | `get_brief` and `delegate` return 501 until phase 3 |
 | `apps/lanehost` | One independent systemd unit per lane; ACP agent and toolbox session, live coalesced steps, permission waiting, queued/immediate prompts, cancel/mode/model controls, reconnect with unacknowledged event replay | Actual Claude/Codex logins and acceptance need Kyle |
 | `apps/cli` | `status`, `lanes`, `lane start` (base defaults to the project's default branch, `--base` to change it), `term` (tmux attach), `inbox`, `answer`, `setup`, `add`, `update` (`--check`, `--rollback`) | `arch` arrives with phase 3 |
 | `packages/toolbox` | Eight declared MCP tools, stdio transport; `ask_owner` holds one durable question through daemon restarts and waits for a human choice; `env_status`, `env_start`, `get_logs`, `preview_url` and `checkpoint` are live | `get_brief` and `delegate` await phase 3 |
@@ -85,6 +84,42 @@ What the boards show but the app does not yet is planned milestone by milestone 
 
 Verified here end to end with real builds, a real daemon restart (systemctl faked by a script that runs the unit file) and a lane waiting on a permission: old install (5e00f6b, single-folder layout) → `install.sh` update to a88b8d2 in 32 s with the lane host still running from the old folder, reconnecting and finishing after the answer → `--check` → update to a new commit → `--rollback` → update again → fresh install with the new layout. Unit tests cover the failure paths (build failure, unhealthy start with database restore, edited files, lock, gone branch, renamed repository, pruning).
 
+## Credentials and sandbox (2026-10-30)
+
+Every request reaches the daemon from 127.0.0.1, because Tailscale Serve proxies to loopback, and a local process can send the same headers Serve sends. So only these decide who a request is from (`apps/daemon/src/http/auth.ts`, the `onRequest` hook in `server.ts`):
+
+| Who | Credential | Accepted on |
+|---|---|---|
+| Browser | Session token in localStorage, sent as `Authorization: Bearer` | Everything |
+| Browser stream or terminal | Ticket from `POST /api/tickets`: one path, one use, 30 seconds, kept in memory | That GET |
+| CLI | `<data>/setup-token` as a bearer token, on every request | Everything |
+| Lane host and toolbox | Random per-lane token, minted when the lane starts; only its hash is stored | That lane's toolbox routes and lane socket connection; stops when the lane is cleaned or archived |
+| Notification buttons | `cl-action-` tokens, unchanged | One recorded answer |
+
+`access.allowLocal` is gone. A Tailscale login that is not the owner is still refused, but the owner's login signs nobody in. The check uses the route the router matched, not `req.url`: the old check read the raw path, so `/%61pi/inbox` skipped it entirely. Migration 8 deletes every old cookie session, because those cookies had been sent to preview ports. A browser that still has the cookie is told why it was signed out, once, and the cookie is cleared. Sign-in links and passkeys now return the session token.
+
+The token reaches the lane host through systemd's inherited environment (`--setenv=NAME`), not arguments, which every process on the machine can read. A lane host from before this change cannot prove itself: its lane is marked failed and says to start a new lane.
+
+**Sandbox: bubblewrap, not `InaccessiblePaths=`.** The plan was `InaccessiblePaths=` on lane units. Checked on neo (systemd 255, Ubuntu 24.04):
+
+- **`InaccessiblePaths=` has no effect in user units.** A unit with it set read the secret anyway and exited 0, with no warning. So does `ProtectHome=` and `ProtectSystem=`. `kernel.apparmor_restrict_unprivileged_userns=1` moves systemd's user namespace into the `unprivileged_userns` AppArmor profile, which denies `sys_admin` (seen in the kernel log), and systemd then silently drops the mounts. `TemporaryFileSystem=` and `BindReadOnlyPaths=` fail the unit with 226/NAMESPACE instead.
+- **It would also have been wrong here.** `~/.local/share/contextlanes` holds the releases as well as the data, so hiding that folder hides the lane host's own code. systemd also drops mounts nested under an inaccessible path, so the release cannot be put back.
+- **Hiding single files is not safe either.** Replacing a file detaches a mount placed over it.
+
+So `apps/daemon/src/sandbox.ts` prefixes every lane command with `bwrap`, which works without root on neo through the shipped AppArmor profile. That covers lane hosts (and the agents and toolboxes they start), services, setup steps, checks and the "before" services for screenshots. It hides `<data>` (putting `releases/` and `app/` back read-only), the folder holding `config.toml`, all of `/run` (the systemd user bus, Docker and Tailscale sockets; only the DNS folder comes back) and the tmux socket folder. `lanes.sock` moved to `$XDG_RUNTIME_DIR/contextlanes-<hash>/` and only lane hosts get that folder. The "before" checkout moved to `<lanes>/.before`, since services could no longer see it in the data folder. `checkSandbox` proves the sandbox hides `setup-token` before each lane starts, and a machine where it does not work refuses the lane with a plain sentence. Lanes lose Docker, the systemd user bus and `$XDG_RUNTIME_DIR`, so a recipe that needs Docker will fail.
+
+**What an agent running as Kyle's Unix user can still do.** Measured from inside the sandbox on neo. It stops direct owner access, not everything:
+
+- **Write anything in your home folder**, because lanes need your agent logins and tools. That includes `~/.bashrc`, `~/.gitconfig`, `~/.config/systemd/user` and `~/.ssh/authorized_keys`. Each of these turns into running as you later, outside the sandbox: your next shell, the next reboot, or at once for `authorized_keys`, since sshd is listening on neo and an agent can then `ssh localhost`.
+- **Change what the daemon's git runs.** The daemon runs git outside the sandbox in lane checkouts, for checks, review and merge. `~/.gitconfig`, and a repository's `.git/config` and `.git/hooks`, can make those commands run agent code as you. This is the shortest route, and needs no action from you.
+- **Read your agent logins** in `~/.claude`, `~/.codex` and the like, and anything else in your home folder.
+- **Reach the network and the daemon's port.** The daemon answers 401 without a token. A lane process can also take port 4600 while the daemon is restarting, and a page served from there would be on the app's origin; this has not been tried.
+- **Use its own lane's token**, which any process in that lane's host unit can find. It works only on that lane's toolbox routes.
+
+Reading other lanes' process environments, expected to be a limit, is blocked: each lane has its own user namespace, and a read of another lane's `/proc/<pid>/environ` failed on neo. So is the daemon's. `sudo`, the systemd user bus, Docker, Tailscale and tmux were all refused from inside.
+
+**Validation.** `pnpm check`. `CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_SANDBOX=1 CONTEXTLANES_REAL_BROWSER=1 pnpm test` passes on neo with two real lane hosts in the sandbox across a daemon restart, a real checkpoint with screenshots, and a preview page in Chromium that reads no token and whose request arrives with no credential. `scripts/check-setup.mjs` and `scripts/check-phase2.mjs` pass, and check-setup now fails on any unexpected 401. Not checked: the browser terminal against a real PTY, because `node-pty` crashes on neo (see Needs Kyle). The ticket path is covered with a fake PTY and through the fixture login terminal.
+
 ## Audit of phases 1–2 (2026-10-30)
 
 An independent review checked the code against this plan. Fixed:
@@ -102,9 +137,8 @@ An independent review checked the code against this plan. Fixed:
 - CLI `lane start` uses the project's default branch and takes `--base`; the Work page shows the right `contextlanes term` command; Run approves a recipe in a project with no lanes; cleanup reports "could not be checked" instead of inventing one unpushed commit; unbuilt phase-3 pages redirect to Work.
 - Docs no longer claim cleanup keeps ignored files or that nothing ever listens on 0.0.0.0.
 
-Open (see Needs Kyle for the first two):
+Open:
 
-- Loopback trust and the preview cookie, above.
 - Some request bodies use inline zod rather than `packages/protocol` (`preview_url`, `answers`, `LocalSetupRequest`); the diff route's `?file=` is not parsed with zod.
 - A recipe approved with no lane asking for it writes the `approval` row but no event.
 - `mode: "edits"` is accepted when starting a lane but the host starts in ask mode.
@@ -116,7 +150,7 @@ Open (see Needs Kyle for the first two):
 1. **Borrow, don't build.** ACP for agents, tmux for shells, systemd for processes, Caddy and Tailscale for access, CodeGraph for code, Playwright for screenshots. New code only where nothing fits.
 2. **Everything is an event.** The store appends; screens, the CLI and insights read. No second source of truth.
 3. **Agents live outside the daemon.** One lane host per lane as its own systemd unit.
-4. **One owner.** Bind to loopback; shell access proves ownership. Remote requests use tailnet identity or an owner session; passkeys are optional after sign-in.
+4. **One owner.** Bind to loopback; shell access proves ownership. Only a credential says who a request is from: loopback addresses and headers prove nothing. Passkeys are optional after sign-in.
 5. **Agents can ask, never approve.** Recipes are approved once, by hash, from the owner's session. Nothing is allowed on a timer.
 6. **One job per page.** Every group of content sits in a section card; a side column only as the inspector of a selection.
 7. **Every claim is measured.** Token savings, redo rates and review time are computed from events, not estimated.
@@ -200,9 +234,9 @@ Goal: a new user over SSH reaches a running lane without typing a path or setup 
 - First lane reads local branches from Git, prefers `origin/HEAD` as default (then main/master/first local branch), offers only Ready agents, and supplies an example task placeholder. Notifications and local endpoints live in Settings and Models, with Web Push first and ntfy/Telegram under **Other ways**. The public URL comes from Serve. Local helper execution remains phase 3.
 - A passkey is offered only after owner sign-in at the configured HTTPS tailnet address, labelled **Add a passkey for this address**. It never blocks onboarding.
 
-Implementation: a mode-0600 local control credential is read automatically by the CLI, never typed or printed. `/api/setup/local` additionally requires a local peer/Host and refuses Origin/Tailscale headers, so a browser or remote caller cannot claim by merely posting to a public endpoint. The local credential remains private; only sign-in-link hashes, origin and expiry are persisted. Consumption uses one atomic SQLite delete; reuse, expiry or another origin fails. URL secrets live in the fragment and are removed on landing. HttpOnly/SameSite Strict sessions are Secure over HTTPS. Auth expiry never answers an agent permission. Existing typed-code endpoints and the initial passkey claim were removed.
+Implementation: a mode-0600 local control credential is read automatically by the CLI, never typed or printed. `/api/setup/local` additionally requires a local peer/Host and refuses Origin/Tailscale headers, so a browser or remote caller cannot claim by merely posting to a public endpoint. The local credential remains private; only sign-in-link hashes, origin and expiry are persisted. Consumption uses one atomic SQLite delete; reuse, expiry or another origin fails. URL secrets live in the fragment and are removed on landing. Sessions are bearer tokens kept in localStorage. Auth expiry never answers an agent permission. Existing typed-code endpoints and the initial passkey claim were removed.
 
-Serve preserves other routes, reuses this app’s existing route, and otherwise checks 443, 8443 and 4601–4603 without binding the daemon anywhere except 127.0.0.1. It saves `[access].owner` and `[notifications].publicUrl`. Ports marked public by an existing Funnel configuration are not reused or enabled. Shell ownership is persisted independently for SSH-tunnel use. As before, `access.allowLocal` permits local CLI calls after ownership is established; disabling it requires an owner session or tailnet identity for application APIs.
+Serve preserves other routes, reuses this app’s existing route, and otherwise checks 443, 8443 and 4601–4603 without binding the daemon anywhere except 127.0.0.1. It saves `[access].owner` and `[notifications].publicUrl`. Ports marked public by an existing Funnel configuration are not reused or enabled. Shell ownership is persisted independently for SSH-tunnel use. The CLI proves itself on every request with `<data>/setup-token`.
 
 The source installer still checks prerequisites, refuses existing install destinations/unrelated unit or bin files, builds esbuild separately, tolerates an unavailable native terminal build and writes the user service. Built web assets are served directly by the daemon. `qrcode-terminal@0.12.0` (no runtime dependencies, types pinned to 0.12.2) was added because Node and the repo have no QR encoder. WebAuthn continues to use `@simplewebauthn/server@14.0.3`. CLI install versions are pinned in `apps/daemon/src/setup.ts`.
 
@@ -243,7 +277,7 @@ Gate: review a checkpoint in under five minutes. Implemented; the timing itself 
 
 Commands are argument arrays. `$PORT`, `$PORT_<SERVICE>` and `$HOST` are filled in inside arguments and set in the environment; `service.port.env` names another variable for the port. The hash covers the file's exact bytes, so any edit needs approval again, and agents can edit the copy in their lane. Only bytes present right now, in the project or an open lane, can be approved, and only if they parse. Refused starts create one `recipe.requested` event, which shows in the Inbox.
 
-**Who can decide.** Recipe approval, approve and merge, request changes and cleanup need `ownerSession`: a signed-in cookie, or the owner's Tailscale identity on a non-loopback host. The general `authorized()` check is not enough, because it accepts any local request and agents run on this machine. Limit: agents run as the same Unix user, so an agent deliberately forging headers or reading the data folder is not stopped by this; that takes a separate user or sandbox. No tool or token path gives an agent approval.
+**Who can decide.** Recipe approval, approve and merge, request changes and cleanup need an owner credential, like every other route except the toolbox (see Credentials and sandbox). A lane token is refused on all of them. No tool or token path gives an agent approval.
 
 **Lane setup and runtime** (`apps/daemon/src/runtime.ts`). Ignored `.env*` files are copied (symlinks skipped, existing files kept), `cache` folders are hard-linked with `cp -al`, falling back to a copy across filesystems, then setup steps run once per recipe hash. Hard links share files with the main checkout, so a tool that edits a dependency in place changes both. Each service is a `systemd-run --user` unit with a new random name, `Restart=on-failure` and journald logs. Units outlive the daemon; the `environment` row is how a restarted daemon finds them. The health loop reads the unit, its listeners and an HTTP probe every 5 seconds and writes `env.status` only when something changes. A service listening beyond loopback is stopped and stays stopped, with the reason shown. Per-lane databases were left out of this round, so the board's Database column is not shown.
 
@@ -258,7 +292,7 @@ Commands are argument arrays. `$PORT`, `$PORT_<SERVICE>` and `$HOST` are filled 
 Validation: `pnpm check` with both real fixture flags. `scripts/check-phase2.mjs` runs real systemd units, real git against a throwaway bare remote and Chromium at 1440px and 390px: recipe approval, environment, logs, checkpoint from the inspector, review from Needs you and Inbox, request changes, second checkpoint, approve and merge, cleanup. `main` on the fixture remote does not move. Fixtures fake `gh` and previews, so they can never reach a real repository or add a tailnet route.
 
 ```sh
-CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
+CONTEXTLANES_REAL_HOSTS=1 CONTEXTLANES_REAL_SANDBOX=1 CONTEXTLANES_REAL_BROWSER=1 CONTEXTLANES_REAL_TERMINAL=1 pnpm check
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-phase2.mjs
 ```
 
@@ -281,7 +315,7 @@ Everything not yet built from the boards and the brief, split into milestones sm
 
 | Milestone | Board | Status |
 |---|---|---|
-| S. Credentials and lane sandbox (security) | — | In progress (separate run) |
+| S. Credentials and lane sandbox (security) | — | Done: see Credentials and sandbox |
 | 3.0 Usage and cost | work-lane, models | Next |
 | B1 This machine and Data | settings | Not started |
 | B2 Run and Projects facts | run, projects | Not started |

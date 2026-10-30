@@ -7,6 +7,7 @@ import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { NotFound, Refused } from "./lanes/manager.js";
 import type { Runner } from "./run.js";
+import { sandbox } from "./sandbox.js";
 import { oneshot, type Runtime } from "./runtime.js";
 
 /** Takes one page's picture. Injected so tests never need a browser. */
@@ -97,7 +98,7 @@ export class Checker {
     const id = randomUUID();
     const checks: CheckResult[] = [];
     for (const check of recipe?.checks ?? []) {
-      const result = await oneshot(run, lane.worktree, check.command, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, check.timeoutSeconds);
+      const result = await oneshot(run, lane.worktree, check.command, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, check.timeoutSeconds, sandbox(this.deps.config));
       checks.push(this.report(lane.id, check.name, result.ok, result.ms, result.output.trim().slice(-1000)));
     }
     const files = parseNumstat((await run("git", ["diff", "--numstat", "--no-renames", base, head], { cwd: lane.worktree })).stdout);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, Lane, LaneEvent } from "@contextlanes/protocol";
-import { errorMessage, getJson, postJson, useInbox, useJson } from "../../api";
+import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
@@ -57,7 +57,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
   const [history, setHistory] = useState<LaneEvent[]>([]);
   useEffect(() => {
     const abort = new AbortController();
-    void loadHistory(lane.id, fetch, abort.signal).then(setHistory, () => {});
+    void loadHistory(lane.id, apiFetch, abort.signal).then(setHistory, () => {});
     return () => abort.abort();
   }, [lane.id]);
   const shots = checkpoint.screenshots;
@@ -100,8 +100,9 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
 }
 
 function Shot({ checkpoint, file, tag, label }: { checkpoint: Checkpoint; file: string | null; tag: ReactNode; label: string }) {
+  const src = useImage(file ? `/api/checkpoints/${checkpoint.id}/shots/${file}` : null);
   return <figure className="shot">
-    <div className="frame"><div className="bar" />{file ? <img src={`/api/checkpoints/${checkpoint.id}/shots/${file}`} alt={label} loading="lazy" /> : <div className="none">No picture</div>}</div>
+    <div className="frame"><div className="bar" />{src ? <img src={src} alt={label} /> : <div className="none">{file ? "Loading…" : "No picture"}</div>}</div>
     <figcaption className="cap">{tag}{label}</figcaption>
   </figure>;
 }

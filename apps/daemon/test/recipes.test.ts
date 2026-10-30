@@ -1,3 +1,4 @@
+import { signedIn } from "./signed-in.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,12 +17,11 @@ async function setup() {
   const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, access: { owner: "kyle@example.com" } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
-  const app = buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run });
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run }), store);
   store.addProject({ id: "shop", name: "Shop", path: root });
-  const cookie = `cl-owner=${store.ownerSession()}`;
-  const approve = (hash: string, headers: Record<string, string> = { cookie }) => app.inject({ method: "POST", url: "/api/projects/shop/recipe/approve", headers, payload: { hash } });
+  const approve = (hash: string, headers: Record<string, string> = {}) => app.inject({ method: "POST", url: "/api/projects/shop/recipe/approve", headers, payload: { hash } });
   const view = async () => (await app.inject({ url: "/api/projects/shop/recipe" })).json();
-  return { root, store, app, approve, view, cookie };
+  return { root, store, app, approve, view };
 }
 
 describe("recipe schema", () => {
@@ -59,17 +59,11 @@ describe("recipe approval", () => {
     const { root, approve, view, store, app } = await setup();
     await writeFile(join(root, RECIPE_FILE), RECIPE);
     const { hash } = await view();
-    expect((await approve(hash, {})).statusCode).toBe(403);
-    expect((await approve(hash, { "tailscale-user-login": "kyle@example.com" })).statusCode).toBe(403);
-    expect((await approve(hash, { cookie: "cl-owner=not-a-session" })).statusCode).toBe(403);
+    expect((await approve(hash, { authorization: "" })).statusCode).toBe(401);
+    expect((await approve(hash, { authorization: "", "tailscale-user-login": "kyle@example.com", host: "neo.tailnet.ts.net" })).statusCode).toBe(401);
+    expect((await approve(hash, { authorization: "Bearer not-a-session" })).statusCode).toBe(401);
     expect(store.recipeApproved("shop", hash)).toBe(false);
     expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/approve_recipe", payload: { hash } })).statusCode).toBe(501);
-  });
-
-  it("accepts the owner's Tailscale identity only when it arrives through a tailnet address", async () => {
-    const { root, approve, view } = await setup();
-    await writeFile(join(root, RECIPE_FILE), RECIPE);
-    expect((await approve((await view()).hash, { "tailscale-user-login": "kyle@example.com", host: "neo.tailnet.ts.net" })).statusCode).toBe(200);
   });
 
   it("will not approve a recipe that does not parse", async () => {

@@ -12,12 +12,12 @@ export class DaemonLink {
   private readonly pending = new Map<string, object>();
   private readonly drained = new Set<() => void>();
 
-  constructor(private readonly opts: { lane: string; path: string; command: (message: CommandEnvelope) => void }) {}
+  constructor(private readonly opts: { lane: string; token: string; path: string; command: (message: CommandEnvelope) => void }) {}
 
   start(): void {
     if (this.stopped) return;
     const socket = this.socket = createConnection(this.opts.path);
-    socket.on("connect", () => socket.write(`${JSON.stringify({ hello: this.opts.lane })}\n`));
+    socket.on("connect", () => socket.write(`${JSON.stringify({ hello: this.opts.lane, token: this.opts.token })}\n`));
     socket.on("error", () => socket.destroy());
     createInterface({ input: socket }).on("error", () => socket.destroy()).on("line", (line) => {
       try {

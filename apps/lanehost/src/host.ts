@@ -8,7 +8,7 @@ import { Coalescer, mapPermission } from "./map.js";
 import { DaemonLink } from "./link.js";
 
 export type LaneHostOptions = {
-  lane: string; cwd: string; task: string; agent: AgentSpec; socketPath: string;
+  lane: string; cwd: string; task: string; agent: AgentSpec; socketPath: string; token: string;
   mcpServers?: McpServer[]; mode?: string; model?: string; signal?: AbortSignal;
   /** The production transport is stdio; tests connect to an in-process SDK agent app. */
   connect?: (app: ClientApp) => ClientConnection;
@@ -150,7 +150,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
 
 export async function runLaneHost(opts: LaneHostOptions): Promise<void> {
   let controls: ReturnType<typeof openAgentSession>;
-  const link = new DaemonLink({ lane: opts.lane, path: opts.socketPath, command: (message) => { void controls.then((session) => session.command(message)).catch(() => {}); } });
+  const link = new DaemonLink({ lane: opts.lane, token: opts.token, path: opts.socketPath, command: (message) => { void controls.then((session) => session.command(message)).catch(() => {}); } });
   link.start();
   const stop = () => link.close();
   opts.signal?.addEventListener("abort", stop, { once: true });

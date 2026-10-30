@@ -8,7 +8,7 @@ Each lane is a branch and worktree, a persistent terminal, a running copy of you
 
 ## Install
 
-On Linux with a running systemd user manager, Node ≥22.13 (24 recommended), npm, Git and tmux:
+On Linux with a running systemd user manager, Node ≥22.13 (24 recommended), npm, Git, tmux and bubblewrap:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wongywrongy/contextlane/main/install.sh | sh

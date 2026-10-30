@@ -68,6 +68,13 @@ export class HostLinks {
           if (lane) throw new Error("already introduced");
           lane = LaneId.parse(msg.hello);
           if (!store.getLane(lane)) throw new Error(`no lane ${lane}`);
+          if (typeof msg.token !== "string" || store.laneForToken(msg.token) !== lane) {
+            // A host from before lane tokens runs unsandboxed and can never prove itself, so it stops here.
+            if (!store.hasLaneToken(lane) && ["working", "needs_you", "setting_up"].includes(store.getLane(lane)!.state)) bus.publish(store.setLaneState(lane, "failed", "This lane started before the security update. Start a new lane to continue."));
+            lane = null;
+            sock.end(`${JSON.stringify({ error: "invalid lane token" })}\n`);
+            return;
+          }
           this.links.get(lane)?.destroy();
           this.links.set(lane, sock);
           this.send(lane, { ready: true });

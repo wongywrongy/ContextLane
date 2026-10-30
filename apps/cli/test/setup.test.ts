@@ -24,8 +24,9 @@ it("turns shell proof into a ten-minute link and QR with the same URL, without p
 });
 it("adds the current folder by default and preserves an explicit ~ path for the daemon", async () => {
   const http = vi.fn<typeof fetch>(async () => Response.json({ id: "project", name: "Project" })); vi.stubGlobal("fetch", http);
-  await addProject(); expect(JSON.parse(String(http.mock.calls[0]?.[1]?.body))).toEqual({ path: process.cwd() });
-  await addProject("~/code/project"); expect(JSON.parse(String(http.mock.calls[1]?.[1]?.body))).toEqual({ path: "~/code/project" });
+  const body = () => JSON.parse(String(http.mock.calls.at(-1)?.[1]?.body));
+  await addProject(); expect(body()).toEqual({ path: process.cwd() });
+  await addProject("~/code/project"); expect(body()).toEqual({ path: "~/code/project" });
 });
 it("refuses to use remote HTTP as proof of shell access", async () => {
   vi.stubEnv("CONTEXTLANES_URL", "https://neo.test.ts.net"); await expect(setupOutput()).rejects.toThrow("SSH session");

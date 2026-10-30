@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, LaneId, ProjectId } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest } from "@contextlanes/protocol";
-import { PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
+import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -23,12 +23,15 @@ import { Checker } from "../checker.js";
 import { Review } from "../review.js";
 import { laneRecipe, readRecipe } from "../recipes.js";
 import { Runtime } from "../runtime.js";
-import { refuseUnlessOwner } from "./owner.js";
+import { Auth } from "./auth.js";
 import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; onRoute?: (route: { method: string | string[]; url: string }) => void };
+
+const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
+const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
 
 /** The HTTP API every screen and the CLI use. Bound to loopback; Tailscale Serve sits in front. */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -38,7 +41,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
   const review = new Review({ store, bus, hosts: deps.hosts, run, runtime });
+  const auth = new Auth(store, config);
   const streams = new Set<ServerResponse>();
+  if (deps.onRoute) app.addHook("onRoute", deps.onRoute);
   app.addHook("preClose", async () => { for (const stream of streams) stream.end(); });
   app.register(websocket, {
     options: { maxPayload: 65_536 },
@@ -49,26 +54,28 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     },
   });
 
-  // Identity comes from Tailscale Serve headers; there are no accounts.
+  // Every request arrives from loopback through Serve, and a local process can send any header, so only a credential says who is asking.
   app.addHook("onRequest", async (req, reply) => {
     const login = req.headers["tailscale-user-login"];
     const owner = config.access.owner;
     if (typeof login === "string" && owner && login !== owner) return reply.code(403).send({ error: "not the owner of this machine" });
+    // The matched route, not req.url: the router decodes %61pi/inbox to /api/inbox.
+    const route = req.routeOptions.url;
     const bearer = req.headers.authorization?.replace(/^Bearer /, "");
-    if (req.method === "POST" && req.url.split("?")[0] === "/api/answers" && bearer?.startsWith("cl-action-")) {
+    if (req.method === "POST" && route === "/api/answers" && bearer?.startsWith("cl-action-")) {
       if (!store.notificationAction(bearer)) return reply.code(401).send({ error: "invalid notification action" });
       return;
     }
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
-    if (deps.setup) {
-      const path = req.url.split("?")[0]!;
-      const publicApi = ["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"];
-      if (!path.startsWith("/api/") || publicApi.includes(path)) return;
-      if (!deps.setup.authorized(login, req.headers.cookie, req.hostname)) return reply.code(401).send({ error: "Run contextlanes setup in this machine’s SSH session, then open its sign-in link." });
-      return;
+    if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
+    if ((!deps.setup || deps.setup.claimed) && bearer && await auth.owner(bearer)) return;
+    if (route === TOOL_ROUTE && bearer) {
+      const { project, n } = req.params as { project: string; n: string };
+      if (store.laneForToken(bearer) === `${project}/${n}`) return;
     }
-    if (typeof login === "string") return;
-    if (!config.access.allowLocal) return reply.code(401).send({ error: "open ContextLanes through Tailscale" });
+    const ticket = (req.query as { ticket?: unknown }).ticket;
+    if (req.method === "GET" && typeof ticket === "string" && auth.spendTicket(ticket, req.url.split("?")[0]!)) return;
+    return reply.code(401).send({ error: "Run contextlanes setup in this machine’s SSH session, then open its sign-in link." });
   });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -78,9 +85,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return reply.code(500).send({ error: "This action could not finish; check the daemon logs and try again." });
   });
 
-  if (deps.setup) setupRoutes(app, deps.setup, store, run);
+  if (deps.setup) setupRoutes(app, deps.setup, store, run, auth);
   serveWeb(app);
 
+  app.post("/api/tickets", async (req) => ({ ticket: auth.ticket(TicketRequest.parse(req.body).path) }));
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
   app.get("/api/notifications", async () => ({ publicKey: config.notifications.webPush?.publicKey ?? null,
     channels: { ntfy: !!config.notifications.ntfy, telegram: !!config.notifications.telegram, webpush: !!config.notifications.webPush }, quiet: config.notifications.quiet ?? null }));
@@ -117,7 +125,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return await readRecipe(store, project, project.path);
   });
   app.post<{ Params: { project: string } }>("/api/projects/:project/recipe/approve", async (req, reply) => {
-    if (refuseUnlessOwner(req, reply, store, config)) return reply;
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
     const { hash } = ApproveRecipeRequest.parse(req.body);
@@ -181,18 +188,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // ── checkpoints ──
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/checkpoint", async (req, reply) => reply.code(202).send(await checker.begin(laneParam(req.params), CheckpointRequest.parse(req.body).summary)));
-  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req, reply) => {
-    if (refuseUnlessOwner(req, reply, store, config)) return reply;
-    return review.approve(laneParam(req.params));
-  });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req) => review.approve(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
-    if (refuseUnlessOwner(req, reply, store, config)) return reply;
     return reply.code(202).send(review.requestChanges(laneParam(req.params), RequestChanges.parse(req.body).note));
   });
-  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/cleanup", async (req, reply) => {
-    if (refuseUnlessOwner(req, reply, store, config)) return reply;
-    return review.cleanup(laneParam(req.params));
-  });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/cleanup", async (req) => review.cleanup(laneParam(req.params)));
   app.get<{ Params: { project: string } }>("/api/projects/:project/checkpoints", async (req) => store.checkpoints(ProjectId.parse(req.params.project)));
   app.get<{ Params: { id: string; file: string } }>("/api/checkpoints/:id/shots/:file", async (req, reply) => {
     if (!store.checkpoint(req.params.id) || !/^\d+-(before|after)\.png$/.test(req.params.file)) throw new NotFound("no such screenshot");
@@ -211,15 +211,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       websocket: true,
       preValidation: async (req, reply) => {
         // A web page on another origin must never gain access to the owner's shell.
-        if (req.headers.origin) {
-          let origin: URL | undefined;
-          try { origin = new URL(req.headers.origin); } catch { /* Invalid origins are refused below. */ }
-          const localOrigin = origin && ["127.0.0.1", "localhost"].includes(origin.hostname);
-          const owner = deps.setup ? deps.setup.authorized(req.headers["tailscale-user-login"], req.headers.cookie, req.hostname) : config.access.owner && req.headers["tailscale-user-login"] === config.access.owner;
-          if (!origin || !["http:", "https:"].includes(origin.protocol) || origin.host !== req.headers.host || (!localOrigin && !owner)) {
-            return reply.code(403).send({ error: "open the terminal from ContextLanes" });
-          }
-        }
+        if (req.headers.origin) requestOrigin(req);
         if (!store.getLane(laneParam(req.params))) throw new NotFound("no such lane");
       },
     }, (socket, req) => {
@@ -234,7 +226,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.
-  app.post<{ Params: { project: string; n: string; tool: string } }>("/api/lanes/:project/:n/tools/:tool", async (req, reply) => {
+  app.post<{ Params: { project: string; n: string; tool: string } }>(TOOL_ROUTE, async (req, reply) => {
     const lane = laneParam(req.params);
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);

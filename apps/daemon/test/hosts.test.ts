@@ -22,7 +22,7 @@ it("a lane failed by one agent error is working again when the agent takes a new
   const acks: string[] = [];
   sock.on("data", (d) => acks.push(...String(d).split("\n").filter(Boolean)));
   const until = async (fn: () => boolean) => { for (let i = 0; i < 100 && !fn(); i++) await new Promise((r) => setTimeout(r, 20)); expect(fn()).toBe(true); };
-  send({ hello: lane.id });
+  send({ hello: lane.id, token: store.mintLaneToken(lane.id) });
   await until(() => acks.some((a) => a.includes("ready")));
   send({ eventId: randomUUID(), event: { type: "agent.error", payload: { message: "429 Too Many Requests" } } });
   await until(() => store.getLane(lane.id)!.state === "failed");

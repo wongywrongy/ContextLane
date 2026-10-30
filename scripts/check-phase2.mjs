@@ -50,6 +50,7 @@ const app = buildServer({ store, bus, lanes: manager, hosts, config, version: 'c
 await app.listen({ host: '127.0.0.1', port: 0 });
 const base = `http://127.0.0.1:${app.server.address().port}`;
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_BIN, args: ['--no-sandbox'] });
+const session = store.ownerSession();
 const started = [];
 const until = async (check) => { for (let i = 0; i < 300; i++) { if (await check()) return; await new Promise((r) => setTimeout(r, 100)); } throw new Error(`timed out: ${check}`); };
 /** Commit real work in a lane and give it the history an agent would leave. */
@@ -75,6 +76,7 @@ try {
 
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 } });
+  await context.addInitScript((token) => localStorage.setItem('cl-session', token), session);
     await context.addCookies([{ name: 'cl-owner', value: store.ownerSession(), url: base }]);
     const page = await context.newPage();
     const errors = [];
@@ -116,6 +118,7 @@ try {
   }
 
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addInitScript((token) => localStorage.setItem('cl-session', token), session);
   await context.addCookies([{ name: 'cl-owner', value: store.ownerSession(), url: base }]);
   const page = await context.newPage();
   const errors = [];
