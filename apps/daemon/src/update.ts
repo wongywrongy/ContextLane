@@ -165,8 +165,9 @@ export class Updater {
     await this.prune();
     const after = await this.activeLanes();
     const lanes = before !== null && after !== null ? ` ${after} of ${before} active ${before === 1 ? "lane" : "lanes"} kept running.` : "";
-    this.log(`Updated ${shortSha(v.from)} → ${shortSha(v.to)}.${lanes} Undo with: contextlanes update --rollback`);
+    this.log(`Updated ${shortSha(v.from)} → ${shortSha(v.to)}.${lanes}`);
     this.openAt();
+    this.log("Undo with: contextlanes update --rollback");
     return 0;
   }
 

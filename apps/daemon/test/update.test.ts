@@ -83,8 +83,9 @@ describe("contextlanes update", () => {
     expect(userVersion(join(f.data, "backups", backups[0]!))).toBe(3);
     expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).history).toHaveLength(1);
     expect(f.logs).toContain("1 new change on main:");
-    expect(f.logs.at(-2)).toMatch(new RegExp(`^Updated ${f.first.slice(0, 12)} → ${second.slice(0, 12)}\\. 2 of 2 active lanes kept running\\.`));
-    expect(f.logs.at(-1)).toBe("Open ContextLanes: http://127.0.0.1:4600 (this machine only; run contextlanes setup to reach it over Tailscale)");
+    expect(f.logs.at(-3)).toBe(`Updated ${f.first.slice(0, 12)} → ${second.slice(0, 12)}. 2 of 2 active lanes kept running.`);
+    expect(f.logs.at(-2)).toBe("Open ContextLanes: http://127.0.0.1:4600 (this machine only; run contextlanes setup to reach it over Tailscale)");
+    expect(f.logs.at(-1)).toBe("Undo with: contextlanes update --rollback");
 
     f.calls.length = 0; f.logs.length = 0;
     expect(await (await f.updater()).update()).toBe(0);

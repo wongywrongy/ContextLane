@@ -18,7 +18,7 @@ it("turns shell proof into a ten-minute link and QR with the same URL, without p
   }); vi.stubGlobal("fetch", http); vi.stubEnv("CONTEXTLANES_URL", "http://127.0.0.1:4600");
   const generate = vi.spyOn(qr, "generate");
   const output = await setupOutput("192.0.2.42");
-  expect(output).toContain(url); expect(output).toContain("single use; expires in 10 minutes"); expect(output).not.toContain("private-shell-proof");
+  expect(output).toContain(url); expect(output).toContain("Works once and expires in 10 minutes"); expect(output).toContain("sudo loginctl enable-linger kyle"); expect(output).not.toContain("private-shell-proof");
   expect(generate).toHaveBeenCalledWith(url, { small: true }, expect.any(Function)); expect(output).toMatch(/[█▀▄]/);
   expect(JSON.parse(String(http.mock.calls[1]?.[1]?.body))).toEqual({ sshHost: "192.0.2.42" });
 });

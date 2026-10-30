@@ -7,6 +7,7 @@ import { configPath, loadConfig } from "./config.js";
 import { layoutOf } from "./layout.js";
 import { runCommand } from "./run.js";
 import { Updater, UpdateError } from "./update.js";
+import { bold, dim, red, Steps } from "./term.js";
 
 /** Run by `contextlanes update` and by install.sh on an existing copy. */
 const { values } = parseArgs({
@@ -15,8 +16,10 @@ const { values } = parseArgs({
 });
 const self = await realpath(fileURLToPath(new URL("../../../", import.meta.url)));
 const config = loadConfig();
+const steps = new Steps();
+if (!values.adopt) process.stdout.write(`\n  ${bold("ContextLanes")} ${dim(values.rollback ? "rollback" : values.check ? "update check" : "update")}\n\n`);
 const updater = new Updater({
-  run: runCommand, fetch, log: (line) => console.log(line), sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  run: runCommand, fetch, log: (line) => steps.log(line), sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   processes: async () => {
     const lines: string[] = [];
     for (const pid of (await readdir("/proc").catch(() => [])).filter((p) => /^\d+$/.test(p))) {
@@ -31,7 +34,10 @@ try {
   process.exitCode = values.rollback ? await updater.rollback({ yes: values.yes ?? false })
     : values.adopt ? await updater.adopt(await realpath(values.adopt), values.branch ?? process.env.CONTEXTLANES_BRANCH)
     : await updater.update({ check: values.check ?? false, ...(values.branch ? { branch: values.branch } : {}) });
+  steps.finish();
 } catch (err) {
-  console.error(err instanceof UpdateError ? err.message : `The update stopped unexpectedly: ${err instanceof Error ? err.message : String(err)}`);
+  steps.finish("fail");
+  console.error(`  ${red("✗")} ${err instanceof UpdateError ? err.message : `The update stopped unexpectedly: ${err instanceof Error ? err.message : String(err)}`}`);
   process.exitCode = 1;
 }
+process.stdout.write("\n");

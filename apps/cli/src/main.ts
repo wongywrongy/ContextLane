@@ -8,21 +8,29 @@ import { benchTable, type BenchResult, type Health, type InboxItem, type Lane, t
 import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError } from "./client.js";
 import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
+import { bold, cyan, dim, fail, ok } from "./term.js";
 
-const HELP = `contextlanes — run coding agents in parallel lanes
+const HELP = () => `${bold("contextlanes")} ${dim("— run coding agents in parallel lanes on an always-on machine")}
 
-  contextlanes status                         is the daemon up
+${bold("Get started")}
+  contextlanes setup                          sign in from a browser: prints a one-time link and QR code
+  contextlanes add [path]                     add a repository (default: this folder)
+
+${bold("Lanes")}
   contextlanes lanes [project]                every lane, its state and what it waits on
-  contextlanes lane start <project> "<task>"  start a lane  [--agent claude-code|codex|opencode] [--model m] [--base branch]
-  contextlanes term <lane>                    your persistent shell in the lane's worktree (tmux)
-  contextlanes inbox                          what is waiting on you
-  contextlanes answer <id> <option>           answer a permission or question
-  contextlanes setup                          claim, enable remote access, print sign-in link and QR
-  contextlanes add [path]                     add a repository (defaults to the current folder)
-  contextlanes arch [project]                 layers, modules and where lanes work  [--json] [--mermaid]
-  contextlanes bench <tasks.json>             each task without and with phase 3's tools; prints the token table
+  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent claude-code|codex|opencode] [--model m] [--base branch]")}
+  contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
+  contextlanes inbox                          questions and permissions waiting on you
+  contextlanes answer <id> <option>           answer one, using the id and option from inbox
+
+${bold("Projects")}
+  contextlanes arch [project]                 areas, modules and where lanes work  ${dim("[--json] [--mermaid]")}
+  contextlanes bench <tasks.json>             measure tokens with and without local models
+
+${bold("This machine")}
+  contextlanes status                         is ContextLanes running, and where to open it
   contextlanes update                         install the newest version and restart; lanes keep running
-                                              [--check] only list what's new   [--rollback] go back one version
+                                              ${dim("[--check] only list what's new   [--rollback] go back one version")}
 
 Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
 
@@ -30,7 +38,7 @@ async function main(argv: string[]): Promise<number> {
   // The updater ships with the daemon; run the copy from the release this command belongs to.
   if (argv[0] === "update") {
     const release = fileURLToPath(new URL("../../../", import.meta.url));
-    return spawnSync(process.execPath, [join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1)], { stdio: "inherit" }).status ?? 1;
+    return spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1)], { stdio: "inherit" }).status ?? 1;
   }
   const { values, positionals } = parseArgs({
     args: argv,
@@ -42,11 +50,13 @@ async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case undefined:
     case "help":
-      console.log(HELP);
+      console.log(HELP());
       return 0;
     case "status": {
-      const h = await api<Health>("/api/health");
-      console.log(`ContextLanes ${h.version} on ${h.host}`);
+      const h = await api<Health>("/api/health").catch(() => null);
+      if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 1; }
+      console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
+      console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
       return 0;
     }
     case "lanes": {
@@ -59,7 +69,8 @@ async function main(argv: string[]): Promise<number> {
       if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage();
       const base = values.base ?? (await api<ProjectBranches>(`/api/projects/${rest[1]}/branches`)).defaultBranch ?? undefined;
       const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model, base } });
-      console.log(`Started ${lane.id} on ${lane.branch} (${lane.state}). Shell: contextlanes term ${lane.id}`);
+      console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
+      console.log(dim(`  Watch it in the browser, or open its shell: contextlanes term ${lane.id}`));
       return 0;
     }
     case "term": {
@@ -79,7 +90,7 @@ async function main(argv: string[]): Promise<number> {
       if (!id || !optionId) return usage();
       const [lane, requestId] = id.split("#");
       await api("/api/answers", { method: "POST", body: { lane, requestId, optionId, via: "cli" } });
-      console.log("Answered.");
+      console.log(ok("Answered. The agent continues."));
       return 0;
     }
     case "setup":
@@ -87,7 +98,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case "add": {
       const project = await addProject(rest[0]);
-      console.log(`Added ${project.name}.`);
+      console.log(ok(`Added ${bold(project.name)}. Start a lane from the browser, or: contextlanes lane start ${project.id} "<task>"`));
       return 0;
     }
     case "schedule": {
@@ -120,19 +131,20 @@ async function main(argv: string[]): Promise<number> {
       return view.map ? 0 : 1;
     }
     default:
+      console.error(fail(`Unknown command: ${cmd}\n`));
       return usage();
   }
 }
 
 function usage(): number {
-  console.error(HELP);
+  console.error(HELP());
   return 2;
 }
 
 main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (err: unknown) => {
-    console.error(`contextlanes: ${err instanceof ClientError ? err.message : "This command could not finish; check the daemon logs and try again."}`);
+    console.error(fail(err instanceof ClientError ? err.message : "This command could not finish. Check the daemon logs: journalctl --user -u contextlanes -n 50"));
     process.exit(1);
   },
 );
