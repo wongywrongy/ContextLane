@@ -320,8 +320,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | S. Credentials and lane sandbox (security) | — | Done: see Credentials and sandbox |
 | 3.0 Usage and cost | work-lane, models | Done — 5047be0; `pnpm check`: 183 passed, 8 opt-in checks skipped; fake ACP + JSONL + API totals; Chromium at 1440px/390px; real account comparison in Needs Kyle; see Usage implementation and adapter evidence |
 | B1 This machine and Data | settings | Done — 3296c7d; `pnpm check`: 187 passed, 8 opt-in checks skipped; real SQLite retention/redaction tests; Settings Chromium 1440px/390px; see Machine and data implementation evidence |
-| B2 Run and Projects facts | run, projects | Next |
-| B3 Per-lane databases | run | Not started |
+| B2 Run and Projects facts | run, projects | Done — ed0168c; `pnpm check`: 194 passed, 8 opt-in checks skipped; ownership/cache/TLS/adoption tests; Run and Projects Chromium 1440px/390px; see Run and Projects facts implementation evidence |
+| B3 Per-lane databases | run | Next — needs Kyle's Postgres application-credential policy; see Needs Kyle and Open questions |
 | B4 Review packet gaps | review | Not started |
 | B5 Composer, editor link, watching only | work-lane | Not started |
 | B6 Add from GitHub, branch in the band | projects | Not started |
