@@ -338,8 +338,8 @@ Everything not yet built from the boards and the brief, split into milestones sm
 | 3.8 ⌘K Ask | top bar | Done with a fake model; see 3.8 |
 | 3.9 Measure the phase 3 gate | — | Built; the real run is Kyle's; see 3.9 |
 | 4.1 Hand off, fork, fresh session | work-lane | Done; see 4.1 |
-| 4.2 Second-agent review | review | Next |
-| 4.3 More agents | models | Not started |
+| 4.2 Second-agent review | review | Done; see 4.2 |
+| 4.3 More agents | models | Next |
 | 4.4 Routing | models | Not started |
 | 4.5 Scheduled lanes | — (needs a board) | Not started |
 | 4.6 Shared skills | insights | Not started |
@@ -666,6 +666,12 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 ### 4.2 Second-agent review (review)
 
 - **Ask Codex to review** (or another signed-in agent): a read-only session given the checkpoint diff and packet. Its findings become a section of the packet. The estimated cost comes from the diff size and is shown before starting.
+
+#### What was done (2026-10-30)
+
+- `apps/daemon/src/second-review.ts`: **Ask <agent> to review** on the Review page starts a lane of its own for another signed-in agent, in plan (read-only) mode, from the lane's branch, asked for findings ("blocker", "should fix" or "nit" with file:line) and a verdict. When its first turn ends, its answer is saved in the packet as a Second review section and its lane is archived and its host stopped. It cannot approve or merge.
+- The estimate shown before starting ("second review ≈ 40k tokens") is the diff read twice plus 15k of agent overhead, rounded; it is a guess and labelled as one.
+- Tests: `second-review.test.ts` (refuses the same agent; the read-only lane; findings saved; lane archived).
 
 ### 4.3 More agents (models)
 

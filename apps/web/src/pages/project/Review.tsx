@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import type { Checkpoint, Lane, LaneEvent } from "@contextlanes/protocol";
+import type { Checkpoint, DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber, agoText } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
 
 const WORDS = { strong: "Strong", mixed: "Mixed", weak: "Weak" } as const;
@@ -118,6 +118,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
       {shot.note ? <div className="sec-f" style={{ fontSize: 13 }}>{shot.note}</div> : null}
     </Section>)}
     <Trail lane={lane} events={history} />
+    {checkpoint.secondReview ? <SecondReview review={checkpoint.secondReview} project={lane.project} /> : null}
     <Files checkpoint={checkpoint} />
     <Decision lane={lane} checkpoint={checkpoint} decided={decided} />
   </>;
@@ -183,6 +184,15 @@ function Files({ checkpoint }: { checkpoint: Checkpoint }) {
   </Section>;
 }
 
+/** The other agent's review, as a section of the packet. */
+function SecondReview({ review, project }: { review: NonNullable<Checkpoint["secondReview"]>; project: string }) {
+  const name = AGENT_NAMES[review.agent] ?? review.agent;
+  return <Section title={`Second review · ${name}`} meta={review.state === "running" ? "reading the change, read-only" : agoText(review.at)} end={<Link className="lnk" to={`/p/${project}/work?lane=${encodeURIComponent(review.lane)}`}>Its steps →</Link>}>
+    <div className="sec-b">{review.state === "running" ? <span className="muted">{name} is reviewing in lane {review.lane.slice(review.lane.lastIndexOf("/") + 1)}. Its findings appear here when it finishes.</span>
+      : review.text ? <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.55 }}>{review.text}</div> : <span role="alert">{name} finished without writing a review.</span>}</div>
+  </Section>;
+}
+
 function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Checkpoint; decided: () => void }) {
   const [, , reloadInbox] = useInbox();
   const [busy, setBusy] = useState(false);
@@ -190,6 +200,9 @@ function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Check
   const [note, setNote] = useState("");
   const [asking, setAsking] = useState(false);
   const failing = checkpoint.checks.filter((c) => !c.passed).length;
+  const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
+  const reviewer = (agents ?? []).find((a) => a.status === "Ready" && a.id !== lane.agent && a.id !== "opencode")?.id ?? (agents ?? []).find((a) => a.status === "Ready" && a.id !== lane.agent)?.id ?? null;
+  const [estimate] = useJson<{ tokens: number }>(reviewer && !checkpoint.secondReview ? `/api/checkpoints/${checkpoint.id}/second-review` : null);
   const send = async (path: string, body: unknown) => {
     setBusy(true); setError("");
     try { await postJson(`/api/lanes/${lane.id}/${path}`, body); setAsking(false); decided(); reloadInbox(); }
@@ -199,7 +212,8 @@ function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Check
   return <section className="sec" aria-label="Decision"><div className="rva">
     <button className="btn" disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? "Rebasing and pushing…" : "Approve and merge"}</button>
     <button className="btn ghost" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>
-    {error && !asking ? <span role="alert" className="note">{error}</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">opens a pull request into {lane.base ?? "main"}</span>}
+    {reviewer && !checkpoint.secondReview ? <button className="btn ghost" disabled={busy} onClick={() => void postJson(`/api/checkpoints/${checkpoint.id}/second-review`, { agent: reviewer }).then(decided, (e) => setError(errorMessage(e)))}>Ask {AGENT_NAMES[reviewer] ?? reviewer} to review</button> : null}
+    {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">opens a pull request into {lane.base ?? "main"}</span>}
   </div>
   {asking ? <Dialog title="Request changes" meta={`back to ${AGENT_NAMES[lane.agent] ?? lane.agent} in this lane`} onClose={() => setAsking(false)}
     footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || !note.trim()} onClick={() => void send("request-changes", { note })}>Send to the agent</button></>}>

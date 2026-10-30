@@ -206,6 +206,13 @@ export class Store {
     return r ? toCheckpoint(r) : null;
   }
 
+  /** Second-agent review (4.2): kept in the packet beside the checks, so the packet stays one row. */
+  setSecondReview(id: string, review: NonNullable<Checkpoint["secondReview"]>): void {
+    const r = this.db.prepare("SELECT packet FROM checkpoint WHERE id = ?").get(id) as Row | undefined;
+    if (!r) return;
+    this.db.prepare("UPDATE checkpoint SET packet = ? WHERE id = ?").run(JSON.stringify({ ...JSON.parse(String(r.packet)), secondReview: review }), id);
+  }
+
   decideCheckpoint(id: string, decision: "approved" | "changes", prUrl?: string): void {
     this.db.prepare("UPDATE checkpoint SET decision = ?, pr_url = ? WHERE id = ?").run(decision, prUrl ?? null, id);
   }

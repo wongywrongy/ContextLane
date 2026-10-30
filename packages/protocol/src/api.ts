@@ -101,6 +101,8 @@ export const Checkpoint = z.object({
   unplanned: z.array(z.string()),
   process: z.array(z.object({ label: z.string(), ok: z.boolean() })),
   signal: z.enum(["strong", "mixed", "weak"]),
+  /** Ask another agent to review (4.2): it reads the change in a read-only lane of its own. */
+  secondReview: z.object({ agent: z.string(), lane: z.string(), state: z.enum(["running", "done", "failed"]), text: z.string().nullable(), at: z.string() }).nullable().optional(),
   decision: z.enum(["approved", "changes"]).nullable(),
   prUrl: z.string().nullable(),
   createdAt: z.string(),
@@ -135,3 +137,4 @@ export function benchTable(r: BenchResult): string {
 
 /** Hand off (another agent), fresh session (same agent) or fork (a new lane from this one). */
 export const HandoffRequest = z.object({ agent: z.string().min(1).max(60).optional(), model: z.string().max(200).optional(), note: z.string().max(2000).optional() });
+export const SecondReviewRequest = z.object({ agent: z.string().min(1).max(60) });
