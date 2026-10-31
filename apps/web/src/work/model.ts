@@ -61,7 +61,7 @@ export function stepsFor(events: LaneEvent[]): Step[] {
     }
     else if (event.type === "lane.handoff") steps.push({ seq: event.seq, at: event.at, family: "team", title: event.payload.from === event.payload.to ? "Fresh session from a handoff" : `Handed off to ${event.payload.to}`, type: "status", text: `${event.payload.chars.toLocaleString()} characters of handoff`, event });
     else if (event.type === "lane.forked") steps.push({ seq: event.seq, at: event.at, family: "team", title: `Forked into lane ${event.payload.to.slice(event.payload.to.lastIndexOf("/") + 1)}`, type: "status", event });
-    else if (event.type === "agent.error") steps.push({ seq: event.seq, at: event.at, family: "run", title: "Agent stopped", type: "status", text: event.payload.message, event });
+    else if (event.type === "agent.error") steps.push({ seq: event.seq, at: event.at, family: "run", title: "Problem", type: "status", text: event.payload.message, event });
     else if (event.type === "agent.command.result" && !event.payload.ok) steps.push({ seq: event.seq, at: event.at, family: "you", title: "Control could not be applied", type: "status", text: event.payload.error, event });
     else if (event.type === "notification.failed") steps.push({ seq: event.seq, at: event.at, family: "you", title: "Notification could not be sent", type: "status", text: event.payload.message, event });
     else if (event.type === "agent.turn" && event.payload.stopReason === "cancelled") steps.push({ seq: event.seq, at: event.at, family: "you", title: "Interrupted", type: "status", event });

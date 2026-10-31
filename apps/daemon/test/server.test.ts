@@ -187,4 +187,15 @@ describe("http api", () => {
     expect(started).not.toContain("Step 1");
     expect(store.events(lane.id).find((e) => e.type === "agent.message")).toMatchObject({ payload: { role: "user", text: plan } });
   });
+
+  it("deletes a working lane: stops it, removes the checkout, keeps the branch unless asked", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Stuck" } })).json();
+    expect((await app.inject({ url: `/api/lanes/${lane.id}/discard` })).json()).toMatchObject({ branch: lane.branch, present: false });
+    const res = await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/discard`, payload: { deleteBranch: true } });
+    expect(res.json()).toMatchObject({ state: "archived" });
+    expect(store.events(lane.id).at(-1)).toMatchObject({ type: "lane.state", payload: { to: "archived", reason: expect.stringContaining("branch deleted") } });
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/discard`, payload: {} })).statusCode).toBe(409);
+  });
 });

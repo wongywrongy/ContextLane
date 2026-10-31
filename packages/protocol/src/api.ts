@@ -17,6 +17,9 @@ export type Project = z.infer<typeof Project>;
 /** Rename or pin a project. The id, path and checkouts never change. */
 export const ProjectUpdate = z.object({ name: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional() }).refine((b) => b.name !== undefined || b.pinned !== undefined, "Nothing to change.");
 export const ProjectOrder = z.object({ ids: z.array(ProjectId).min(1).max(500) });
+/** Delete a lane: its agent, services, terminal and checkout go; its branch only when asked. */
+export const DiscardLane = z.object({ deleteBranch: z.boolean().default(false) });
+export type DiscardPreview = { uncommitted: number; commits: number; branch: string; worktree: string; present: boolean };
 /** A lane's title. */
 export const LaneRename = z.object({ task: z.string().trim().min(1).max(300) });
 

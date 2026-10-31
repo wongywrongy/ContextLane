@@ -6,7 +6,7 @@ import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import { AddProjectRequest, AnswerRequest, LaneId, LaneRename, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
+import { AddProjectRequest, AnswerRequest, DiscardLane, LaneId, LaneRename, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
@@ -20,6 +20,7 @@ import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import type { Schedules } from "../schedules.js";
+import { access } from "node:fs/promises";
 import { Skills } from "../skills.js";
 import { hostUnit } from "../lanes/naming.js";
 import { Terminals } from "../terminal/tmux.js";
@@ -177,6 +178,35 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const e = store.renameLane(id, LaneRename.parse(req.body).task);
     if (e) bus.publish(e);
     return store.getLane(id);
+  });
+  // Delete a lane (any state but merged, which Clean up handles): what would be lost, then the deletion.
+  const discardPreview = async (id: string): Promise<DiscardPreview> => {
+    const lane = store.getLane(id);
+    if (!lane) throw new NotFound("no such lane");
+    const present = await access(lane.worktree).then(() => true, () => false);
+    const git = (args: string[]) => run("git", args, { cwd: present ? lane.worktree : store.getProject(lane.project)!.path, timeout: 30_000 }).then((r) => r.stdout, () => "");
+    const uncommitted = present ? (await git(["status", "--porcelain"])).split("\n").filter(Boolean).length : 0;
+    const commits = Number((await git(["rev-list", "--count", `${lane.base ?? "HEAD"}..${lane.branch}`])).trim()) || 0;
+    return { uncommitted, commits, branch: lane.branch, worktree: lane.worktree, present };
+  };
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/discard", async (req) => discardPreview(laneParam(req.params)));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/discard", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no such lane");
+    if (lane.state === "merged") throw new Refused("This lane is merged; use Clean up on Run instead.", 409);
+    if (lane.state === "archived" && !(await discardPreview(lane.id)).present) throw new Refused("This lane is already deleted.", 409);
+    const { deleteBranch } = DiscardLane.parse(req.body ?? {});
+    const repo = store.getProject(lane.project)!.path;
+    await runtime.stop(lane.id).catch(() => {});
+    await runtime.dropDatabase(lane).catch(() => {});
+    await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
+    await new Terminals(run).kill(lane.terminal).catch(() => {});
+    // The owner asked for it, so uncommitted changes go too (--force); the branch stays unless asked.
+    if (await access(lane.worktree).then(() => true, () => false)) await run("git", ["worktree", "remove", "--force", lane.worktree], { cwd: repo, timeout: 120_000 });
+    await run("git", ["worktree", "prune"], { cwd: repo, timeout: 30_000 }).catch(() => {});
+    if (deleteBranch) await run("git", ["branch", "-D", lane.branch], { cwd: repo, timeout: 30_000 }).catch(() => {});
+    if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", `Deleted by you: agent stopped and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
+    return store.getLane(lane.id);
   });
   /** Stops the lane's agent and starts it again from the lane's first task (a refused or stuck agent). */
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/restart", async (req) => deps.lanes.restart(laneParam(req.params)));
