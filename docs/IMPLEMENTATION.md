@@ -738,6 +738,17 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - **Delete a lane.** The lane panel's **Delete this lane…** (any state but merged, which Clean up handles) shows what would be lost (uncommitted changes, commits only on its branch), then stops its agent, services and terminal, removes its checkout with `--force`, deletes the branch only when ticked (ticked by default when it has no commits of its own), and archives it. `GET/POST /api/lanes/:p/:n/discard`.
 - **Long plans.** A task can be a whole markdown plan. The lane gets a short title (`laneTitle`: first line without markdown, cut at a word) for lists, the branch and the header, editable in New lane; the full plan is the lane's first message, shown as the first step with Show all. The first message reaches the lane host as a file (`--task-file`) instead of an argument. Lanes already named after a whole plan are shortened at startup.
 
+#### Signals, not essays (2026-10-30)
+
+Every page was screenshotted in a seeded state (lanes needing you, working, in review, failed) and every sentence-long piece of copy was replaced or moved:
+
+- **New primitives** (`components/ui.tsx`): `Empty` takes an icon and an action ("No open lanes" + New lane); `Help` is a "?" next to a title that opens the explanation and closes on Escape or a click elsewhere (`Section help=`); `Fact` is a glyph, a short word and a mono detail; `.flow` draws a real sequence as steps with arrows. DESIGN.md principle 9 records the rule.
+- **Run:** each preview shows Stopped or Up as a glyph; what Start will do is drawn as its steps; recipe, clean up and exposure are facts with the policy behind "?".
+- **Review:** process checks use a hollow glyph for "not done" (amber is only for waiting on you); no checks / no plan are facts; the empty page draws how work reaches review.
+- **Lane:** a failure is one headline with Restart the agent and the full output behind Details; "spawn … ENOENT" now names the missing command. The inspector shows "No plan yet" and hides context until the agent reports it; the terminal command and branch are copy rows. The lane list says "Ready for your review", "Asks: …" and clamps to two lines. Interrupt is off for lanes that are not running, and Escape does nothing there.
+- **Insights, Models, Settings, Architecture, Setup, Inbox, Projects:** explanations moved behind "?"; empty sections are one line with an icon and action; notification channels show On/Off; project tiles count lanes with the lane glyphs.
+- Fixed on the way: Architecture drew nothing for a module on a layer CodeGraph had not listed (a folder a lane created); the overview showed an idle lane as Working.
+
 #### Bug audit and hardening (2026-10-30)
 
 Two independent audits (backend; web) found 29 bugs. Each was traced in code before fixing; most have a test.

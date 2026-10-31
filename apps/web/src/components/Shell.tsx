@@ -77,7 +77,7 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
       }} /></div>
     <div className="jump-list" role="listbox" aria-label="Results">
       {items.map((item, i) => <button key={item.key} role="option" aria-selected={i === active} className={i === active ? "on" : ""} onMouseEnter={() => setActive(i)} onClick={() => go(item.to)}>{item.label}<span className="m">{item.meta}</span></button>)}
-      {!items.length ? <div className="empty">Nothing matches. Try a project name or part of a task, or type a question.</div> : null}
+      {!items.length ? <div className="empty">Nothing matches · try a project, a task or a question</div> : null}
     </div>
     {answer ? <div className="sec-b" role="status" aria-live="polite" style={{ borderTop: "1px solid var(--line-soft)", fontSize: 14, lineHeight: 1.55 }}>
       {answer.busy ? <span className="muted">Asking the local model…</span> : answer.error ? <span role="alert">{answer.error}</span> : answer.result ? <>

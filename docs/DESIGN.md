@@ -14,6 +14,7 @@ These settle disputes. When a screen and a principle disagree, the screen change
 6. **State agrees everywhere.** Every page reads the same events; two pages showing different states for one lane is a bug.
 7. **Machine text in mono, people text in sans.** Ids, branches, paths, numbers and section meta are mono; sentences are not.
 8. **Show, then configure.** Pages show what is happening; settings live in Settings or behind an explicit Edit.
+9. **Signals before sentences.** A state is a glyph and a word or two (`Fact`, `Glyph`), not a sentence. No paragraph on any page: an empty section is an icon, a few words and the action that fills it (`Empty` with `icon` and `action`); how something works sits behind the "?" next to its title (`Help`, or `Section help=`); long output (an error's log lines) sits behind Details. A real sequence (what Start runs, how work reaches Review) is drawn as steps with arrows (`.flow`), and only a real sequence.
 
 ## Words
 

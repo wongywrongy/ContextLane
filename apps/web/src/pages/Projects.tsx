@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import type { Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
-import { Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
+import { GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment", collision: "subagent" };
 
@@ -46,7 +46,8 @@ function ProjectTile({ project, lanes, services }: { project: Project; lanes: La
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
   const counts = (["needs_you", "working", "in_review", "failed"] as const).map((s) => [s, open.filter((l) => l.state === s).length] as const).filter(([, n]) => n);
   const words: Record<string, string> = { needs_you: "need you", working: "working", in_review: "in review", failed: "failed" };
-  const line = counts.length ? counts.map(([s, n]) => `${n} ${words[s]}`).join(" · ") : latest ? `last lane ${agoText(latest)}` : "no lanes yet";
+  // Counts as glyphs, the same marks as the lane badges above, so the tile reads at a glance.
+  const line = counts.length ? counts.map(([s, n]) => <Glyph key={s} g={GLYPH[s][0]}>{`${n} ${words[s]}`}</Glyph>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
   return <Link className="tile" to={`/p/${project.id}/work`}>
     <div className={`cover ${coverFor(project.id)}`} />
     <div className="tb">
@@ -57,7 +58,7 @@ function ProjectTile({ project, lanes, services }: { project: Project; lanes: La
         {!open.length ? <Glyph g="idle">No lanes</Glyph> : null}
       </div>
     </div>
-    <div className="tf">{line}{services && services.up + services.down ? <> · {services.up} {services.up === 1 ? "service" : "services"} up{services.down ? ` · ${services.down} down` : ""}</> : null}</div>
+    <div className="tf">{line}{services?.up ? <Glyph g="done">{`${services.up} up`}</Glyph> : null}{services?.down ? <Glyph g="fail">{`${services.down} down`}</Glyph> : null}</div>
   </Link>;
 }
 
@@ -65,7 +66,7 @@ function NeedsYou({ lanes, projects }: { lanes: Lane[]; projects: Project[] }) {
   const [items, , reload] = useInbox();
   const shown = (items ?? []).slice(0, 4);
   // Amber only when something waits: with nothing waiting this is one quiet line, not an amber card.
-  if (items && !items.length) return <section className="sec" aria-labelledby="need-h"><div className="sec-r"><Glyph g="done" /><span id="need-h" className="muted">Nothing needs you. Agents' questions and permission requests appear here.</span><Link className="lnk" style={{ marginLeft: "auto" }} to="/inbox">Inbox →</Link></div></section>;
+  if (items && !items.length) return <section className="sec" aria-labelledby="need-h"><div className="sec-r"><Glyph g="done" /><span id="need-h" className="muted">Nothing needs you</span><Link className="lnk" style={{ marginLeft: "auto" }} to="/inbox">Inbox →</Link></div></section>;
   return <section className="sec you" aria-labelledby="need-h">
     <div className="sec-h"><i className="g wait" aria-hidden="true" /><h2 id="need-h">Needs you</h2>{items?.length ? <span className="m">{shown.length} of {items.length}</span> : null}<div className="e"><Link className="lnk" to="/inbox">Open inbox →</Link></div></div>
     {shown.map((item) => <NeedRow key={item.id} item={item} lane={lanes.find((l) => l.id === item.lane)} project={projects.find((p) => item.lane.startsWith(`${p.id}/`))} answered={reload} />)}

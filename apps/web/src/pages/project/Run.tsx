@@ -4,7 +4,8 @@ import { useParams } from "react-router";
 import { errorMessage, getJson, postJson, useJson } from "../../api";
 import { NewLaneDialog } from "../../components/NewLane";
 import { useProjectWork } from "../../components/Shell";
-import { Dialog, Empty, Glyph, LaneBadge, PageHeader, Section } from "../../components/ui";
+import { Link } from "react-router";
+import { Dialog, Empty, Fact, Glyph, Help, LaneBadge, PageHeader, Section } from "../../components/ui";
 import { SERVICE_GLYPH } from "../../work/model";
 
 const clock = (iso: string, seconds = false) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...(seconds ? { second: "2-digit" } : {}), hourCycle: "h23" });
@@ -34,33 +35,33 @@ export function RunPage() {
   const open = environments?.lanes ?? [];
   const recipe = environments?.recipe ?? null;
   return <main className="pg stack">
-    <PageHeader title="Run" meta="each lane's copy of the app, from the approved recipe" end={<Glyph g="done">{exposure}</Glyph>} />
+    <PageHeader title="Run" meta="each lane's copy of your app" end={<Glyph g="done">{exposure}</Glyph>} />
     <Section title="Environments" meta={environments ? `${live} running · ${open.length - live} not started` : ""}>
       {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} facts={environments?.facts?.lanes.find((f) => f.lane === lane.id)} /> : null; })}
-      {environments && !open.length ? <Empty>No open lanes. Start a lane from Work, then run its copy of the app here.</Empty> : null}
-      <div className="envl"><div className="envl-h"><b>Not started by ContextLanes</b><span className="m">watched only</span></div>
-        {environments?.facts?.outside === null ? <div className="empty">Listening ports could not be read on this machine (the ss command is missing or failed).</div> : environments?.facts?.outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
+      {environments && !open.length ? <Empty icon="environment" family="run" action={<Link className="btn ghost sm" to={`/p/${project}/work?new=1`}>New lane</Link>}>No open lanes</Empty> : null}
+      <div className="envl"><div className="envl-h"><b>Started outside ContextLanes</b><Help>Servers from this project that you started yourself, found by their listening ports. ContextLanes only watches them; adopt one to run it as a lane's preview instead.</Help>
+        {environments?.facts?.outside === null ? <span className="e"><Fact g="idle" detail="ss unavailable">Ports not readable</Fact></span> : environments?.facts?.outside.length === 0 ? <span className="e"><Fact g="done">None running</Fact></span> : null}</div>
+        {environments?.facts?.outside?.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
           <Glyph g="idle">{service.name}</Glyph><code>:{service.port}</code><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>pid {service.pid} · {service.cwd} · {service.bind}</span>
-          {service.adoptedLane ? <span>Proposed for {service.adoptedLane}. Stop this outside copy only once the lane’s copy runs.</span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
+          {service.adoptedLane ? <span className="e" style={{ marginLeft: "auto" }}><Fact g="wait" detail="stop this copy once the lane's runs">Moving to {service.adoptedLane}</Fact></span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
         </div>)}
-        {environments?.facts?.outside?.length === 0 ? <p className="muted">No other project listeners found.</p> : null}
       </div>
     </Section>
-    <Section title="Recipe and housekeeping" meta="applies to every lane in this project">
+    <Section title="Recipe and housekeeping" meta="every lane in this project">
       <div className="hk">
         <div>
-          <h4>Recipe{recipe ? <span className="e">{recipe.error ? <Glyph g="fail">Invalid</Glyph> : recipe.approved ? <Glyph g="done">Approved</Glyph> : <Glyph g="wait">Needs approval</Glyph>}</span> : null}</h4>
+          <div className="h4" role="heading" aria-level={4}>Recipe<Help>A recipe (<span className="mono">.contextlanes.json</span> in the repository) says how to run this app for a lane: setup steps, services and their ports, and the checks run before review. Nothing in it runs until you approve it here. Lanes edit, test and get reviewed without one.</Help>{recipe ? <span className="e">{recipe.error ? <Glyph g="fail">Invalid</Glyph> : recipe.approved ? <Glyph g="done">Approved</Glyph> : <Glyph g="wait">Needs approval</Glyph>}</span> : null}</div>
           {recipe ? <><span className="mono" style={{ fontSize: 13.5 }}>{recipe.file}</span>
             <span className="mono muted" style={{ fontSize: 12 }}>sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((s) => s.name).join(", ") || "no services"} · ports per lane` : ""}</span>
             <div><button className="btn ghost sm" onClick={() => setViewing(recipe)}>View recipe</button></div></>
-            : <span className="muted" style={{ fontSize: 13.5 }}>None yet. A recipe tells ContextLanes how to run this app for each lane: setup steps, services and their ports, and the checks to run before review. It lives in <span className="mono">.contextlanes.json</span> in the repository, and nothing in it runs until you approve it here. Lanes still edit, test and get reviewed without one.</span>}
+            : <><Fact g="idle" detail=".contextlanes.json">No recipe</Fact><span className="muted" style={{ fontSize: 13 }}>Previews and checks need one</span></>}
         </div>
         {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
         <div>
-          <h4>Exposure</h4>
-          <span style={{ fontSize: 13.5 }}>{environments?.previews === "caddy" ? `Previews at *.${environments.domain} through Caddy` : "Previews are reachable on your tailnet only."}</span>
-          <span className="muted" style={{ fontSize: 13.5 }}>A lane service found listening beyond localhost is stopped within seconds.</span>
-          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <span key={lane.lane} className="muted" style={{ fontSize: 13.5 }}>{lane.lane} · certificate valid {lane.certificateDays} more days</span>)}
+          <div className="h4" role="heading" aria-level={4}>Exposure<Help>Previews are reachable only on your tailnet{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help></div>
+          <Fact g="done" detail={environments?.previews === "caddy" ? `*.${environments.domain}` : undefined}>{exposure}</Fact>
+          <Fact g="done">Outside listeners stopped</Fact>
+          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <Fact key={lane.lane} g={lane.certificateDays! < 7 ? "wait" : "done"} detail={lane.lane}>{`Certificate ${lane.certificateDays} days`}</Fact>)}
         </div>
       </div>
     </Section>
@@ -85,8 +86,8 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
     changed();
   };
   return <div>
-    <h4>Clean up{entries.length ? <span className="e mono muted" style={{ fontSize: 12, fontWeight: 500 }}>{entries.length} merged {entries.length === 1 ? "lane" : "lanes"}{disk ? ` · ${size(disk)}` : ""}</span> : null}</h4>
-    <span style={{ fontSize: 13.5 }}>For merged lanes: stops their services and agent, drops their databases and removes their checkouts (with ignored files such as .env). Branches are kept.</span>
+    <div className="h4" role="heading" aria-level={4}>Clean up<Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help></div>
+    {entries.length ? <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact> : <Fact g="done">Nothing to clean up</Fact>}
     {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit is" : "commits are"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} could not be checked` : ""}</Glyph> : null}
     {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
     {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{message}</p> : null}
@@ -125,7 +126,8 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
   return <div className="envl">
     <div className="envl-h">
       <LaneBadge id={lane.id} colour={lane.colour} /><b>{lane.task}</b>
-      <span className="m">{lane.branch} · {isRunning && env?.startedAt ? `up ${duration(env.startedAt)}` : "not started"}{facts?.diskBytes != null ? ` · ${size(facts.diskBytes)} on disk` : ""}</span>
+      {isRunning ? <Glyph g="done">{env?.startedAt ? `Up ${duration(env.startedAt)}` : "Running"}</Glyph> : <Glyph g="idle">Stopped</Glyph>}
+      <span className="m">{lane.branch}{facts?.diskBytes != null ? ` · ${size(facts.diskBytes)}` : ""}</span>
       <div className="e">
         {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
           : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Review recipe</button>
@@ -141,14 +143,15 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
     </div> : null}
     {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? null : service.name)} />) : null}
     {isRunning && logs ? <Logs lane={lane.id} service={logs} /> : null}
-    {!isRunning && recipe?.recipe ? <span style={{ fontSize: 14, color: "var(--text-2)" }}>{plan(recipe)}</span> : null}
+    {!isRunning && recipe?.recipe ? <Plan view={recipe} /> : null}
   </div>;
 }
 
-function plan(view: RecipeView): string {
+/** What Start does, drawn as its steps in order rather than told in a sentence. */
+function Plan({ view }: { view: RecipeView }) {
   const recipe = view.recipe!;
-  const steps = ["copy ignored files", ...(recipe.cache.length ? ["link dependencies"] : []), ...(recipe.setup.length ? [`run ${recipe.setup.length === 1 ? recipe.setup[0]!.name : `${recipe.setup.length} setup steps`}`] : [])];
-  return `Setup runs when you start it: ${steps.join(", ")}, then ${recipe.services.map((s) => s.name).join(" and ") || "nothing else"}${recipe.services.length ? " on free ports" : ""}.`;
+  const steps = ["Copy .env files", ...(recipe.cache.length ? ["Link dependencies"] : []), ...recipe.setup.map((s) => s.name), ...recipe.services.map((s) => `${s.name} on a free port`)];
+  return <ol className="flow" aria-label="What Start does">{steps.map((step) => <li key={step}>{step}</li>)}</ol>;
 }
 
 function Service({ service, open, toggle }: { service: ServiceStatus; open: boolean; toggle: () => void }) {

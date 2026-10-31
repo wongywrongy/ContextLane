@@ -2,12 +2,13 @@ import { useEffect, useRef, type ReactNode } from "react";
 import type { LaneState, StepKind } from "@contextlanes/protocol";
 
 /** A section: the one container every group of content lives in. */
-export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string }) {
+export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string; help?: ReactNode }) {
   return (
     <section className={`sec${props.tone ? ` ${props.tone}` : ""}`} id={props.id}>
       <div className="sec-h">
         {props.icon}
         <h3>{props.title}</h3>
+        {props.help ? <Help>{props.help}</Help> : null}
         {props.meta ? <span className="m">{props.meta}</span> : null}
         {props.end ? <div className="e">{props.end}</div> : null}
       </div>
@@ -27,9 +28,38 @@ export function PageHeader(props: { title: string; meta?: ReactNode; end?: React
   );
 }
 
-/** Empty states say what will be here, instead of leaving a blank box. */
-export function Empty(props: { children: ReactNode }) {
-  return <div className="empty">{props.children}</div>;
+/**
+ * Empty states: what goes here in a few words, with an icon and the action that fills it.
+ * Never a paragraph; anything longer belongs in a Help next to the section title.
+ */
+export function Empty(props: { children: ReactNode; icon?: IconName; family?: Family; action?: ReactNode }) {
+  if (!props.icon && !props.action) return <div className="empty">{props.children}</div>;
+  return <div className="empty lead">{props.icon ? <Tile family={props.family ?? "look"} icon={props.icon} small /> : null}<span>{props.children}</span>{props.action ? <span className="e">{props.action}</span> : null}</div>;
+}
+
+/**
+ * The explanation behind a signal, one click away instead of always on screen: a small "?" that opens
+ * a short note. Use it for how something works; never for what the user must do now.
+ */
+export function Help(props: { children: ReactNode; label?: string }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Closes like a popover: a click elsewhere or Escape.
+  useEffect(() => {
+    const close = (event: Event) => {
+      const el = ref.current;
+      if (!el?.open) return;
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !el.contains(event.target as Node)) { el.open = false; if (event instanceof KeyboardEvent) event.preventDefault(); }
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close, true);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close, true); };
+  }, []);
+  return <details className="help" ref={ref}><summary aria-label={props.label ?? "What is this?"} title={props.label ?? "What is this?"}>?</summary><div className="help-b">{props.children}</div></details>;
+}
+
+/** A fact as a signal: glyph, short word, and an optional mono detail. For status rows and summaries. */
+export function Fact(props: { g: string; children: ReactNode; detail?: ReactNode }) {
+  return <span className="fact"><Glyph g={props.g}>{props.children}</Glyph>{props.detail ? <span className="mono muted">{props.detail}</span> : null}</span>;
 }
 
 /** Lane states map onto the seven glyphs of the legend: shape and colour, plus a word. */

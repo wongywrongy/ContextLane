@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber, agoText } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber, agoText } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
 
 const WORDS = { strong: "Strong", mixed: "Mixed", weak: "Weak" } as const;
@@ -61,17 +61,18 @@ export function ReviewPage() {
         {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button key={l.id} className={`rvi${l.id === lane?.id ? " on" : ""}`} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
           <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${clean(c) ? "done" : "wait"}`} role="img" aria-label={clean(c) ? "Checks pass" : "Look closer"} /><small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
         </button>; })}
-        {checkpoints && !ready.length ? <span className="muted" style={{ fontSize: 13.5 }}>Nothing is ready yet.</span> : null}
+        {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}
       </div>
       {waiting.length ? <div>
         <span className="lbl">Not ready <span>{waiting.length}</span></span>
-        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${l.state === "needs_you" ? "wait" : "work"}`} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs your answer" : "still working"}</small></Link>)}
+        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${l.state === "needs_you" ? "wait" : "work"}`} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs you" : "working"}</small></Link>)}
       </div> : null}
     </aside>
     <main className="rvm" aria-label="Checkpoint">
       {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
       {lane && checkpoint ? <Packet key={checkpoint.id} lane={lane} checkpoint={checkpoint} number={number} decided={reload} />
-        : <section className="sec"><Empty>Nothing to review yet. When a lane is ready (the agent asks, or you choose Ask for review on the lane), its checks, screenshots, plan and changed files appear here for you to merge or send back.</Empty></section>}
+        : <section className="sec"><Empty icon="checkpoint" family="you">Nothing to review</Empty>
+          <div className="sec-r"><ol className="flow" aria-label="How work reaches review"><li>Agent works in a lane</li><li>Ask for review</li><li>Checks and screenshots</li><li>You merge or send back</li></ol></div></section>}
     </main>
   </div>;
 }
@@ -99,14 +100,14 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
         {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
         {sharing(history, lane.id).map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
         {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
-        {!results ? <div className="rvr muted">The recipe has no checks.</div> : null}
+        {!results ? <div className="rvr"><Fact g="idle" detail="add them to the recipe">No checks</Fact></div> : null}
       </Section>
       <Section title="Process" end={<span className={`sig${SIGNAL[checkpoint.signal]}`}>Signal {WORDS[checkpoint.signal]}</span>}>
-        {checkpoint.process.map((p) => <div className="rvr" key={p.label}><i className={`g ${p.ok ? "done" : "wait"}`} role="img" aria-label={p.ok ? "Yes" : "No"} /><span>{p.label}</span></div>)}
+        {checkpoint.process.map((p) => <div className="rvr" key={p.label}><i className={`g ${p.ok ? "done" : "idle"}`} role="img" aria-label={p.ok ? "Yes" : "No"} /><span>{p.label}</span></div>)}
       </Section>
       <Section title="Plan vs done" end={checkpoint.plan.length ? <span className="mono muted" style={{ fontSize: 12 }}>{done} of {checkpoint.plan.length}</span> : undefined}>
         {checkpoint.plan.map((p, i) => <div className="rvr" key={i}><i className={`g ${p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle"}`} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>)}
-        {!checkpoint.plan.length ? <div className="rvr muted">The agent wrote no plan.</div> : null}
+        {!checkpoint.plan.length ? <div className="rvr"><Fact g="idle">No plan written</Fact></div> : null}
         {checkpoint.unplanned.length ? <div className="rvr you"><i className="g wait" role="img" aria-label="Look closer" /><span>Not in the plan: {checkpoint.unplanned.slice(0, 3).join(", ")}{checkpoint.unplanned.length > 3 ? ` and ${checkpoint.unplanned.length - 3} more` : ""}</span></div> : null}
       </Section>
     </div>

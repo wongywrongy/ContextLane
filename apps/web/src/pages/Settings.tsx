@@ -4,7 +4,7 @@ import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 
@@ -50,13 +50,14 @@ export function PasskeyButton() {
   }}>Add a passkey for this address</Action></div>;
 }
 
-function Form({ title, meta, children, save }: { title: string; meta?: string; children: ReactNode; save: (f: FormData) => Promise<void> }) {
+/** A setting behind its title. `on` shows its state as a glyph and word; `meta` is the value in mono. */
+function Form({ title, meta, on, children, save }: { title: string; meta?: string; on?: boolean; children: ReactNode; save: (f: FormData) => Promise<void> }) {
   const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault(); setBusy(true); setMessage("");
     try { await save(new FormData(e.currentTarget)); setMessage("Saved."); } catch (err) { setMessage(errorMessage(err)); } finally { setBusy(false); }
   };
-  return <details><summary>{title}{meta ? <span className="m">{meta}</span> : null}</summary>
+  return <details><summary>{title}{meta ? <span className="m">{meta}</span> : null}{on === undefined ? null : <span style={{ marginLeft: meta ? 0 : "auto" }}><Glyph g={on ? "done" : "idle"}>{on ? "On" : "Off"}</Glyph></span>}</summary>
     <form className="form" onSubmit={(e) => void submit(e)}>{children}<div style={{ display: "flex", gap: 10, alignItems: "center" }}><button className="btn sm" disabled={busy}>{busy ? "Saving…" : "Save"}</button>{message ? <span role="status" className="muted" style={{ fontSize: 13 }}>{message}</span> : null}</div></form>
   </details>;
 }
@@ -87,40 +88,40 @@ export function SettingsPage() {
           {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
         </Section>
         <Section id="access" title="Access">
-          <div className="sec-r"><span className="kl">Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <span>Only on this machine. Run <code>contextlanes setup</code> to turn on Tailscale.</span>}</div>
+          <div className="sec-r"><span className="kl">Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <Fact g="idle" detail="contextlanes setup turns on Tailscale">This machine only</Fact>}</div>
           <div className="sec-r"><span className="kl">Owner</span><span>{status?.tailnetLogin ?? "Signed in with a setup link"}</span></div>
-          <div className="sec-r"><span className="kl">Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><span className="muted">Not added.</span><PasskeyButton /></>}</div>
-          <div className="sec-r"><span className="kl">Public internet</span><span>Off · tailnet or SSH tunnel only</span></div>
+          <div className="sec-r"><span className="kl">Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><Glyph g="idle">None</Glyph><PasskeyButton /></>}</div>
+          <div className="sec-r"><span className="kl">Public internet</span><Fact g="done" detail="tailnet or SSH tunnel only">Off</Fact></div>
         </Section>
         <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>
           {projects?.map((p, i) => <ProjectRow key={p.id} project={p} first={i === 0} last={i === projects.length - 1} move={(by) => {
             const ids = projects.map((x) => x.id); const j = i + by; [ids[i], ids[j]] = [ids[j]!, ids[i]!];
             void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects, (e) => { setOrderError(errorMessage(e)); reloadProjects(); });
           }} changed={reloadProjects} />)}
-          {projects && !projects.length ? <Empty>No projects yet.</Empty> : null}
+          {projects && !projects.length ? <Empty icon="folder" action={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>No projects</Empty> : null}
           {orderError ? <div className="sec-f" role="alert" style={{ fontSize: 13 }}>{orderError}</div> : null}
         </Section>
-        <Section id="notifications" title="Notifications" meta="you decide when the agent continues">
+        <Section id="notifications" title="Notifications" help="Questions and permission requests reach you on the channels turned on here. The agent waits for your answer; nothing is approved for you.">
           <PushSettings />
           <div className="opts in-sec">
-            <Form title="Phone push contact" meta={n.webPush ? "keys ready" : "not set up"} save={async (f) => { if (!n.webPush) throw new RequestError("Enable push on a device first; that creates the keys."); await saveNotifications({ webPush: { ...n.webPush, subject: v(f, "subject") } }); }}>
+            <Form title="Phone push contact" on={!!n.webPush} save={async (f) => { if (!n.webPush) throw new RequestError("Enable push on a device first; that creates the keys."); await saveNotifications({ webPush: { ...n.webPush, subject: v(f, "subject") } }); }}>
               <label className="field">Contact for the push service <span className="hint">a mailto: address push services can reach</span><input className="in" name="subject" defaultValue={n.webPush?.subject} placeholder="mailto:you@example.com" /></label>
             </Form>
-            <Form title="ntfy" meta={n.ntfy ? n.ntfy.topic : "not set up"} save={(f) => saveNotifications({ ntfy: { topic: v(f, "topic"), url: v(f, "url") || "https://ntfy.sh", ...(v(f, "token") ? { token: v(f, "token") } : {}) } })}>
+            <Form title="ntfy" meta={n.ntfy?.topic} on={!!n.ntfy} save={(f) => saveNotifications({ ntfy: { topic: v(f, "topic"), url: v(f, "url") || "https://ntfy.sh", ...(v(f, "token") ? { token: v(f, "token") } : {}) } })}>
               <div className="two"><label className="field">Private topic<input className="in" name="topic" required defaultValue={n.ntfy?.topic} /></label><label className="field">Server<input className="in" name="url" type="url" defaultValue={n.ntfy?.url ?? "https://ntfy.sh"} /></label></div>
               <label className="field">Publishing token <span className="hint">optional</span><input className="in" name="token" type="password" autoComplete="off" defaultValue={n.ntfy?.token} /></label>
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>Subscribe to the same topic in the ntfy app on your phone.</p>
+              <Fact g="idle">Subscribe to this topic in the ntfy app</Fact>
             </Form>
-            <Form title="Telegram" meta={n.telegram ? "connected" : "not set up"} save={(f) => saveNotifications({ telegram: { botToken: v(f, "botToken"), chatId: v(f, "chatId"), ownerId: v(f, "ownerId") } })}>
+            <Form title="Telegram" on={!!n.telegram} save={(f) => saveNotifications({ telegram: { botToken: v(f, "botToken"), chatId: v(f, "chatId"), ownerId: v(f, "ownerId") } })}>
               <label className="field">Bot token<input className="in" name="botToken" type="password" required autoComplete="off" defaultValue={n.telegram?.botToken} /></label>
               <div className="two"><label className="field">Chat ID<input className="in" name="chatId" required defaultValue={n.telegram?.chatId} /></label><label className="field">Your user ID<input className="in" name="ownerId" required defaultValue={n.telegram?.ownerId} /></label></div>
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>Message the bot once first. Only you, in this chat, can answer.</p>
+              <Fact g="idle">Message the bot once first · only you can answer</Fact>
             </Form>
-            <Form title="Quiet hours" meta={n.quiet ? `${n.quiet.start}–${n.quiet.end}` : "off"} save={(f) => saveNotifications({ quiet: { start: v(f, "start"), end: v(f, "end"), timeZone: v(f, "timeZone") || "UTC" } })}>
+            <Form title="Quiet hours" meta={n.quiet ? `${n.quiet.start}–${n.quiet.end}` : undefined} on={!!n.quiet} save={(f) => saveNotifications({ quiet: { start: v(f, "start"), end: v(f, "end"), timeZone: v(f, "timeZone") || "UTC" } })}>
               <div className="two"><label className="field">From<input className="in" name="start" type="time" required defaultValue={n.quiet?.start} /></label><label className="field">Until<input className="in" name="end" type="time" required defaultValue={n.quiet?.end} /></label></div>
               <label className="field">Time zone<input className="in" name="timeZone" defaultValue={n.quiet?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} /></label>
             </Form>
-            <Form title="Address in notification links" meta={n.publicUrl ?? status?.publicUrl ?? "not set"} save={(f) => saveNotifications({ publicUrl: v(f, "publicUrl") })}>
+            <Form title="Address in notification links" meta={n.publicUrl ?? status?.publicUrl ?? undefined} on={!!(n.publicUrl ?? status?.publicUrl)} save={(f) => saveNotifications({ publicUrl: v(f, "publicUrl") })}>
               <label className="field">HTTPS address <span className="hint">filled in by contextlanes setup when Tailscale is on</span><input className="in mono" name="publicUrl" type="url" required defaultValue={n.publicUrl ?? status?.publicUrl ?? ""} /></label>
             </Form>
           </div>
@@ -128,7 +129,7 @@ export function SettingsPage() {
         <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
         <ScheduledLanes />
         <Section id="data" title="Data">
-          <div className="sec-r"><span className="kl">Backups</span>{machine ? <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>{machine.backups.scheduled === null ? "" : machine.backups.scheduled ? "Nightly · " : "Not scheduled · "}{machine.backups.directory}{machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : ""}</span> : <span className="muted">Backup status not available</span>}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
+          <div className="sec-r"><span className="kl">Backups</span>{machine && machine.backups.scheduled === null ? <span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{machine.backups.directory}</span> : machine ? <Fact g={machine.backups.scheduled ? "done" : "idle"} detail={`${machine.backups.directory}${machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : ""}`}>{machine.backups.scheduled ? "Nightly" : "Not scheduled"}</Fact> : null}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
           <div className="sec-r"><span className="kl">Export</span><span>Everything as JSON · known secrets masked</span><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => {
             const data = await getJson<DataExport>("/api/data/export");
             const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -179,14 +180,14 @@ export function ModelsPage() {
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg">
     <PageHeader title="Models" meta="who does the work" />
-    <Section title="Agents" meta="each keeps its own login · talks over ACP" end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button></>}>
+    <Section title="Agents" help="Each agent keeps its own login on this machine. Lanes start them in a mode where you approve their actions; switches that bypass approval are never passed. They talk to ContextLanes over ACP." end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><button className="btn ghost sm" onClick={() => { reload(); reloadUsage(); }}>Check again</button></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    <Section title="Local models" meta="endpoints on this machine or your tailnet · each job goes to a free one with its role" end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+    <Section title="Local models" meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask and Tidy use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
       {(local ?? models.map((m) => ({ ...m, label: m.label ?? null, roles: m.roles ?? [], state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m}
         save={async (change) => { await postJson("/api/setup/settings", { localModels: models.map((x) => x.name === m.name && x.url === m.url ? { ...x, ...change } : x) }); reloadSettings(); reloadLocal(); }}
         remove={async () => { await postJson("/api/setup/settings", { localModels: models.filter((x) => !(x.name === m.name && x.url === m.url)) }); reloadSettings(); }} />)}
-      {!models.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None saved. Add Ollama or llama.cpp below; module briefs, the local helper, Insights and Ask use them.</div> : null}
+      {!models.length ? <Empty icon="think" family="mind">No local models</Empty> : null}
       <div className="opts in-sec">
         <Form title="Add an endpoint" save={async (f) => {
           const roles = LOCAL_ROLE_KEYS.filter((r) => f.get(`role-${r}`));
@@ -217,14 +218,14 @@ function ScheduledLanes() {
   const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [message, setMessage] = useState("");
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
-  return <Section id="schedules" title="Scheduled lanes" meta="started by a timer on this machine · never merged without you">
+  return <Section id="schedules" title="Scheduled lanes" help="A timer on this machine starts the lane; it waits for your review like any other and is never merged without you. Good first ones: a nightly dependency bump, a weekly docs pass.">
     {error ? <div className="sec-r muted">{error.message}</div> : null}
     {(list ?? []).map((s) => <div className="sec-r" key={s.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) auto", gap: 14, alignItems: "center" }}>
       <span style={{ minWidth: 0 }}><b>{s.task}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{s.id} · {s.project} · {AGENT_NAMES[s.agent] ?? s.agent}{s.lastLane ? ` · last ${s.lastLane}` : ""}</span></span>
       <span className="mono" style={{ fontSize: 12.5 }}>{s.when}<span className="muted" style={{ display: "block" }}>{s.next ? `next ${s.next}` : "not scheduled"}</span></span>
       <span style={{ display: "flex", gap: 8 }}><Action small ghost run={() => postJson(`/api/schedules/${s.id}/run`, {})} done={reload}>Run now</Action><Action small ghost run={() => postJson(`/api/schedules/${s.id}`, {}, "DELETE")} done={reload}>Remove</Action></span>
     </div>)}
-    {list && !list.length ? <div className="sec-r muted" style={{ fontSize: 14 }}>None. A nightly dependency bump or a weekly docs pass are good first ones.</div> : null}
+    {list && !list.length ? <Empty icon="plan" family="run">No scheduled lanes</Empty> : null}
     <div className="opts in-sec">
       <Form title="Add a scheduled lane" save={async (f) => {
         setMessage("");
@@ -250,12 +251,12 @@ function RoutingSection({ settings, agents, reload }: { settings: SetupSettings 
   const store = (next: RoutingRule[]) => postJson("/api/setup/settings", { routing: next }).then(reload);
   const save = (next: RoutingRule[]) => { setError(""); void store(next).catch((e) => setError(errorMessage(e))); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
-  return <Section title="Routing" meta="which agent and model a new lane gets · first match wins">
+  return <Section title="Routing" help="Words in a new lane's task pick its agent and model; the first matching rule wins. Use it to send, say, docs and fixtures to a local model.">
     {rules.map((r, i) => <div className="sec-r" key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) auto auto", gap: 14, alignItems: "center" }}>
       <span>{r.words.join(", ")}</span><span className="mono" style={{ fontSize: 13 }}>{AGENT_NAMES[r.agent] ?? r.agent}{r.model ? ` → ${r.model}` : ""}</span><span className="mono muted" style={{ fontSize: 12 }}>{r.label ?? ""}</span>
       <button className="lnk" onClick={() => save(rules.filter((_, j) => j !== i))}>Remove</button>
     </div>)}
-    <div className="sec-r muted" style={{ fontSize: 13.5 }}>{rules.length ? "Anything else uses the first ready agent." : "No rules: New lane uses the first ready agent. Add one to send, say, docs and fixtures to a local model."}</div>
+    <div className="sec-r"><Fact g="idle">{rules.length ? "Anything else" : "Every task"}</Fact><span className="mono muted" style={{ fontSize: 12.5 }}>→ first ready agent</span></div>
     <div className="opts in-sec">
       <Form title="Add a rule" save={async (f) => {
         const words = v(f, "words").split(",").map((w) => w.trim()).filter(Boolean);
@@ -287,7 +288,6 @@ function RegistryDialog({ onClose }: { onClose: () => void }) {
         <span style={{ minWidth: 0 }}><span className="nm"><b>{a.name}</b><span className="mono">{a.version}</span></span><span className="sub" style={{ display: "block" }}>{[a.description, a.license].filter(Boolean).join(" · ")}</span></span>
         <span className="meta">{a.installed ? <span className="sig">added</span> : a.install ? <button className="btn sm" disabled={!!busy} onClick={() => install(a.id)}>{busy === a.id ? "Installing…" : "Install"}</button> : <span className="muted" style={{ fontSize: 12.5 }}>no build for this machine</span>}</span>
       </div>)}
-      <p className="muted" style={{ fontSize: 12.5 }}>Each agent keeps its own login. Lanes start them in a mode where you approve their actions; approval-bypassing switches are never passed.</p>
     </>}
   </Dialog>;
 }
@@ -300,7 +300,7 @@ function HelperSection() {
   const [kinds, , reload] = useJson<HelperStatus[]>("/api/helper");
   const [error, setError] = useState("");
   const toggle = (kind: HelperStatus["kind"], on: boolean) => { setError(""); void postJson("/api/helper", { kind, on }).then(reload, (e) => setError(errorMessage(e))); };
-  return <Section title="Local helper" meta="work Claude and Codex hand off with delegate · on only while it pays" footer={<span className="mono muted" style={{ fontSize: 12 }}>green = cloud tokens saved this week (estimated) · one job per GPU at a time{error ? ` · ${error}` : ""}</span>}>
+  return <Section title="Local helper" help="Small jobs (reading files, summarising logs) that Claude and Codex hand to your local model with delegate. A kind of job stays on only while it pays off; green is the cloud tokens it saved this week, estimated. One job per GPU at a time." footer={error ? <span role="alert" style={{ fontSize: 13 }}>{error}</span> : undefined}>
     {(kinds ?? []).map((k) => { const [name, what, icon] = HELPER_WORDS[k.kind]; return <div className="sec-r lmrow" key={k.kind}>
       <Tile family="team" icon={icon} small />
       <span><b>{name}</b><span className="muted" style={{ display: "block", fontSize: 12.5 }}>{what}</span></span>

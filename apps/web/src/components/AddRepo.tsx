@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FolderListing, GithubListing, Project, RepositoryScan } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
-import { AGENT_NAMES, AgentMark, Dialog, Icon, ago, agoText, tildePath } from "./ui";
+import { AGENT_NAMES, AgentMark, Dialog, Glyph, Icon, ago, agoText, tildePath } from "./ui";
 
 /**
  * Add repositories: the ones your agents already worked in and the ones found in your home
@@ -32,9 +32,9 @@ export function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdd
   return <Dialog title="Add repositories" meta={scan ? `${repos.length} found` : undefined} onClose={onClose}
     footer={<><button className="btn ghost" onClick={() => setView("browse")}>Choose a folder…</button><button className="btn ghost" onClick={() => setView("github")}>From GitHub…</button>
       <div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn" disabled={!selected.size || busy} onClick={() => void add([...selected])}>{busy ? "Adding…" : selected.size ? `Add ${selected.size} ${selected.size === 1 ? "repository" : "repositories"}` : "Add repositories"}</button></div></>}>
-    {scanError ? <div className="empty">Repositories could not be listed. <button className="lnk" onClick={rescan}>Try again</button> or choose a folder.</div>
-      : !scan ? <div className="empty">Looking at your agents’ recent work and your home folder…</div>
-      : !repos.length ? <div className="empty">No Git repositories were found. Choose a folder, or clone a repository on this machine first.</div>
+    {scanError ? <div className="empty lead"><Glyph g="fail">Could not list repositories</Glyph><span className="e"><button className="btn ghost sm" onClick={rescan}>Try again</button></span></div>
+      : !scan ? <div className="empty lead"><Glyph g="think">Looking in your agents’ recent work and your home folder…</Glyph></div>
+      : !repos.length ? <div className="empty lead"><Glyph g="idle">No repositories found · choose a folder below</Glyph></div>
       : <>
         {repos.map((repo) => {
           const isAdded = added.has(repo.path);

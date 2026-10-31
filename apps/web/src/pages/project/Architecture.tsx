@@ -48,7 +48,7 @@ export function ArchitecturePage() {
   const [query, setQuery] = useState("");
 
   if (error && !data) return <main className="pg"><PageHeader title="Architecture" /><Section title="Architecture"><Empty>The code map could not be loaded. {error.message}</Empty></Section></main>;
-  if (!data) return <main className="pg"><PageHeader title="Architecture" meta="how the code fits together and where lanes touch it" /><Section title="Architecture"><Empty>Reading the code with CodeGraph. The first map of a large repository can take a minute.</Empty></Section></main>;
+  if (!data) return <main className="pg"><PageHeader title="Architecture" meta="how the code fits together and where lanes touch it" /><Section title="Architecture"><Empty icon="search">Mapping the code · a large repository takes a minute</Empty></Section></main>;
   if (!map) return <main className="pg"><PageHeader title="Architecture" /><Section title="Architecture"><Empty>{data.error ?? "No code map yet."}</Empty></Section></main>;
 
   const modules = map.modules.concat([...created].filter((id) => !map.modules.some((m) => m.id === id)).map((id) => ({ id, layer: layerForNew(id, map, touched.get(id)?.[0]?.files ?? []), files: touched.get(id)?.[0]?.files.length ?? 0, lines: 0, tests: 0 })));
@@ -73,7 +73,7 @@ export function ArchitecturePage() {
           </div> : null}
           {data.error ? <div className="sec-f" role="status" style={{ fontSize: 13 }}>{data.error} Showing the last map.</div> : null}
           {atAreas ? <AreaGrid areas={areas} map={map} touched={touched} usesChange={usesChange} open={openArea} />
-            : !visible.length ? <Empty>{q ? `No module matches "${query}".` : shown === "changes" || shown === "lanes" ? "No open lane has changed code here yet. Show all to see every module." : "CodeGraph found no code it can read here."}</Empty>
+            : !visible.length ? <Empty>{q ? `No module matches "${query}".` : shown === "changes" || shown === "lanes" ? "No lane has changed code here yet" : "CodeGraph found no code it can read here."}</Empty>
             : <Diagram map={map} modules={visible} touched={touched} created={created} usesChange={usesChange} tests={shown === "tests"} selected={selected} select={setSelected} path={path} onlySelected={visible.length > AREA_THRESHOLD} />}
           <div className="alegend" aria-label="Key">
             <span><i className="ln" />calls or imports</span><span><i className="ed" />a lane edits it</span><span><i className="tw" />two lanes edit it</span><span><i />uses a change</span>
@@ -88,7 +88,7 @@ export function ArchitecturePage() {
       </div>
       <aside className="sec insp" aria-label="Selected module">
         {focus ? <Inspector project={project} map={map} module={focus} touched={touched} lanes={lanes} startHere={() => setStarting(focus.id)} root={projects?.find((p) => p.id === project)?.path ?? null} />
-          : <div className="ps"><span className="lbl">{atAreas ? "Areas" : "Selected module"}</span><p className="muted" style={{ fontSize: 13.5, margin: "8px 0 0" }}>{atAreas ? map.areas ? "Areas are the grouping you approved under Grouping. Open one to see its modules and how they connect, or find a module by name." : "Each area is a top folder of the repository. Open one to see its modules and how they connect, or find a module by name." : "Choose a module to see what uses it, which tests cover it and what agents are told about it."}</p></div>}
+          : <div className="ps"><span className="lbl">{atAreas ? "Areas" : "Selected module"}</span><div style={{ marginTop: 10 }}><Glyph g="idle">{atAreas ? "Open an area" : "Select a module"}</Glyph></div></div>}
       </aside>
     </div>
     {starting && projects ? <NewLaneDialog projects={projects} project={project} task={`In ${starting}: `} onClose={() => setStarting(null)} /> : null}
@@ -114,7 +114,9 @@ function Diagram({ map, modules, touched, created, usesChange, tests, selected, 
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [boxes, setBoxes] = useState<Record<string, Box>>({});
-  const layers = map.layers.filter((l) => modules.some((m) => m.layer === l.name));
+  // A module on a layer CodeGraph did not list (a folder a lane just created) still gets a column.
+  const layers = [...map.layers, ...[...new Set(modules.map((m) => m.layer))].filter((name) => !map.layers.some((l) => l.name === name)).map((name) => ({ name, tech: null as string | null }))]
+    .filter((l) => modules.some((m) => m.layer === l.name));
   const ids = modules.map((m) => m.id).join("|");
   useLayoutEffect(() => {
     const el = wrap.current;
@@ -194,7 +196,7 @@ function Inspector({ project, map, module, touched, lanes, startHere, root }: { 
 
 /** Areas (large repositories): one card per top folder with its size, layers, lanes and what it uses. */
 function AreaGrid({ areas, map, touched, usesChange, open }: { areas: CodeArea[]; map: CodeMap; touched: Map<string, { lane: Lane; files: string[] }[]>; usesChange: Set<string>; open: (name: string) => void }) {
-  if (!areas.length) return <Empty>No open lane has changed code yet. Show all to see every area.</Empty>;
+  if (!areas.length) return <Empty>No lane has changed code yet</Empty>;
   return <div className="areas">{areas.map((a) => {
     const lanes = new Map<string, Lane>();
     let two = false;

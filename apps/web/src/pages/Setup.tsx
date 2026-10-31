@@ -28,7 +28,7 @@ export function SetupPage() {
   }, [token, reload]);
   return <main className="setup">
     <div className="hero"><Link className="wm" to="/">Context<span className="ln">Lanes</span></Link><span className="w2">setup</span>
-      <p>Install it once on a machine that stays on. Then finish here, from any browser on your network.</p></div>
+      <p>Install once on a machine that stays on. Finish here, from any browser.</p></div>
     <div className="cols">
       <div className="col">
         <section className="sec"><div className="sec-h"><span className="stepn">1</span><h3>On the always-on machine</h3></div>
@@ -40,7 +40,7 @@ export function SetupPage() {
         </section>
       </div>
       {!signedIn ? <Section title="Signing you in"><Empty>Opening your private setup session…</Empty></Section>
-        : !status ? <Section title="Connection"><Empty>{error ? "The ContextLanes service could not be reached. Check that it is running, then reload." : "Connecting…"}</Empty></Section>
+        : !status ? <Section title="Connection"><Empty>{error ? <Glyph g="fail">ContextLanes is not answering · check it runs, then reload</Glyph> : "Connecting…"}</Empty></Section>
         : <BrowserSteps status={status} reload={reload} signInError={signInError} signedOut={status.signedOut || route.state?.signedOut === true} />}
     </div>
   </main>;
@@ -80,9 +80,9 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
   const finished = signed && (status.hasLane || skipped);
   return <section className="sec" aria-label="From any browser">
     <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of {done.length} done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
-    <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Run contextlanes setup on the machine and open the link it prints."}>
+    <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Open the link contextlanes setup prints."}>
       {!signed ? <>
-        {signedOut ? <p role="status" style={{ margin: 0 }}>You were signed out because ContextLanes changed how it keeps you signed in. This happens once. Sign in again below.</p> : null}
+        {signedOut ? <Glyph g="wait">Signed out by an update · sign in once more</Glyph> : null}
         {signInError ? <p role="alert" style={{ margin: 0 }}>{signInError} Run <code>contextlanes setup</code> again for a new link.</p> : null}
         {status.hasPasskey ? <div><Action run={async () => {
           if (!window.PublicKeyCredential?.parseRequestOptionsFromJSON) throw new RequestError("Use a current browser at the HTTPS address where you added the passkey.");
@@ -94,19 +94,19 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
       </> : status.hasLane ? <PasskeyButton /> : null}
     </Step>
     <Step n={2} state={state(1)} title="Connect an agent" change={done[1] && current !== 1 ? () => setOpened(1) : undefined}
-      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready. You can message, approve and interrupt them here; they keep their own logins.` : "Install and sign in to at least one coding agent. You message, approve and interrupt it here; it keeps its own login."}>
+      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready · they keep their own logins` : "Install and sign in to one coding agent."}>
       {state(1) === "now" ? <><AgentRows agents={agents} error={agentError} reload={reloadAgents} />{opened === 1 ? <div><button className="btn" disabled={!ready} onClick={() => setOpened(null)}>Continue</button></div> : null}</> : null}
     </Step>
     <Step n={3} state={state(2)} title="Add projects" change={done[2] && current !== 2 ? () => setOpened(2) : undefined}
-      desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents already work in, or any folder on the machine. Each lane gets its own checkout."}>
+      desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents work in."}>
       {state(2) === "now" ? <div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => setAdding(true)}>{hasProject ? "Add more" : "Add repositories"}</button>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
     </Step>
     <Step n={4} state={state(3)} title="Map your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
-      desc={done[3] && current !== 3 ? "Mapped. Architecture and Run show the detail." : "ContextLanes reads each repository on this machine to map its code and check how it runs. Nothing leaves the machine."}>
+      desc={done[3] && current !== 3 ? "Mapped · see Architecture and Run." : "Its code and how it runs · read on this machine only."}>
       {state(3) === "now" && projects?.length ? <><div className="agents">{projects.map((p) => <ProjectSurvey key={p.id} project={p} done={() => setMapped((m) => m[p.id] ? m : { ...m, [p.id]: true })} />)}</div>
         <div><button className="btn" disabled={!surveyed} onClick={() => { remember("cl-projects-surveyed"); setSeen(true); setOpened(null); }}>{surveyed ? "Continue" : "Mapping…"}</button></div></> : null}
     </Step>
-    <Step n={5} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped. Start one from any project's Work tab." : "Give an agent one task. It gets its own branch, checkout and shell, and keeps going when you close this tab."}>
+    <Step n={5} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped · start one from Work." : "One task · its own branch, checkout and shell."}>
       {state(4) === "now" && projects?.length ? <><FirstLane projects={projects} /><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
     </Step>
     <Step n={6} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
@@ -116,7 +116,7 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
         <Link to="/settings#notifications"><b>ntfy</b><span>self-hosted</span></Link>
       </div> : null}
     </Step>
-    <Step n={7} state="next" optional title="Local models" desc={<>Point ContextLanes at Ollama or llama.cpp on this machine.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
+    <Step n={7} state="next" optional title="Local models" desc={<>Ollama or llama.cpp, for small jobs.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
     {finished ? <div className="sec-f"><span>You’re set up.</span><div style={{ marginLeft: "auto" }}><Link className="btn sm" to="/">Open projects</Link></div></div> : null}
     {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={() => { reloadProjects(); setOpened(null); }} /> : null}
   </section>;
@@ -140,11 +140,11 @@ function ProjectSurvey({ project, done }: { project: Project; done: () => void }
         : m ? <Glyph g="done">{m.modules.length} modules in {m.layers.map((l) => l.name).join(", ") || "one layer"} · {m.files} files</Glyph>
         : <Glyph g="fail">Not mapped: {map?.error ?? mapError?.message}</Glyph>}
       {env ? recipe ? recipe.error ? <Glyph g="fail">.contextlanes.json is invalid: {recipe.error}</Glyph>
-          : recipe.approved ? <Glyph g="done">Runs from its approved recipe: {recipe.recipe?.services.map((x) => x.name).join(", ") || "no services"}</Glyph>
-          : <Glyph g="wait">Has a recipe waiting for you. <Link to={`/p/${project.id}/run`}>Review it on Run</Link></Glyph>
-        : <Glyph g="idle">No .contextlanes.json, so lanes cannot start the app yet. Lanes still edit, test and review.</Glyph> : null}
-      {services.length ? <Glyph g="wait">{services.length} {services.length === 1 ? "service" : "services"} already running outside a lane ({services.map((x) => `:${x.port}`).join(", ")}). <Link to={`/p/${project.id}/run`}>Adopt on Run</Link></Glyph> : null}
-      {sessions.length ? <Glyph g="wait">{sessions.length} agent {sessions.length === 1 ? "session" : "sessions"} started outside ContextLanes. <Link to={`/p/${project.id}/work`}>Take over on Work</Link></Glyph> : null}
+          : recipe.approved ? <Glyph g="done">Recipe approved · {recipe.recipe?.services.map((x) => x.name).join(", ") || "no services"}</Glyph>
+          : <Glyph g="wait">Recipe to approve · <Link to={`/p/${project.id}/run`}>Run</Link></Glyph>
+        : <Glyph g="idle">No recipe · previews off</Glyph> : null}
+      {services.length ? <Glyph g="wait">{services.length} running outside a lane ({services.map((x) => `:${x.port}`).join(", ")}) · <Link to={`/p/${project.id}/run`}>Adopt</Link></Glyph> : null}
+      {sessions.length ? <Glyph g="wait">{sessions.length} outside agent {sessions.length === 1 ? "session" : "sessions"} · <Link to={`/p/${project.id}/work`}>Take over</Link></Glyph> : null}
     </span>
     {m ? <Link className="btn ghost sm" to={`/p/${project.id}/architecture`}>Architecture</Link> : null}
   </div>;
@@ -158,6 +158,6 @@ function FirstLane({ projects }: { projects: Project[] }) {
 export function ClaimGuard({ children }: { children: ReactNode }) {
   const [status, error] = useJson<SetupStatus>("/api/setup/status");
   if (status && !status.authorized) return <Navigate to="/setup" replace state={{ signedOut: status.signedOut }} />;
-  if (!status) return <main className="pg"><Section title="Connection"><Empty>{error ? "ContextLanes could not be reached. Check that the service is running, then reload." : "Connecting…"}</Empty></Section></main>;
+  if (!status) return <main className="pg"><Section title="Connection"><Empty>{error ? <Glyph g="fail">ContextLanes is not answering · check it runs, then reload</Glyph> : "Connecting…"}</Empty></Section></main>;
   return children;
 }

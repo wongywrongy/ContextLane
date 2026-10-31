@@ -90,6 +90,11 @@ a.btn.ghost { color: var(--ink); }
 .sec-b { padding: 16px 18px; }
 .sec-b > p { margin: 0 0 12px; font-size: 14px; line-height: 1.55; }
 .sec-b > p:last-child { margin-bottom: 0; }
+/* Detail behind a signal: a quiet "Details" toggle, open only on request. */
+details.more { padding: 10px 18px 14px; }
+details.more > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+details.more > summary:hover { color: var(--ink); }
+details.more .out { margin: 10px 0 0; }
 .sec-r { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 18px; border-top: 1px solid var(--line-soft); font-size: 14.5px; }
 .sec-r > .kl { flex: none; width: 180px; color: var(--muted); }
 .sec-r .grow { flex: 1 1 0; min-width: 0; }
@@ -99,6 +104,22 @@ a.btn.ghost { color: var(--ink); }
 .sec-h + .sec-r, .sec-r:first-child { border-top: 0; }
 .sec-f { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 18px; border-top: 1px solid var(--line-soft); flex-wrap: wrap; background: var(--surface-2); }
 .empty { padding: 22px 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.empty.lead { display: flex; align-items: center; gap: 12px; padding: 16px 18px; color: var(--text-2); }
+.empty.lead > .e { margin-left: auto; display: flex; gap: 8px; }
+/* "?" next to a title: the explanation, one click away. */
+.help { position: relative; display: inline-block; vertical-align: middle; }
+.help > summary { list-style: none; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #CFC8BC; color: var(--muted); font: 700 11px/16px var(--font); text-align: center; cursor: pointer; user-select: none; }
+.help > summary::-webkit-details-marker { display: none; }
+.sec:has(.help[open]), .hk:has(.help[open]), .hk > div:has(.help[open]) { overflow: visible; }
+.help[open] > summary { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.help-b { position: absolute; z-index: 20; top: 26px; left: -12px; width: min(320px, 80vw); padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(13,12,11,.10); font: 400 13.5px/1.5 var(--font); color: var(--text-2); white-space: normal; text-align: left; }
+/* A short sequence drawn as steps with arrows: what an action will do, in order. */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.flow > li { position: relative; display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); font-size: 13px; color: var(--text-2); }
+.flow > li + li { margin-left: 18px; }
+.flow > li + li::before { content: "→"; position: absolute; left: -19px; color: #A39C90; }
+.fact { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.fact > .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col { display: grid; gap: 16px; align-content: start; min-width: 0; }
 [role="alert"], .error { color: var(--bad-ink); font-size: 13.5px; }
 
@@ -167,7 +188,10 @@ a.btn.ghost { color: var(--ink); }
 .tile .nm .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile .lanes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; min-height: 22px; }
 .tile .lanes > span { display: inline-flex; align-items: center; gap: 5px; }
-.tile .tf { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 14px; padding: 0 18px; border-top: 1px solid var(--line-soft); font: 500 12px var(--mono); color: var(--muted); }
+.tile .tf { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; min-height: 44px; margin-top: 14px; padding: 8px 18px; border-top: 1px solid var(--line-soft); font: 500 12.5px var(--font); color: var(--muted); }
+.tile .tf .gl { font-size: 12.5px; gap: 6px; }
+.tile .tf .g { transform: scale(.85); }
+.tile .tf .g.wait { transform: rotate(45deg) scale(.85); }
 .tile.add { align-items: center; justify-content: center; min-height: 230px; border-style: dashed; background: transparent; cursor: pointer; font: 600 15px var(--font); gap: 8px; }
 
 /* ── dialogs (add repo, new lane, jump) ── */
@@ -238,7 +262,7 @@ input.in.mono { font: 400 14px var(--mono); }
 .lrow .ttl { display: flex; align-items: center; gap: 6px; min-height: 20px; }
 .lrow .ttl b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lrow .ttl .g { margin-left: auto; }
-.lrow .now { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 3px; line-height: 1.35; overflow-wrap: anywhere; }
+.lrow .now { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; color: var(--text-2); margin-top: 3px; line-height: 1.35; overflow-wrap: anywhere; }
 .lane-main { min-width: 0; padding: 20px 28px 28px; display: grid; gap: 14px; align-content: start; }
 .lane-main .ph { margin: 0; }
 .lane-main .ph h2 { font-size: 26px; overflow-wrap: anywhere; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -464,8 +488,8 @@ input.in.mono { font: 400 14px var(--mono); }
 .hk { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); }
 .hk > div { padding: 16px 18px; border-left: 1px solid var(--line-soft); display: grid; gap: 10px; align-content: start; min-width: 0; }
 .hk > div:first-child { border-left: 0; }
-.hk h4 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 700; color: var(--ink); }
-.hk h4 .e { margin-left: auto; }
+.hk h4, .hk .h4 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.hk h4 .e, .hk .h4 .e { margin-left: auto; }
 .hk .gl { white-space: normal; font-weight: 500; color: var(--text); }
 .recipe-text { margin: 0; max-height: 50vh; overflow: auto; }
 

@@ -28,16 +28,17 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
     <section className="ps">
       <div className="ps-h"><span className="lbl">Plan</span>{entries.length ? <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done} of {entries.length}</span></div> : null}</div>
       {entries.length ? <div className="plan">{entries.map((entry, i) => <Glyph key={i} g={entry.status === "completed" ? "done" : entry.status === "in_progress" ? "think" : "idle"}>{entry.text}</Glyph>)}</div>
-        : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows the agent’s plan when it writes one.</p>}
+        : <Glyph g="idle">No plan yet</Glyph>}
     </section>
-    <section className="ps">
+    {/* Shown once the agent reports it (or when Restart with a summary is offered): unknown stays silent. */}
+    {used || (READY.handoff && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
       <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
       {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
-      </div> : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Shows how full the agent’s context is once it reports it.</p>}
+      </div> : null}
       {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
-    </section>
+    </section> : null}
     <section className="ps">
       <div className="ps-h"><span className="lbl">Checkout</span></div>
       <dl className="kv2"><dt>Branch</dt><dd className="mono">{lane.branch}</dd><dt>Folder</dt><dd className="mono">{lane.worktree}</dd><dt>Started</dt><dd>{new Date(lane.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd></dl>
@@ -47,7 +48,8 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Your access</span></div>
       <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the lane's terminal</button>
       {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open the folder in your editor</a> : null}
-      <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>From any shell: <button className="lnk mono" style={{ fontSize: 12 }} onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")}>contextlanes term {lane.id}</button> · branch <button className="lnk mono" style={{ fontSize: 12, overflowWrap: "anywhere", textAlign: "left" }} onClick={() => void copy(lane.branch, "Branch name")}>{lane.branch}</button> <span className="muted">(click to copy)</span></p>
+      <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+      <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       {READY.handoff ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
         <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>
         <button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Copy into a new lane</button></> : null}
@@ -68,7 +70,7 @@ function EnvironmentBlock({ lane, events }: { lane: Lane; events: LaneEvent[] })
   return <section className="ps">
     <div className="ps-h"><span className="lbl">Environment</span><div className="e"><Link className="lnk" to={`/p/${lane.project}/run`} style={{ fontSize: 12.5 }}>Run →</Link></div></div>
     {services.length ? <div className="plan">{services.map((s) => <Glyph key={s.service} g={SERVICE_GLYPH[s.state ?? (s.up ? "healthy" : "stopped")]}>{s.service}{s.port ? <span className="mono muted" style={{ fontSize: 12, fontWeight: 400 }}>:{s.port}</span> : null}{s.url ? <a className="lnk mono" style={{ fontSize: 12 }} href={s.url} target="_blank" rel="noreferrer">open ↗</a> : null}</Glyph>)}</div>
-      : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{recipeWaiting ? "The recipe needs your approval before this lane can start." : "Not started."}</p>}
+      : recipeWaiting ? <Glyph g="wait">Recipe needs approval</Glyph> : <Glyph g="idle">Stopped</Glyph>}
   </section>;
 }
 

@@ -26,7 +26,7 @@ export function InboxPage() {
     <div className="ph"><h1>Inbox</h1><span className="m">everything waiting on you, oldest first</span>
       <div className="e">{KINDS.filter(([k]) => k !== "all" && count(k)).length < 2 ? null : KINDS.filter(([k]) => k === "all" || count(k)).map(([k, label]) => <button key={k} className={`chipf${kind === k ? " on" : ""}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{label} {count(k)}</button>)}</div></div>
     {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
-    {items && !sorted.length ? <section className="sec"><div className="sec-r"><Glyph g="done" /><span>Nothing needs you. When an agent asks a question or for permission, it appears here. To get it on your phone too, set up Notifications in Settings.</span></div></section>
+    {items && !sorted.length ? <section className="sec"><div className="sec-r"><Glyph g="done">Nothing needs you</Glyph><Link className="btn ghost sm" style={{ marginLeft: "auto" }} to="/settings#notifications">Get it on your phone</Link></div></section>
       : <div className="ibx">
         <section className="sec" aria-label="Waiting">
           {shown.map((item) => {

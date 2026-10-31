@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { Collision, Lane, ModuleBrief, TidyView } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../../api";
-import { Glyph, LaneBadge, Section, agoText, laneNumber } from "../../components/ui";
+import { Link } from "react-router";
+import { Fact, Glyph, LaneBadge, Section, agoText, laneNumber } from "../../components/ui";
 
 /**
  * "Two lanes are editing this": who and how much, the suggested order and why, and the one action:
@@ -43,8 +44,8 @@ export function BriefBlock({ project, module }: { project: string; module: strin
       <textarea className="in" rows={6} value={editing} maxLength={4000} onChange={(e) => setEditing(e.target.value)} aria-label="Brief" />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn sm" disabled={busy || !editing.trim()} onClick={() => act(postJson(`/api/projects/${project}/briefs`, { module, text: editing }, "PUT"))}>Save</button><button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button></div>
     </> : brief.text ? <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{brief.text}</p>
-      : <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{brief.canWrite ? "No brief yet. Agents get CodeGraph's facts until one is written." : "Agents get CodeGraph's facts about this module. Add a local model under Models to have briefs written."}</p>}
-    {brief.stale && editing === null ? <p style={{ margin: "8px 0 0", fontSize: 12.5 }}><i className="g wait" aria-hidden="true" /> Written before its files last changed.</p> : null}
+      : <Fact g="idle" detail="agents get CodeGraph's facts">No brief</Fact>}
+    {brief.stale && editing === null ? <div style={{ marginTop: 8 }}><Glyph g="idle">Older than its files</Glyph></div> : null}
     {brief.canWrite && editing === null && (!brief.text || brief.stale) ? <button className="btn sm" style={{ marginTop: 10 }} disabled={busy} onClick={() => act(postJson(`/api/projects/${project}/briefs/write`, { module }))}>{busy ? "Writing…" : brief.text ? "Write it again" : "Write it now"}</button> : null}
     {brief.tokens !== null ? <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px", marginTop: 14, fontSize: 13 }}>
       <span className="muted">this brief</span><span className="mono" style={{ color: "var(--ok-ink)", fontWeight: 600 }}>≈ {k(brief.tokens)} tokens</span>
@@ -85,11 +86,11 @@ export function TidyBlock({ project, changed }: { project: string; changed: () =
     {p.notes.length ? <div className="sec-f" style={{ fontSize: 13.5, display: "grid", gap: 4 }}><span className="lbl">Why</span>{p.notes.map((n, i) => <span key={i}>{n}</span>)}</div> : null}
     {error ? <div className="sec-f" role="alert">{error}</div> : null}
   </Section>;
-  return <Section title="Grouping" meta={view.approved ? `tidied by ${view.approved.model}, approved ${agoText(view.approved.at)}` : "from folder names"}>
+  return <Section title="Grouping" help="Without a grouping, areas are top folders and layers are guessed from folder names. Your local model can suggest named areas and fix layers; nothing changes until you approve, and module names never change.">
     <div className="sec-r wrap">
-      <span className="grow muted" style={{ fontSize: 13.5 }}>{view.approved ? `${view.approved.areas} named areas and corrected layers you approved. Module names never change.` : "Areas are top folders and layers are guessed from folder names. Your local model can suggest named areas and fix layers; nothing changes until you approve."}</span>
+      <span className="grow">{view.approved ? <Fact g="done" detail={`${view.approved.model} · ${agoText(view.approved.at)}`}>{`${view.approved.areas} named areas, approved`}</Fact> : <Fact g="idle">From folder names</Fact>}</span>
       {view.canRun ? <button className="btn ghost sm" disabled={busy || view.running} onClick={() => void act("")}>{busy || view.running ? "Thinking…" : view.approved ? "Suggest again" : "Suggest a grouping"}</button>
-        : <span className="muted" style={{ fontSize: 13 }}>Add a local model under Models to get suggestions.</span>}
+        : <Link className="btn ghost sm" to="/models">Add a local model</Link>}
       {view.approved ? <button className="btn ghost sm" disabled={busy} onClick={() => void act("", "DELETE")}>Back to folders</button> : null}
     </div>
     {error ? <div className="sec-f" role="alert">{error}</div> : null}

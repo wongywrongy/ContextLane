@@ -37,7 +37,8 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
     return app.connect(stream);
   })();
-  child?.on("error", (err) => connection.close(err));
+  // "spawn x ENOENT" means nothing to the owner; say which command is missing and where to fix it.
+  child?.on("error", (err: NodeJS.ErrnoException) => connection.close(err.code === "ENOENT" ? new Error(`The agent's command ${opts.agent.command} is not installed on this machine. Install it, or fix its command in Models.`) : err));
   const abort = () => { connection.close(); child?.kill(); };
   opts.signal?.addEventListener("abort", abort, { once: true });
   const ctx = connection.agent;

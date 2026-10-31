@@ -14,7 +14,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-di
 export function Steps({ events, waiting, reload, agent, filter }: { events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; filter: Filter }) {
   const steps = stepsFor(events).filter((s) => filter === "all" || (filter === "thinking" ? s.family === "mind" && s.type !== "text" : s.family === "change"));
   return <>
-    {!steps.length ? <Empty>{filter === "all" ? "Steps appear here as the agent plans, reads, edits and runs things." : "Nothing of this kind yet."}</Empty>
+    {!steps.length ? <Empty>{filter === "all" ? "No steps yet" : "None of this kind"}</Empty>
       : <div className="sec-b" style={{ padding: "8px 18px 12px" }}><div className="spine">
         {steps.map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
       </div></div>}
