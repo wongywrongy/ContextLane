@@ -8,18 +8,21 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
   const modes: string[] = [];
   let cancel: (() => void) | undefined;
   let model = "small";
+  let effort = "medium";
   const configs = (): SessionConfigOption[] => [{ id: "model", name: "Model", category: "model", type: "select", currentValue: model,
-    options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] }];
+    options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] },
+    { id: "reasoning_effort", name: "Reasoning effort", category: "thought_level", type: "select", currentValue: effort,
+      options: [{ value: "minimal", name: "Minimal" }, { value: "medium", name: "Medium" }, { value: "xhigh", name: "Xhigh" }] }];
   const app = agent({ name: "fake" })
     .onRequest(methods.agent.initialize, () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {}, authMethods: [] }))
     .onRequest(methods.agent.session.new, ({ params }) => {
       sessions.push(params);
       return { sessionId: "fake-session", modes: { currentModeId: "default", availableModes: [
-        { id: "default", name: "Ask" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Bypass permissions" }, { id: "agent", name: "Auto review" },
+        { id: "default", name: "Ask" }, { id: "acceptEdits", name: "Accept edits" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Bypass permissions" }, { id: "agent", name: "Auto review" },
       ] }, configOptions: configs() };
     })
     .onRequest(methods.agent.session.setMode, ({ params }) => { modes.push(params.modeId); return {}; })
-    .onRequest(methods.agent.session.setConfigOption, ({ params }) => { model = String(params.value); return { configOptions: configs() }; })
+    .onRequest(methods.agent.session.setConfigOption, ({ params }) => { if (params.configId === "reasoning_effort") effort = String(params.value); else model = String(params.value); return { configOptions: configs() }; })
     .onNotification(methods.agent.session.cancel, () => cancel?.())
     .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
       const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("");

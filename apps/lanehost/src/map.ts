@@ -17,6 +17,11 @@ const KIND: Record<ToolKind, StepKind> = {
 export class Coalescer {
   private kind: "agent.message" | "agent.thought" | null = null;
   private text = "";
+  /**
+   * Command output that arrives as chunks in `_meta` (Codex sends it there to clients without a terminal),
+   * kept per tool call until the command ends, then sent once with its exit code.
+   */
+  private readonly output = new Map<string, string>();
 
   constructor(private readonly emit: (e: NewLaneEvent) => void) {}
 
@@ -30,6 +35,23 @@ export class Coalescer {
     }
     this.flush();
     const mapped = mapUpdate(update);
+    if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+      const id = update.toolCallId;
+      const delta = outputChunk(update._meta);
+      if (delta) this.output.set(id, ((this.output.get(id) ?? "") + delta).slice(-MAX_OUTPUT));
+      const exitCode = exitOf(update._meta, update.rawOutput);
+      const ended = update.status === "completed" || update.status === "failed" || exitCode !== undefined;
+      // A chunk alone is held; the end of the command carries all of it.
+      if (mapped && (mapped.type === "tool.call" || mapped.type === "tool.update")) {
+        const held = ended ? this.output.get(id) : undefined;
+        if (ended) this.output.delete(id);
+        const only = mapped.type === "tool.update" && Object.keys(mapped.payload).length === 1 && !held && exitCode === undefined;
+        if (only) return;
+        const summary = mapped.payload.summary ?? (held ? clip(stripVTControlCharacters(held)) : undefined);
+        this.emit({ ...mapped, payload: { ...mapped.payload, ...(summary ? { summary } : {}), ...(exitCode !== undefined ? { exitCode } : {}) } } as NewLaneEvent);
+        return;
+      }
+    }
     if (mapped) this.emit(mapped);
   }
 
@@ -39,6 +61,24 @@ export class Coalescer {
     this.kind = null;
     this.text = "";
   }
+}
+
+const MAX_OUTPUT = 48_000;
+const clip = (text: string) => text.length > 12_000 ? `[Earlier output trimmed]\n${text.slice(-12_000)}` : text;
+
+/** Output chunks in `_meta`: `terminal_output_delta` (appended) or Zed's `terminal_output`. */
+function outputChunk(meta: unknown): string | null {
+  const m = meta as Record<string, { data?: unknown } | undefined> | null | undefined;
+  const data = m?.terminal_output_delta?.data ?? m?.terminal_output?.data;
+  return typeof data === "string" && data ? data : null;
+}
+
+/** The exit code of a command: `_meta.terminal_exit` for a shell command, `rawOutput.exit_code` otherwise. */
+function exitOf(meta: unknown, raw: unknown): number | null | undefined {
+  const exit = (meta as { terminal_exit?: { exit_code?: unknown } } | null | undefined)?.terminal_exit;
+  if (exit && "exit_code" in exit) return typeof exit.exit_code === "number" ? exit.exit_code : null;
+  const code = (raw as { exit_code?: unknown } | null | undefined)?.exit_code;
+  return typeof code === "number" ? code : undefined;
 }
 
 function textChunk(u: SessionUpdate): { kind: "agent.message" | "agent.thought"; text: string } | null {

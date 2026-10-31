@@ -173,7 +173,11 @@ export class ProjectDiscovery {
 
   async branches(path: string): Promise<ProjectBranches> {
     try {
-      const branches = (await this.run("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: path, timeout: 5000 })).stdout.trim().split("\n").filter(Boolean);
+      const local = (await this.run("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: path, timeout: 5000 })).stdout.trim().split("\n").filter(Boolean);
+      // Branches only on origin (a pull request's branch) can be started from too; listed by their own name.
+      const remote = (await this.run("git", ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], { cwd: path, timeout: 5000 }).catch(() => ({ stdout: "" }))).stdout
+        .trim().split("\n").filter((b) => b.startsWith("origin/") && b !== "origin/HEAD" && b !== "origin").map((b) => b.slice("origin/".length));
+      const branches = [...local, ...remote.filter((b) => !local.includes(b))];
       let preferred: string | undefined;
       try { preferred = (await this.run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd: path, timeout: 5000 })).stdout.trim().replace(/^origin\//, ""); } catch { /* A local-only repository has no remote HEAD. */ }
       const defaultBranch = [preferred, "main", "master", branches[0]].find((branch) => branch && branches.includes(branch)) ?? null;

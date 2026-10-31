@@ -52,6 +52,7 @@ export function InsightsPage() {
         <div className="sum">
           {view.summary.length ? view.summary.map((s, i) => <p key={i}>{s.text}{s.cites.map((c) => { const st = stat(c); return st ? <span className="cite" key={c} title={st.detail}>{st.value} {st.label}</span> : null; })}</p>)
             : view.canWrite ? <Glyph g="idle">No summary yet</Glyph> : <Empty icon="think" family="mind" action={<Link className="btn ghost sm" to="/models">Add a local model</Link>}>Summary needs a local model</Empty>}
+          {view.error && !busy ? <div style={{ marginTop: 10 }}><Fact g="fail" detail={agoText(view.error.at)}>Last run failed</Fact><p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>{view.error.message}</p></div> : null}
           {message ? <p role="status" style={{ fontSize: 13 }}>{message}</p> : null}
         </div>
         <div className="facts4">

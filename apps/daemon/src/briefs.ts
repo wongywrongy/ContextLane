@@ -81,7 +81,7 @@ export class Briefs {
           const text = (await readInside(root, f, 64_000).catch(() => null))?.text ?? "";
           return `--- ${f}\n${text.split("\n").slice(0, MAX_HEAD).join("\n").slice(0, 4000)}`;
         }));
-        const result = await this.deps.models.chat(model, [
+        const result = await this.deps.models.chatAny("briefs", model, [
           { role: "system", content: "You write short module briefs for coding agents working in this repository. Plain text, no markdown headings, at most 120 words. Say what the module is for, its main entry points by name, rules or invariants a change must keep, and what breaks if they are ignored. Only state what the facts or the code show; do not guess." },
           { role: "user", content: `${this.facts(map, module.id)}\n\nOpening lines of its files:\n${heads.join("\n\n")}` },
         ], { maxTokens: 400 });

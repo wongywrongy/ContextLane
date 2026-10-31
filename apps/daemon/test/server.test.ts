@@ -194,6 +194,18 @@ describe("http api", () => {
     expect(store.events(lane.id).find((e) => e.type === "agent.message")).toMatchObject({ payload: { role: "user", text: plan } });
   });
 
+  it("starts a lane with the permissions and effort the owner chose, and changes effort later", async () => {
+    const { app, calls } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", mode: "edits", effort: "high" } })).json();
+    expect(lane).toMatchObject({ mode: "edits", effort: "high" });
+    const started = calls.find((c) => c.startsWith("systemd-run") && c.includes("--lane="))!;
+    expect(started).toContain("--mode=edits");
+    expect(started).toContain("--effort=high");
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/effort`, payload: { effort: "low" } })).statusCode).toBe(202);
+    expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", effort: "ludicrous" } })).statusCode).toBe(400);
+  });
+
   it("refuses to delete a lane while it is still being set up", async () => {
     let release!: () => void;
     const { app, store } = setup({ hold: new Promise<void>((r) => { release = r; }) });

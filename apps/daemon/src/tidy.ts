@@ -4,7 +4,7 @@ import { z } from "zod";
 import { areaOf, LAYER_ORDER, type CodeMap, type ProjectId, type TidyChange, type TidyGrouping, type TidyView } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
 import { NotFound, Refused } from "./lanes/manager.js";
-import type { LocalModels } from "./localmodels.js";
+import { jsonAnswer, type LocalModels } from "./localmodels.js";
 
 type Saved = { proposal: TidyGrouping | null; approved: TidyGrouping | null };
 const Output = z.object({
@@ -65,13 +65,13 @@ export class Tidy {
     try {
       const uses = (id: string) => map.links.filter((l) => l.source === id).slice(0, 4).map((l) => l.target);
       const facts = map.modules.map((m) => ({ id: m.id, layer: m.layer, files: m.files, language: m.tech ?? null, exports: (m.symbols ?? []).slice(0, 6).map((x) => `${x.kind} ${x.name}`), uses: uses(m.id) }));
-      const answer = await this.deps.models.chat(model, [
+      const answer = await this.deps.models.chatAny("tidy", model, [
         { role: "system", content: `You organise a code repository's modules for an architecture diagram. You get every module CodeGraph found, with its current layer (guessed from folder names), language, exported names and the modules it uses. Reply with JSON only:
 {"areas":[{"name":"short plain name, e.g. Console app","modules":["module id"]}],"layers":{"module id":"${LAYER_ORDER.join("|")}"},"notes":["one sentence on anything that looks misplaced"]}
 Rules: 3 to 12 areas, each module in exactly one area, group by what the code is for (an app, a service, a shared package), not by file type. Layers: Web is UI code, API is request handlers and routes, Logic is domain code and helpers, Data is storage, models and database code. Only list a module under "layers" when its current layer is wrong. Use only module ids you were given.` },
         { role: "user", content: JSON.stringify(facts) },
       ], { json: true, maxTokens: 3000 });
-      const raw = Output.safeParse((() => { try { return JSON.parse(answer.text.replace(/^```(?:json)?\n?|```$/g, "")); } catch { return null; } })());
+      const raw = Output.safeParse(jsonAnswer(answer.text));
       if (!raw.success) throw new Refused(`${model.name} did not return a usable grouping. Try again.`, 503);
       // Only real modules, each in one area; layers only from the known set. Anything left keeps its folder area.
       const ids = new Set(map.modules.map((m) => m.id));

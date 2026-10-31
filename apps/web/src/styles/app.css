@@ -91,6 +91,7 @@ a.btn.ghost { color: var(--ink); }
 .sec-b > p { margin: 0 0 12px; font-size: 14px; line-height: 1.55; }
 .sec-b > p:last-child { margin-bottom: 0; }
 /* Detail behind a signal: a quiet "Details" toggle, open only on request. */
+.more-steps { display: flex; align-items: center; gap: 12px; padding: 10px 0 14px 86px; }
 details.more { padding: 10px 18px 14px; }
 details.more > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
 details.more > summary:hover { color: var(--ink); }

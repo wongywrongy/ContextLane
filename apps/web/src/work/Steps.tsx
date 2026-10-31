@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { InboxItem, LaneEvent } from "@contextlanes/protocol";
 import { answerItem, errorMessage } from "../api";
 import { Empty, Glyph, Tile, ago, iconFor, type IconName } from "../components/ui";
@@ -11,12 +11,22 @@ export function FilterSwitch({ value, change }: { value: Filter; change: (f: Fil
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /** The step trail from the Console board: time, kind tile on a spine, what happened, evidence on the right. */
+/** Steps drawn at once: a lane that ran for days keeps the page fast; earlier ones load on request. */
+const WINDOW = 200;
+
 export function Steps({ events, waiting, reload, agent, filter }: { events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; filter: Filter }) {
-  const steps = stepsFor(events).filter((s) => filter === "all" || (filter === "thinking" ? s.family === "mind" && s.type !== "text" : s.family === "change"));
+  const all = useMemo(() => stepsFor(events), [events]);
+  const steps = useMemo(() => all.filter((s) => filter === "all" || (filter === "thinking" ? s.family === "mind" && s.type !== "text" : s.family === "change")), [all, filter]);
+  const [shown, setShown] = useState(WINDOW);
+  const hidden = Math.max(0, steps.length - shown);
+  // The first message (the task) always stays on top, so the lane's purpose is never scrolled away.
+  const first = hidden && steps[0]?.type === "text" && steps[0].family === "you" ? steps[0] : null;
   return <>
     {!steps.length ? <Empty>{filter === "all" ? "No steps yet" : "None of this kind"}</Empty>
       : <div className="sec-b" style={{ padding: "8px 18px 12px" }}><div className="spine">
-        {steps.map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
+        {first ? <StepRow key={first.seq} step={first} events={events} waiting={waiting} reload={reload} agent={agent} /> : null}
+        {hidden ? <div className="more-steps"><button className="lnk" onClick={() => setShown((n) => n + WINDOW)}>{`Show ${Math.min(WINDOW, hidden)} earlier steps`}</button><span className="mono muted" style={{ fontSize: 12 }}>{hidden} hidden</span></div> : null}
+        {steps.slice(hidden).filter((s) => s !== first).map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
       </div></div>}
   </>;
 }
@@ -61,7 +71,8 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
     if (diff) { const total = diff.added + diff.removed || 1; right = <><span className="diffbar" aria-hidden="true"><i className="a" style={{ width: `${diff.added / total * 100}%` }} /><i className="d" style={{ width: `${diff.removed / total * 100}%` }} /></span><span className="mono" style={{ fontSize: 12 }} aria-label={`${diff.added} lines added, ${diff.removed} removed`}><span style={{ color: "var(--ok-ink)" }}>+{diff.added}</span> <span style={{ color: "var(--bad-ink)" }}>−{diff.removed}</span></span></>; }
     else if (tests?.length) { const passed = tests.filter((t) => t.passed).length; right = <><span className="pips" aria-hidden="true">{tests.slice(0, 60).map((t, i) => <i key={i} className={t.passed ? "" : "f"} title={t.name} />)}</span><span className="mono" style={{ fontSize: 12 }}>{passed} / {tests.length}</span></>; }
     else if (counts?.total) { const pips = Math.min(counts.total, 60); const bad = Math.round(counts.failed / counts.total * pips); right = <><span className="pips" aria-hidden="true">{Array.from({ length: pips }, (_, i) => <i key={i} className={i >= pips - bad ? "f" : ""} />)}</span><span className="mono" style={{ fontSize: 12 }} aria-label={`${counts.passed} of ${counts.total} passed, ${counts.tool}`}>{counts.passed} / {counts.total}</span></>; }
-    if (status === "failed") right = <>{right}<span className="sig fail">failed</span></>;
+    // A command that exited non-zero says so with its code (a failed `test -d` is not a broken tool); the output is under Show output.
+    if (status === "failed") right = <>{right}<span className="sig fail" title={step.tool.exitCode != null ? "The command exited with this code" : undefined}>{step.tool.exitCode != null ? `exit ${step.tool.exitCode}` : "failed"}</span></>;
     else if (failedBefore && status === "completed") right = <>{right}<span className="sig">failed, then fixed</span></>;
     else if (status === "in_progress" || status === "pending") right = <>{right}<span className="sig wait">running</span></>;
   }

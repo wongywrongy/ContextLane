@@ -87,6 +87,7 @@ export class LaneManager {
         agent: req.agent,
         model: req.model ?? null,
         mode: req.mode,
+        effort: req.effort ?? null,
         branch: names.branch,
         worktree: names.worktree,
         terminal: names.terminal,
@@ -105,7 +106,10 @@ export class LaneManager {
 
     try {
       await mkdir(dirname(lane.worktree), { recursive: true });
-      await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, req.base], { cwd: project.path });
+      // A base that exists only on origin (a pull request's branch) starts from origin's copy; the lane still merges back to its name.
+      const local = await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${req.base}`], { cwd: project.path }).then(() => true, () => false);
+      const remote = !local && await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${req.base}`], { cwd: project.path }).then(() => true, () => false);
+      await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
       await extra.prepare?.(lane);
       // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
       // A skill that fails to copy is reported, not fatal: the lane still works without it.
@@ -247,7 +251,7 @@ export function hostCommand(lane: Lane, config: Config, adoption?: ServicePropos
     // name=value keeps a task that starts with "-" a value; $$ keeps systemd from expanding $ in the task or JSON.
     ...[...sandbox(config, { socket: true }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, taskFile ? `--task-file=${taskFile}` : `--task=${task}`, `--agent=${lane.agent}`,
       `--socket=${socketPath(config)}`, `--mode=${lane.mode}`,
-      `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []),
+      `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []), ...(lane.effort ? [`--effort=${lane.effort}`] : []),
       ...(config.agents[lane.agent] ? [`--agent-spec=${JSON.stringify(config.agents[lane.agent])}`] : [])].map((arg) => arg.replaceAll("$", "$$$$"))];
 }
 

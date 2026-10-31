@@ -81,7 +81,10 @@ export class Checker {
     const id = lane.id;
     const dirty = (await run("git", ["status", "--porcelain"], { cwd: lane.worktree })).stdout.trim();
     if (dirty) throw new Refused("Commit your changes first; review covers commits, and these are not committed yet.");
-    const base = (await run("git", ["merge-base", lane.base ?? "main", "HEAD"], { cwd: lane.worktree }).catch(() => { throw new Refused(`This lane cannot be compared with ${lane.base ?? "main"}; that branch was not found.`); })).stdout.trim();
+    // A lane started from a branch that exists only on origin compares with origin's copy.
+    const name = lane.base ?? "main";
+    const base = (await run("git", ["merge-base", name, "HEAD"], { cwd: lane.worktree }).catch(() => run("git", ["merge-base", `origin/${name}`, "HEAD"], { cwd: lane.worktree }))
+      .catch(() => { throw new Refused(`This lane cannot be compared with ${name}; that branch was not found.`); })).stdout.trim();
     if (!(await run("git", ["rev-list", "--count", `${base}..HEAD`], { cwd: lane.worktree })).stdout.trim().match(/^[1-9]/)) throw new Refused("This lane has no commits to review yet.");
     const recipe = await this.deps.runtime.recipeFor(lane);
     void this.build(lane, summary, base, recipe).catch((err: unknown) => this.report(id, "Checkpoint", false, 0, err instanceof Error ? err.message : String(err))).finally(() => this.running.delete(id));

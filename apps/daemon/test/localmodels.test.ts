@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LocalModel } from "@contextlanes/protocol";
 import { Config, LocalModels, type Runner } from "@contextlanes/daemon";
+import { jsonAnswer } from "../src/localmodels.js";
 
 const ollama = { name: "qwen3-coder:30b", provider: "ollama" as const, url: "http://127.0.0.1:11434" };
 const config = (models = [ollama]) => Config.parse({ localModels: models });
@@ -10,6 +11,39 @@ describe("local models", () => {
   it("accepts this machine and the tailnet, not the internet", () => {
     for (const url of ["http://127.0.0.1:11434", "http://oracle.tail1234.ts.net:8080", "http://100.94.247.118:8080"]) expect(LocalModel.safeParse({ ...ollama, url }).success).toBe(true);
     for (const url of ["http://example.com:11434", "http://192.168.1.5:11434", "http://100.200.1.1:8080", "file:///etc/passwd"]) expect(LocalModel.safeParse({ ...ollama, url }).success).toBe(false);
+  });
+
+  it("gives a reasoning model room to think, retries without JSON mode, and explains an empty answer", async () => {
+    const sent: Record<string, unknown>[] = [];
+    let reply: () => Response = () => Response.json({ choices: [{ message: { content: "ok" } }] });
+    const fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      sent.push(body);
+      if (body.response_format) return new Response("response_format is not supported", { status: 400 });
+      return reply();
+    }) as unknown as typeof globalThis.fetch;
+    const oss = { ...ollama, name: "gpt-oss:20b" };
+    const models = new LocalModels({ config: config([oss]), run, fetch });
+    expect((await models.chat(oss, [{ role: "user", content: "hi" }], { json: true, maxTokens: 1500 })).text).toBe("ok");
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ max_tokens: 1500 + 4096, reasoning_effort: "low", response_format: { type: "json_object" } });
+    expect(sent[1]).not.toHaveProperty("response_format");
+    reply = () => Response.json({ choices: [{ message: { content: "", reasoning: "thinking…" }, finish_reason: "length" }] });
+    await expect(models.chat(oss, [{ role: "user", content: "hi" }])).rejects.toThrow(/whole token budget thinking/);
+    expect(jsonAnswer('Here you go:\n```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(jsonAnswer('Sure. {"a":{"b":2}} Hope that helps.')).toEqual({ a: { b: 2 } });
+    expect(jsonAnswer("no json")).toBeNull();
+  });
+
+  it("moves a job to the next endpoint with the same role when the first fails", async () => {
+    const down = { ...ollama, url: "http://100.67.8.121:11434", roles: ["insights" as const] };
+    const up = { ...ollama, url: "http://127.0.0.1:11434", roles: ["insights" as const] };
+    const fetch = (async (url: string) => {
+      if (String(url).startsWith(down.url)) return new Response("model crashed", { status: 500 });
+      return String(url).endsWith("/api/tags") ? Response.json({ models: [] }) : Response.json({ model: "served", choices: [{ message: { content: "answer" } }] });
+    }) as unknown as typeof globalThis.fetch;
+    const models = new LocalModels({ config: config([down, up]), run, fetch });
+    expect(await models.chatAny("insights", down, [{ role: "user", content: "hi" }])).toMatchObject({ text: "answer", model: "served" });
   });
 
   it("drops a job that waited too long, skips it later, and lets a running job finish", async () => {

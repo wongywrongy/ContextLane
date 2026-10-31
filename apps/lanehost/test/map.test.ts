@@ -47,3 +47,35 @@ it("keeps measured ACP line diffs and individual TAP outcomes in tool updates", 
   ] });
   expect(event).toMatchObject({ type: "tool.update", payload: { diff: { added: 2, removed: 1 }, tests: [{ name: "reads config", passed: true }, { name: "rejects input", passed: false }] } });
 });
+
+it("collects Codex command output from _meta chunks and reports it once, with the exit code", () => {
+  const out: NewLaneEvent[] = [];
+  const c = new Coalescer((e) => out.push(e));
+  c.push({ sessionUpdate: "tool_call", toolCallId: "t1", title: "test -d .codegraph", kind: "execute", status: "in_progress" } as SessionUpdate);
+  c.push({ sessionUpdate: "tool_call_update", toolCallId: "t1", _meta: { terminal_output_delta: { data: "fatal: not a tree\n", terminal_id: "t1" } } } as SessionUpdate);
+  c.push({ sessionUpdate: "tool_call_update", toolCallId: "t1", _meta: { terminal_output_delta: { data: "\u001b[31mmore\u001b[0m\n", terminal_id: "t1" } } } as SessionUpdate);
+  expect(out).toHaveLength(1);
+  c.push({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "failed", _meta: { terminal_exit: { exit_code: 128, signal: null, terminal_id: "t1" } } } as SessionUpdate);
+  expect(out.at(-1)).toMatchObject({ type: "tool.update", payload: { callId: "t1", status: "failed", exitCode: 128, summary: "fatal: not a tree\nmore\n" } });
+  // A read command without a terminal reports its exit code in rawOutput.
+  c.push({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: "failed", rawOutput: { exit_code: 1 } } as SessionUpdate);
+  expect(out.at(-1)).toMatchObject({ type: "tool.update", payload: { callId: "t2", exitCode: 1 } });
+});
+
+it("finds the parts of the main repository a worktree commit writes to", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const { gitWriteRoots } = await import("../src/host.js");
+  const root = await mkdtemp(join(tmpdir(), "cl-roots-"));
+  try {
+    const git = (cwd: string, ...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...a], { cwd });
+    git(root, "init", "-q", "-b", "main", "repo"); git(join(root, "repo"), "commit", "-q", "--allow-empty", "-m", "one");
+    git(join(root, "repo"), "worktree", "add", "-q", "-b", "lane/01", join(root, "lane"));
+    const roots = gitWriteRoots(join(root, "lane"));
+    expect(roots).toEqual([join(root, "repo/.git/worktrees/lane"), join(root, "repo/.git/objects"), join(root, "repo/.git/refs"), join(root, "repo/.git/logs")]);
+    expect(roots.some((r) => r.endsWith("hooks") || r.endsWith(".git"))).toBe(false);
+    expect(gitWriteRoots(join(root, "repo"))).toEqual([]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

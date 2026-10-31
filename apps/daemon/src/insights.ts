@@ -9,7 +9,7 @@ import type { CodeMaps } from "./codemap.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { NotFound, Refused } from "./lanes/manager.js";
-import type { LocalModels } from "./localmodels.js";
+import { jsonAnswer, type LocalModels } from "./localmodels.js";
 
 const DAY = 86400_000;
 const ModelOutput = z.object({
@@ -48,6 +48,8 @@ export class Insights {
   }
   close(): void { if (this.timer) clearInterval(this.timer); }
   private tried = new Map<string, number>();
+  /** The last automatic run's failure per project, shown on Insights until a run succeeds. */
+  private failed = new Map<string, { at: string; message: string }>();
   private async tick(): Promise<void> {
     if (!this.deps.models.pick("insights")) return;
     for (const p of this.deps.store.listProjects()) {
@@ -56,7 +58,10 @@ export class Insights {
       const tried = this.tried.get(p.id) ?? 0;
       const nightly = new Date(this.now()).getHours() >= 2 && (!last || this.now() - Date.parse(last) > 20 * 3600_000) && this.now() - tried > 6 * 3600_000;
       const afterMerge = (this.due.get(p.id) ?? Infinity) <= this.now();
-      if (nightly || afterMerge) { this.due.delete(p.id); this.tried.set(p.id, this.now()); await this.generate(p.id).catch(() => {}); }
+      if (nightly || afterMerge) {
+        this.due.delete(p.id); this.tried.set(p.id, this.now());
+        await this.generate(p.id).catch((err: Error) => console.error(`Insights for ${p.id}: ${err.message}`));
+      }
     }
   }
 
@@ -124,7 +129,7 @@ export class Insights {
   async view(project: ProjectId): Promise<InsightsView> {
     const measured = await this.measure(project);
     const saved = await this.saved(project);
-    return { project, ...measured, generatedAt: saved?.generatedAt ?? null, model: saved?.model ?? null, error: null, canWrite: !!this.deps.models.pick("insights"),
+    return { project, ...measured, generatedAt: saved?.generatedAt ?? null, model: saved?.model ?? null, error: this.failed.get(project) ?? null, canWrite: !!this.deps.models.pick("insights"),
       summary: saved?.summary ?? [], suggestions: (saved?.suggestions ?? []).filter((s) => !s.dismissed) };
   }
 
@@ -138,13 +143,13 @@ export class Insights {
         const m = await this.measure(project);
         if (!m.stats.length) throw new Refused("Nothing happened in this project in the last week to write about.");
         const ids = new Set(m.stats.map((s) => s.id));
-        const answer = await this.deps.models.chat(model, [
+        const answer = await this.deps.models.chatAny("insights", model, [
           { role: "system", content: `You write a weekly review of a software project's coding-agent lanes for its one developer. You are given computed stats, each with an id. Reply with JSON only:
 {"summary":[{"text":"one or two plain sentences","cites":["stat id"]}],"suggestions":[{"type":"process|code|tokens|next|notes","title":"imperative, under 60 characters","body":"one sentence saying what was seen and why it matters","stat":"the stat id whose value is the suggestion's number","evidence":["stat ids"],"action":{"kind":"add_note","text":"the note"} | {"kind":"start_lane","task":"…"} | {"kind":"allow_helper","helper":"read|edit|check"} | {"kind":"review","lane":"project/NN"} | {"kind":"fix_note"}}]}
 Rules: at most 2 summary items and 6 suggestions, biggest first. Every number you write must be a value from a cited stat. Only suggest what the stats show. Plain words, no hype.` },
           { role: "user", content: JSON.stringify(m.stats) },
         ], { json: true, maxTokens: 1500 });
-        const raw = ModelOutput.safeParse((() => { try { return JSON.parse(answer.text.replace(/^```(?:json)?\n?|```$/g, "")); } catch { return null; } })());
+        const raw = ModelOutput.safeParse(jsonAnswer(answer.text));
         if (!raw.success) throw new Refused(`${model.name} did not return usable insights. Try Regenerate.`, 503);
         const values = (cites: string[]) => new Set(m.stats.filter((s) => cites.includes(s.id)).flatMap((s) => [s.value, ...`${s.value} ${s.detail}`.match(/\d[\d.,]*[kM]?/g) ?? []]));
         // A number in the text must be one the cited stats hold; otherwise the sentence is dropped.
@@ -153,7 +158,12 @@ Rules: at most 2 summary items and 6 suggestions, biggest first. Every number yo
         const suggestions = raw.data.suggestions.filter((s) => ids.has(s.stat) && s.evidence.every((e) => ids.has(e)) && honest(`${s.title} ${s.body}`, [s.stat, ...s.evidence]))
           .map((s) => Suggestion.parse({ ...s, id: randomUUID(), dismissed: false }));
         await this.save(project, { generatedAt: new Date(this.now()).toISOString(), model: answer.model, summary, suggestions });
-      })().finally(() => this.running.delete(project));
+        this.failed.delete(project);
+      })().catch((err: Error) => {
+        // "Nothing happened this week" is not a failure to show; anything else is, until a run succeeds.
+        if (!/Nothing happened/.test(err.message)) this.failed.set(project, { at: new Date(this.now()).toISOString(), message: err.message });
+        throw err;
+      }).finally(() => this.running.delete(project));
       this.running.set(project, job);
     }
     await job;

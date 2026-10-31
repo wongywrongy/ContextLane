@@ -7,7 +7,7 @@ import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { AddProjectRequest, AnswerRequest, DiscardLane, LaneId, LaneRename, type AgentLink, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
-import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
+import { PromptRequest, ModeRequest, ModelRequest, EffortRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
 import { Collisions } from "../collisions.js";
@@ -354,12 +354,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!lane) throw new NotFound("no such lane");
     return { files: await laneFiles(run, lane, FileQuery.parse(req.query).q) };
   });
-  for (const action of ["cancel", "mode", "model"] as const) {
+  for (const action of ["cancel", "mode", "model", "effort"] as const) {
     app.post<{ Params: { project: string; n: string } }>(`/api/lanes/:project/:n/${action}`, async (req, reply) => {
       const lane = laneParam(req.params);
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
-      const command = action === "cancel" ? { kind: "cancel" as const } : action === "mode" ?
-        { kind: "mode" as const, ...ModeRequest.parse(req.body) } : { kind: "model" as const, ...ModelRequest.parse(req.body) };
+      const command = action === "cancel" ? { kind: "cancel" as const } : action === "mode" ? { kind: "mode" as const, ...ModeRequest.parse(req.body) }
+        : action === "effort" ? { kind: "effort" as const, ...EffortRequest.parse(req.body) } : { kind: "model" as const, ...ModelRequest.parse(req.body) };
       return reply.code(202).send(deps.hosts.command(lane, command));
     });
   }

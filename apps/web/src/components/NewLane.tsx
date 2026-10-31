@@ -11,6 +11,8 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const [chosenAgent, setAgent] = useState("");
   const [task, setTask] = useState(adoption ? `Adopt service on port ${adoption.port}` : initialTask ?? "");
   const [goal, setGoal] = useState("");
+  const [mode, setMode] = useState<"ask" | "edits" | "plan">("ask");
+  const [effort, setEffort] = useState<"" | "low" | "medium" | "high">("");
   const [chosenBase, setBase] = useState<{ project: string; branch: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +40,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode, ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -51,6 +53,13 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
     <div className="two">
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>
       <label className="field">Goal <span className="hint">optional · groups lanes</span><input className="in" list="lane-goals" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="For example: Billing v1" /><datalist id="lane-goals">{goals.map((g) => <option key={g} value={g} />)}</datalist></label>
+    </div>
+    <div className="two">
+      <div className="field">Permissions <span className="hint">what the agent may do without asking</span>
+        <div className="seg" role="group" aria-label="Permissions">{([["ask", "Ask first"], ["edits", "Edit the checkout"], ["plan", "Plan only"]] as const).map(([id, label]) =>
+          <button type="button" key={id} className={mode === id ? "on" : ""} aria-pressed={mode === id} onClick={() => setMode(id)}>{label}</button>)}</div></div>
+      <label className="field">Effort <span className="hint">how hard it thinks, where the agent offers it</span><select className="in" aria-label="Effort" value={effort} onChange={(e) => setEffort(e.target.value as typeof effort)}>
+        <option value="">Agent default</option><option value="low">Low · faster, cheaper</option><option value="medium">Medium</option><option value="high">High · slower, deeper</option></select></label>
     </div>
     <label className="field">Task <span className="hint">one line, or a whole plan in markdown; the agent gets all of it</span><textarea className="in" rows={long ? 10 : 4} value={task} onChange={(e) => setTask(e.target.value)} placeholder="For example: add a /health endpoint with a test" /></label>
     {long ? <label className="field">Title <span className="hint">what lists, the branch name and the lane header show</span><input className="in" value={shownTitle} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></label> : null}

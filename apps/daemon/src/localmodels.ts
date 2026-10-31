@@ -16,6 +16,17 @@ export type ChatResult = { text: string; inputTokens: number | null; outputToken
  * card out of memory. Every call goes through the OpenAI-compatible chat API both servers provide.
  */
 const MAX_WAITING = 20;
+/** Completion tokens allowed for a reasoning model's thinking, on top of the answer's own budget. */
+const THINKING_ROOM = 4096;
+
+/** The JSON object in a model's answer: without code fences, and without any prose before or after it. */
+export function jsonAnswer(text: string): unknown {
+  const bare = text.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+  try { return JSON.parse(bare); } catch { /* Prose around the object, below. */ }
+  const start = bare.indexOf("{"), end = bare.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try { return JSON.parse(bare.slice(start, end + 1)); } catch { return null; }
+}
 const WAIT_MS = 10 * 60_000;
 
 export class LocalModels {
@@ -84,19 +95,49 @@ export class LocalModels {
     try { return await Promise.race([result, timeout]); } finally { clearTimeout(timer); }
   }
 
+  /**
+   * One chat completion. `maxTokens` is the answer's budget: reasoning models (gpt-oss, qwen3, deepseek-r1)
+   * spend completion tokens on thinking first, so the request allows room for that on top, and gpt-oss is
+   * asked to think briefly. JSON mode is a request, not a promise: an endpoint that refuses it is asked
+   * again without it, and callers read the answer with `jsonAnswer`. An empty answer is an error that says why.
+   */
   async chat(model: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
     return this.exclusive(model, async () => {
       const started = Date.now();
-      const res = await (this.deps.fetch ?? fetch)(endpoint(model.url, "/v1/chat/completions"), {
+      const host = new URL(model.url).host;
+      const send = (json: boolean) => (this.deps.fetch ?? fetch)(endpoint(model.url, "/v1/chat/completions"), {
         method: "POST", headers: { "content-type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(opts.timeoutMs ?? 300_000),
-        body: JSON.stringify({ model: model.name, messages, temperature: 0.2, stream: false, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}), ...(opts.json ? { response_format: { type: "json_object" } } : {}) }),
-      }).catch((err: Error) => { throw new Refused(`${model.name} at ${new URL(model.url).host} did not answer: ${err.message}`, 503); });
-      if (!res.ok) throw new Refused(`${model.name} answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`, 503);
-      const body = await res.json() as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string };
-      const text = body.choices?.[0]?.message?.content ?? "";
-      // Reasoning models wrap their thinking in <think>; only the answer is kept.
-      return { text: text.replace(/<think>[\s\S]*?<\/think>/g, "").trim(), inputTokens: body.usage?.prompt_tokens ?? null, outputTokens: body.usage?.completion_tokens ?? null, model: body.model ?? model.name, ms: Date.now() - started };
+        body: JSON.stringify({ model: model.name, messages, temperature: 0.2, stream: false,
+          ...(opts.maxTokens ? { max_tokens: opts.maxTokens + THINKING_ROOM } : {}),
+          ...(/gpt-oss/i.test(model.name) ? { reasoning_effort: "low" } : {}),
+          ...(json ? { response_format: { type: "json_object" } } : {}) }),
+      }).catch((err: Error) => { throw new Refused(`${model.name} at ${host} did not answer: ${err.message}`, 503); });
+      let res = await send(!!opts.json);
+      if (!res.ok && opts.json && res.status >= 400 && res.status < 500) res = await send(false);
+      if (!res.ok) throw new Refused(`${model.name} at ${host} answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`, 503);
+      const body = await res.json() as { choices?: { message?: { content?: string | null }; finish_reason?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string };
+      // Reasoning models wrap their thinking in <think>, or return it in a separate field; only the answer is kept.
+      const text = (body.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      if (!text) throw new Refused(body.choices?.[0]?.finish_reason === "length"
+        ? `${model.name} at ${host} used its whole token budget thinking and wrote no answer. Try a smaller model or one without long reasoning.`
+        : `${model.name} at ${host} returned an empty answer.`, 503);
+      return { text, inputTokens: body.usage?.prompt_tokens ?? null, outputTokens: body.usage?.completion_tokens ?? null, model: body.model ?? model.name, ms: Date.now() - started };
     });
+  }
+
+  /**
+   * `chat` with failover, as OpenRouter does across providers: when the chosen endpoint is down or errors,
+   * the job goes to the next answering endpoint with the same role. The first error is the one reported.
+   */
+  async chatAny(role: LocalRole, first: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
+    try { return await this.chat(first, messages, opts); }
+    catch (err) {
+      for (const next of this.candidates(role).filter((m) => m.url !== first.url || m.name !== first.name)) {
+        if (!(await this.reachable(next))) continue;
+        try { return await this.chat(next, messages, opts); } catch { /* Try the next one; the first error is reported. */ }
+      }
+      throw err;
+    }
   }
 
   /** For the Models page: what each endpoint serves, what is loaded, and how full this machine's GPU is. */

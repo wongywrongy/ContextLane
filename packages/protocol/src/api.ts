@@ -38,6 +38,8 @@ export const Lane = z.object({
   agent: z.string(),
   model: z.string().nullable(),
   mode: z.enum(["ask", "edits", "plan"]),
+  /** How hard the agent thinks, when the lane started with a choice: low, medium or high. */
+  effort: z.string().nullable().optional(),
   branch: z.string(),
   worktree: z.string(),
   terminal: z.string(),
@@ -53,12 +55,17 @@ export type Lane = z.infer<typeof Lane>;
 export const AddProjectRequest = z.object({ path: z.string().min(1), name: z.string().optional() });
 export type AddProjectRequest = z.infer<typeof AddProjectRequest>;
 
+/** Reasoning effort as the owner picks it; the lane host maps it onto the agent's own levels. */
+export const Effort = z.enum(["low", "medium", "high"]);
+export type Effort = z.infer<typeof Effort>;
+
 export const StartLaneRequest = z.object({
   project: ProjectId,
   task: z.string().min(1),
   agent: z.string().default("claude-code"),
   model: z.string().optional(),
   mode: z.enum(["ask", "edits", "plan"]).default("ask"),
+  effort: Effort.optional(),
   goal: z.string().optional(),
   adoption: ServiceProposal.optional(),
   /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */

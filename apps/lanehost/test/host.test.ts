@@ -88,3 +88,16 @@ it("retains an ACP permission and replays commands after the daemon socket resta
   expect(events.filter((e) => e.type === "permission.requested")).toHaveLength(1);
   expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i + 1));
 });
+
+it("starts in the edit mode and nearest effort the owner chose, and changes effort later", async () => {
+  const fake = fakeAgent();
+  const events: NewLaneEvent[] = [];
+  const session = await openAgentSession({ lane: "demo/02", cwd: "/tmp", task: "", agent: { command: "unused", args: [] }, mode: "edits", effort: "high",
+    connect: (client) => client.connect(fake.app) }, (e) => events.push(e));
+  cleanup.push(async () => session.close());
+  expect(fake.modes).toEqual(["acceptEdits"]);
+  const last = () => events.findLast((e) => e.type === "agent.session");
+  expect(last()).toMatchObject({ payload: { currentEffort: "xhigh", efforts: [{ id: "minimal" }, { id: "medium" }, { id: "xhigh" }] } });
+  await session.command(command({ kind: "effort", effort: "low" }));
+  expect(last()).toMatchObject({ payload: { currentEffort: "minimal" } });
+});

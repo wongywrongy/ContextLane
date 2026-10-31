@@ -166,8 +166,8 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
   }, [view, interrupt]);
   const laneWaiting = useMemo(() => waiting?.filter((item) => item.lane === lane.id) ?? [], [waiting, lane.id]);
   const session = events.findLast((e) => e.type === "agent.session");
-  const control = async (kind: "mode" | "model", value: string) => {
-    try { await postJson(`/api/lanes/${lane.id}/${kind}`, { [kind]: value }); setNotice(`${kind === "mode" ? "Mode" : "Model"} change sent. The agent confirms it in the steps.`); }
+  const control = async (kind: "mode" | "model" | "effort", value: string) => {
+    try { await postJson(`/api/lanes/${lane.id}/${kind}`, { [kind]: value }); setNotice(`${kind === "mode" ? "Permissions" : kind === "model" ? "Model" : "Effort"} change sent.`); }
     catch (err) { setNotice(err instanceof Error ? err.message : "The agent setting could not be changed."); }
   };
   const steps = stepsFor(events);
@@ -196,10 +196,12 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
       {session?.type === "agent.session" && session.payload.models.length
         ? <select className="sel" aria-label="Model" value={session.payload.currentModel ?? ""} onChange={(e) => void control("model", e.target.value)}>{session.payload.models.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select>
         : <span className="sel" style={{ display: "inline-flex", alignItems: "center", cursor: "default" }}>{lane.model ?? `${agent} default`}</span>}
+      {session?.type === "agent.session" && session.payload.efforts?.length
+        ? <select className="sel" aria-label="Effort" title="How hard the agent thinks" value={session.payload.currentEffort ?? ""} onChange={(e) => void control("effort", e.target.value)}>{session.payload.efforts.map((m) => <option value={m.id} key={m.id}>{`${m.label} effort`}</option>)}</select> : null}
       {offline && link?.starting ? <Glyph g="think">Starting the agent…</Glyph>
         : offline ? <><Glyph g="fail">Agent not connected</Glyph><button className="btn sm" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setNotice("Agent restarted. It reports in within a minute."), (err) => setNotice(errorMessage(err))); }}>Restart the agent</button></>
         : session?.type === "agent.session" && session.payload.modes.length
-          ? <div className="seg" role="group" aria-label="Permission mode">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
+          ? <div className="seg" role="group" aria-label="Permissions" title="What the agent may do without asking you">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
           : !session && link ? <Glyph g="think">Waiting for the agent to report in</Glyph> : null}
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" disabled={offline || !link} title={offline ? "The agent is not connected" : !link ? "The agent is not working" : undefined} onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
     </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>

@@ -43,7 +43,7 @@ export class Ask {
     for (const lane of store.listLanes(project).filter((l) => OPEN.includes(l.state))) sources.set(`lane:${lane.id}`, { kind: "lane", label: `${lane.id} · ${lane.task}`, text: `Lane ${lane.id}: "${lane.task}", ${lane.state}, branch ${lane.branch}` });
     if (!sources.size) throw new Refused("There is nothing about this project to answer from yet: no notes, no code map and no lanes.");
     const context = [...sources].map(([id, s]) => `[${id}]\n${s.text}`).join("\n\n");
-    const answer = await models.chat(model, [
+    const answer = await models.chatAny("ask", model, [
       { role: "system", content: "Answer the owner's question about their project using only the sources given. Be brief: at most five sentences. After each claim put the id of the source it came from in square brackets, like [module:api/routes] or [notes]. If the sources do not say, answer that they do not say." },
       { role: "user", content: `${context}\n\nQuestion: ${question}` },
     ], { maxTokens: 600 });

@@ -15,11 +15,13 @@ export const PromptCommand = z.object({ text: z.string().min(1).max(100_000), im
   images: z.array(z.object({ mimeType: ImageType, path: z.string().startsWith("/") })).max(3).default([]) });
 export const ModeRequest = z.object({ mode: SafeMode });
 export const ModelRequest = z.object({ model: z.string().min(1).max(200) });
+export const EffortRequest = z.object({ effort: z.string().min(1).max(50) });
 export const LaneCommand = z.discriminatedUnion("kind", [
   PromptCommand.extend({ kind: z.literal("prompt") }),
   z.object({ kind: z.literal("cancel") }),
   ModeRequest.extend({ kind: z.literal("mode") }),
   ModelRequest.extend({ kind: z.literal("model") }),
+  EffortRequest.extend({ kind: z.literal("effort") }),
   z.object({ kind: z.literal("answer"), requestId: z.string(), optionId: z.string().nullable() }),
 ]);
 export type LaneCommand = z.infer<typeof LaneCommand>;

@@ -56,6 +56,8 @@ const payloads = {
     sessionId: z.string(), currentMode: z.string().optional(), currentModel: z.string().optional(),
     modes: z.array(z.object({ id: z.string(), label: z.string() })),
     models: z.array(z.object({ id: z.string(), label: z.string() })),
+    /** Reasoning effort levels the agent offers (an ACP thought_level config option), and the current one. */
+    efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(), currentEffort: z.string().optional(),
     /** Slash commands the agent offers (ACP available_commands_update); sent as "/name args". */
     commands: z.array(z.object({ name: z.string(), description: z.string() })).optional(),
     /** Whether the agent takes pictures in a prompt (ACP promptCapabilities.image). */
@@ -65,8 +67,8 @@ const payloads = {
   "agent.error": z.object({ message: z.string() }),
   "notification.sent": z.object({ requestId: z.string(), channel: NotificationChannel, target: z.string().default("") }),
   "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),
-  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional() }),
-  "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional() }),
+  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
+  "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
   "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional() }),
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
   "recipe.requested": z.object({ hash: z.string() }),

@@ -52,4 +52,10 @@ describe("insights", () => {
     await i.dismiss("shop", v.suggestions[0]!.id);
     expect((await i.view("shop")).suggestions).toEqual([]);
   });
+
+  it("shows why a run failed until one succeeds", async () => {
+    const i = await fixture("I cannot help with that.");
+    await expect(i.generate("shop")).rejects.toThrow(/did not return usable insights/);
+    expect((await i.view("shop")).error).toMatchObject({ message: expect.stringMatching(/did not return usable insights/) });
+  });
 });

@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Writable } from "node:stream";
 import { client, methods, ndJsonStream, PROTOCOL_VERSION, type ClientApp, type ClientConnection, type ContentBlock, type McpServer, type SessionConfigOption, type Usage } from "@agentclientprotocol/sdk/unstable";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SafeMode, type CommandEnvelope, type NewLaneEvent } from "@contextlanes/protocol";
 import type { AgentSpec } from "./agents.js";
@@ -13,7 +14,7 @@ import { SessionUsage, usageDelta, reportedLimits } from "./usage.js";
 
 export type LaneHostOptions = {
   lane: string; cwd: string; task: string; agent: AgentSpec; socketPath: string; token: string;
-  mcpServers?: McpServer[]; mode?: string; model?: string; signal?: AbortSignal; agentId?: string;
+  mcpServers?: McpServer[]; mode?: string; model?: string; effort?: string; signal?: AbortSignal; agentId?: string;
   /** The production transport is stdio; tests connect to an in-process SDK agent app. */
   connect?: (app: ClientApp) => ClientConnection;
 };
@@ -45,7 +46,12 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
   try {
     const init = await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
-    let builder = ctx.buildSession({ cwd: opts.cwd, mcpServers: [], _meta: { claudeCode: { options: { allowDangerouslySkipPermissions: false, permissionMode: "default" } } } });
+    // A lane is a git worktree: its commits are written to the main repository's git folder, outside the
+    // checkout. Agents whose own sandbox limits writes to the checkout (Codex's workspace access) get the parts
+    // a commit needs as extra roots: this worktree's folder, objects, refs and logs. Never hooks or config.
+    const roots = gitWriteRoots(opts.cwd);
+    const additional = roots.length && init.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: roots } : {};
+    let builder = ctx.buildSession({ cwd: opts.cwd, mcpServers: [], ...additional, _meta: { additionalRoots: roots, claudeCode: { options: { allowDangerouslySkipPermissions: false, permissionMode: "default", additionalDirectories: roots } } } });
     for (const server of opts.mcpServers ?? []) builder = builder.withMcpServer(server);
     const session = await builder.start();
     const logs = new SessionUsage(opts.agentId, opts.cwd, session.sessionId, { ...process.env, ...opts.agent.env });
@@ -54,13 +60,16 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     let currentMode = session.modes?.currentModeId;
     let configOptions = session.newSessionResponse.configOptions ?? [];
     const modelOption = () => configOptions.find((o) => o.type === "select" && (o.category === "model" || o.id === "model"));
+    const effortOption = () => configOptions.find((o) => o.type === "select" && (o.category === "thought_level" || /effort|reasoning|thinking/i.test(o.id)));
     const modelValues = (option: SessionConfigOption | undefined) => !option || option.type !== "select" ? [] : option.options.flatMap((o) => "options" in o ? o.options : [o]);
     let commands: { name: string; description: string }[] = [];
     const canImage = !!init.agentCapabilities?.promptCapabilities?.image;
     const reportSession = () => {
       const model = modelOption();
+      const effort = effortOption();
       emit({ type: "agent.session", payload: { sessionId: session.sessionId, currentMode,
         currentModel: model?.type === "select" ? model.currentValue : undefined,
+        efforts: modelValues(effort).map((e) => ({ id: e.value, label: e.name })), currentEffort: effort?.type === "select" ? effort.currentValue : undefined,
         modes: (session.modes?.availableModes ?? []).filter((m) => SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success).map((m) => ({ id: m.id, label: m.name })),
         models: modelValues(model).map((m) => ({ id: m.value, label: m.name })), commands, images: canImage } });
     };
@@ -78,12 +87,28 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       configOptions = result.configOptions;
       reportSession();
     };
-    // Do not inherit an agent's saved bypass mode, and never select an auto-approval mode.
-    const initialMode = opts.mode === "plan" ? "plan" : opts.mode && !["ask", "edits"].includes(opts.mode) ? opts.mode :
-      session.modes?.availableModes.find((m) => ["default", "read-only", "ask", "on-request", "approve", "manual"].includes(m.id))?.id;
+    const setEffort = async (level: string) => {
+      const option = effortOption();
+      if (!option) throw new Error("this agent has no effort setting");
+      const values = modelValues(option);
+      // The owner picks low, medium or high; agents name theirs (minimal, xhigh…), so take the closest.
+      const value = values.find((v) => v.value === level)?.value ?? closestEffort(level, values.map((v) => v.value));
+      if (!value) throw new Error(`agent does not offer effort ${level}`);
+      const result = await ctx.request(methods.agent.session.setConfigOption, { sessionId: session.sessionId, configId: option.id, value });
+      configOptions = result.configOptions;
+      reportSession();
+    };
+    // Do not inherit an agent's saved bypass mode, and never select an auto-approval mode. "edits" is the
+    // agent's own edit-in-the-checkout mode (Claude's acceptEdits, Codex's workspace access); "ask" its default.
+    const available = session.modes?.availableModes ?? [];
+    const pick = (ids: string[]) => available.find((m) => ids.includes(m.id) && SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success)?.id;
+    const askMode = pick(["default", "read-only", "ask", "on-request", "approve", "manual"]);
+    const initialMode = opts.mode === "plan" ? pick(["plan"]) ?? askMode : opts.mode === "edits" ? pick(["acceptEdits", "workspace-write", "auto-edit", "edit", "edits"]) ?? askMode
+      : opts.mode && opts.mode !== "ask" ? opts.mode : askMode;
     if (initialMode) await setMode(initialMode);
     else if (currentMode) SafeMode.parse(currentMode);
     if (opts.model) await setModel(opts.model);
+    if (opts.effort) await setEffort(opts.effort).catch((err: Error) => emit({ type: "agent.error", payload: { message: `Effort was left at the agent's default: ${err.message}` } }));
     reportSession();
     type Queued = { text: string; commandId?: string; files?: string[]; images?: { mimeType: string; path: string }[] };
     const prompts: Queued[] = opts.task ? [{ text: opts.task }] : [];
@@ -166,6 +191,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
         } else if (command.kind === "cancel") {
           await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
         } else if (command.kind === "mode") await setMode(command.mode);
+        else if (command.kind === "effort") await setEffort(command.effort);
         else await setModel(command.model);
         emit({ type: "agent.command.result", payload: { commandId, ok: true } });
       } catch (err) {
@@ -216,4 +242,27 @@ export async function runLaneHost(opts: LaneHostOptions): Promise<void> {
     link.close();
     opts.signal?.removeEventListener("abort", stop);
   }
+}
+
+/** The folders of the main repository a commit in this worktree writes to; empty for an ordinary checkout. */
+export function gitWriteRoots(cwd: string): string[] {
+  try {
+    const pointer = readFileSync(join(cwd, ".git"), "utf8").match(/^gitdir:\s*(.+)$/m)?.[1]?.trim();
+    if (!pointer) return [];
+    const gitdir = resolve(cwd, pointer);
+    const common = resolve(gitdir, readFileSync(join(gitdir, "commondir"), "utf8").trim());
+    // The first commit with a reflog creates logs/; made here so it can be a root.
+    try { mkdirSync(join(common, "logs"), { recursive: true }); } catch { /* Read-only repository: commits fail anyway. */ }
+    return [gitdir, join(common, "objects"), join(common, "refs"), join(common, "logs")].filter((d) => { try { return statSync(d).isDirectory(); } catch { return false; } });
+  } catch { return []; }
+}
+
+const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+/** The agent's effort level nearest the one asked for, by its place in the usual order. */
+export function closestEffort(wanted: string, offered: string[]): string | undefined {
+  const rank = (v: string) => EFFORT_ORDER.indexOf(v.toLowerCase());
+  const target = rank(wanted);
+  // On a tie, lean the way the owner leaned: "high" takes the deeper level, "low" the lighter one.
+  const lean = target > rank("medium") ? -1 : 1;
+  return offered.filter((v) => rank(v) >= 0).sort((a, b) => Math.abs(rank(a) - target) - Math.abs(rank(b) - target) || lean * (rank(a) - rank(b)))[0];
 }

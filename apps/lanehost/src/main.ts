@@ -7,7 +7,7 @@ import { runLaneHost } from "./host.js";
 
 const { values } = parseArgs({ options: {
   lane: { type: "string" }, agent: { type: "string", default: "claude-code" }, task: { type: "string" }, "task-file": { type: "string" }, socket: { type: "string" },
-  mode: { type: "string", default: "ask" }, model: { type: "string" }, "agent-spec": { type: "string" }, toolbox: { type: "string" },
+  mode: { type: "string", default: "ask" }, model: { type: "string" }, effort: { type: "string" }, "agent-spec": { type: "string" }, toolbox: { type: "string" },
 } });
 // A long task (a whole plan) comes as a file: no argument length limit, no escaping, not in `ps`.
 const task = values["task-file"] ? readFileSync(values["task-file"], "utf8") : values.task;
@@ -28,5 +28,5 @@ toolbox?.env.push({ name: "CONTEXTLANES_LANE_TOKEN", value: token });
 // MCP schema is validated by the ACP SDK when session/new is sent.
 runLaneHost({ lane: LaneId.parse(values.lane), task, socketPath: values.socket, token, cwd: process.cwd(),
   agent: values["agent-spec"] ? AgentSpec.parse(JSON.parse(values["agent-spec"])) : resolveAgent(values.agent!), agentId: values.agent,
-  mode: SafeMode.parse(values.mode), model: values.model, mcpServers: toolbox ? [toolbox] : [], signal: stop.signal,
+  mode: SafeMode.parse(values.mode), model: values.model, effort: values.effort, mcpServers: toolbox ? [toolbox] : [], signal: stop.signal,
 }).catch((err) => { console.error(err); process.exitCode = 1; });
