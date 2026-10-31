@@ -2,7 +2,7 @@ import { GitHub } from "../github.js";
 import { CloneRequest, RegistryInstall } from "@contextlanes/protocol";
 import { AgentRegistry } from "../registry.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AgentId, FolderQuery, ProjectId, SignInRequest } from "@contextlanes/protocol";
+import { AgentId, FolderQuery, ProjectId, ProveRequest, SignInRequest } from "@contextlanes/protocol";
 import { z } from "zod";
 import type { SetupManager } from "../setup.js";
 import { SetupError } from "../setup.js";
@@ -38,6 +38,7 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
     await setup.checkShell(req.headers.authorization?.replace(/^Bearer /, ""));
     return setup.shellSetup(LocalSetupRequest.parse(req.body ?? {}).sshHost);
   });
+  app.post("/api/setup/prove", async (req) => ({ proof: await setup.prove(ProveRequest.parse(req.body ?? {}).nonce) }));
   app.post("/api/setup/sign-in", async (req, reply) => {
     const token = setup.signIn(SignInRequest.parse(req.body).token, requestOrigin(req));
     return reply.header("cache-control", "no-store").send({ authorized: true, token });

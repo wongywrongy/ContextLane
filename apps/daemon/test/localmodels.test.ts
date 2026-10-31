@@ -12,6 +12,30 @@ describe("local models", () => {
     for (const url of ["http://example.com:11434", "http://192.168.1.5:11434", "http://100.200.1.1:8080", "file:///etc/passwd"]) expect(LocalModel.safeParse({ ...ollama, url }).success).toBe(false);
   });
 
+  it("drops a job that waited too long, skips it later, and lets a running job finish", async () => {
+    const models = new LocalModels({ config: config(), run });
+    let release!: () => void;
+    const ran: string[] = [];
+    const first = models.exclusive(ollama, async () => { ran.push("first"); await new Promise<void>((r) => { release = r; }); return "first"; }, 20);
+    const second = models.exclusive(ollama, async () => { ran.push("second"); return "second"; }, 20);
+    await expect(second).rejects.toThrow(/busy for/);
+    release();
+    await expect(first).resolves.toBe("first");
+    const third = await models.exclusive(ollama, async () => { ran.push("third"); return "third"; });
+    expect(third).toBe("third");
+    expect(ran).toEqual(["first", "third"]);
+  });
+
+  it("refuses at once when too many jobs are already waiting", async () => {
+    const models = new LocalModels({ config: config(), run });
+    let release!: () => void;
+    const block = models.exclusive(ollama, () => new Promise<void>((r) => { release = r; }));
+    await new Promise((r) => setTimeout(r, 0));
+    const queued = Array.from({ length: 20 }, () => models.exclusive(ollama, async () => {}));
+    await expect(models.exclusive(ollama, async () => {})).rejects.toThrow(/20 jobs waiting/);
+    release(); await block; await Promise.all(queued);
+  });
+
   it("runs one job at a time per GPU and keeps only the answer", async () => {
     let active = 0, peak = 0;
     const fetch = (async (_url: string, init: RequestInit) => {

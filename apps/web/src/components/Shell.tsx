@@ -7,7 +7,9 @@ import { READY } from "../features";
 import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph, coverFor } from "./ui";
 
 export function Shell() {
-  const [health, down] = useJson<Health>("/api/health");
+  const [health, down, recheck] = useJson<Health>("/api/health");
+  // The machine dot follows the daemon: checked every 30 seconds, so a stopped daemon shows as offline.
+  useEffect(() => { const t = setInterval(recheck, 30_000); return () => clearInterval(t); }, [recheck]);
   const inboxQuery = useLiveInbox();
   const [inbox] = inboxQuery;
   const [jump, setJump] = useState(false);

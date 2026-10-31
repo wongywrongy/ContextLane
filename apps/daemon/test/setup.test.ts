@@ -58,6 +58,17 @@ describe("headless setup", () => {
     expect((await stat(f.path)).mode & 0o777).toBe(0o600);
     expect(f.calls.some((c) => c.cmd === "tailscale" && c.args.includes("--https=443"))).toBe(true);
   });
+  it("proves to the CLI that it can read the setup token, without revealing it", async () => {
+    const f = await fixture();
+    const nonce = "n".repeat(43);
+    const res = await f.app.inject({ method: "POST", url: "/api/setup/prove", payload: { nonce } });
+    expect(res.statusCode).toBe(200);
+    const { createHmac } = await import("node:crypto");
+    expect(res.json()).toEqual({ proof: createHmac("sha256", f.secret.trim()).update(`contextlanes-cli:${nonce}`).digest("base64url") });
+    expect(res.body).not.toContain(f.secret);
+    expect((await f.app.inject({ method: "POST", url: "/api/setup/prove", payload: { nonce: "short" } })).statusCode).toBe(400);
+  });
+
   it("redeems sign-in links exactly once, binds origin and expires after ten minutes", async () => {
     const f = await fixture(); const link = (await f.claim()).json(); const token = new URL(link.url).hash.slice(8);
     const redeem = (headers = f.remote) => f.app.inject({ method: "POST", url: "/api/setup/sign-in", headers, payload: { token } });

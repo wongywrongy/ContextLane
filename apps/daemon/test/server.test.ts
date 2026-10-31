@@ -1,11 +1,14 @@
 import { signedIn } from "./signed-in.js";
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 
-function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[]; units?: string[] } = {}) {
+function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[]; units?: string[]; hold?: Promise<void>; inactive?: boolean } = {}) {
   const calls: string[] = [];
   const run: Runner = async (cmd, args) => {
     calls.push([cmd, ...args].join(" "));
+    if (opts.hold && cmd === "git" && args[0] === "worktree" && args[1] === "add") await opts.hold;
+    if (opts.inactive && cmd === "systemctl" && args.includes("is-active")) throw new Error("inactive");
     if (cmd === "git" && args[0] === "branch" && opts.taken?.includes(args[2]!)) return { stdout: `  ${args[2]}\n` };
     if (cmd === "tmux" && args[0] === "list-sessions") return { stdout: (opts.sessions ?? []).join("\n") };
     if (cmd === "systemctl" && args[1] === "list-units") return { stdout: (opts.units ?? []).map((u) => `${u}.service loaded failed failed lane host\n`).join("") };
@@ -18,7 +21,7 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
   const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test" }), store);
-  return { app, store, calls };
+  return { app, store, calls, lanes };
 }
 
 describe("http api", () => {
@@ -189,6 +192,60 @@ describe("http api", () => {
     expect(started).toContain("--task-file=");
     expect(started).not.toContain("Step 1");
     expect(store.events(lane.id).find((e) => e.type === "agent.message")).toMatchObject({ payload: { role: "user", text: plan } });
+  });
+
+  it("refuses to delete a lane while it is still being set up", async () => {
+    let release!: () => void;
+    const { app, store } = setup({ hold: new Promise<void>((r) => { release = r; }) });
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const starting = app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Slow" } });
+    await vi.waitFor(() => expect(store.getLane("shop/01")?.state).toBe("setting_up"));
+    const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/discard", payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/still being set up/);
+    release();
+    expect((await starting).json()).toMatchObject({ state: "working" });
+  });
+
+  it("restart closes what the old session owed: queued stops, open permissions; keeps the owner's messages", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    const stop = randomUUID(), prompt = randomUUID();
+    store.appendEvent(lane.id, { type: "agent.command", payload: { commandId: stop, command: { kind: "cancel" } } });
+    store.appendEvent(lane.id, { type: "agent.command", payload: { commandId: prompt, command: { kind: "prompt", text: "also tests", immediate: false, files: [], images: [] } } });
+    store.appendEvent(lane.id, { type: "permission.requested", payload: { requestId: "r1", title: "Run npm test", options: [{ id: "yes", label: "Allow", kind: "allow_once" }] } });
+    store.setLaneState(lane.id, "needs_you");
+    expect(store.inbox().filter((i) => i.lane === lane.id)).toHaveLength(1);
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/restart` })).statusCode).toBe(200);
+    expect(store.pendingCommands(lane.id).map((c) => c.payload.commandId)).toEqual([prompt]);
+    expect(store.inbox().filter((i) => i.lane === lane.id)).toEqual([]);
+    expect(store.getLane(lane.id)!.state).toBe("working");
+  });
+
+  it("fails a working lane whose agent host died quietly, once it is past starting", async () => {
+    const { app, store, lanes } = setup({ inactive: true });
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    expect(await lanes.sweep(() => false)).toEqual([]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 91_000);
+      expect(await lanes.sweep(() => true)).toEqual([]);
+      expect(await lanes.sweep(() => false)).toEqual([lane.id]);
+    } finally { vi.useRealTimers(); }
+    expect(store.getLane(lane.id)).toMatchObject({ state: "failed" });
+    expect(store.events(lane.id).at(-1)).toMatchObject({ type: "lane.state", payload: { reason: expect.stringContaining("Restart the agent") } });
+  });
+
+  it("drops permissions of deleted lanes from the inbox", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    store.appendEvent(lane.id, { type: "permission.requested", payload: { requestId: "r1", title: "Run npm test", options: [{ id: "yes", label: "Allow", kind: "allow_once" }] } });
+    expect(store.inbox()).toHaveLength(1);
+    await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/discard`, payload: {} });
+    expect(store.inbox()).toEqual([]);
   });
 
   it("deletes a working lane: stops it, removes the checkout, keeps the branch unless asked", async () => {

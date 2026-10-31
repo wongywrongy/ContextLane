@@ -71,12 +71,19 @@ export class Checker {
     if (!lane) throw new NotFound(`no lane ${id}`);
     if (lane.state !== "working") throw new Refused(`A checkpoint needs a working lane; this one is ${lane.state.replace("_", " ")}.`);
     if (this.running.has(id)) throw new Refused("A checkpoint is already running for this lane.");
+    // Claimed before the first await, so the agent's checkpoint tool and the owner's button never both build.
+    this.running.add(id);
+    try { return await this.prepare(lane, summary); } catch (err) { this.running.delete(id); throw err; }
+  }
+
+  private async prepare(lane: Lane, summary: string): Promise<{ started: true }> {
+    const { run } = this.deps;
+    const id = lane.id;
     const dirty = (await run("git", ["status", "--porcelain"], { cwd: lane.worktree })).stdout.trim();
     if (dirty) throw new Refused("Commit your changes first; review covers commits, and these are not committed yet.");
     const base = (await run("git", ["merge-base", lane.base ?? "main", "HEAD"], { cwd: lane.worktree }).catch(() => { throw new Refused(`This lane cannot be compared with ${lane.base ?? "main"}; that branch was not found.`); })).stdout.trim();
     if (!(await run("git", ["rev-list", "--count", `${base}..HEAD`], { cwd: lane.worktree })).stdout.trim().match(/^[1-9]/)) throw new Refused("This lane has no commits to review yet.");
     const recipe = await this.deps.runtime.recipeFor(lane);
-    this.running.add(id);
     void this.build(lane, summary, base, recipe).catch((err: unknown) => this.report(id, "Checkpoint", false, 0, err instanceof Error ? err.message : String(err))).finally(() => this.running.delete(id));
     return { started: true };
   }

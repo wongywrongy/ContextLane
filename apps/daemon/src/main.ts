@@ -22,6 +22,7 @@ import { Briefs } from "./briefs.js";
 import { Insights } from "./insights.js";
 import { Schedules } from "./schedules.js";
 import { recover } from "./recover.js";
+import { tidyFiles } from "./janitor.js";
 import { fileURLToPath } from "node:url";
 
 async function main(): Promise<void> {
@@ -64,6 +65,18 @@ async function main(): Promise<void> {
   runtime.watch();
   collisions.start();
   insights.start();
+  // Hosts that died quietly (out of memory, a reboot) fail their lane; the first pass waits for reconnects.
+  let sweeping = false;
+  const sweep = setInterval(() => {
+    if (sweeping) return;
+    sweeping = true;
+    void lanes.sweep((id) => hosts.connected(id)).then((ids) => { for (const id of ids) console.log(`Lane ${id}: its agent host stopped`); }, (err) => console.error("Lane sweep failed:", err)).finally(() => { sweeping = false; });
+  }, 60_000);
+  sweep.unref();
+  // Old attachments, screenshots and answer links of finished lanes: once soon after start, then daily.
+  const tidy = () => void tidyFiles({ store, config }).then((lines) => { for (const line of lines) console.log(`Tidied: ${line}`); }, (err) => console.error("Tidying files failed:", err));
+  const tidyFirst = setTimeout(tidy, 5 * 60_000); tidyFirst.unref();
+  const tidyDaily = setInterval(tidy, 86_400_000); tidyDaily.unref();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
 
   // Stop within seconds: open requests (a long model call, a clone) are cut rather than waited for, so
@@ -74,6 +87,7 @@ async function main(): Promise<void> {
     stopping = true;
     setTimeout(() => { console.error("Shutdown took too long; exiting."); process.exit(0); }, 10_000).unref();
     try {
+      clearInterval(sweep); clearTimeout(tidyFirst); clearInterval(tidyDaily);
       await notifier.close();
       runtime.close();
       collisions.close();

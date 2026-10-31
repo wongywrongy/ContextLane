@@ -24,11 +24,16 @@ export function WorkPage() {
   const [inbox] = useInbox();
   const [params, setParams] = useSearchParams();
   const [creating, setCreating] = useState(params.get("new") === "1");
+  // ⌘K "Start a lane in…" can arrive while this page is already open.
+  const asked = params.get("new") === "1";
+  useEffect(() => { if (asked) setCreating(true); }, [asked]);
   const lane = work.lanes.find((l) => l.id === params.get("lane")) ?? null;
   const history = useHistory(lane?.id ?? "", work.events, work.version);
   const [view, setView] = useState<"steps" | "terminal">("steps");
   useEffect(() => setView("steps"), [lane?.id]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
+  // Archived lanes are hidden from the list until asked for; the overview follows the list.
+  const open = useMemo(() => work.lanes.filter((l) => l.state !== "archived"), [work.lanes]);
   const closeNew = () => { setCreating(false); if (params.has("new")) setParams(lane ? { lane: lane.id } : {}); };
   return <div className={`wk3${lane ? " has-lane" : " overview"}`}>
     <LaneList lanes={work.lanes} events={work.events} inbox={inbox ?? []} selected={lane?.id ?? null} choose={choose} create={() => setCreating(true)} />
@@ -37,12 +42,12 @@ export function WorkPage() {
       {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
         : <>
           <div className="ph"><h2>Overview</h2><span className="m">every lane as a graph · click a lane to open it</span></div>
-          {work.lanes.length ? <Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={work.lanes} events={work.events} select={choose} /></Suspense>
-            : <section className="sec"><div className="empty">No lanes yet. A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>Start the first one</button>.</div></section>}
+          {open.length ? <Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={open} events={work.events} select={choose} /></Suspense>
+            : <section className="sec"><div className="empty">{work.lanes.length ? "No open lanes; archived ones are in the list." : "No lanes yet."} A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>{work.lanes.length ? "Start one" : "Start the first one"}</button>.</div></section>}
         </>}
     </main>
     {lane ? <Inspector key={lane.id} lane={lane} events={history.events} openTerminal={() => setView("terminal")} /> : null}
-    {creating && projects ? <NewLaneDialog projects={projects} project={project} task={params.get("task") ?? undefined} onClose={closeNew} /> : null}
+    {creating && projects ? <NewLaneDialog projects={projects} project={project} task={params.get("task") ?? undefined} onClose={closeNew} onStarted={() => setCreating(false)} /> : null}
   </div>;
 }
 
@@ -139,7 +144,9 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
-  const link = useAgentLink(lane, events.length);
+  // Checked again when the agent's connection could have changed, not on every streamed word.
+  const changes = useMemo(() => events.filter((e) => e.type === "agent.session" || e.type === "agent.error" || e.type === "lane.state").length, [events]);
+  const link = useAgentLink(lane, changes);
   const offline = link !== null && !link.connected;
   const interrupt = useCallback(() => {
     if (offline) { setNotice("The agent is not connected, so there is nothing to interrupt."); return; }
@@ -147,7 +154,10 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
   }, [lane.id, offline]);
   useEffect(() => {
     if (view !== "steps") return;
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !document.querySelector("dialog[open]")) { event.preventDefault(); interrupt(); } };
+    // Escape interrupts from anywhere in the lane, including the message box, but not from another field
+    // (rename, a picker), where it means "close this".
+    const field = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || (["INPUT", "SELECT"].includes(t.tagName)) || (t.tagName === "TEXTAREA" && t.id !== "lane-message"));
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !field(event.target) && !document.querySelector("dialog[open]")) { event.preventDefault(); interrupt(); } };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, [view, interrupt]);
@@ -166,7 +176,7 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     <div className="ph">
       <LaneBadge id={lane.id} colour={lane.colour} large /><AgentMark agent={lane.agent} />
       {renaming ? <form style={{ display: "flex", gap: 8, flex: "1 1 320px" }} onSubmit={(e) => { e.preventDefault(); const task = String(new FormData(e.currentTarget).get("task") ?? "").trim(); void postJson(`/api/lanes/${lane.id}`, { task }, "PATCH").then(() => { setRenaming(false); reload(); }, (err) => setNotice(errorMessage(err))); }}>
-          <input className="in" name="task" defaultValue={lane.task} maxLength={300} required autoFocus aria-label="Lane title" style={{ flex: 1, minHeight: 36 }} /><button className="btn sm">Save</button><button type="button" className="btn ghost sm" onClick={() => setRenaming(false)}>Cancel</button></form>
+          <input className="in" name="task" defaultValue={lane.task} maxLength={300} required autoFocus aria-label="Lane title" style={{ flex: 1, minHeight: 36 }} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setRenaming(false); } }} /><button className="btn sm">Save</button><button type="button" className="btn ghost sm" onClick={() => setRenaming(false)}>Cancel</button></form>
         : <><h2>{lane.task}</h2><button className="lnk" style={{ fontSize: 13 }} onClick={() => setRenaming(true)}>Rename</button></>}
       <StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
       {sharing(events, lane.id).map((c) => <Link key={c.module} className="lnk" style={{ fontSize: 13 }} to={`/p/${lane.project}/architecture`}><Glyph g="wait">Also changed by {c.others.map((o) => o.slice(o.lastIndexOf("/") + 1)).join(" and ")}: {c.module}</Glyph></Link>)}
@@ -207,7 +217,8 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
         : <Steps events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
     </section>
 
-    {view === "steps" ? <Composer lane={lane} events={events} agent={agent} /> : null}
+    {/* Kept mounted on the Terminal tab, so a half-written message and its files survive the switch. */}
+    <div hidden={view !== "steps"}><Composer lane={lane} events={events} agent={agent} /></div>
   </>;
 }
 

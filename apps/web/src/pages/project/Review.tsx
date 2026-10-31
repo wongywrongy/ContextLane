@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
@@ -159,6 +159,7 @@ function Files({ checkpoint }: { checkpoint: Checkpoint }) {
   const t = totals(checkpoint.files);
   const [open, setOpen] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ key: string; text: string } | null>(null);
+  const wanted = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
   const load = async (file: string | null) => {
@@ -166,8 +167,12 @@ function Files({ checkpoint }: { checkpoint: Checkpoint }) {
     setError("");
     if (open === key) { setOpen(null); return; }
     setOpen(key);
-    try { setDiff({ key, text: (await getJson<{ diff: string }>(`/api/checkpoints/${checkpoint.id}/diff${file === null ? "" : `?file=${encodeURIComponent(file)}`}`)).diff }); }
-    catch (err) { setError(errorMessage(err)); }
+    wanted.current = key;
+    try {
+      const text = (await getJson<{ diff: string }>(`/api/checkpoints/${checkpoint.id}/diff${file === null ? "" : `?file=${encodeURIComponent(file)}`}`)).diff;
+      // A slower answer for a file clicked earlier must not replace the one open now.
+      if (wanted.current === key) setDiff({ key, text });
+    } catch (err) { if (wanted.current === key) setError(errorMessage(err)); }
   };
   const sorted = [...checkpoint.files].sort((a, b) => b.added + b.removed - a.added - a.removed);
   const shown = more ? sorted : sorted.slice(0, 3);

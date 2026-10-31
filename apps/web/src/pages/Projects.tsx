@@ -18,6 +18,8 @@ export function ProjectsPage() {
   useEffect(() => { const timer = setInterval(() => { reloadResources(); reloadUsage(); }, 30_000); return () => clearInterval(timer); }, [reloadResources, reloadUsage]);
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(params.get("add") === "1");
+  const asked = params.get("add") === "1";
+  useEffect(() => { if (asked) setAdding(true); }, [asked]);
   const close = () => { setAdding(false); if (params.has("add")) setParams({}); };
   return (
     <main className="pg">

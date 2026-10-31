@@ -70,7 +70,8 @@ it("serves measured machine/backup facts, reuses the CLI check, and exports work
     return { stdout: "" };
   };
   const config = Config.parse({ paths: { data: path, lanes: join(path, "lanes") }, access: { shellOwner: "fixture" }, lanes: { launchHosts: false },
-    agents: { codex: { command: "codex-acp", args: [], env: { API_TOKEN: "agent-secret-123" } } }, notifications: { telegram: { botToken: "bot-secret-456", chatId: "123", ownerId: "456" } } });
+    agents: { codex: { command: "codex-acp", args: [], env: { API_TOKEN: "agent-secret-123" } } }, notifications: { telegram: { botToken: "bot-secret-456", chatId: "123", ownerId: "456" } },
+    databases: { postgres: { admin: "postgres://admin:pg-secret-111@127.0.0.1:5432/postgres", app: "postgresql://app:pg-secret-222@127.0.0.1:5432/postgres" } } });
   const store = Store.open(":memory:"), bus = new EventBus(), hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run }), setup = new SetupManager(config, store, run);
   store.addProject({ id: "demo", name: "Demo", path: "/code/demo", remote: "https://git-token-789@github.com/example/demo.git" });
@@ -95,6 +96,7 @@ it("serves measured machine/backup facts, reuses the CLI check, and exports work
     expect(encoded).not.toContain("agent-secret-123"); expect(encoded).not.toContain("bot-secret-456");
     expect(encoded).not.toContain("not-for-export");
     expect(encoded).not.toContain("git-token-789");
+    expect(encoded).not.toContain("pg-secret-111"); expect(encoded).not.toContain("pg-secret-222");
     expect(data.tables.project![0]).toMatchObject({ id: "demo", path: "/code/demo" });
     expect(data.tables.lane![0]?.token_hash).toBe("••••••••");
     expect(data.tables.owner_session![0]?.hash).toBe("••••••••");

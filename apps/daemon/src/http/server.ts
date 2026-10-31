@@ -53,7 +53,7 @@ import { Resources } from "../resources.js";
 
 export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
-const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
+const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/prove", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
 /** The lane token may also ask which tools its lane has. */
 const TOOLS_ROUTE = "/api/lanes/:project/:n/tools";
@@ -194,6 +194,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
     if (lane.state === "merged") throw new Refused("This lane is merged; use Clean up on Run instead.", 409);
+    if (lane.state === "draft" || lane.state === "setting_up") throw new Refused("This lane is still being set up. Delete it once it has started or failed.", 409);
+    if (review.working(lane.id)) throw new Refused("This lane is being merged right now. Wait for approve to finish or fail, then delete it.", 409);
     if (lane.state === "archived" && !(await discardPreview(lane.id)).present) throw new Refused("This lane is already deleted.", 409);
     const { deleteBranch } = DiscardLane.parse(req.body ?? {});
     const repo = store.getProject(lane.project)!.path;
@@ -396,8 +398,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     try { return reply.code(202).send({ ...(await checker.begin(id, summary)), asked: false }); }
     catch (err) {
       if (!(err instanceof Refused) || !/Commit your changes first|no commits to review/.test(err.message)) throw err;
-      const sent = deps.hosts.command(id, { kind: "prompt", text: "The owner asked for review. Finish the step you are on, commit your work on this branch with a clear message (nothing unrelated), then call the checkpoint tool with a short summary of what changed and why.", immediate: false, files: [], images: [] });
-      if (!sent.delivered) throw new Refused(`${err.message} The agent is not connected to do it; restart the agent, or commit in the lane's terminal.`, 409);
+      // Checked first, so a refused request leaves nothing queued for a later agent.
+      if (!deps.hosts.connected(id)) throw new Refused(`${err.message} The agent is not connected to do it; restart the agent, or commit in the lane's terminal.`, 409);
+      const text = "The owner asked for review. Finish the step you are on, commit your work on this branch with a clear message (nothing unrelated), then call the checkpoint tool with a short summary of what changed and why.";
+      // Shown in the lane's steps as the owner's message, like any other.
+      bus.publish(store.appendEvent(id, { type: "agent.message", payload: { role: "user", text } }));
+      deps.hosts.command(id, { kind: "prompt", text, immediate: false, files: [], images: [] });
       return reply.code(202).send({ started: false, asked: true });
     }
   });

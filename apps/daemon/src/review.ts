@@ -25,6 +25,9 @@ export class Review {
     return { lane, checkpoint };
   }
 
+  /** True while approve or clean up is working on the lane, so delete and request changes wait. */
+  working(id: string): boolean { return this.busy.has(id); }
+
   private git(lane: Lane, ...args: string[]) {
     return this.deps.run("git", args, { cwd: lane.worktree, timeout: 120_000 });
   }
@@ -38,9 +41,9 @@ export class Review {
       const base = lane.base ?? "main";
       if (lane.branch === base) throw new Refused(`This lane is on ${base} itself, so there is nothing to merge.`);
       // A retry after a failed push or gh starts from the head the earlier attempt rebased to.
-      const updated = this.deps.store.events(id).findLast((e) => e.type === "checkpoint.updated" && e.payload.checkpointId === checkpoint.id);
+      const updated = this.deps.store.eventsOfType(["checkpoint.updated"], { lanes: [id] }).findLast((e) => e.payload.checkpointId === checkpoint.id);
       const head = (await this.git(lane, "rev-parse", "HEAD")).stdout.trim();
-      const resumed = updated?.type === "checkpoint.updated" && updated.payload.head === head;
+      const resumed = updated?.payload.head === head;
       if (head !== checkpoint.head && !resumed) throw new Refused("The lane has new commits since this checkpoint. Ask for a new checkpoint so review covers them.");
       if ((await this.git(lane, "status", "--porcelain")).stdout.trim()) throw new Refused("The lane has uncommitted changes. Ask the agent to commit or discard them first.");
       await this.git(lane, "remote", "get-url", "origin").catch(() => { throw new Refused("This repository has no origin remote to push to."); });
@@ -122,6 +125,7 @@ export class Review {
   /** The note goes to the same agent as a normal message, and the lane goes back to work. */
   requestChanges(id: string, note: string): { delivered: boolean } {
     const { checkpoint } = this.pending(id);
+    if (this.busy.has(id)) throw new Refused("This lane is being merged right now. Wait for approve to finish or fail, then request changes.");
     const { store, bus, hosts } = this.deps;
     const events = store.tx(() => {
       store.decideCheckpoint(checkpoint.id, "changes");

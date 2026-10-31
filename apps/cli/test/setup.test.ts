@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,10 @@ it("turns shell proof into a ten-minute link and QR with the same URL, without p
   const url = `https://neo.test.ts.net/setup#signin=${"a".repeat(43)}`;
   const http = vi.fn<typeof fetch>(async (path, init) => {
     if (String(path).endsWith("/status")) return Response.json({ claimed: false, authorized: false, hasPasskey: false, hasLane: false, tailnetLogin: null, publicUrl: null, controlFile });
+    if (String(path).endsWith("/prove")) {
+      expect(init?.headers).not.toHaveProperty("authorization");
+      return Response.json({ proof: createHmac("sha256", "private-shell-proof").update(`contextlanes-cli:${JSON.parse(String(init?.body)).nonce}`).digest("base64url") });
+    }
     expect(init?.headers).toMatchObject({ authorization: "Bearer private-shell-proof" });
     return Response.json({ url, expiresAt: new Date(Date.now() + 600000).toISOString(), messages: ["sudo loginctl enable-linger kyle"] });
   }); vi.stubGlobal("fetch", http); vi.stubEnv("CONTEXTLANES_URL", "http://127.0.0.1:4600");
@@ -20,7 +25,22 @@ it("turns shell proof into a ten-minute link and QR with the same URL, without p
   const output = await setupOutput("192.0.2.42");
   expect(output).toContain(url); expect(output).toContain("Works once and expires in 10 minutes"); expect(output).toContain("sudo loginctl enable-linger kyle"); expect(output).not.toContain("private-shell-proof");
   expect(generate).toHaveBeenCalledWith(url, { small: true }, expect.any(Function)); expect(output).toMatch(/[█▀▄]/);
-  expect(JSON.parse(String(http.mock.calls[1]?.[1]?.body))).toEqual({ sshHost: "192.0.2.42" });
+  expect(JSON.parse(String(http.mock.calls.at(-1)?.[1]?.body))).toEqual({ sshHost: "192.0.2.42" });
+});
+
+it("never sends the setup token to something that cannot prove it is the daemon", async () => {
+  vi.resetModules();
+  const { setupOutput: fresh } = await import("../src/setup.js");
+  const root = await mkdtemp(join(tmpdir(), "cl-cli-")); cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const controlFile = join(root, "setup-token"); await writeFile(controlFile, "private-shell-proof");
+  const seen: string[] = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (path, init) => {
+    seen.push(JSON.stringify(init ?? {}));
+    if (String(path).endsWith("/status")) return Response.json({ claimed: false, authorized: false, hasPasskey: false, hasLane: false, tailnetLogin: null, publicUrl: null, controlFile });
+    return Response.json({ proof: "x".repeat(43) });
+  })); vi.stubEnv("CONTEXTLANES_URL", "http://127.0.0.1:4600");
+  await expect(fresh()).rejects.toThrow("Something other than ContextLanes");
+  expect(seen.join("")).not.toContain("private-shell-proof");
 });
 it("adds the current folder by default and preserves an explicit ~ path for the daemon", async () => {
   const http = vi.fn<typeof fetch>(async () => Response.json({ id: "project", name: "Project" })); vi.stubGlobal("fetch", http);

@@ -60,7 +60,7 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
       <span className="mono muted" style={{ fontSize: 11.5 }}>sends after this step</span>
     </div>)}
     {picker ? <div className="q">
-      <input className="in mono" style={{ maxWidth: 280, minHeight: 32 }} autoFocus aria-label={picker === "file" ? "Find a file in this lane" : "Find a command"} placeholder={picker === "file" ? "Find a file…" : "Find a command…"} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setPicker(null); }} />
+      <input className="in mono" style={{ maxWidth: 280, minHeight: 32 }} autoFocus aria-label={picker === "file" ? "Find a file in this lane" : "Find a command"} placeholder={picker === "file" ? "Find a file…" : "Find a command…"} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setPicker(null); } }} />
       {picker === "file"
         ? found.length ? found.slice(0, 8).map((f) => <button key={f} className="fchip" style={{ border: 0, cursor: "pointer" }} title={f} onClick={() => { if (!files.includes(f) && files.length < 10) setFiles([...files, f]); setPicker(null); }}>{f}</button>) : <span className="muted" style={{ fontSize: 13 }}>No matching files.</span>
         : shownCommands.length ? shownCommands.map((c) => <button key={c.name} className="fchip" style={{ border: 0, cursor: "pointer" }} title={c.description} onClick={() => { setText(`/${c.name} ${text.replace(/^\/\S*\s*/, "")}`); setPicker(null); }}>/{c.name}</button>) : <span className="muted" style={{ fontSize: 13 }}>{commands.length ? "No matching commands." : `${agent} has not listed any commands yet.`}</span>}

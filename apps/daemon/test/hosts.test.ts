@@ -30,3 +30,17 @@ it("a lane failed by one agent error is working again when the agent takes a new
   await until(() => store.getLane(lane.id)!.state === "working");
   expect(store.events(lane.id).filter((e) => e.type === "lane.state").map((e) => e.payload)).toContainEqual(expect.objectContaining({ from: "failed", to: "working" }));
 });
+
+it("closes a connection that sends an endless line, before it is buffered whole", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cl-hosts-")); cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const store = Store.open(":memory:"); cleanups.push(() => store.close());
+  const hosts = new HostLinks({ store, bus: new EventBus() });
+  await hosts.listen(join(root, "lanes.sock")); cleanups.push(() => hosts.close());
+  const sock = createConnection(join(root, "lanes.sock")); cleanups.push(() => sock.destroy());
+  const closed = new Promise<void>((resolve) => sock.on("close", () => resolve()));
+  sock.on("error", () => {});
+  const chunk = "x".repeat(256 * 1024);
+  for (let i = 0; i < 10 && !sock.destroyed; i++) { sock.write(chunk); await new Promise((r) => setTimeout(r, 5)); }
+  await closed;
+  expect(sock.destroyed).toBe(true);
+});

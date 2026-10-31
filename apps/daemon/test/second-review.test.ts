@@ -35,5 +35,11 @@ describe("second-agent review", () => {
     bus.publish(store.appendEvent(reviewLane.id, { type: "agent.turn", payload: { active: false } }));
     expect(store.checkpoint(id)!.secondReview).toMatchObject({ agent: "codex", state: "done", text: expect.stringContaining("Verdict: merge after fixes") });
     expect(store.getLane(reviewLane.id)!.state).toBe("archived");
+
+    // A review whose agent never reports in fails instead of "running" forever, and can be asked again.
+    store.setSecondReview(id, { agent: "codex", lane: reviewLane.id, state: "done", text: "x", at: new Date().toISOString() });
+    const again = await reviews.start(id, "opencode");
+    bus.publish(store.setLaneState(again.secondReview!.lane, "failed", "The agent has not connected"));
+    expect(store.checkpoint(id)!.secondReview).toMatchObject({ agent: "opencode", state: "failed" });
   });
 });

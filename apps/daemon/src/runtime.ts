@@ -2,6 +2,7 @@ import { createLaneDatabase, databaseEnv, dropLaneDatabase, laneDatabaseName } f
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, lstat, mkdir } from "node:fs/promises";
+import { mkdirInside } from "./safefs.js";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import type { EnvironmentView, Lane, LogLine, Project, Recipe, RecipeService, RecipeView, ServiceStatus } from "@contextlanes/protocol";
@@ -285,7 +286,8 @@ export class Runtime {
       const source = join(project.path, file);
       if (!(await lstat(source)).isFile()) continue;
       const target = join(lane.worktree, file);
-      await mkdir(dirname(target), { recursive: true });
+      // The checkout is the agent's: never write through a folder it replaced with a link.
+      await mkdirInside(lane.worktree, dirname(file));
       await copyFile(source, target, fsConstants.COPYFILE_EXCL).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; });
       ignored.push(file);
     }
@@ -295,7 +297,7 @@ export class Runtime {
       const target = join(lane.worktree, path);
       const present = async (p: string) => lstat(p).then(() => true, () => false);
       if (!(await present(source)) || await present(target)) continue;
-      await mkdir(dirname(target), { recursive: true });
+      await mkdirInside(lane.worktree, dirname(path));
       // Hard links are instant; another filesystem falls back to a copy.
       try { await run("cp", ["-al", source, target]); cache = cache === "copied" ? cache : "linked"; }
       catch { await run("cp", ["-a", "--reflink=auto", source, target]); cache = "copied"; }

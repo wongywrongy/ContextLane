@@ -65,6 +65,7 @@ export function SettingsPage() {
   const [status] = useJson<SetupStatus>("/api/setup/status");
   const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
+  const [orderError, setOrderError] = useState("");
   const [adding, setAdding] = useState(false);
   const [machine, machineError, reloadMachine] = useJson<MachineInfo>("/api/machine");
   const [updates, setUpdates] = useState<UpdateCheck | null>(null);
@@ -94,9 +95,10 @@ export function SettingsPage() {
         <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>
           {projects?.map((p, i) => <ProjectRow key={p.id} project={p} first={i === 0} last={i === projects.length - 1} move={(by) => {
             const ids = projects.map((x) => x.id); const j = i + by; [ids[i], ids[j]] = [ids[j]!, ids[i]!];
-            void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects);
+            void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects, (e) => { setOrderError(errorMessage(e)); reloadProjects(); });
           }} changed={reloadProjects} />)}
           {projects && !projects.length ? <Empty>No projects yet.</Empty> : null}
+          {orderError ? <div className="sec-f" role="alert" style={{ fontSize: 13 }}>{orderError}</div> : null}
         </Section>
         <Section id="notifications" title="Notifications" meta="you decide when the agent continues">
           <PushSettings />
@@ -245,7 +247,8 @@ function ScheduledLanes() {
 function RoutingSection({ settings, agents, reload }: { settings: SetupSettings | null; agents: DetectedAgent[] | null; reload: () => void }) {
   const rules = settings?.routing ?? [];
   const [error, setError] = useState("");
-  const save = (next: RoutingRule[]) => { setError(""); void postJson("/api/setup/settings", { routing: next }).then(reload, (e) => setError(errorMessage(e))); };
+  const store = (next: RoutingRule[]) => postJson("/api/setup/settings", { routing: next }).then(reload);
+  const save = (next: RoutingRule[]) => { setError(""); void store(next).catch((e) => setError(errorMessage(e))); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <Section title="Routing" meta="which agent and model a new lane gets · first match wins">
     {rules.map((r, i) => <div className="sec-r" key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) auto auto", gap: 14, alignItems: "center" }}>
@@ -256,7 +259,8 @@ function RoutingSection({ settings, agents, reload }: { settings: SetupSettings 
     <div className="opts in-sec">
       <Form title="Add a rule" save={async (f) => {
         const words = v(f, "words").split(",").map((w) => w.trim()).filter(Boolean);
-        save([...rules, { words, agent: v(f, "agent"), ...(v(f, "model") ? { model: v(f, "model") } : {}), ...(v(f, "label") ? { label: v(f, "label") } : {}) }]);
+        // Awaited, so the form says "Saved." only when the daemon took it, and shows its reason when not.
+        await store([...rules, { words, agent: v(f, "agent"), ...(v(f, "model") ? { model: v(f, "model") } : {}), ...(v(f, "label") ? { label: v(f, "label") } : {}) }]);
       }}>
         <label className="field">Words in the task <span className="hint">comma-separated, e.g. docs, fixture, rename</span><input className="in" name="words" required /></label>
         <div className="two"><label className="field">Agent<select className="in" name="agent">{(agents ?? []).map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select></label>

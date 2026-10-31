@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { stripVTControlCharacters } from "node:util";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join, basename } from "node:path";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AgentRegistry } from "./registry.js";
 import { AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type Project, type SetupLink } from "@contextlanes/protocol";
@@ -13,7 +13,7 @@ import webPush from "web-push";
 import { Config, configPath, saveConfig } from "./config.js";
 import type { Store } from "./db/store.js";
 import type { Runner } from "./run.js";
-import { slugify } from "./lanes/naming.js";
+import { hostUnit, slugify } from "./lanes/naming.js";
 
 export class SetupError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
 const agents = {
@@ -63,6 +63,15 @@ export class SetupManager {
   async checkShell(token: string | undefined): Promise<void> {
     const actual = await readFile(this.controlFile, "utf8");
     if (!token || Buffer.byteLength(token) !== Buffer.byteLength(actual) || !timingSafeEqual(Buffer.from(token), Buffer.from(actual))) throw new SetupError("Run contextlanes setup in this machine’s SSH session.", 403);
+  }
+  /**
+   * Lets the CLI check it is talking to this daemon before it sends the setup token: only a process that
+   * can read the token can answer. Anything else on the port (an agent's server while the daemon restarts)
+   * cannot, so the CLI never hands it the owner's credential.
+   */
+  async prove(nonce: string): Promise<string> {
+    const key = (await readFile(this.controlFile, "utf8")).trim();
+    return createHmac("sha256", key).update(`contextlanes-cli:${nonce}`).digest("base64url");
   }
   shellSetup(sshHost?: string): Promise<SetupLink> {
     if (this.starting) return this.starting;
@@ -200,6 +209,8 @@ export class SetupManager {
     if (!project) throw new SetupError("There is no such project.", 404);
     const open = this.store.listLanes(id).filter((l) => !["cleaned", "archived", "failed"].includes(l.state));
     if (open.length) throw new SetupError(`${open.length} ${open.length === 1 ? "lane is" : "lanes are"} still open in ${project.name}. Merge and clean up, or archive ${open.length === 1 ? "it" : "them"}, first.`, 409);
+    // A failed lane's agent host can still be running; nothing would show it once the project is hidden.
+    for (const lane of this.store.listLanes(id).filter((l) => l.state === "failed")) await this.run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
     await this.update({ projects: this.config.projects.filter((x) => x.path !== project.path) });
     this.store.removeProject(id);
   }

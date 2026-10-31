@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, SetupManager, Store, hostCommand, sandbox, socketPath, type Runner } from "@contextlanes/daemon";
 
-const PUBLIC = ["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"];
+const PUBLIC = ["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/prove", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"];
 const FORGED = { "tailscale-user-login": "kyle@example.com", host: "neo.test.ts.net", "x-forwarded-for": "100.64.0.1" };
 
 async function fixture() {

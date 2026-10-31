@@ -72,6 +72,22 @@ describe("checkpoint", () => {
     expect(store.inbox()).toMatchObject([{ kind: "review", lane: "shop/01" }]);
   });
 
+  it("builds once when the agent's tool and the owner's button ask at the same moment", async () => {
+    const { store, send } = await setup();
+    const [a, b] = await Promise.all([send(), send()]);
+    expect([a.statusCode, b.statusCode].sort()).toEqual([202, 409]);
+    expect((a.statusCode === 409 ? a : b).json().error).toMatch(/already running/);
+    await vi.waitFor(() => expect(store.getLane("shop/01")!.state).toBe("in_review"));
+    expect(store.events("shop/01").filter((e) => e.type === "checkpoint.created")).toHaveLength(1);
+  });
+
+  it("frees the guard when a check before building refuses", async () => {
+    const { state, send } = await setup({ dirty: " M a.py" });
+    expect((await send()).statusCode).toBe(409);
+    state.dirty = "";
+    expect((await send()).statusCode).toBe(202);
+  });
+
   it("still stores a checkpoint whose checks failed, for the owner to see", async () => {
     const { store, send } = await setup({ checkFails: true });
     await send();

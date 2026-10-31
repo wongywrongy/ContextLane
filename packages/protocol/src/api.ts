@@ -21,6 +21,9 @@ export const ProjectOrder = z.object({ ids: z.array(ProjectId).min(1).max(500) }
 export const DiscardLane = z.object({ deleteBranch: z.boolean().default(false) });
 export type DiscardPreview = { uncommitted: number; commits: number; branch: string; worktree: string; present: boolean };
 /** A lane's title. */
+/** The CLI's check that the daemon on the port can read the setup token, before it sends that token. */
+export const ProveRequest = z.object({ nonce: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/) });
+
 /** Whether the lane's agent host is on the daemon's socket right now, and whether it was started recently. */
 export const AgentLink = z.object({ connected: z.boolean(), starting: z.boolean() });
 export type AgentLink = z.infer<typeof AgentLink>;

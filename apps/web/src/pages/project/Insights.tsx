@@ -32,7 +32,7 @@ export function InsightsPage() {
   const act = (s: Suggestion) => {
     const a = s.action;
     if (a.kind === "start_lane") return setStarting(a.task);
-    if (a.kind === "fix_note") return void openNotes();
+    if (a.kind === "fix_note") return void openNotes().catch((e) => setMessage(errorMessage(e)));
     if (a.kind === "add_note") return void addNote(a.text).catch((e) => setMessage(errorMessage(e)));
     if (a.kind === "allow_helper") return void postJson("/api/helper", { kind: a.helper, on: true }).then(() => setMessage(`The local helper's ${a.helper} is on.`), (e) => setMessage(errorMessage(e)));
   };
@@ -73,7 +73,7 @@ export function InsightsPage() {
           : s.action.kind === "allow_helper" ? <button className="btn sm" onClick={() => act(s)}>Allow</button>
           : s.action.kind === "review" ? <Link className="btn ghost sm" to={`/p/${project}/review?lane=${encodeURIComponent(s.action.lane)}`}>Review</Link>
           : <button className="btn ghost sm" onClick={() => act(s)}>Fix note</button>}</span>
-        <button className="x" aria-label={`Dismiss: ${s.title}`} onClick={() => void postJson(`/api/projects/${project}/insights/${s.id}/dismiss`, {}).then(reload)}>×</button>
+        <button className="x" aria-label={`Dismiss: ${s.title}`} onClick={() => void postJson(`/api/projects/${project}/insights/${s.id}/dismiss`, {}).then(reload, (e) => setMessage(errorMessage(e)))}>×</button>
       </div>; })}
     </Section>
     <Section title="Usage today" meta={view.today.length ? `${k(totalToday)} tokens` : undefined}>
@@ -85,7 +85,7 @@ export function InsightsPage() {
       <div className="sec-f muted" style={{ fontSize: 12.5 }}>Dark is new input and output; grey is read from the agent's cache. The agents do not report how their context splits into rules, tools, files and conversation, so that breakdown is not shown.</div>
     </Section>
     <Section title="What every lane starts with" meta="kept short on purpose">
-      <div className="sec-r wrap"><Tile family="mind" icon="plan" small /><span className="grow"><b>Project notes</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{view.startsWith.notes.facts ? `${view.startsWith.notes.facts} ${view.startsWith.notes.facts === 1 ? "line" : "lines"}, put before every new lane's task` : "None yet. Facts every lane should know, like \"match times are UTC\"."}</span></span><span className="mono muted" style={{ fontSize: 12 }}>{view.startsWith.notes.tokens ? `≈ ${k(view.startsWith.notes.tokens)}` : ""}</span><button className="btn ghost sm" onClick={() => void openNotes()}>Edit</button></div>
+      <div className="sec-r wrap"><Tile family="mind" icon="plan" small /><span className="grow"><b>Project notes</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{view.startsWith.notes.facts ? `${view.startsWith.notes.facts} ${view.startsWith.notes.facts === 1 ? "line" : "lines"}, put before every new lane's task` : "None yet. Facts every lane should know, like \"match times are UTC\"."}</span></span><span className="mono muted" style={{ fontSize: 12 }}>{view.startsWith.notes.tokens ? `≈ ${k(view.startsWith.notes.tokens)}` : ""}</span><button className="btn ghost sm" onClick={() => void openNotes().catch((e) => setMessage(errorMessage(e)))}>Edit</button></div>
       {notes !== null ? <div className="sec-b"><textarea className="in" rows={8} value={notes} maxLength={8000} onChange={(e) => setNotes(e.target.value)} aria-label="Project notes" />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button className="btn sm" onClick={() => void postJson(`/api/projects/${project}/notes`, { text: notes }, "PUT").then(() => { setNotes(null); reload(); }, (e) => setMessage(errorMessage(e)))}>Save</button><button className="btn ghost sm" onClick={() => setNotes(null)}>Cancel</button></div></div> : null}
       <div className="sec-r wrap"><Tile family="look" icon="read" small /><span className="grow"><b>Module briefs</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{view.startsWith.briefs} written, rebuilt when their files change; agents ask with get_brief</span></span><span className="mono muted" style={{ fontSize: 12 }}>on demand</span><Link className="btn ghost sm" to={`/p/${project}/architecture`}>Architecture</Link></div>
@@ -110,7 +110,7 @@ function SkillsBlock({ project }: { project: string }) {
   return <>
     <div className="sec-r wrap"><Tile family="run" icon="checkpoint" small /><span className="grow"><b>Skills</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{skills?.length ? `${skills.length} copied into every new lane: .claude/skills for Claude Code, .agents/skills for Codex and OpenCode, kept out of git` : "None yet. Steps an agent loads only when the task needs them, like how to cut a release."}</span></span><button className="btn ghost sm" onClick={() => setEditing(blank)}>Add</button></div>
     {skills?.map((s) => <div className="sec-r wrap sub" key={s.name}><span className="grow"><b className="mono" style={{ fontSize: 13 }}>{s.name}</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{s.description}</span></span><button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button><button className="btn ghost sm" onClick={() => void remove(s.name)}>Remove</button></div>)}
-    {editing ? <form className="sec-b" onSubmit={(e) => { e.preventDefault(); void save(e.currentTarget); }}>
+    {editing ? <form className="sec-b" key={editing.name || "new"} onSubmit={(e) => { e.preventDefault(); void save(e.currentTarget); }}>
       <div className="two"><label className="field">Name <span className="hint">lowercase, digits and dashes</span><input className="in" name="name" required pattern="[a-z0-9][a-z0-9-]{0,40}" defaultValue={editing.name} readOnly={!!editing.name} /></label>
         <label className="field">When to use it <span className="hint">the agent reads this to decide</span><input className="in" name="description" required maxLength={300} defaultValue={editing.description} /></label></div>
       <label className="field">Instructions<textarea className="in" name="body" rows={8} required maxLength={20000} defaultValue={editing.body} /></label>

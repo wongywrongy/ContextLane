@@ -44,7 +44,9 @@ export class SecondReviews {
   }
 
   private observe(e: LaneEvent): void {
-    if (e.type !== "agent.turn" || e.payload.active) return;
+    // The review ends when its agent finishes a turn, or when its lane fails (not signed in, never connected).
+    const failed = e.type === "lane.state" && e.payload.to === "failed";
+    if (!failed && (e.type !== "agent.turn" || e.payload.active)) return;
     const { store, bus } = this.deps;
     const reviewLane = store.getLane(e.lane);
     if (!reviewLane) return;

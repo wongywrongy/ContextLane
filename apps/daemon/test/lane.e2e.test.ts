@@ -109,6 +109,7 @@ describe.skipIf(!tools)("a lane end to end", () => {
       // Ask for review with nothing committed: the agent is asked to commit and send it.
       const early = await app.inject({ method: "POST", url: `/api/lanes/${second.id}/checkpoint`, payload: { summary: "Invoices" } });
       expect(early.json()).toMatchObject({ asked: true });
+      expect(events(second.id).some((e) => e.type === "agent.message" && e.payload.role === "user" && e.payload.text.startsWith("The owner asked for review"))).toBe(true);
       await vi.waitFor(() => expect(events(second.id).some((e) => e.type === "agent.message" && e.payload.role === "agent" && e.payload.text.includes("The owner asked for review"))).toBe(true), { timeout: 15_000, interval: 250 });
       // Once committed, the checkpoint is built and the lane moves to Review.
       await (await import("node:fs/promises")).writeFile(join(second.worktree, "invoices.txt"), "invoices\n");

@@ -69,11 +69,12 @@ export class Handoffs {
         const agent = to.agent ?? lane.agent;
         const model = to.model ?? (to.agent ? null : lane.model);
         await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)]).catch(() => {});
+        await run("systemctl", ["--user", "reset-failed", lane.hostUnit ?? hostUnit(lane.id)]).catch(() => {});
         if (agent !== lane.agent || model !== lane.model) store.setLaneAgent(lane.id, agent, model);
         bus.publish(store.appendEvent(lane.id, { type: "lane.handoff", payload: { from: lane.agent, to: agent, model, chars: handoff.length, file } }));
         const next = store.getLane(lane.id)!;
         const first = `You are continuing lane ${lane.id} in this checkout from a handoff written by the previous session (${lane.agent}). Check the files rather than assuming.\n\n${handoff}`;
-        await this.deps.lanes.launch(next, first);
+        await this.deps.lanes.relaunch(next, first);
       } catch (err) {
         bus.publish(store.appendEvent(id, { type: "agent.error", payload: { message: `Handoff stopped: ${err instanceof Error ? err.message : String(err)}` } }));
       } finally { this.busy.delete(id); }

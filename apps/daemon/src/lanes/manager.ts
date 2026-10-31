@@ -140,6 +140,25 @@ export class LaneManager {
     this.watch(lane, since);
   }
 
+  /**
+   * Hosts are transient units with no automatic restart, so one killed by the kernel (out of memory) or by
+   * a machine restart just goes quiet. Run every minute: a working or waiting lane whose host is neither on
+   * the socket, nor just started, nor an active unit, fails with a reason the owner can act on.
+   */
+  async sweep(connected: (id: string) => boolean): Promise<string[]> {
+    const { store, run, config } = this.deps;
+    if (!config.lanes.launchHosts) return [];
+    const failed: string[] = [];
+    for (const lane of store.listLanes().filter((l) => (l.state === "working" || l.state === "needs_you") && !connected(l.id) && !this.starting(l.id))) {
+      const active = await run("systemctl", ["--user", "is-active", "--quiet", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).then(() => true, () => false);
+      const now = store.getLane(lane.id);
+      if (active || connected(lane.id) || !now || !["working", "needs_you"].includes(now.state)) continue;
+      this.emit(store.setLaneState(lane.id, "failed", "The agent's host stopped: it may have run out of memory, or the machine restarted. Restart the agent to continue from the checkout as it is."));
+      failed.push(lane.id);
+    }
+    return failed;
+  }
+
   /** True until the agent reports in, for at most 90 seconds after this daemon started its host: the watchdog's window. */
   starting(id: string): boolean {
     const launch = this.launched.get(id);
@@ -157,10 +176,33 @@ export class LaneManager {
     await run("systemctl", ["--user", "reset-failed", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).catch(() => {});
     const first = store.eventsOfType(["agent.message"], { lanes: [id] }).find((e) => e.payload.role === "user")?.payload.text ?? lane.task;
     const notes = await readFile(join(config.paths.data, "notes", `${lane.project}.md`), "utf8").catch(() => "");
-    if (lane.state === "failed") this.emit(store.setLaneState(id, "working"));
     this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: "Agent restarted by you. It starts again from the lane's first task and the checkout as it is now." } }));
-    await this.launch(store.getLane(id)!, taskText(lane, undefined, `This lane's earlier agent session ended. Look at the checkout first (git status, git log) and continue from where it is.\n\n${first}`, notes));
+    await this.relaunch(store.getLane(id)!, taskText(lane, undefined, `This lane's earlier agent session ended. Look at the checkout first (git status, git log) and continue from where it is.\n\n${first}`, notes));
     return store.getLane(id)!;
+  }
+
+  /**
+   * Starts a new agent session on a lane whose old host is stopped (restart, hand off). What the old session
+   * still owed is closed first: a stop or a mode change queued for it must not reach the new one, and a
+   * permission only the old host could resolve leaves the inbox. Messages the owner wrote are kept and
+   * delivered to the new session. If the new host cannot start, the lane fails and says why.
+   */
+  async relaunch(lane: Lane, text: string): Promise<void> {
+    const { store } = this.deps;
+    const id = lane.id;
+    for (const c of store.pendingCommands(id)) if (c.payload.command.kind !== "prompt") this.emit(store.appendEvent(id, { type: "agent.command.result", payload: { commandId: c.payload.commandId, ok: false, error: "The agent was restarted before this reached it." } }));
+    for (const item of store.inbox().filter((i) => i.lane === id && (i.kind === "permission" || i.kind === "question"))) {
+      const requestId = item.id.slice(item.id.indexOf("#") + 1);
+      if (store.permission(id, requestId) && !store.answered(id, requestId)) this.emit(store.appendEvent(id, { type: "permission.answered", payload: { requestId, optionId: null, by: "web" } }));
+    }
+    if (["failed", "needs_you"].includes(store.getLane(id)!.state)) this.emit(store.setLaneState(id, "working", "agent restarted"));
+    try {
+      await this.launch(store.getLane(id)!, text);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emit(store.setLaneState(id, "failed", `The agent could not be started again: ${message}`));
+      throw new Refused(`The agent could not be started again: ${message}`);
+    }
   }
 
   /**

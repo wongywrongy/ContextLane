@@ -15,6 +15,9 @@ export type ChatResult = { text: string; inputTokens: number | null; outputToken
  * endpoint, since each endpoint is one GPU: a second job waits rather than slowing both or running the
  * card out of memory. Every call goes through the OpenAI-compatible chat API both servers provide.
  */
+const MAX_WAITING = 20;
+const WAIT_MS = 10 * 60_000;
+
 export class LocalModels {
   private queues = new Map<string, { tail: Promise<unknown>; waiting: number; running: boolean }>();
   constructor(private deps: { config: Config; run: Runner; fetch?: typeof fetch }) {}
@@ -54,13 +57,31 @@ export class LocalModels {
     return q;
   }
 
-  /** Runs `job` when the endpoint's GPU is free. */
-  async exclusive<T>(model: LocalModel, job: () => Promise<T>): Promise<T> {
+  /**
+   * Runs `job` when the endpoint's GPU is free. The queue is bounded: past MAX_WAITING jobs a new one is
+   * refused at once, and a job that waited longer than `waitMs` gives up (its caller hears why) and is
+   * skipped when its turn comes, so a slow model never piles up work nobody is waiting for any more.
+   */
+  async exclusive<T>(model: LocalModel, job: () => Promise<T>, waitMs = WAIT_MS): Promise<T> {
     const q = this.queue(model.url);
+    if (q.waiting >= MAX_WAITING) throw new Refused(`${model.name} at ${new URL(model.url).host} already has ${q.waiting} jobs waiting. Try again when they finish, or add another endpoint for this role.`, 503);
     q.waiting++;
-    const result = q.tail.catch(() => {}).then(async () => { q.waiting--; q.running = true; try { return await job(); } finally { q.running = false; } });
-    q.tail = result;
-    return result;
+    let gaveUp = false, started = false;
+    const result = q.tail.catch(() => {}).then(async () => {
+      q.waiting--;
+      if (gaveUp) throw new Refused("skipped: its caller stopped waiting", 503);
+      started = true;
+      q.running = true;
+      try { return await job(); } finally { q.running = false; }
+    });
+    q.tail = result.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      // Only waiting counts: a job that has started runs to its own timeout.
+      timer = setTimeout(() => { if (started) return; gaveUp = true; reject(new Refused(`${model.name} was busy for ${Math.round(waitMs / 60_000)} minutes with other jobs, so this one was dropped. Try again later.`, 503)); }, waitMs);
+      timer.unref?.();
+    });
+    try { return await Promise.race([result, timeout]); } finally { clearTimeout(timer); }
   }
 
   async chat(model: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {

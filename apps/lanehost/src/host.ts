@@ -191,7 +191,10 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
 
 export async function runLaneHost(opts: LaneHostOptions): Promise<void> {
   let controls: ReturnType<typeof openAgentSession>;
-  const link = new DaemonLink({ lane: opts.lane, token: opts.token, path: opts.socketPath, command: (message) => { void controls.then((session) => session.command(message)).catch(() => {}); } });
+  // Refused by the daemon (restarted elsewhere, or deleted): stop the agent rather than work unseen.
+  const refused = new AbortController();
+  opts = { ...opts, signal: opts.signal ? AbortSignal.any([opts.signal, refused.signal]) : refused.signal };
+  const link = new DaemonLink({ lane: opts.lane, token: opts.token, path: opts.socketPath, command: (message) => { void controls.then((session) => session.command(message)).catch(() => {}); }, refused: () => refused.abort() });
   link.start();
   const stop = () => link.close();
   opts.signal?.addEventListener("abort", stop, { once: true });

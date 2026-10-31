@@ -276,7 +276,9 @@ export class Updater {
   }
   private async activeLanes(): Promise<number | null> {
     try {
-      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`);
+      // The same proof the CLI uses: the owner's setup token, readable only by the daemon's user.
+      const token = (await readFile(join(this.deps.data, "setup-token"), "utf8").catch(() => "")).trim();
+      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`, token ? { headers: { authorization: `Bearer ${token}` } } : undefined);
       if (!res.ok) return null;
       return ((await res.json()) as { state: string }[]).filter((l) => ACTIVE.includes(l.state)).length;
     } catch { return null; }

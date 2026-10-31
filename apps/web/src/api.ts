@@ -24,9 +24,16 @@ export const apiFetch: typeof fetch = (input, init) => fetch(input, authorized(i
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try { response = await fetch(path, authorized(init)); } catch { throw new RequestError("The daemon could not be reached; check your connection and try again."); }
-  let result;
-  try { result = await response.json(); } catch { throw new RequestError("The daemon returned an incomplete response; reload and try again."); }
   if (response.status === 401 && sessionToken()) { dropSession(); location.assign("/setup"); }
+  // 204 and other empty answers (DELETE) carry no body to read.
+  const text = await response.text().catch(() => null);
+  if (text === null) throw new RequestError("The daemon returned an incomplete response; reload and try again.");
+  if (!text) {
+    if (!response.ok) throw new RequestError("This action could not finish; reload and try again.");
+    return undefined as T;
+  }
+  let result;
+  try { result = JSON.parse(text); } catch { throw new RequestError("The daemon returned an incomplete response; reload and try again."); }
   if (!response.ok) throw new RequestError(typeof result.error === "string" ? result.error : "This action could not finish; reload and try again.");
   return result as T;
 }
@@ -113,6 +120,6 @@ export function useInbox(): InboxQuery {
 export function useLiveInbox(): InboxQuery {
   const result = useJson<InboxItem[]>("/api/inbox");
   const reload = result[2];
-  useEffect(() => openStream("/api/stream", (event) => { if (/permission\.|recipe\.|lane.state/.test(event.type)) reload(); }, reload), [reload]);
+  useEffect(() => openStream("/api/stream", (event) => { if (/permission\.|recipe\.|collision\.|lane\.state/.test(event.type)) reload(); }, reload), [reload]);
   return result;
 }

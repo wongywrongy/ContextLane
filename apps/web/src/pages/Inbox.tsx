@@ -15,8 +15,10 @@ export function InboxPage() {
   const [lanes] = useJson<Lane[]>("/api/lanes");
   const [projects] = useJson<Project[]>("/api/projects");
   const [params, setParams] = useSearchParams();
-  const [kind, setKind] = useState<(typeof KINDS)[number][0]>("all");
+  const [chosen, setKind] = useState<(typeof KINDS)[number][0]>("all");
   const sorted = useMemo(() => [...(items ?? [])].sort((a, b) => a.since.localeCompare(b.since)), [items]);
+  // A filter whose last item was answered falls back to everything, since its chip disappears with it.
+  const kind = chosen !== "all" && !sorted.some((i) => i.kind === chosen) ? "all" : chosen;
   const shown = sorted.filter((i) => kind === "all" || i.kind === kind);
   const selected = shown.find((i) => i.id === params.get("item")) ?? shown[0] ?? null;
   const count = (k: string) => k === "all" ? sorted.length : sorted.filter((i) => i.kind === k).length;

@@ -6,6 +6,8 @@ import { HostEvent, LaneId, type LaneCommand, type NewLaneEvent } from "@context
 import type { EventBus } from "./bus.js";
 import type { Store } from "./db/store.js";
 
+const MAX_LINE = 2_000_000;
+
 /** Commands and observations are events; reconnect replays only unacknowledged work. */
 export class HostLinks {
   private refusedAt = new Map<string, number>();
@@ -60,9 +62,20 @@ export class HostLinks {
     this.sockets.add(sock);
     let lane: string | null = null;
     sock.on("error", () => sock.destroy());
+    // Anything in a lane sandbox can reach this socket: a line is capped before it is buffered whole,
+    // and a connection that does not introduce itself within 10 seconds is closed.
+    let partial = 0;
+    sock.on("data", (chunk: Buffer) => {
+      const newline = chunk.lastIndexOf(10);
+      partial = newline < 0 ? partial + chunk.length : chunk.length - newline - 1;
+      if (partial > MAX_LINE) sock.destroy();
+    });
+    const introduce = setTimeout(() => { if (!lane) sock.destroy(); }, 10_000);
+    introduce.unref();
+    sock.once("close", () => clearTimeout(introduce));
     createInterface({ input: sock }).on("error", () => sock.destroy()).on("line", (line) => {
       try {
-        if (line.length > 2_000_000) throw new Error("host message too large");
+        if (line.length > MAX_LINE) throw new Error("host message too large");
         const msg = JSON.parse(line) as Record<string, unknown>;
         const { store, bus } = this.deps;
         if (typeof msg.hello === "string") {

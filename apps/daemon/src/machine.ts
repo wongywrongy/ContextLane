@@ -43,7 +43,7 @@ export function exportData(store: Store, setup: SetupManager, config: Config, ve
     if (key === "env" && value && typeof value === "object") return Object.fromEntries(Object.keys(value).map((k) => [k, "••••••••"]));
     if (typeof value === "string") {
       try { const parsed = JSON.parse(value); if (parsed && typeof parsed === "object") return JSON.stringify(redact(parsed, "", table)); } catch { /* Ordinary text is not JSON. */ }
-      return secrets.reduce((text, secret) => text.replaceAll(secret, "••••••••"), value.replace(/(https?:\/\/)[^\s/]+@/gi, "$1••••••••@"));
+      return secrets.reduce((text, secret) => text.replaceAll(secret, "••••••••"), value.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1••••••••@"));
     }
     if (Array.isArray(value)) return value.map((v) => redact(v, "", table));
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redact(v, k, table)]));

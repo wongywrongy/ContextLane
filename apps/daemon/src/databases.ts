@@ -1,5 +1,6 @@
 import { constants as fsConstants } from "node:fs";
-import { copyFile, lstat, mkdir } from "node:fs/promises";
+import { copyFile, lstat } from "node:fs/promises";
+import { mkdirInside } from "./safefs.js";
 import { dirname, join } from "node:path";
 import type { LaneDatabase, RecipeDatabase } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
@@ -38,7 +39,7 @@ export async function createLaneDatabase(run: Runner, config: Config, db: Recipe
     const source = join(projectPath, db.file);
     if (!(await lstat(source).then((s) => s.isFile(), () => false))) throw new Refused(`The recipe's database file ${db.file} is not in the main checkout.`);
     const target = join(lane.worktree, db.file);
-    await mkdir(dirname(target), { recursive: true });
+    await mkdirInside(lane.worktree, dirname(db.file));
     await copyFile(source, target, fsConstants.COPYFILE_EXCL).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; });
     return { kind: "sqlite", name: db.file, template: null };
   }

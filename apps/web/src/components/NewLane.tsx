@@ -61,10 +61,11 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   return { routed, fields, start, canStart, busy };
 }
 
-export function NewLaneDialog({ projects, project, onClose, adoption, task }: { projects: Project[]; project?: string; onClose: () => void; adoption?: ServiceProposal; task?: string }) {
+/** `onStarted` runs instead of `onClose` after a start, which has already navigated to the new lane. */
+export function NewLaneDialog({ projects, project, onClose, onStarted, adoption, task }: { projects: Project[]; project?: string; onClose: () => void; onStarted?: () => void; adoption?: ServiceProposal; task?: string }) {
   const form = useLaneForm(projects, project, adoption, task);
   return <Dialog title="New lane" meta="its own branch, checkout, shell and agent" onClose={onClose}
-    footer={<div className="e"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={!form.canStart} onClick={() => void form.start().then((lane) => lane && onClose())}>{form.busy ? "Starting…" : "Start lane"}</button></div>}>
+    footer={<div className="e"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={!form.canStart} onClick={() => void form.start().then((lane) => { if (lane) (onStarted ?? onClose)(); })}>{form.busy ? "Starting…" : "Start lane"}</button></div>}>
     {form.fields}
   </Dialog>;
 }

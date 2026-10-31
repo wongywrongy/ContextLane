@@ -1,4 +1,4 @@
-import type { Collision, Lane, LaneEvent, ProjectId } from "@contextlanes/protocol";
+import type { Collision, Lane, LaneEvent, LaneId, ProjectId } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { CodeMaps } from "./codemap.js";
 import type { Store } from "./db/store.js";
@@ -114,13 +114,20 @@ export class Collisions {
     return { planned: true };
   }
 
+  /** Merged, or merged and then cleaned up or archived before this pass saw it. */
+  private merged(id: string): boolean {
+    const state = this.deps.store.getLane(id)?.state;
+    if (state === "merged" || state === "cleaned") return true;
+    return state === "archived" && this.deps.store.eventsOfType(["checkpoint.decided"], { lanes: [id as LaneId] }).some((e) => e.payload.decision === "approved");
+  }
+
   /** Sends planned notes whose first lane has merged. */
   private async deliver(lanes: Lane[]): Promise<void> {
     for (const lane of lanes.filter((l) => OPEN.includes(l.state))) {
       const events = this.events(lane.id);
       for (const p of events.filter((e): e is Extract<LaneEvent, { type: "collision.planned" }> => e.type === "collision.planned")) {
         if (events.some((e) => e.type === "collision.told" && e.payload.module === p.payload.module && e.payload.first === p.payload.first)) continue;
-        if (this.deps.store.getLane(p.payload.first)?.state !== "merged") continue;
+        if (!this.merged(p.payload.first)) continue;
         this.deps.hosts.command(lane.id, { kind: "prompt", text: p.payload.message, immediate: false, files: [], images: [] });
         this.emit(this.deps.store.appendEvent(lane.id, { type: "agent.message", payload: { text: p.payload.message, role: "user" } }));
         this.emit(this.deps.store.appendEvent(lane.id, { type: "collision.told", payload: { module: p.payload.module, first: p.payload.first } }));

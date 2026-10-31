@@ -343,8 +343,7 @@ export class Store {
       SUM(json_extract(e.payload, '$.costUsd')) AS costUsd, COUNT(json_extract(e.payload, '$.costUsd')) AS costTurns`;
     const from = `FROM event e JOIN lane l ON l.id = e.lane WHERE e.type = 'usage.turn'
       AND (? IS NULL OR l.project = ?) AND (? IS NULL OR e.at >= ?)
-      AND NOT EXISTS (SELECT 1 FROM event earlier WHERE earlier.lane = e.lane AND earlier.type = 'usage.turn'
-        AND earlier.seq < e.seq AND json_extract(earlier.payload, '$.turnId') = json_extract(e.payload, '$.turnId'))`;
+      AND (e.lane, e.seq) IN (SELECT first.lane, MIN(first.seq) FROM event first WHERE first.type = 'usage.turn' GROUP BY first.lane, json_extract(first.payload, '$.turnId'))`;
     const args = [project ?? null, project ?? null, since ?? null, since ?? null];
     return {
       lanes: this.db.prepare(`SELECT e.lane, ${sum} ${from} GROUP BY e.lane ORDER BY e.lane`).all(...args),
@@ -376,8 +375,8 @@ export class Store {
     const asks = this.db
       .prepare(
         `SELECT q.lane, q.at, json_extract(q.payload, '$.requestId') AS rid, json_extract(q.payload, '$.title') AS title, json_extract(q.payload, '$.options') AS options, json_extract(q.payload, '$.kind') AS kind
-         FROM event q
-         WHERE q.type = 'permission.requested'
+         FROM event q JOIN lane l ON l.id = q.lane
+         WHERE q.type = 'permission.requested' AND l.state NOT IN ('merged', 'cleaned', 'archived')
            AND NOT EXISTS (
              SELECT 1 FROM event a WHERE a.lane = q.lane AND a.type = 'permission.answered'
                AND json_extract(a.payload, '$.requestId') = json_extract(q.payload, '$.requestId'))
@@ -418,6 +417,12 @@ export class Store {
     const token = `cl-action-${randomBytes(32).toString("base64url")}`;
     this.db.prepare("INSERT INTO notification_action VALUES (?, ?, ?, ?, ?)").run(createHash("sha256").update(token).digest("hex"), lane, requestId, optionId, channel);
     return token;
+  }
+
+  /** Answer links whose question was answered, or whose lane ended, can never be used; returns how many went. */
+  pruneNotificationActions(): number {
+    return Number(this.db.prepare(`DELETE FROM notification_action WHERE lane IN (SELECT id FROM lane WHERE state IN ('merged', 'cleaned', 'archived'))
+      OR EXISTS (SELECT 1 FROM event a WHERE a.lane = notification_action.lane AND a.type = 'permission.answered' AND json_extract(a.payload, '$.requestId') = notification_action.request_id)`).run().changes);
   }
 
   notificationAction(token: string): { lane: string; requestId: string; optionId: string; via: "phone" | "telegram" } | null {

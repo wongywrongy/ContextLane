@@ -8,11 +8,12 @@ export class DaemonLink {
   private socket?: Socket;
   private timer?: ReturnType<typeof setTimeout>;
   private ready = false;
+  private retry = 250;
   private stopped = false;
   private readonly pending = new Map<string, object>();
   private readonly drained = new Set<() => void>();
 
-  constructor(private readonly opts: { lane: string; token: string; path: string; command: (message: CommandEnvelope) => void }) {}
+  constructor(private readonly opts: { lane: string; token: string; path: string; command: (message: CommandEnvelope) => void; refused?: (reason: string) => void }) {}
 
   start(): void {
     if (this.stopped) return;
@@ -24,10 +25,16 @@ export class DaemonLink {
         const msg = JSON.parse(line) as { ready?: boolean; ack?: string; error?: string };
         if (msg.ready) {
           this.ready = true;
+          this.retry = 250;
           for (const frame of this.pending.values()) socket.write(`${JSON.stringify(frame)}\n`);
         } else if (msg.ack) {
           this.pending.delete(msg.ack);
           if (this.pending.size === 0) { for (const done of this.drained) done(); this.drained.clear(); }
+        } else if (msg.error && !this.ready && /lane token|no lane/.test(msg.error)) {
+          // A newer launch of this lane holds the token, or the lane is gone: this host has no work left.
+          console.error(`The daemon refused this lane host (${msg.error}); stopping.`);
+          this.close();
+          this.opts.refused?.(msg.error);
         } else if (msg.error) {
           console.error(`Daemon refused a host message: ${msg.error}`);
         } else this.opts.command(CommandEnvelope.parse(msg));
@@ -35,7 +42,8 @@ export class DaemonLink {
     });
     socket.on("close", () => {
       this.ready = false;
-      if (!this.stopped) this.timer = setTimeout(() => this.start(), 250);
+      // Quick while the daemon restarts (an update), then every few seconds so a long outage costs nothing.
+      if (!this.stopped) { this.timer = setTimeout(() => this.start(), this.retry); this.retry = Math.min(this.retry * 2, 5_000); }
     });
   }
 
