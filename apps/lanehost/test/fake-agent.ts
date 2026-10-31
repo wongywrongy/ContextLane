@@ -7,6 +7,7 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
   const sessions: unknown[] = [];
   const modes: string[] = [];
   let cancel: (() => void) | undefined;
+  let release: (() => void) | undefined;
   let model = "small";
   let effort = "medium";
   const configs = (): SessionConfigOption[] => [{ id: "model", name: "Model", category: "model", type: "select", currentValue: model,
@@ -61,6 +62,15 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
           options: [{ optionId: "yes", name: "Allow once", kind: "allow_once" }, { optionId: "no", name: "Deny", kind: "reject_once" }] });
         choices.push(result.outcome);
       }
+      if (text === "busy") {
+        // A command that runs until the test releases it, then the agent keeps going until stopped.
+        await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "tool_call", toolCallId: "busy-1", title: "pnpm test", kind: "execute", status: "in_progress" } });
+        await new Promise<void>((resolve) => { release = resolve; });
+        await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "tool_call_update", toolCallId: "busy-1", status: "completed" } });
+        await new Promise<void>((resolve) => { cancel = resolve; });
+        cancel = undefined;
+        return { stopReason: "cancelled" };
+      }
       if (text === "hold") {
         await new Promise<void>((resolve) => { cancel = resolve; });
         cancel = undefined;
@@ -69,5 +79,5 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
       await client.notify(methods.client.session.update, { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Finished ${text}.` } } });
       return { stopReason: "end_turn" };
     });
-  return { app, turns, choices, sessions, modes };
+  return { app, turns, choices, sessions, modes, release: () => release?.() };
 }

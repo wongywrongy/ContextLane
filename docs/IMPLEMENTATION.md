@@ -982,6 +982,21 @@ Codex has no subagents of its own, and Claude Code's subagents share one checkou
 - **Owner side.** Progress shows a Context row past 70% ("85% full") with "Restart with a summary". Each nudge appears as a step ("ContextLanes asked for a plan").
 - Tests: `nudges.test.ts` (plan after 40 steps, once; no nudge when a plan exists; context once).
 
+#### Steering long turns, check-ins, and the feel of the controls
+
+- **Messages reach the agent between steps.** A message sent with Enter used to wait for the agent's turn to end. Codex keeps one turn going for hours, so "Ask for a plan" and the nudges sat queued forever.
+  - The lane host now delivers a message at the next step boundary: when no tool call is running and no approval is waiting, it stops the turn cleanly (`session/cancel`, recorded with `stopReason: "steered"`, not shown as "Interrupted") and sends the message as the next prompt. The message ends with "(Sent to you between steps. Take it into account, then carry on with the task.)" and the session keeps its history.
+  - ⌘↵ still interrupts at once. The composer says "↵ send at the next step".
+  - Tests: `host.test.ts` (steered at once when nothing runs; held while a command runs, then delivered).
+- **Check-ins.** A turn that runs 45 minutes without a break is asked, between steps, for a two-to-three-line status and a plan update, and again every 45 minutes (`lane.nudged` with kind `checkin`). Progress then shows a real update instead of silence. Tests: `nudges.test.ts`.
+- **Controls.**
+  - Buttons darken on hover and give slightly when pressed. A slow action shows a spinner in the button (`aria-busy`) instead of a frozen "Working…" label.
+  - Tabs, segments and chips have hover states, and the message box shows a soft ring when focused.
+  - Sending a message shows it above the box at once ("Sending"). The button spins, then shows "Sent ✓" in green for a moment; on failure the draft comes back.
+  - The box grows with the text. Queued messages show a breathing dot and say "goes in at the next step".
+  - Rows that arrive while you watch ease in; the history the page opened with does not. Dialogs, popovers and the jump-to-latest button fade in, live glyphs breathe and thinking glyphs turn slowly.
+  - All motion is off under `prefers-reduced-motion`.
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.

@@ -36,4 +36,18 @@ describe("nudges", () => {
     f.add("usage", { contextUsed: 90, contextSize: 100 });
     expect(f.nudges()).toEqual(["context"]);
   });
+
+  it("asks a turn that runs on for 45 minutes for a status check, and again 45 minutes later", () => {
+    const f = fixture();
+    const at = (min: number) => new Date(Date.UTC(2026, 9, 30, 20, min)).toISOString();
+    // Events fed with fixed times, so the 45 minutes are measured from the log, not the clock.
+    const nudges = new (Nudges as unknown as new (d: unknown) => { see(e: unknown): void })({ store: f.store, bus: new EventBus(), hosts: new HostLinks({ store: f.store, bus: new EventBus() }) });
+    const ev = (type: string, payload: unknown, min: number) => nudges.see({ lane: "shop/01", seq: min, at: at(min), type, payload });
+    ev("agent.turn", { active: true }, 0);
+    ev("tool.call", { callId: "a", kind: "read", title: "Read", files: [] }, 44);
+    ev("tool.call", { callId: "b", kind: "read", title: "Read", files: [] }, 46);
+    ev("tool.call", { callId: "c", kind: "read", title: "Read", files: [] }, 60);
+    ev("tool.call", { callId: "d", kind: "read", title: "Read", files: [] }, 92);
+    expect(f.nudges().filter((k) => k === "checkin")).toHaveLength(2);
+  });
 });

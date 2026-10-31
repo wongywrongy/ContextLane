@@ -150,7 +150,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     if (opts.model) await setModel(opts.model);
     if (opts.effort) await setEffort(opts.effort).catch((err: Error) => emit({ type: "agent.error", payload: { message: `Effort was left at the agent's default: ${err.message}` } }));
     reportSession();
-    type Queued = { text: string; commandId?: string; files?: string[]; images?: { mimeType: string; path: string }[] };
+    type Queued = { text: string; commandId?: string; files?: string[]; images?: { mimeType: string; path: string }[]; steer?: boolean; steered?: boolean };
     const prompts: Queued[] = opts.task ? [{ text: opts.task }] : [];
     // @ file arrives as ACP resource links, which every agent must accept; pictures only when the agent said it takes them.
     const blocks = async (q: Queued): Promise<ContentBlock[]> => [{ type: "text", text: q.text },
@@ -158,6 +158,17 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       ...(canImage ? await Promise.all((q.images ?? []).map(async (i) => ({ type: "image" as const, mimeType: i.mimeType, data: (await readFile(i.path)).toString("base64") }))) : [])];
     let running = false;
     let stopped = false;
+    // A message sent while a turn runs is delivered at the next step boundary, not when the turn ends: some
+    // agents (Codex) keep one turn going for hours. When no tool call is running and no approval is waiting,
+    // the turn is stopped cleanly and the message goes in as the next prompt; the session keeps its history.
+    const inFlight = new Set<string>();
+    let steering = false;
+    const steerIfIdle = () => {
+      if (!running || steering || stopped || !prompts.some((p) => p.steer) || inFlight.size || answers.size) return;
+      steering = true;
+      for (const p of prompts) if (p.steer) p.steered = true;
+      void ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId }).catch(() => { steering = false; });
+    };
     const drain = async () => {
       if (running || stopped) return;
       running = true;
@@ -172,8 +183,10 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           let promptUsage: Usage | null | undefined;
           emit({ type: "agent.turn", payload: { active: true, commandId } });
           const tick = setInterval(() => coalescer.flush(), 100);
+          inFlight.clear();
           try {
-            const done = session.prompt(await blocks(queued));
+            // A steered message says so, so the agent picks the task back up afterwards.
+            const done = session.prompt(await blocks(queued.steered ? { ...queued, text: `${queued.text}\n\n(Sent to you between steps. Take it into account, then carry on with the task.)` } : queued));
             void done.catch(() => {});
             for (;;) {
               const message = await session.nextUpdate();
@@ -191,14 +204,21 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
                 emit({ type: "usage.compaction", payload: { sessionId: session.sessionId, compactionId: message.update.compactionId, source: "acp" } });
               }
               coalescer.push(message.update);
+              const u = message.update;
+              if (u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update") {
+                if (u.status === "completed" || u.status === "failed") inFlight.delete(u.toolCallId);
+                else if (u.sessionUpdate === "tool_call" || u.status === "in_progress" || u.status === "pending") inFlight.add(u.toolCallId);
+              }
+              steerIfIdle();
             }
             const result = await done;
             promptUsage = result.usage;
             coalescer.flush();
-            emit({ type: "agent.turn", payload: { active: false, stopReason: result.stopReason, commandId } });
+            emit({ type: "agent.turn", payload: { active: false, stopReason: steering && result.stopReason === "cancelled" ? "steered" : result.stopReason, commandId } });
           } catch (err) {
             if (!stopped) emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
           } finally {
+            steering = false;
             clearInterval(tick); coalescer.flush();
             const fallback = promptUsage ? null : await logs.read();
             const tokens = promptUsage ? { inputTokens: promptUsage.inputTokens, outputTokens: promptUsage.outputTokens,
@@ -226,8 +246,9 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           if (command.immediate) {
             prompts.unshift({ text: command.text, commandId, files: command.files, images: command.images });
             if (running) await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
-          } else prompts.push({ text: command.text, commandId, files: command.files, images: command.images });
+          } else prompts.push({ text: command.text, commandId, files: command.files, images: command.images, steer: running });
           void drain();
+          steerIfIdle();
         } else if (command.kind === "cancel") {
           await ctx.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
         } else if (command.kind === "mode") await setMode(command.mode);

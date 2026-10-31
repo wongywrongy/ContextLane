@@ -643,3 +643,49 @@ input.in.mono { font: 400 14px var(--mono); }
 .ubar { height: 10px; border-radius: 3px; background: #ECE6DC; overflow: hidden; display: flex; }
 .ubar i { display: block; height: 100%; } .ubar i.c { background: #8B867E; } .ubar i.f { background: var(--ink); }
 @media (max-width: 900px) { .wk { grid-template-columns: minmax(0,1fr); } .facts4 { border-left: 0; border-top: 1px solid var(--line-soft); } .sug { grid-template-columns: minmax(0,1fr) auto; } .sug .ty, .sug .m { grid-column: 1; text-align: left; } .urow2 { grid-template-columns: minmax(0,1fr) 90px; } .urow2 .ubar { grid-column: 1 / -1; } }
+
+/* ── interaction and motion ──
+   Hover says "you can press this", press gives a small give, busy shows a spinner in place of a frozen label,
+   and things that arrive (a step, a queued message, a dialog) ease in. Nothing moves for people who ask for
+   reduced motion; the states still change. */
+.btn:not(:disabled):hover { background: #2B2723; border-color: #2B2723; }
+.btn.ghost:not(:disabled):hover { background: var(--surface-2); border-color: #B9B1A4; }
+.btn:disabled { cursor: not-allowed; }
+.btn[aria-busy="true"] { cursor: progress; opacity: .85; }
+.btn[aria-busy="true"]::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; flex: none; }
+.btn.sent { background: var(--ok); border-color: var(--ok); color: #fff; opacity: 1; }
+.seg button:not(.on):not(:disabled):hover, .seg3 button:not(.on):hover { color: var(--ink); background: var(--surface-2); }
+.vt button:not(.on):hover { color: var(--ink); background: rgba(255,255,255,.55); }
+.chipf:not(.on):hover { border-color: #B9B1A4; color: var(--ink); }
+.ov-row:hover, .frow:hover { background: var(--surface-2); }
+.rvi:hover, .lrow:hover, .ovr:hover { border-color: #B9B1A4; }
+.compose:focus-within { box-shadow: 0 0 0 3px rgba(13,12,11,.08); }
+.compose .q .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--you); flex: none; }
+.compose .q.out { background: var(--surface-2); }
+.compose textarea { max-height: 220px; overflow-y: auto; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .seg button, .seg3 button, .vt button, .chipf, .fchip, .act, .ov-row, .frow, .rvi, .lrow, .ovr, .mod, .lnk, .tgl, .compose, .planbar .segs i {
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .18s ease, transform .1s ease, opacity .15s ease;
+  }
+  .btn:not(:disabled):active, .chipf:active, .seg button:active, .seg3 button:active, .vt button:active, .act:active, .ov-row:active, .rvi:active { transform: scale(.97); }
+  .btn[aria-busy="true"]::before { animation: spin .7s linear infinite; }
+  .btn.sent { animation: pop .3s cubic-bezier(.2,.9,.3,1.3); }
+  .rise { animation: rise .24s cubic-bezier(.2,.7,.3,1) both; }
+  .compose .q { animation: rise .2s cubic-bezier(.2,.7,.3,1) both; }
+  .compose .q .dot { animation: breathe 1.6s ease-in-out infinite; }
+  .jump { animation: jumpin .18s ease-out both; }
+  dialog.dlg[open] { animation: dlgin .18s cubic-bezier(.2,.7,.3,1) both; }
+  dialog.dlg[open]::backdrop { animation: fade .18s ease both; }
+  .help[open] .help-b { animation: fade .12s ease both; }
+  .g.work { animation: live 2.4s ease-in-out infinite; }
+  .g.think { animation: spin 4s linear infinite; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { transform: scale(.94); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes jumpin { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes dlgin { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes live { 0%, 100% { box-shadow: 0 0 0 3px rgba(13,12,11,.14); } 50% { box-shadow: 0 0 0 5px rgba(13,12,11,.05); } }

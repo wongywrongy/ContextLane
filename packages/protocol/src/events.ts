@@ -96,7 +96,7 @@ const payloads = {
   "lane.forked": z.object({ from: z.string(), to: z.string() }),
   /** The lane's agent split work into sub-lanes and the owner agreed: each branches from this lane and merges back into it. */
   /** ContextLanes stepped in once: asked for a plan, or warned that the context is filling up. */
-  "lane.nudged": z.object({ kind: z.enum(["plan", "context"]), text: z.string() }),
+  "lane.nudged": z.object({ kind: z.enum(["plan", "context", "checkin"]), text: z.string() }),
   "lane.split": z.object({ requestId: z.string(), why: z.string(), children: z.array(z.object({ lane: z.string(), title: z.string() })) }),
   "collision.cleared": z.object({ module: z.string(), lanes: z.array(z.string()) }),
   /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */

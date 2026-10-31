@@ -35,14 +35,29 @@ it("uses the SDK agent app for streaming, indefinite permissions, MCP, queued pr
   await session.command(hold);
   await session.command(hold);
   await vi.waitFor(() => expect(fake.turns).toContain("hold"));
+  // Sent during a turn with nothing running: it goes in at once, as the next prompt, and says so.
   await session.command(command({ kind: "prompt", text: "queued", immediate: false }));
-  expect(fake.turns).not.toContain("queued");
+  await vi.waitFor(() => expect(fake.turns.at(-1)).toMatch(/^queued\n\n\(Sent to you between steps/));
+  expect(events).toContainEqual(expect.objectContaining({ type: "agent.turn", payload: expect.objectContaining({ active: false, stopReason: "steered" }) }));
   await session.command(command({ kind: "prompt", text: "now", immediate: true }));
-  await vi.waitFor(() => expect(fake.turns).toEqual(["permission", "hold", "now", "queued"]));
+  await vi.waitFor(() => expect(fake.turns.at(-1)).toBe("now"));
   await session.command(command({ kind: "mode", mode: "bypassPermissions" }));
   expect(events.at(-1)).toMatchObject({ type: "agent.command.result", payload: { ok: false } });
   await session.command(command({ kind: "mode", mode: "agent" }));
   expect(events.at(-1)).toMatchObject({ type: "agent.command.result", payload: { ok: false } });
+});
+
+it("delivers a message sent mid-turn at the next step boundary: never while a command is still running", async () => {
+  const fake = fakeAgent();
+  const events: NewLaneEvent[] = [];
+  const session = await openAgentSession({ lane: "demo/01", cwd: "/tmp", task: "busy", agent: { command: "unused", args: [] }, connect: (client) => client.connect(fake.app) }, (e) => events.push(e));
+  cleanup.push(async () => session.close());
+  await vi.waitFor(() => expect(events.some((e) => e.type === "tool.call")).toBe(true));
+  await session.command(command({ kind: "prompt", text: "after", immediate: false }));
+  await new Promise((r) => setTimeout(r, 150));
+  expect(fake.turns).toEqual(["busy"]);
+  fake.release();
+  await vi.waitFor(() => expect(fake.turns.at(-1)).toMatch(/^after\n\n/));
 });
 
 it("retains an ACP permission and replays commands after the daemon socket restarts", async () => {

@@ -32,6 +32,9 @@ export function Steps({ lane, events, waiting, reload, agent, filter }: { lane: 
   // The first message (the task) always stays on top, so the lane's purpose is never scrolled away.
   const first = hidden && isYou(steps[0]) ? steps[0]! : null;
   const pane = useRef<HTMLDivElement>(null);
+  // Rows that arrive after the page opened ease in; the history it opened with does not.
+  const born = useRef<number | null>(null);
+  if (born.current === null && events.length) born.current = events.at(-1)!.seq;
   const pinned = useRef(true);
   const [atEnd, setAtEnd] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -83,7 +86,8 @@ export function Steps({ lane, events, waiting, reload, agent, filter }: { lane: 
   // Resizing the window keeps you at the latest step if you were there.
   useLayoutEffect(() => { if (pinned.current) toEnd(); }, [fit]); // eslint-disable-line react-hooks/exhaustive-deps
   const needsYou = waiting.length > 0;
-  const row = (item: Item) => !("kind" in item) ? <StepRow key={item.seq} step={item} events={events} waiting={waiting} reload={reload} agent={agent} />
+  const row = (item: Item) => born.current !== null && item.seq > born.current ? <div className="rise" key={item.seq}>{plain(item)}</div> : plain(item);
+  const plain = (item: Item) => !("kind" in item) ? <StepRow key={item.seq} step={item} events={events} waiting={waiting} reload={reload} agent={agent} />
     : item.kind === "worked" ? <WorkedRow key={item.seq} item={item} events={events} waiting={waiting} reload={reload} agent={agent} />
     : item.what === "tests" || item.what === "commit" || item.what === "push" ? <MilestoneRow key={item.seq} item={item} />
     : <StepRow key={item.seq} step={item.step} events={events} waiting={waiting} reload={reload} agent={agent} />;

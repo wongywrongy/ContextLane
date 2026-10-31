@@ -62,7 +62,7 @@ export function InsightsPage() {
       {view.suggestions.length > 3 ? <button className="frow" style={{ fontFamily: "inherit", fontSize: 13.5 }} onClick={() => setAll(!all)}><span>{all ? "Show the top 3" : `Show ${view.suggestions.length - 3} more`}</span></button> : null}
     </Section>
     <Section title="This week" help={`Counted from the lane event log and CodeGraph (${view.week.events} events this week). A local model writes the summary and suggestions, nightly and after each merge, from these counts and the review judge's verdicts.`} meta={`${day(view.week.from)} – ${day(view.week.to)}`}
-      end={view.canWrite ? <button className="btn ghost sm" disabled={busy} onClick={regenerate}>{busy ? "Writing…" : view.generatedAt ? "Regenerate" : "Write it now"}</button> : undefined}>
+      end={view.canWrite ? <button className="btn ghost sm" disabled={busy} aria-busy={busy || undefined} onClick={regenerate}>{busy ? "Writing…" : view.generatedAt ? "Regenerate" : "Write it now"}</button> : undefined}>
       <div className="wk">
         <div className="sum">
           {view.summary.length ? view.summary.map((s, i) => <p key={i}>{s.text}{s.cites.map((c) => { const st = stat(c); return st ? <span className="cite" key={c} title={st.detail}>{st.value} {st.label}</span> : null; })}</p>)

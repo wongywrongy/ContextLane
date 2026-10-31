@@ -118,7 +118,7 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
     <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact>
     <Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help>
     {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit" : "commits"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} not checked` : ""}</Glyph> : null}
-    {safe.length ? <button className="btn ghost sm" style={{ marginLeft: "auto" }} disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button> : null}
+    {safe.length ? <button className="btn ghost sm" style={{ marginLeft: "auto" }} disabled={busy} aria-busy={busy || undefined} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button> : null}
     {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5, flexBasis: "100%" }}>{message}</p> : null}
   </div>;
 }
@@ -163,9 +163,9 @@ function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: L
       <Glyph g={state.g}>{state.word}</Glyph>
       <div className="e">
         {isRunning && web?.url && state.g !== "fail" ? <a className="btn sm" href={web.url} target="_blank" rel="noreferrer">Open app ↗</a> : null}
-        {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
+        {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} aria-busy={busy === "restart" || undefined} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} aria-busy={busy === "stop" || undefined} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
           : blocked ? <button className="btn ghost sm" onClick={() => review(recipe)}>Approve the recipe first</button>
-            : recipe ? <button className="btn sm" disabled={!!busy} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start the app"}</button> : null}
+            : recipe ? <button className="btn sm" disabled={!!busy} aria-busy={busy === "start" || undefined} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start the app"}</button> : null}
       </div>
     </div>
     {error ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{error}</p> : null}

@@ -256,7 +256,7 @@ function Decision({ lane, checkpoint, decided, parent }: { lane: Lane; checkpoin
     finally { setBusy(false); }
   };
   return <section className="sec" aria-label="Decision"><div className="rva">
-    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
+    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} aria-busy={(busy && !asking) || undefined} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
     <button className="btn ghost" disabled={busy} onClick={() => {
       // The judge's blockers and should-fixes start the note, one per line; edit before sending.
       const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
