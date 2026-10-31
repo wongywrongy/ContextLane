@@ -276,6 +276,12 @@ export class Store {
   }
 
   /** Second-agent review (4.2): kept in the packet beside the checks, so the packet stays one row. */
+  setJudge(id: string, judge: NonNullable<Checkpoint["judge"]>): void {
+    const r = this.db.prepare("SELECT packet FROM checkpoint WHERE id = ?").get(id) as Row | undefined;
+    if (!r) return;
+    this.db.prepare("UPDATE checkpoint SET packet = ? WHERE id = ?").run(JSON.stringify({ ...JSON.parse(String(r.packet)), judge }), id);
+  }
+
   setSecondReview(id: string, review: NonNullable<Checkpoint["secondReview"]>): void {
     const r = this.db.prepare("SELECT packet FROM checkpoint WHERE id = ?").get(id) as Row | undefined;
     if (!r) return;

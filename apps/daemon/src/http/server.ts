@@ -19,6 +19,7 @@ import { Ask } from "../ask.js";
 import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
+import { Judge } from "../judge.js";
 import type { Schedules } from "../schedules.js";
 import { access } from "node:fs/promises";
 import { Skills } from "../skills.js";
@@ -52,7 +53,7 @@ import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 import { answerPermission, sweepPending } from "../permissions.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; judge?: Judge; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/prove", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -336,6 +337,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/handoff", async (req, reply) => reply.code(202).send(await handoffs.replace(laneParam(req.params), HandoffRequest.parse(req.body ?? {}))));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/fork", async (req) => handoffs.fork(laneParam(req.params), HandoffRequest.parse(req.body ?? {})));
   const secondReviews = new SecondReviews({ store, bus, lanes: deps.lanes, run });
+  const judge = deps.judge ?? new Judge({ store, bus, models: localModels, diff: (c) => checker.diff(c) });
+  if (!deps.judge) judge.start();
+  app.post<{ Params: { id: string } }>("/api/checkpoints/:id/judge", async (req, reply) => reply.code(202).send(judge.again(req.params.id)));
   app.get<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.estimate(z.uuid().parse(req.params.id)));
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.start(z.uuid().parse(req.params.id), SecondReviewRequest.parse(req.body).agent));
   if (deps.schedules) {

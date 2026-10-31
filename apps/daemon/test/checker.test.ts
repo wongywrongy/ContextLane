@@ -68,7 +68,9 @@ describe("checkpoint", () => {
     expect(row.files).toHaveLength(3);
     expect(row.plan).toHaveLength(2);
     const types = store.events("shop/01").map((e) => e.type);
-    expect(types.slice(-3)).toEqual(["check.result", "checkpoint.created", "lane.state"]);
+    expect(types.filter((t) => t !== "checkpoint.judged").slice(-3)).toEqual(["check.result", "checkpoint.created", "lane.state"]);
+    // Every new checkpoint goes to the judge; with no local model it says so.
+    await vi.waitFor(() => expect(store.checkpoint(row.id)!.judge).toMatchObject({ state: "off" }));
     expect(store.inbox()).toMatchObject([{ kind: "review", lane: "shop/01" }]);
   });
 

@@ -18,13 +18,13 @@ export const SignInRequest = z.object({ token: z.string().regex(/^[\w-]{43}$/) }
 export const SetupLink = z.object({ url: z.url(), expiresAt: z.iso.datetime(), messages: z.array(z.string()), tunnel: z.string().optional() });
 export type SetupLink = z.infer<typeof SetupLink>;
 /** What a local endpoint is used for. An endpoint with no roles takes every job. */
-export const LocalRole = z.enum(["briefs", "helper", "insights", "ask", "tidy"]);
+export const LocalRole = z.enum(["briefs", "helper", "insights", "ask", "tidy", "judge"]);
 export type LocalRole = z.infer<typeof LocalRole>;
-export const LOCAL_ROLES: Record<LocalRole, string> = { briefs: "Module briefs", helper: "Local helper (delegate)", insights: "Insights", ask: "Ask", tidy: "Grouping suggestions" };
+export const LOCAL_ROLES: Record<LocalRole, string> = { briefs: "Module briefs", helper: "Local helper (delegate)", insights: "Insights", ask: "Ask", tidy: "Grouping suggestions", judge: "Review judge" };
 export const LocalModel = z.object({ name: z.string().min(1).max(100), provider: z.enum(["ollama", "llama.cpp"]),
   /** A name for this endpoint, e.g. "neo 4090"; the same model may be served by several. */
   label: z.string().trim().max(40).optional(),
-  roles: z.array(LocalRole).max(5).optional(),
+  roles: z.array(LocalRole).max(6).optional(),
   /** This machine, or another of yours on the tailnet (100.64.0.0/10 or a *.ts.net name), never the internet. */
   url: z.url().refine((url) => { const u = new URL(url); return ["http:", "https:"].includes(u.protocol) && (["127.0.0.1", "localhost"].includes(u.hostname) || u.hostname.endsWith(".ts.net") || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(u.hostname)); }, "Use an endpoint on this machine or on your tailnet."),
 });

@@ -905,6 +905,25 @@ An independent read of `773e700..a0a3f2b` found that the daemon, which runs outs
   - section rows use 14.5px text throughout.
 - What still differs, and why, is in the Built column of `docs/mockups/README.md`.
 
+### 4.8 Pages that decide, not count (2026-10-30)
+
+Kyle's read of the live pages: Work overview, Architecture, Review, Run and Insights show a lot without telling you what to do, and nothing judges the work. The rework ships in three steps.
+
+#### Step 1: the review judge and Review
+
+- **Judge** (`apps/daemon/src/judge.ts`). A local model reads every new checkpoint as it is made: the summary, the plan, the checks and the diff. The diff goes biggest file first, with lockfiles, build output and images left out, at most 6k characters per file and 18k in all; files not read are listed. The judge writes a verdict ("merge", "fix first" or "do not merge"), one line, and up to five findings (blocker, should fix or nit), each on a file and line.
+- **What the model says is checked before it is shown.** A finding must name a file in the change, and a "merge" becomes "fix first" when checks failed or it found a blocker. Answers that don't parse are recorded as failed, not shown.
+- **Where it runs.** It uses the new local role "Review judge", or the Insights model when no endpoint has that role ticked, so it works with Wyatt's current setup. It is recorded as `checkpoint.judged` events and in the local model job record. "Judge again" re-runs it, and it never approves or merges.
+- **Review** now reads top to bottom:
+  - The header, with a link to the lane's steps.
+  - **Verdict**: the word and glyph, the one line, then the findings. Each finding's file opens that file's diff below.
+  - **Evidence**: one section for checks, tests after the last change, the preview, the plan (folded), unplanned files and shared modules. It replaces the Result / Process / Plan boxes and the "Signal" word.
+  - Before/after pictures, the second review if one was asked for, and Files, with lockfiles last.
+  - The decision bar. "Approve and merge" is no longer the filled button when the verdict isn't "merge", and "Request changes" starts from the judge's blockers and should-fixes, one per line.
+  - The step-icon trail is gone.
+  - The left list marks each checkpoint with its verdict.
+- Tests: `judge.test.ts` (diff selection and budget, settling findings and verdicts, the end-to-end run with events and the job record, no model), plus `checker.test.ts` (every checkpoint goes to the judge).
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.

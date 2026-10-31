@@ -3,11 +3,9 @@ import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, LaneBadge, Section, Tile, iconFor, laneNumber, agoText } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, LaneBadge, Section, laneNumber, agoText } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
 
-const WORDS = { strong: "Strong", mixed: "Mixed", weak: "Weak" } as const;
-const SIGNAL = { strong: "", mixed: " wait", weak: " fail" } as const;
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const totals = (files: Checkpoint["files"]) => files.reduce((sum, f) => ({ added: sum.added + f.added, removed: sum.removed + f.removed }), { added: 0, removed: 0 });
 /** "Tests pass 44 / 44", "Types clean · tsc", "2 lint warnings · eslint": the tool's own summary when it printed one. */
@@ -46,7 +44,7 @@ export function ReviewPage() {
   const { lanes, events } = useProjectWork();
   const [checkpoints, error, reload] = useJson<Checkpoint[]>(`/api/projects/${project}/checkpoints`);
   const [params, setParams] = useSearchParams();
-  const changes = events.filter((e) => e.type === "checkpoint.created" || e.type === "checkpoint.decided").length;
+  const changes = events.filter((e) => e.type === "checkpoint.created" || e.type === "checkpoint.decided" || e.type === "checkpoint.judged").length;
   useEffect(reload, [reload, changes]);
   const latest = (lane: string) => checkpoints?.find((c) => c.lane === lane);
   const ready = lanes.filter((l) => l.state === "in_review" && latest(l.id));
@@ -59,7 +57,7 @@ export function ReviewPage() {
       <div>
         <span className="lbl">Ready <span>{ready.length}</span></span>
         {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button key={l.id} className={`rvi${l.id === lane?.id ? " on" : ""}`} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
-          <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${clean(c) ? "done" : "wait"}`} role="img" aria-label={clean(c) ? "Checks pass" : "Look closer"} /><small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
+          <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b>{(() => { const [g, word] = mark(c); return <i className={`g ${g}`} role="img" aria-label={word} title={word} />; })()}<small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
         </button>; })}
         {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}
       </div>
@@ -77,6 +75,17 @@ export function ReviewPage() {
   </div>;
 }
 
+const VERDICT = { merge: ["done", "Merge"], "fix first": ["wait", "Fix first"], "do not merge": ["fail", "Don't merge"] } as const;
+const SEVERITY = { blocker: ["fail", "Blocker"], "should fix": ["wait", "Should fix"], nit: ["idle", "Nit"] } as const;
+
+/** The left list's mark for a checkpoint: the judge's verdict when there is one, else whether the checks pass. */
+function mark(c: Checkpoint): [string, string] {
+  const j = c.judge;
+  if (j?.state === "done" && j.verdict) return [VERDICT[j.verdict][0], VERDICT[j.verdict][1]];
+  if (j?.state === "running") return ["think", "Judging"];
+  return clean(c) ? ["done", "Checks pass"] : ["wait", "Look closer"];
+}
+
 function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint: Checkpoint; number: number; decided: () => void }) {
   const [history, setHistory] = useState<LaneEvent[]>([]);
   useEffect(() => {
@@ -84,33 +93,20 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
     void loadHistory(lane.id, apiFetch, abort.signal).then(setHistory, () => {});
     return () => abort.abort();
   }, [lane.id]);
+  // A finding opens its file's diff below.
+  const [focus, setFocus] = useState<{ file: string; n: number } | null>(null);
   const shots = checkpoint.screenshots;
-  const previewed = shots.some((s) => s.after);
-  const results = checkpoint.checks.length + (shots.length ? 1 : 0);
-  const done = checkpoint.plan.filter((p) => p.status === "completed").length;
   const base = lane.base ?? "main";
+  const steps = useMemo(() => stepsFor(history).filter((s) => s.type === "tool"), [history]);
   return <>
     <header className="rvh">
-      <div className="who"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small />{lane.branch} → {base} · {AGENT_NAMES[lane.agent] ?? lane.agent}</div>
+      <div className="who"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small />{lane.branch} → {base} · {AGENT_NAMES[lane.agent] ?? lane.agent}
+        {steps.length ? <> · <Link className="lnk" to={`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`}>{steps.length} steps over {duration(steps[0]!.at, steps.at(-1)!.at)} →</Link></> : null}</div>
       <h1>{lane.task} · checkpoint {number}</h1>
       <p>{checkpoint.summary}</p>
     </header>
-    <div className="rv3">
-      <Section title="Result" end={results ? <span className="mono muted" style={{ fontSize: 12 }}>{results} {results === 1 ? "check" : "checks"}</span> : undefined}>
-        {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
-        {sharing(history, lane.id).map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
-        {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
-        {!results ? <div className="rvr"><Fact g="idle" detail="add them to the recipe">No checks</Fact></div> : null}
-      </Section>
-      <Section title="Process" end={<span className={`sig${SIGNAL[checkpoint.signal]}`}>Signal {WORDS[checkpoint.signal]}</span>}>
-        {checkpoint.process.map((p) => <div className="rvr" key={p.label}><i className={`g ${p.ok ? "done" : "idle"}`} role="img" aria-label={p.ok ? "Yes" : "No"} /><span>{p.label}</span></div>)}
-      </Section>
-      <Section title="Plan vs done" end={checkpoint.plan.length ? <span className="mono muted" style={{ fontSize: 12 }}>{done} of {checkpoint.plan.length}</span> : undefined}>
-        {checkpoint.plan.map((p, i) => <div className="rvr" key={i}><i className={`g ${p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle"}`} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>)}
-        {!checkpoint.plan.length ? <div className="rvr"><Fact g="idle">No plan written</Fact></div> : null}
-        {checkpoint.unplanned.length ? <div className="rvr you"><i className="g wait" role="img" aria-label="Look closer" /><span>Not in the plan: {checkpoint.unplanned.slice(0, 3).join(", ")}{checkpoint.unplanned.length > 3 ? ` and ${checkpoint.unplanned.length - 3} more` : ""}</span></div> : null}
-      </Section>
-    </div>
+    <Verdict checkpoint={checkpoint} open={(file) => setFocus((f) => ({ file, n: (f?.n ?? 0) + 1 }))} />
+    <Evidence lane={lane} checkpoint={checkpoint} history={history} />
     {shots.map((shot) => <Section key={shot.path} title="Before and after" meta={`${shot.path} · ${clock(checkpoint.createdAt)}`} end={shot.url ? <a className="lnk mono" href={shot.url} target="_blank" rel="noreferrer">{new URL(shot.url).host} ↗</a> : undefined}>
       <div className="ba">
         <Shot checkpoint={checkpoint} file={shot.before} tag={<span className="fchip">{base}</span>} label={`Before this lane`} />
@@ -118,11 +114,58 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
       </div>
       {shot.note ? <div className="sec-f" style={{ fontSize: 13 }}>{shot.note}</div> : null}
     </Section>)}
-    <Trail lane={lane} events={history} />
     {checkpoint.secondReview ? <SecondReview review={checkpoint.secondReview} project={lane.project} /> : null}
-    <Files checkpoint={checkpoint} />
+    <Files checkpoint={checkpoint} focus={focus} />
     <Decision lane={lane} checkpoint={checkpoint} decided={decided} />
   </>;
+}
+
+/** The local judge's read of the change: verdict, one line, and the findings to look at. */
+function Verdict({ checkpoint, open }: { checkpoint: Checkpoint; open: (file: string) => void }) {
+  const j = checkpoint.judge;
+  const [error, setError] = useState("");
+  const again = () => { setError(""); void postJson(`/api/checkpoints/${checkpoint.id}/judge`, {}).catch((e) => setError(errorMessage(e))); };
+  const decided = !!checkpoint.decision;
+  const button = !decided && j?.state !== "running" ? <button className="btn ghost sm" onClick={again}>{j ? "Judge again" : "Judge it"}</button> : undefined;
+  if (!j || j.state === "off") return <Section title="Verdict" end={j ? <Link className="btn ghost sm" to="/models">Add a local model</Link> : button}>
+    <Empty icon="think" family="mind">{j ? "No local model to judge it" : "Not judged"}</Empty></Section>;
+  if (j.state === "running") return <Section title="Verdict" meta={`${j.model ?? "local model"} is reading the change`}><div className="sec-r"><Glyph g="think">Judging</Glyph></div></Section>;
+  if (j.state === "failed") return <Section title="Verdict" meta={j.model ?? undefined} end={button}>
+    <div className="sec-r"><Fact g="fail" detail={agoText(j.at)}>Could not judge</Fact></div>
+    {j.error ? <div className="sec-b muted" style={{ fontSize: 13, paddingTop: 0 }}>{j.error}</div> : null}
+    {error ? <p role="alert" className="sec-b">{error}</p> : null}</Section>;
+  const [g, word] = VERDICT[j.verdict ?? "fix first"];
+  return <Section title="Verdict" meta={`${j.model ?? "local model"} · ${agoText(j.at)}`} help="A local model read the diff, plan and checks. It never merges; you decide. Each finding names a file in the change, and a 'merge' is lowered when checks failed or it found a blocker." end={button}>
+    <div className="sec-r" style={{ gap: 14, flexWrap: "wrap" }}><span style={{ fontSize: 17, fontWeight: 700 }}><Glyph g={g}>{word}</Glyph></span>{j.headline ? <span style={{ fontSize: 15, minWidth: 0, flex: "1 1 320px" }}>{j.headline}</span> : null}</div>
+    {j.findings.map((f, i) => { const [fg, fw] = SEVERITY[f.severity]; return <div className={`rvr${f.severity === "blocker" ? " you" : ""}`} key={i}>
+      <span style={{ minWidth: 92, alignSelf: "flex-start", paddingTop: 1 }}><Glyph g={fg}>{fw}</Glyph></span>
+      <span style={{ flex: 1 }}>{f.text}<button className="lnk mono" style={{ display: "block", fontSize: 12, marginTop: 3, textAlign: "left", overflowWrap: "anywhere" }} onClick={() => open(f.file)}>{f.file}{f.line ? `:${f.line}` : ""}</button></span>
+    </div>; })}
+    {!j.findings.length ? <div className="rvr"><Fact g="done">Nothing to flag</Fact></div> : null}
+    {j.skipped.length ? <div className="sec-f muted" style={{ fontSize: 12.5 }}>Not read: {j.skipped.slice(0, 4).join(", ")}{j.skipped.length > 4 ? ` and ${j.skipped.length - 4} more` : ""}</div> : null}
+    {error ? <p role="alert" className="sec-b">{error}</p> : null}
+  </Section>;
+}
+
+/** What was measured, in one place: checks, preview, tests after the last edit, plan, shared modules. */
+function Evidence({ lane, checkpoint, history }: { lane: Lane; checkpoint: Checkpoint; history: LaneEvent[] }) {
+  const [plan, setPlan] = useState(false);
+  const shots = checkpoint.screenshots;
+  const previewed = shots.some((s) => s.after);
+  const done = checkpoint.plan.filter((p) => p.status === "completed").length;
+  const tested = checkpoint.process.find((p) => p.label.startsWith("Ran the tests"));
+  const shared = sharing(history, lane.id);
+  return <Section title="Evidence" meta={`${checkpoint.checks.length} ${checkpoint.checks.length === 1 ? "check" : "checks"}${checkpoint.plan.length ? ` · plan ${done} of ${checkpoint.plan.length}` : ""}`}>
+    {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
+    {!checkpoint.checks.length ? <div className="rvr"><Fact g="idle" detail="add them to the recipe on Run">No checks</Fact></div> : null}
+    {tested ? <div className="rvr"><i className={`g ${tested.ok ? "done" : "wait"}`} role="img" aria-label={tested.ok ? "Yes" : "No"} /><span>{tested.ok ? "Tests ran after the last change" : "No tests after the last change"}</span></div> : null}
+    {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
+    {checkpoint.plan.length ? <button className="frow" style={{ fontFamily: "inherit", fontSize: 14 }} aria-expanded={plan} onClick={() => setPlan(!plan)}><i className={`g ${done === checkpoint.plan.length ? "done" : "wait"}`} aria-hidden="true" /><span>Plan {done} of {checkpoint.plan.length} done</span><span className="n muted" style={{ marginLeft: "auto" }}>{plan ? "hide" : "show"}</span></button>
+      : <div className="rvr"><Fact g="idle">No plan written</Fact></div>}
+    {plan ? checkpoint.plan.map((p, i) => <div className="rvr" key={i} style={{ paddingLeft: 38 }}><i className={`g ${p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle"}`} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>) : null}
+    {checkpoint.unplanned.length ? <div className="rvr you"><i className="g wait" role="img" aria-label="Look closer" /><span>Not in the plan: {checkpoint.unplanned.slice(0, 3).join(", ")}{checkpoint.unplanned.length > 3 ? ` and ${checkpoint.unplanned.length - 3} more` : ""}</span></div> : null}
+    {shared.map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
+  </Section>;
 }
 
 function Shot({ checkpoint, file, tag, label, changes }: { checkpoint: Checkpoint; file: string | null; tag: ReactNode; label: string; changes?: Checkpoint["screenshots"][number]["changes"] }) {
@@ -135,18 +178,6 @@ function Shot({ checkpoint, file, tag, label, changes }: { checkpoint: Checkpoin
   </figure>;
 }
 
-function Trail({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
-  const steps = useMemo(() => stepsFor(events).filter((s) => s.type === "tool" || s.type === "plan" || s.type === "check"), [events]);
-  const helped = events.filter((e) => e.type === "helper.delegated").length;
-  if (!steps.length) return null;
-  return <Section title="How it got here" meta={`${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${duration(steps[0]!.at, steps.at(-1)!.at)}${helped ? ` · ${helped} by the local helper` : ""}`} end={<Link className="lnk" to={`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`}>All steps in Work →</Link>}>
-    <div className="trail">
-      {steps.slice(-40).map((s) => { const tile = <Tile key={s.seq} family={s.family} icon={s.tool ? iconFor(s.tool.kind) : s.type === "plan" ? "plan" : "test"} small label={s.title} />; return s.tool?.failedBefore ? <span key={s.seq} className="bad">{tile}</span> : tile; })}
-      {steps.some((s) => s.tool?.failedBefore) ? <span className="key"><i aria-hidden="true" />failed, then fixed</span> : null}
-    </div>
-  </Section>;
-}
-
 function DiffLines({ text }: { text: string }) {
   return <div className="dfv">{text.split("\n").map((line, i) => <div key={i} className={/^(diff |index |--- |\+\+\+ )/.test(line) ? "meta" : line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line || " "}</div>)}</div>;
 }
@@ -156,7 +187,7 @@ function Bar({ added, removed }: { added: number; removed: number }) {
   return <span className="diffbar" aria-hidden="true"><i className="a" style={{ width: `${added / all * 100}%` }} /><i className="d" style={{ width: `${removed / all * 100}%` }} /></span>;
 }
 
-function Files({ checkpoint }: { checkpoint: Checkpoint }) {
+function Files({ checkpoint, focus }: { checkpoint: Checkpoint; focus: { file: string; n: number } | null }) {
   const t = totals(checkpoint.files);
   const [open, setOpen] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ key: string; text: string } | null>(null);
@@ -175,14 +206,23 @@ function Files({ checkpoint }: { checkpoint: Checkpoint }) {
       if (wanted.current === key) setDiff({ key, text });
     } catch (err) { if (wanted.current === key) setError(errorMessage(err)); }
   };
-  const sorted = [...checkpoint.files].sort((a, b) => b.added + b.removed - a.added - a.removed);
+  // Biggest first, with lockfiles and build output last: large, generated, and rarely what to read.
+  const generated = (p: string) => /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock|uv\.lock|go\.sum)$|(^|\/)(dist|build|vendor)\/|\.(min\.(js|css)|map|snap)$/.test(p);
+  const sorted = [...checkpoint.files].sort((a, b) => Number(generated(a.path)) - Number(generated(b.path)) || b.added + b.removed - a.added - a.removed);
+  // A finding's file opens here and scrolls into view.
+  useEffect(() => {
+    if (!focus) return;
+    if (!sorted.slice(0, 3).some((f) => f.path === focus.file)) setMore(true);
+    if (open !== focus.file) void load(focus.file);
+    requestAnimationFrame(() => document.getElementById(`file-${focus.file}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = more ? sorted : sorted.slice(0, 3);
   const rest = sorted.slice(shown.length);
   const restTotal = totals(rest);
   return <Section title="Files" meta={`${checkpoint.files.length} · +${t.added} -${t.removed}`} end={<button className="btn ghost sm" aria-expanded={open === "*"} onClick={() => void load(null)}>{open === "*" ? "Close full diff" : "Open full diff"}</button>}>
     {error ? <p role="alert" className="sec-b">{error}</p> : null}
     {open === "*" && diff?.key === "*" ? <DiffLines text={diff.text} /> : null}
-    {shown.map((file) => <div key={file.path}>
+    {shown.map((file) => <div key={file.path} id={`file-${file.path}`} style={{ scrollMarginTop: 16 }}>
       <button className="frow" aria-expanded={open === file.path} onClick={() => void load(file.path)}><span>{file.path}</span><Bar added={file.added} removed={file.removed} /><span className="n"><i>+{file.added}</i> <em>-{file.removed}</em></span></button>
       {open === file.path && diff?.key === file.path ? <DiffLines text={diff.text} /> : null}
     </div>)}
@@ -216,8 +256,13 @@ function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Check
     finally { setBusy(false); }
   };
   return <section className="sec" aria-label="Decision"><div className="rva">
-    <button className="btn" disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? "Rebasing and pushing…" : "Approve and merge"}</button>
-    <button className="btn ghost" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>
+    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? "Rebasing and pushing…" : "Approve and merge"}</button>
+    <button className="btn ghost" disabled={busy} onClick={() => {
+      // The judge's blockers and should-fixes start the note, one per line; edit before sending.
+      const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
+      if (!note.trim() && found.length) setNote(found.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""}: ${f.text}`).join("\n"));
+      setAsking(true);
+    }}>Request changes</button>
     {reviewer && !checkpoint.secondReview ? <button className="btn ghost" disabled={busy} onClick={() => void postJson(`/api/checkpoints/${checkpoint.id}/second-review`, { agent: reviewer }).then(decided, (e) => setError(errorMessage(e)))}>Ask {AGENT_NAMES[reviewer] ?? reviewer} to review</button> : null}
     {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">opens a pull request into {lane.base ?? "main"}</span>}
   </div>

@@ -131,6 +131,14 @@ export const Screenshot = z.object({ path: z.string(), url: z.string().nullable(
 export type Screenshot = z.infer<typeof Screenshot>;
 export const ChangedFile = z.object({ path: z.string(), added: z.number().int(), removed: z.number().int() });
 export type ChangedFile = z.infer<typeof ChangedFile>;
+export const JudgeFinding = z.object({ severity: z.enum(["blocker", "should fix", "nit"]), file: z.string(), line: z.number().int().positive().nullable(), text: z.string() });
+export type JudgeFinding = z.infer<typeof JudgeFinding>;
+/** running: reading the change. done: verdict written. failed: the model did not answer usably. off: no local model for it. */
+export const CheckpointJudge = z.object({ state: z.enum(["running", "done", "failed", "off"]), model: z.string().nullable(), verdict: z.enum(["merge", "fix first", "do not merge"]).nullable(),
+  headline: z.string().nullable(), findings: z.array(JudgeFinding), error: z.string().nullable(), at: z.string(),
+  /** Files the judge did not read (too large, generated or lockfiles). */
+  skipped: z.array(z.string()).default([]) });
+export type CheckpointJudge = z.infer<typeof CheckpointJudge>;
 export const Checkpoint = z.object({
   id: z.string(),
   lane: LaneId,
@@ -147,6 +155,8 @@ export const Checkpoint = z.object({
   signal: z.enum(["strong", "mixed", "weak"]),
   /** Ask another agent to review (4.2): it reads the change in a read-only lane of its own. */
   secondReview: z.object({ agent: z.string(), lane: z.string(), state: z.enum(["running", "done", "failed"]), text: z.string().nullable(), at: z.string() }).nullable().optional(),
+  /** The local judge's read of the change: a verdict and the few things to look at, each on a changed file. */
+  judge: CheckpointJudge.nullable().optional(),
   decision: z.enum(["approved", "changes"]).nullable(),
   prUrl: z.string().nullable(),
   createdAt: z.string(),

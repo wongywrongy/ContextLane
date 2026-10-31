@@ -86,6 +86,8 @@ const payloads = {
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
   /** The approved checkpoint was rebased or merged onto its base; a retry after a failed push continues from this head. */
   "checkpoint.updated": z.object({ checkpointId: z.string(), head: z.string() }),
+  /** The local judge started, finished or failed on a checkpoint. */
+  "checkpoint.judged": z.object({ checkpointId: z.string(), state: z.enum(["running", "done", "failed", "off"]), verdict: z.enum(["merge", "fix first", "do not merge"]).nullable() }),
   "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
   /** Two or more open lanes changed one module. `order` is the suggested merge order; the rest wait. */
   "collision.detected": z.object({ module: z.string(), lanes: z.array(z.string()), files: z.record(z.string(), z.array(z.string())), order: z.array(z.string()), reason: z.string() }),
