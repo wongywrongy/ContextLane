@@ -7,11 +7,10 @@ import { errorMessage, postJson, useJson } from "../api";
 import { editorLink, useEditor } from "../components/editor";
 import { environmentFrom, SERVICE_GLYPH } from "./model";
 
-/** The lane inspector from the Console board: plan, context, checkout, then lane actions. */
+/** The lane inspector: context, environment, then your access and lane actions. The plan lives in Progress. */
 export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: LaneEvent[]; openTerminal: () => void }) {
   const usage = events.findLast((e) => e.type === "usage");
   const compactions = new Set(events.filter((e) => e.type === "usage.compaction").map((e) => `${e.payload.sessionId}/${e.payload.compactionId}`)).size;
-  const plan = events.findLast((e) => e.type === "agent.plan");
   const [copied, setCopied] = useState("");
   const [deleting, setDeleting] = useState(false);
   const editor = useEditor();
@@ -19,17 +18,10 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(`${what} copied.`); } catch { setCopied(`Copy failed. ${what}: ${text}`); }
   };
-  const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
-  const done = entries.filter((e) => e.status === "completed").length;
   const used = usage?.type === "usage" ? usage.payload : null;
   const share = used && used.contextSize ? Math.min(1, used.contextUsed / used.contextSize) : 0;
   const ringColour = share > .85 ? "var(--bad)" : share > .6 ? "var(--you)" : "var(--ok)";
   return <aside className="pane r" aria-label="Lane details">
-    <section className="ps">
-      <div className="ps-h"><span className="lbl">Plan</span>{entries.length ? <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done} of {entries.length}</span></div> : null}</div>
-      {entries.length ? <div className="plan">{entries.map((entry, i) => <Glyph key={i} g={entry.status === "completed" ? "done" : entry.status === "in_progress" ? "think" : "idle"}>{entry.text}</Glyph>)}</div>
-        : <Glyph g="idle">No plan yet</Glyph>}
-    </section>
     {/* Shown once the agent reports it (or when Restart with a summary is offered): unknown stays silent. */}
     {used || (READY.handoff && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
       <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
@@ -40,16 +32,13 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       {used && share > .8 ? <div style={{ marginTop: 10 }}><Glyph g="idle">Nearly full · the agent compacts it on its own</Glyph></div> : null}
       {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
     </section> : null}
-    <section className="ps">
-      <div className="ps-h"><span className="lbl">Checkout</span></div>
-      <dl className="kv2"><dt>Branch</dt><dd className="mono">{lane.branch}</dd><dt>Folder</dt><dd className="mono">{lane.worktree}</dd><dt>Started</dt><dd>{new Date(lane.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</dd></dl>
-    </section>
     {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
       <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Your access</span></div>
       <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the lane's terminal</button>
       {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open the folder in your editor</a> : null}
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+      <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       {READY.handoff ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
         <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>

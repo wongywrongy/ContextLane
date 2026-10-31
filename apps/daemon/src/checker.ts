@@ -2,7 +2,7 @@ import { changedAreas } from "./visualdiff.js";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { testSummary, type ChangedFile, type Checkpoint, type CheckResult, type Lane, type LaneEvent, type Recipe, type Screenshot, type TestCounts } from "@contextlanes/protocol";
+import { isTestCommand, testSummary, type ChangedFile, type Checkpoint, type CheckResult, type Lane, type LaneEvent, type Recipe, type Screenshot, type TestCounts } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -31,7 +31,6 @@ export function unplannedFiles(files: string[], plan: string[]): string[] {
   return files.filter((file) => !file.toLowerCase().replace(/\.[a-z0-9]+$/, "").split(/[^a-z0-9]+/).some((w) => words.has(w)));
 }
 
-const TESTS = /\b(test|tests|vitest|jest|pytest|mocha|playwright|check|cargo test|go test)\b/i;
 
 /** What the log shows about how the work was done. Each line is measured; none is a model's opinion. */
 export function processSignal(events: LaneEvent[], checks: CheckResult[], hasPlan: boolean, unplanned: string[]): { process: Checkpoint["process"]; signal: Checkpoint["signal"] } {
@@ -46,7 +45,7 @@ export function processSignal(events: LaneEvent[], checks: CheckResult[], hasPla
   const all = [...calls.values()];
   const changed = all.filter((c) => ["edit", "delete", "move"].includes(c.kind ?? "")).map((c) => c.seq);
   const lastEdit = changed.length ? Math.max(...changed) : 0;
-  const ranTests = all.some((c) => c.seq > lastEdit && c.status === "completed" && (c.kind === "test" || c.tested || (c.kind === "execute" && TESTS.test(c.title))));
+  const ranTests = all.some((c) => c.seq > lastEdit && c.status === "completed" && (c.kind === "test" || c.tested || (c.kind === "execute" && isTestCommand(c.title))));
   const failed = all.filter((c) => c.status === "failed");
   const process = [
     { label: "Ran the tests after the last change", ok: ranTests },

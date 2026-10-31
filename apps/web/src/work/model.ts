@@ -1,4 +1,4 @@
-import { STEP_FAMILY, type InboxItem, type Lane, type LaneEvent, type EventPayload, type ServiceState } from "@contextlanes/protocol";
+import { STEP_FAMILY, isTestCommand, type InboxItem, type Lane, type LaneEvent, type EventPayload, type ServiceState } from "@contextlanes/protocol";
 import { GLYPH } from "../components/ui";
 
 export function mergeEvents(...groups: LaneEvent[][]): LaneEvent[] {
@@ -123,8 +123,8 @@ function firstLine(text: string): string {
 }
 
 const SUBCOMMAND = /^(git|npm|pnpm|yarn|bun|npx|docker|kubectl|cargo|go|make|uv|pip|python3?\s+-m|gh|terraform)$/;
-const TESTS = /\b(test|tests|vitest|jest|pytest|mocha|playwright|cargo test|go test)\b/i;
 /** A command line as a person would say it: "git status", "pnpm test", "rg"; never the whole quoted line. */
+export { isTestCommand };
 export function plainCommand(line: string): string {
   const first = line.split(/&&|\|\||;|\|/).map((p) => p.trim()).find((p) => p && !/^(cd|export|set|source|\.)\s/.test(p)) ?? line.trim();
   const words = first.replace(/^(\w+=\S*\s+)+/, "").split(/\s+/).filter(Boolean);
@@ -146,7 +146,7 @@ export function plainStep(step: Step): string {
   if (!tool) return firstLine(step.title).slice(0, 60);
   const file = tool.files[0]?.split("/").pop();
   switch (tool.kind) {
-    case "execute": return TESTS.test(step.title) ? `Running tests (${plainCommand(step.title)})` : `Running ${plainCommand(step.title)}`;
+    case "execute": return isTestCommand(step.title) ? `Running tests (${plainCommand(step.title)})` : `Running ${plainCommand(step.title)}`;
     case "read": return file ? `Reading ${file}` : "Reading files";
     case "edit": return file ? `Editing ${file}${tool.files.length > 1 ? ` and ${tool.files.length - 1} more` : ""}` : "Editing files";
     case "delete": return file ? `Deleting ${file}` : "Deleting files";
@@ -175,4 +175,60 @@ export function laneNow(lane: Lane, events: LaneEvent[], waiting: InboxItem[]): 
   const last = stepsFor(mine).findLast((s) => s.type !== "text" || s.family !== "you");
   if (lane.state === "working" && last) return plainStep(last);
   return lane.state === "working" ? "Working · no steps yet" : GLYPH[lane.state][1];
+}
+
+/**
+ * The lane as progress rather than activity. Milestones stay as their own rows: your messages, the agent's
+ * replies, test runs, commits and pushes, checks and checkpoints, approvals and problems. Everything the
+ * agent did between two milestones (reading, searching, thinking, editing, other commands) folds into one
+ * "worked" row that says how long, which files changed, and how much it read and ran.
+ */
+export type ProgressItem =
+  | { kind: "milestone"; seq: number; at: string; step: Step; what: "you" | "reply" | "tests" | "commit" | "push" | "other"; ok?: boolean; title: string }
+  | { kind: "worked"; seq: number; at: string; to: string; steps: Step[]; edited: string[]; reads: number; searches: number; commands: number; thoughts: number; failed: number };
+
+const COMMIT = /\bgit\s+(-\S+\s+)*commit\b/;
+const PUSH = /\bgit\s+(-\S+\s+)*push\b/;
+export function progressFor(steps: Step[]): ProgressItem[] {
+  const out: ProgressItem[] = [];
+  let work: Extract<ProgressItem, { kind: "worked" }> | null = null;
+  const close = () => { if (work) { out.push(work); work = null; } };
+  for (const step of steps) {
+    const tool = step.tool;
+    const finished = tool?.status === "completed" || tool?.status === "failed";
+    const ok = tool?.status !== "failed" && (tool?.exitCode ?? 0) === 0;
+    let milestone: Extract<ProgressItem, { kind: "milestone" }> | null = null;
+    if (step.type === "text") milestone = { kind: "milestone", seq: step.seq, at: step.at, step, what: step.family === "you" ? "you" : "reply", title: step.text ?? "" };
+    else if (step.type === "tool" && tool?.kind === "execute" && finished && isTestCommand(step.title)) milestone = { kind: "milestone", seq: step.seq, at: step.at, step, what: "tests", ok, title: ok ? `Tests passed · ${plainCommand(step.title)}` : `Tests failed · ${plainCommand(step.title)}` };
+    else if (step.type === "tool" && tool?.kind === "execute" && finished && ok && COMMIT.test(step.title)) milestone = { kind: "milestone", seq: step.seq, at: step.at, step, what: "commit", ok, title: `Committed${/-m\s+["']([^"']+)/.exec(step.title)?.[1] ? `: ${/-m\s+["']([^"']+)/.exec(step.title)![1]}` : ""}` };
+    else if (step.type === "tool" && tool?.kind === "execute" && finished && ok && PUSH.test(step.title)) milestone = { kind: "milestone", seq: step.seq, at: step.at, step, what: "push", ok, title: "Pushed the branch" };
+    else if (step.type === "permission" || step.type === "check" || step.type === "status") milestone = { kind: "milestone", seq: step.seq, at: step.at, step, what: "other", title: step.title };
+    if (milestone) { close(); out.push(milestone); continue; }
+    if (step.type === "plan") continue;
+    work ??= { kind: "worked", seq: step.seq, at: step.at, to: step.at, steps: [], edited: [], reads: 0, searches: 0, commands: 0, thoughts: 0, failed: 0 };
+    work.steps.push(step); work.to = step.at;
+    if (step.type === "thought") work.thoughts++;
+    else if (tool) {
+      if (tool.status === "failed" || (tool.exitCode ?? 0) !== 0) work.failed++;
+      if (["edit", "delete", "move"].includes(tool.kind)) for (const f of tool.files) { const name = f.split("/").pop()!; if (!work.edited.includes(name)) work.edited.push(name); }
+      else if (tool.kind === "read") work.reads += Math.max(1, tool.files.length);
+      else if (tool.kind === "search") work.searches++;
+      else if (tool.kind === "execute") work.commands++;
+    }
+  }
+  close();
+  return out;
+}
+
+/** "Worked 6m · edited dates.py and 2 more · read 12 files · ran 5 commands" */
+export function workedLine(w: Extract<ProgressItem, { kind: "worked" }>): string {
+  const minutes = Math.round((Date.parse(w.to) - Date.parse(w.at)) / 60_000);
+  const parts = [
+    w.edited.length ? `edited ${w.edited.slice(0, 2).join(", ")}${w.edited.length > 2 ? ` and ${w.edited.length - 2} more` : ""}` : "",
+    w.reads ? `read ${w.reads} ${w.reads === 1 ? "file" : "files"}` : "",
+    w.searches ? `${w.searches} ${w.searches === 1 ? "search" : "searches"}` : "",
+    w.commands ? `ran ${w.commands} ${w.commands === 1 ? "command" : "commands"}` : "",
+    !w.edited.length && !w.reads && !w.searches && !w.commands && w.thoughts ? "thought it through" : "",
+  ].filter(Boolean);
+  return `${minutes >= 1 ? `Worked ${minutes}m` : "Worked"}${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
 }

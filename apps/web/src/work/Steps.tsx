@@ -1,10 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { InboxItem, LaneEvent } from "@contextlanes/protocol";
-import { answerItem, errorMessage } from "../api";
+import type { InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
+import { answerItem, errorMessage, postJson } from "../api";
 import { Empty, Glyph, Tile, ago, iconFor, type IconName } from "../components/ui";
-import { stepsFor, type Step } from "./model";
+import { isIdle, laneNow, progressFor, stepsFor, workedLine, type ProgressItem, type Step } from "./model";
 
-export type Filter = "all" | "thinking" | "changes";
+export type Filter = "progress" | "all" | "thinking" | "changes";
 export function FilterSwitch({ value, change }: { value: Filter; change: (f: Filter) => void }) {
   return <div className="seg3" role="group" aria-label="Show">{(["all", "thinking", "changes"] as const).map((f) => <button key={f} className={value === f ? "on" : ""} aria-pressed={value === f} onClick={() => change(f)}>{f === "all" ? "All" : f === "thinking" ? "Thinking" : "Changes"}</button>)}</div>;
 }
@@ -20,13 +20,17 @@ const WINDOW = 200;
 /** Within this many pixels of the bottom counts as "at the latest". */
 const NEAR = 80;
 
-export function Steps({ events, waiting, reload, agent, filter }: { events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; filter: Filter }) {
+type Item = Step | ProgressItem;
+const isYou = (i: Item | undefined) => !!i && ("kind" in i ? i.kind === "milestone" && i.what === "you" : i.type === "text" && i.family === "you");
+
+export function Steps({ lane, events, waiting, reload, agent, filter }: { lane: Lane; events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; filter: Filter }) {
   const all = useMemo(() => stepsFor(events), [events]);
-  const steps = useMemo(() => all.filter((s) => filter === "all" || (filter === "thinking" ? s.family === "mind" && s.type !== "text" : s.family === "change")), [all, filter]);
+  // Progress: milestones as rows, the work between them folded; the other filters show raw steps.
+  const steps: Item[] = useMemo(() => filter === "progress" ? progressFor(all) : all.filter((s) => filter === "all" || (filter === "thinking" ? s.family === "mind" && s.type !== "text" : s.family === "change")), [all, filter]);
   const [shown, setShown] = useState(WINDOW);
   const hidden = Math.max(0, steps.length - shown);
   // The first message (the task) always stays on top, so the lane's purpose is never scrolled away.
-  const first = hidden && steps[0]?.type === "text" && steps[0].family === "you" ? steps[0] : null;
+  const first = hidden && isYou(steps[0]) ? steps[0]! : null;
   const pane = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const [atEnd, setAtEnd] = useState(true);
@@ -44,7 +48,7 @@ export function Steps({ events, waiting, reload, agent, filter }: { events: Lane
     const added = steps.length - seen.current;
     seen.current = steps.length;
     // Your own message always brings you to the latest; otherwise follow only while you are at the bottom.
-    if (pinned.current || steps.at(-1)?.family === "you" && added > 0) toEnd();
+    if (pinned.current || isYou(steps.at(-1)) && added > 0) toEnd();
     else if (added > 0) setUnseen((n) => n + added);
   }, [events, steps, shown]); // eslint-disable-line react-hooks/exhaustive-deps
   const earlier = () => { if (!hidden || !pane.current) return; restore.current = pane.current.scrollHeight; setShown((n) => n + WINDOW); };
@@ -79,20 +83,80 @@ export function Steps({ events, waiting, reload, agent, filter }: { events: Lane
   // Resizing the window keeps you at the latest step if you were there.
   useLayoutEffect(() => { if (pinned.current) toEnd(); }, [fit]); // eslint-disable-line react-hooks/exhaustive-deps
   const needsYou = waiting.length > 0;
+  const row = (item: Item) => !("kind" in item) ? <StepRow key={item.seq} step={item} events={events} waiting={waiting} reload={reload} agent={agent} />
+    : item.kind === "worked" ? <WorkedRow key={item.seq} item={item} events={events} waiting={waiting} reload={reload} agent={agent} />
+    : item.what === "tests" || item.what === "commit" || item.what === "push" ? <MilestoneRow key={item.seq} item={item} />
+    : <StepRow key={item.seq} step={item.step} events={events} waiting={waiting} reload={reload} agent={agent} />;
   return <>
-    {!steps.length ? <Empty>{filter === "all" ? "No steps yet" : "None of this kind"}</Empty>
+    {filter === "progress" ? <Now lane={lane} events={events} waiting={waiting} /> : null}
+    {!steps.length ? <Empty>{filter === "all" || filter === "progress" ? "No steps yet" : "None of this kind"}</Empty>
       : <div className="steps-win">
         <div className="steps-pane" ref={pane} onScroll={onScroll} role="log" aria-label="Steps" tabIndex={0} style={fit ? { maxHeight: fit } : undefined}>
           <div className="sec-b" style={{ padding: "8px 18px 12px" }}><div className="spine">
-            {first ? <StepRow key={first.seq} step={first} events={events} waiting={waiting} reload={reload} agent={agent} /> : null}
-            {hidden ? <div className="more-steps"><button className="lnk" onClick={earlier}>{`Show ${Math.min(WINDOW, hidden)} earlier steps`}</button><span className="mono muted" style={{ fontSize: 12 }}>{hidden} hidden</span></div> : null}
-            {steps.slice(hidden).filter((s) => s !== first).map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
+            {first ? row(first) : null}
+            {hidden ? <div className="more-steps"><button className="lnk" onClick={earlier}>{`Show ${Math.min(WINDOW, hidden)} earlier ${filter === "progress" ? "rows" : "steps"}`}</button><span className="mono muted" style={{ fontSize: 12 }}>{hidden} hidden</span></div> : null}
+            {steps.slice(hidden).filter((s) => s !== first).map(row)}
           </div></div>
         </div>
         {!atEnd ? <button className={`btn sm jump${needsYou ? " you" : ""}`} onClick={() => toEnd(true)}>
           <Chevron down />{needsYou ? "Waiting for you" : unseen ? `${unseen} new ${unseen === 1 ? "step" : "steps"}` : "Latest"}</button> : null}
       </div>}
   </>;
+}
+
+/** What the lane is doing now and how far its plan has got, above the progress rows. */
+function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiting: InboxItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [asked, setAsked] = useState("");
+  const plan = events.findLast((e) => e.type === "agent.plan");
+  const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
+  const done = entries.filter((e) => e.status === "completed").length;
+  const current = entries.find((e) => e.status === "in_progress") ?? entries.find((e) => e.status === "pending");
+  const mine = waiting.filter((i) => i.lane === lane.id);
+  const idle = isIdle(lane, events);
+  const g = mine.length ? "wait" : lane.state === "failed" ? "fail" : idle ? "idle" : lane.state === "working" ? "work" : "idle";
+  const askForPlan = () => void postJson(`/api/lanes/${lane.id}/prompt`, { text: PLAN_PROMPT, immediate: false }).then(() => setAsked("Asked · it writes one after its current step"), (e) => setAsked(errorMessage(e)));
+  return <div className="now">
+    <div className="now-r"><span className="lbl">Now</span><Glyph g={g}>{laneNow(lane, events, waiting)}</Glyph></div>
+    <div className="now-r"><span className="lbl">Plan</span>
+      {entries.length ? <button className="planbar" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? "Hide the plan" : "Show the plan"}>
+        <span className="segs" aria-hidden="true">{entries.map((e, i) => <i key={i} className={e.status === "completed" ? "d" : e.status === "in_progress" ? "p" : ""} />)}</span>
+        <span>{done} of {entries.length}{current ? <span className="muted"> · {current.status === "in_progress" ? "on" : "next"}: {current.text}</span> : null}</span></button>
+        : <><Glyph g="idle">No plan yet</Glyph>{asked ? <span className="muted" style={{ fontSize: 13 }}>{asked}</span> : lane.state === "working" || lane.state === "needs_you" ? <button className="btn ghost sm" onClick={askForPlan}>Ask for a plan</button> : null}</>}
+    </div>
+    {open ? <div className="plan" style={{ padding: "4px 0 6px 92px" }}>{entries.map((entry, i) => <Glyph key={i} g={entry.status === "completed" ? "done" : entry.status === "in_progress" ? "think" : "idle"}>{entry.text}</Glyph>)}</div> : null}
+  </div>;
+}
+
+export const PLAN_PROMPT = "Before you continue: write a short plan of what is left (3 to 7 steps) with your plan or todo tool, mark what is done, then carry on.";
+
+/** A stretch of work between two milestones, folded into one line; open it to see each step. */
+function WorkedRow({ item, events, waiting, reload, agent }: { item: Extract<ProgressItem, { kind: "worked" }>; events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <div className="st3">
+      <span className="tm">{time(item.at)}</span>
+      <Tile family={item.edited.length ? "change" : "look"} icon={item.edited.length ? "edit" : "read"} />
+      <div style={{ minWidth: 0 }}><button className="tgl wk-line" aria-expanded={open} onClick={() => setOpen(!open)}><Chevron />{workedLine(item)}</button>
+        {item.failed ? <span className="muted" style={{ display: "block", fontSize: 12.5, marginLeft: 17 }}>{item.failed} {item.failed === 1 ? "step" : "steps"} failed along the way</span> : null}</div>
+      <span className="mono muted" style={{ fontSize: 12 }}>{item.steps.length} {item.steps.length === 1 ? "step" : "steps"}</span>
+    </div>
+    {open ? <div style={{ marginLeft: 24, borderLeft: "2px solid var(--line-soft)" }}>{item.steps.map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}</div> : null}
+  </>;
+}
+
+/** Tests, commits and pushes, said plainly, with the command one click away. */
+function MilestoneRow({ item }: { item: Extract<ProgressItem, { kind: "milestone" }> }) {
+  const [open, setOpen] = useState(false);
+  const icon: IconName = item.what === "tests" ? "test" : item.what === "push" ? "subagent" : "checkpoint";
+  return <div className="st3">
+    <span className="tm">{time(item.at)}</span>
+    <Tile family={item.ok === false ? "you" : "run"} icon={icon} />
+    <div style={{ minWidth: 0 }}><b style={{ fontSize: 15, display: "block" }}>{item.title}</b>
+      <button className="tgl" aria-expanded={open} onClick={() => setOpen(!open)}><Chevron />{open ? "Hide command" : "Command"}</button>
+      {open ? <div className="out" style={{ marginTop: 6 }}>{item.step.title}</div> : null}</div>
+    <span className={`sig${item.ok === false ? " fail" : ""}`}>{item.what === "tests" ? item.ok ? "passed" : "failed" : item.what}</span>
+  </div>;
 }
 
 function tileFor(step: Step): IconName {

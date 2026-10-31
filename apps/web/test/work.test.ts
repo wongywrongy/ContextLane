@@ -78,3 +78,11 @@ describe("plain words for what a lane does", () => {
     expect(plainCommand("/usr/bin/python3 -m pytest -q")).toBe("python3 pytest");
   });
 });
+
+describe("test runs", () => {
+  it("are recognised by what runs, not by paths in the line", async () => {
+    const { isTestCommand } = await import("../src/work/model");
+    for (const c of ["pnpm test", "pnpm vitest run apps/play", "npx vitest", "CI=1 pytest -q", "cd web && npm run test:unit", "go test ./...", "cargo test", "make test"]) expect(isTestCommand(c), c).toBe(true);
+    for (const c of ["sed -n '1,44p' tests/e2e/helpers/rendered.ts", "cat tests/unit.test.ts", "rg -n test src", "git status"]) expect(isTestCommand(c), c).toBe(false);
+  });
+});

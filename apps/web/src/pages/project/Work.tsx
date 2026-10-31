@@ -134,7 +134,7 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("progress");
   // Checked again when the agent's connection could have changed, not on every streamed word.
   const changes = useMemo(() => events.filter((e) => e.type === "agent.session" || e.type === "agent.error" || e.type === "lane.state").length, [events]);
   const link = useAgentLink(lane, changes);
@@ -206,17 +206,18 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     <section className="sec" aria-label="Lane view">
       <div className="sec-h">
         <div className="vt" role="tablist" aria-label="Lane view">
-          <button role="tab" aria-selected={view === "steps"} className={view === "steps" ? "on" : ""} onClick={() => setView("steps")}>Steps <i>{steps.length}</i></button>
+          <button role="tab" aria-selected={view === "steps" && filter === "progress"} className={view === "steps" && filter === "progress" ? "on" : ""} onClick={() => { setView("steps"); setFilter("progress"); }}>Progress</button>
+          <button role="tab" aria-selected={view === "steps" && filter !== "progress"} className={view === "steps" && filter !== "progress" ? "on" : ""} onClick={() => { setView("steps"); if (filter === "progress") setFilter("all"); }}>Steps <i>{steps.length}</i></button>
           <button role="tab" aria-selected={view === "terminal"} className={view === "terminal" ? "on" : ""} onClick={() => setView("terminal")}>Terminal <span className="live" title="Running" /></button>
         </div>
-        {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span><div className="e"><FilterSwitch value={filter} change={setFilter} /></div></>
+        {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span>{filter !== "progress" ? <div className="e"><FilterSwitch value={filter} change={setFilter} /></div> : null}</>
           : <span className="m">tmux · {lane.terminal} · your shell in this lane</span>}
       </div>
       {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
       {view === "terminal"
         ? <><Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense>
           <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>Your shell, not the agent’s · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {lane.id}</span></div></>
-        : <Steps events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
+        : <Steps lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
     </section>
 
     {/* Kept mounted on the Terminal tab, so a half-written message and its files survive the switch. */}

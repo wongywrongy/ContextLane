@@ -123,7 +123,7 @@ export class Insights {
         const w = where.get(key) ?? { lanes: new Set(), texts: [] }; w.lanes.add(c.lane); w.texts.push(f.text); where.set(key, w);
       }
       for (const [module, w] of [...where].sort((a, b) => b[1].texts.length - a[1].texts.length).slice(0, 2).filter(([, w]) => w.texts.length >= 2))
-        add({ id: `findings:${module}`, label: "review findings", value: String(w.texts.length), detail: `${module}: ${w.texts.length} findings in lanes ${[...w.lanes].map(n).join(", ")}, e.g. "${w.texts[0]!.slice(0, 120)}"` });
+        add({ id: `findings:${module}`, label: "review findings", value: String(w.texts.length), detail: `${module}: ${w.texts.length} findings in lanes ${[...w.lanes].map(n).sort().join(", ")}, e.g. "${w.texts[0]!.slice(0, 120)}"` });
     }
     if (waits.length) add({ id: "wait", label: "median wait for you", value: `${Math.round(median(waits)!)}m`, detail: `${waits.length} answered questions and permissions` });
     const today = new Date(now); today.setHours(0, 0, 0, 0);

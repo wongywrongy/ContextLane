@@ -950,6 +950,18 @@ Kyle's read of the live pages: Work overview, Architecture, Review, Run and Insi
   - The week's counts now include the review judge: checkpoints judged and how many were ready first time, plus the modules where findings keep landing, as stats the local model can cite (`judged`, `findings:<module>`). The "This week" panel shows "2 of 4 judged ready first time".
 - Tests: `insights.test.ts` (judge stats).
 
+### 4.9 Less to read, more running at once (2026-10-30)
+
+Kyle's question was whether ContextLanes improves anything. In practice it had been wrapping one agent session in a UI: one Codex lane, 350 steps one at a time, no plan, 85% of its context used, and a page listing every `sed` and "Thinking" line. Three changes followed.
+
+#### Progress view
+
+- **Layout.** The lane opens on Progress, not the raw steps; the tabs are Progress, Steps and Terminal.
+- **Header.** At the top, "Now" says what the agent is doing in plain words, and "Plan" shows a segmented bar with "2 of 5 · on: Match card contract", which opens to the list. With no plan, an "Ask for a plan" button queues a message asking for one.
+- **Rows.** Below, only milestones get rows: your messages, the agent's replies, test runs ("Tests passed · pnpm vitest"), commits ("Committed: …"), pushes, checks, approvals and problems. Everything between two milestones folds into one row, for example "Worked 4m · edited MatchCard.tsx · read 12 files · ran 4 commands", which opens to the steps. In a test lane of 101 steps that is about ten rows.
+- **Test runs** are recognised by the program that runs (`isTestCommand` in the protocol package): `pnpm test`, `vitest`, `pytest`, `go test`, or a title like "Run the unit tests". `sed tests/x.ts` no longer counts, which also fixes Review's "tests ran after the last change".
+- **Inspector.** It drops the plan, which is now in Progress, and the checkout box; the folder is a copy row under "Your access".
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.
