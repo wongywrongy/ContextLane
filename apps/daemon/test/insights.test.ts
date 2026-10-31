@@ -1,13 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Briefs, Config, EventBus, Insights, LocalModels, Store, type CodeMaps, type Runner } from "@contextlanes/daemon";
 
 const roots: string[] = [];
 afterEach(async () => { for (const r of roots.splice(0)) await rm(r, { recursive: true, force: true }); });
 
-async function fixture(answer: unknown, withModel = true) {
+async function fixture(answer: unknown, withModel = true, now?: () => number) {
   const root = await mkdtemp(join(tmpdir(), "cl-insights-")); roots.push(root);
   const store = Store.open(":memory:"); const bus = new EventBus();
   store.addProject({ id: "shop", name: "Shop", path: "/shop" });
@@ -22,7 +22,7 @@ async function fixture(answer: unknown, withModel = true) {
   const run: Runner = async () => ({ stdout: "" });
   const models = new LocalModels({ config, run, fetch });
   const codemaps = { map: async () => ({ map: null, error: "none" }) } as unknown as CodeMaps;
-  return new Insights({ config, store, bus, models, codemaps, briefs: new Briefs({ config, store, codemaps, models }) });
+  return new Insights({ config, store, bus, models, codemaps, briefs: new Briefs({ config, store, codemaps, models }), ...(now ? { now } : {}) });
 }
 
 describe("insights", () => {
@@ -51,6 +51,23 @@ describe("insights", () => {
     expect(v.suggestions.map((s) => s.title)).toEqual(["Answer the fixture question once, in project notes"]);
     await i.dismiss("shop", v.suggestions[0]!.id);
     expect((await i.view("shop")).suggestions).toEqual([]);
+  });
+
+  it("runs once a day after 02:00 on this machine's clock, not every 20 hours", async () => {
+    let now = new Date(2026, 9, 31, 1, 0).getTime();
+    let last: string | null = new Date(2026, 9, 30, 2, 1).toISOString();
+    const i = await fixture({}, true, () => now);
+    const inner = i as unknown as { tick(): Promise<void>; saved(): Promise<{ generatedAt: string } | null>; generate(p: string): Promise<unknown> };
+    inner.saved = async () => last ? { generatedAt: last } : null;
+    const runs = vi.fn(async () => { last = new Date(now).toISOString(); });
+    inner.generate = runs;
+    await inner.tick(); expect(runs).toHaveBeenCalledTimes(0); // 01:00: not yet
+    now = new Date(2026, 9, 31, 2, 1).getTime();
+    await inner.tick(); expect(runs).toHaveBeenCalledTimes(1); // 02:01: today's run
+    now = new Date(2026, 9, 31, 22, 5).getTime();
+    await inner.tick(); expect(runs).toHaveBeenCalledTimes(1); // 20 hours later: still today, so no second run
+    now = new Date(2026, 10, 1, 2, 1).getTime();
+    await inner.tick(); expect(runs).toHaveBeenCalledTimes(2);
   });
 
   it("shows why a run failed until one succeeds", async () => {

@@ -1,4 +1,7 @@
-import type { LocalModel, LocalModelStatus, LocalRole } from "@contextlanes/protocol";
+import { mkdirSync, readFileSync } from "node:fs";
+import { rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import type { LocalJob, LocalModel, LocalModelStatus, LocalRole } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
 import { parseGpus } from "./resources.js";
@@ -29,9 +32,33 @@ export function jsonAnswer(text: string): unknown {
 }
 const WAIT_MS = 10 * 60_000;
 
+type ChatOptions = { maxTokens?: number; json?: boolean; timeoutMs?: number; role?: LocalRole };
+/** Jobs kept in the journal: enough for "today" and the last failure, small enough to rewrite each time. */
+const JOURNAL = 300;
+
 export class LocalModels {
-  private queues = new Map<string, { tail: Promise<unknown>; waiting: number; running: boolean }>();
-  constructor(private deps: { config: Config; run: Runner; fetch?: typeof fetch }) {}
+  private queues = new Map<string, { tail: Promise<unknown>; waiting: number; running: boolean; role: LocalRole | null }>();
+  private jobs: LocalJob[] = [];
+  private saving: Promise<void> = Promise.resolve();
+  /** `journal`: a file that keeps the job record across restarts (the daemon passes one; tests do not). */
+  constructor(private deps: { config: Config; run: Runner; fetch?: typeof fetch; journal?: string; now?: () => number }) {
+    if (deps.journal) try { this.jobs = (JSON.parse(readFileSync(deps.journal, "utf8")) as LocalJob[]).slice(-JOURNAL); } catch { /* No record yet. */ }
+  }
+  private now() { return this.deps.now?.() ?? Date.now(); }
+
+  /** Every job, kept so the Models page can say what each endpoint has actually done. */
+  private record(job: LocalJob): void {
+    this.jobs = [...this.jobs, job].slice(-JOURNAL);
+    const file = this.deps.journal;
+    if (!file) return;
+    const text = JSON.stringify(this.jobs);
+    this.saving = this.saving.then(async () => {
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+      await writeFile(`${file}.tmp`, text, { mode: 0o600 }); await rename(`${file}.tmp`, file);
+    }).catch((err: Error) => console.error(`Local model journal not saved: ${err.message}`));
+  }
+  /** The recorded jobs, oldest first. */
+  history(): LocalJob[] { return [...this.jobs]; }
 
   list(): LocalModel[] { return this.deps.config.localModels; }
   private seen = new Map<string, { at: number; ok: boolean }>();
@@ -64,7 +91,7 @@ export class LocalModels {
   private queue(url: string) {
     const key = new URL(url).host;
     let q = this.queues.get(key);
-    if (!q) { q = { tail: Promise.resolve(), waiting: 0, running: false }; this.queues.set(key, q); }
+    if (!q) { q = { tail: Promise.resolve(), waiting: 0, running: false, role: null }; this.queues.set(key, q); }
     return q;
   }
 
@@ -73,7 +100,7 @@ export class LocalModels {
    * refused at once, and a job that waited longer than `waitMs` gives up (its caller hears why) and is
    * skipped when its turn comes, so a slow model never piles up work nobody is waiting for any more.
    */
-  async exclusive<T>(model: LocalModel, job: () => Promise<T>, waitMs = WAIT_MS): Promise<T> {
+  async exclusive<T>(model: LocalModel, job: () => Promise<T>, waitMs = WAIT_MS, role: LocalRole | null = null): Promise<T> {
     const q = this.queue(model.url);
     if (q.waiting >= MAX_WAITING) throw new Refused(`${model.name} at ${new URL(model.url).host} already has ${q.waiting} jobs waiting. Try again when they finish, or add another endpoint for this role.`, 503);
     q.waiting++;
@@ -82,8 +109,8 @@ export class LocalModels {
       q.waiting--;
       if (gaveUp) throw new Refused("skipped: its caller stopped waiting", 503);
       started = true;
-      q.running = true;
-      try { return await job(); } finally { q.running = false; }
+      q.running = true; q.role = role;
+      try { return await job(); } finally { q.running = false; q.role = null; }
     });
     q.tail = result.catch(() => {});
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -101,7 +128,20 @@ export class LocalModels {
    * asked to think briefly. JSON mode is a request, not a promise: an endpoint that refuses it is asked
    * again without it, and callers read the answer with `jsonAnswer`. An empty answer is an error that says why.
    */
-  async chat(model: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
+  async chat(model: LocalModel, messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
+    const asked = this.now();
+    const job = { role: opts.role ?? null, model: model.name, host: new URL(model.url).host };
+    try {
+      const result = await this.send(model, messages, opts);
+      this.record({ ...job, at: new Date(asked).toISOString(), ms: result.ms, ok: true, error: null, outputTokens: result.outputTokens });
+      return result;
+    } catch (err) {
+      this.record({ ...job, at: new Date(asked).toISOString(), ms: this.now() - asked, ok: false, error: (err as Error).message.slice(0, 300), outputTokens: null });
+      throw err;
+    }
+  }
+
+  private send(model: LocalModel, messages: ChatMessage[], opts: ChatOptions): Promise<ChatResult> {
     return this.exclusive(model, async () => {
       const started = Date.now();
       const host = new URL(model.url).host;
@@ -122,14 +162,15 @@ export class LocalModels {
         ? `${model.name} at ${host} used its whole token budget thinking and wrote no answer. Try a smaller model or one without long reasoning.`
         : `${model.name} at ${host} returned an empty answer.`, 503);
       return { text, inputTokens: body.usage?.prompt_tokens ?? null, outputTokens: body.usage?.completion_tokens ?? null, model: body.model ?? model.name, ms: Date.now() - started };
-    });
+    }, WAIT_MS, opts.role ?? null);
   }
 
   /**
    * `chat` with failover, as OpenRouter does across providers: when the chosen endpoint is down or errors,
    * the job goes to the next answering endpoint with the same role. The first error is the one reported.
    */
-  async chatAny(role: LocalRole, first: LocalModel, messages: ChatMessage[], opts: { maxTokens?: number; json?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
+  async chatAny(role: LocalRole, first: LocalModel, messages: ChatMessage[], opts: Omit<ChatOptions, "role"> = {}): Promise<ChatResult> {
+    opts = { ...opts, role } as ChatOptions;
     try { return await this.chat(first, messages, opts); }
     catch (err) {
       for (const next of this.candidates(role).filter((m) => m.url !== first.url || m.name !== first.name)) {
@@ -149,20 +190,28 @@ export class LocalModels {
       const local = ["127.0.0.1", "localhost"].includes(new URL(m.url).hostname);
       const q = this.queue(m.url);
       const gpu = local && gpus[0] ? { name: gpus[0].name, totalMb: gpus[0].memoryTotalMiB ?? 0, usedMb: gpus[0].memoryUsedMiB ?? 0 } : null;
-      const base = { name: m.name, provider: m.provider, url: m.url, label: m.label ?? null, roles: m.roles ?? [], local, gpu, waiting: q.waiting, running: q.running };
+      const host = new URL(m.url).host;
+      const mine = this.jobs.filter((j) => j.host === host && j.model === m.name);
+      const midnight = new Date(this.now()); midnight.setHours(0, 0, 0, 0);
+      const today = mine.filter((j) => Date.parse(j.at) >= midnight.getTime());
+      const base = { name: m.name, provider: m.provider, url: m.url, label: m.label ?? null, roles: m.roles ?? [], local, gpu, waiting: q.waiting, running: q.running,
+        current: q.running ? q.role : null, lastJob: mine.at(-1) ?? null, lastFailure: mine.findLast((j) => !j.ok) ?? null,
+        today: { jobs: today.length, failed: today.filter((j) => !j.ok).length } };
+      // Loaded is not the same as working: Ollama keeps a model in memory long after its last job.
+      const up = q.running ? "working" as const : "ready" as const;
       if (m.provider === "ollama") {
         const [tags, ps] = await Promise.all([get(m, "/api/tags"), get(m, "/api/ps")]);
         if (!tags) return { ...base, state: "down", loaded: [], memory: null, detail: "Ollama did not answer." };
         const has = ((tags.models ?? []) as { name: string }[]).some((x) => x.name === m.name || x.name === `${m.name}:latest`);
         const loaded = ((ps?.models ?? []) as { name: string; size_vram?: number }[]);
         const vram = loaded.reduce((n, x) => n + (x.size_vram ?? 0), 0);
-        return { ...base, state: loaded.some((x) => x.name === m.name || x.name === `${m.name}:latest`) ? "serving" : "idle", loaded: loaded.map((x) => x.name), memory: vram || null,
+        return { ...base, state: up, loaded: loaded.map((x) => x.name), memory: vram || null,
           detail: has ? null : `${m.name} is not pulled. Run: ollama pull ${m.name}` };
       }
       const health = await f(endpoint(m.url, "/health"), { signal: AbortSignal.timeout(4000), redirect: "error" }).then((r) => r.ok, () => false);
       if (!health) return { ...base, state: "down", loaded: [], memory: null, detail: "The server did not answer." };
       const models = await get(m, "/v1/models");
-      return { ...base, state: q.running ? "serving" : "idle", loaded: ((models?.data ?? []) as { id: string }[]).map((x) => x.id), memory: null, detail: null };
+      return { ...base, state: up, loaded: ((models?.data ?? []) as { id: string }[]).map((x) => x.id), memory: null, detail: null };
     }));
   }
 }

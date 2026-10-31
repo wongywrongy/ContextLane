@@ -29,9 +29,16 @@ export const LocalModel = z.object({ name: z.string().min(1).max(100), provider:
   url: z.url().refine((url) => { const u = new URL(url); return ["http:", "https:"].includes(u.protocol) && (["127.0.0.1", "localhost"].includes(u.hostname) || u.hostname.endsWith(".ts.net") || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(u.hostname)); }, "Use an endpoint on this machine or on your tailnet."),
 });
 export type LocalModel = z.infer<typeof LocalModel>;
-/** Models page: one served model per endpoint, what it has loaded and how full its GPU is. */
-export type LocalModelStatus = { name: string; provider: "ollama" | "llama.cpp"; url: string; label: string | null; roles: LocalRole[]; local: boolean; state: "serving" | "idle" | "down"; loaded: string[]; memory: number | null;
-  gpu: { name: string; totalMb: number; usedMb: number } | null; waiting: number; running: boolean; detail: string | null };
+/** One job a local model ran for ContextLanes: which role asked, how long it took, and why it failed. */
+export type LocalJob = { at: string; role: LocalRole | null; model: string; host: string; ms: number; ok: boolean; error: string | null; outputTokens: number | null };
+/**
+ * Models page: one served model per endpoint. working: a job is running now. ready: it answers (whether or
+ * not the model is loaded, which `loaded` shows). down: it does not answer. The last job and today's count
+ * say whether it has done anything.
+ */
+export type LocalModelStatus = { name: string; provider: "ollama" | "llama.cpp"; url: string; label: string | null; roles: LocalRole[]; local: boolean; state: "working" | "ready" | "down"; loaded: string[]; memory: number | null;
+  gpu: { name: string; totalMb: number; usedMb: number } | null; waiting: number; running: boolean; detail: string | null;
+  current: LocalRole | null; lastJob: LocalJob | null; lastFailure: LocalJob | null; today: { jobs: number; failed: number } };
 /** Routing: which agent and model a new lane gets, by words in its task. The first rule that matches wins. */
 export const RoutingRule = z.object({ words: z.array(z.string().trim().min(2).max(40)).min(1).max(20), agent: z.string().min(1).max(60), model: z.string().max(200).optional(), label: z.string().max(40).optional() });
 export type RoutingRule = z.infer<typeof RoutingRule>;

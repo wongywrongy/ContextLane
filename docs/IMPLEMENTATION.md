@@ -717,6 +717,26 @@ One catalog, `packages/protocol/src/agents.ts`, now holds what ContextLanes know
 - **Lanes and hand-offs refuse** Amp and Auggie with the reason; the CLI usage no longer names three agents.
 - Tests: `agents.test.ts` (each agent's shape, exit codes, probe, catalog invariants), `setup.test.ts` (statuses, probe in the sandbox, Check again), `server.test.ts` and `handoff.test.ts` (refusals), `registry.test.ts` (catalog agents left to Models).
 
+#### Long lanes and the local models, after a check on neo (2026-10-30)
+
+**The step trail had no end.** Each lane page grew with every step. It now scrolls in its own window, sized to the space between the lane header and the message box, so the whole lane fits the screen. It keeps reading top to bottom, like a chat or a CI log, rather than newest first: a reply would otherwise sit above the message it answers, and a burst of steps would read upside down. What newest-first was meant to give, landing on the latest, it does:
+- It opens at the latest step and follows new ones while you are at the bottom (within 80 px), and stays put when you scroll up.
+- A button returns you to the latest; it reads "3 new steps", or "Waiting for you" when a permission is open. Your own message always brings you back down.
+- Earlier steps load when you reach the top, keeping the step you were reading in place.
+
+This is the pattern described in [TanStack Virtual's chat guide](https://tanstack.com/virtual/latest/docs/chat), [ServiceTitan Anvil's AI chat layout](https://anvil.servicetitan.com/docs/kits/ai-kit/components/chat-layout/design) and [GitLab's build log follow behaviour](https://gitlab.com/gitlab-org/gitlab-ce/issues/19620).
+
+**What the check of the two local endpoints found** (gpt-oss:20b on Wyatt, used for briefs, insights, ask and tidy; qwen3-coder:30b on Neo, used for the helper):
+- Both work. Wyatt had written that day's insights. Briefs and Tidy had never been clicked, and Ask kept no record. Neo had never had a job, because no agent had called `delegate`; in fact no agent had called any ContextLanes tool.
+- "Serving" only meant that Ollama had the model loaded, and Wyatt keeps its model loaded indefinitely, so the status said nothing about work.
+- "Nightly" insights really ran every 20 hours.
+
+**Fixes:**
+- **Every local model job is recorded** (`local-jobs.json` in the data folder, the last 300): role, endpoint, time taken, tokens, and the error if it failed. Models shows what each endpoint is doing now (`insights now · 1 waiting`), or its last job and today's count (`ask 2h ago · 4 today (1 failed)`, plus `in memory` when loaded). Its state is Working, Ready or Down, and it refreshes while jobs run.
+- **Insights run once a day after 02:00** on the machine's clock, and again 5 minutes after a merge.
+- **A new lane's first message ends with one paragraph on the ContextLanes tools:** get_brief, ask_owner and checkpoint, plus `delegate` with kinds read and check when a helper endpoint is set up. It is not sent to bench baseline lanes, and the step trail still shows only the task you wrote.
+- Tests: `localmodels.test.ts` (job record, current role, restart), `insights.test.ts` (daily schedule), `briefs.test.ts` (tools hint). The fake agent ignores the hint.
+
 ### 4.4 Routing (models)
 
 - Rules map a kind of task (keywords the owner writes) to an agent, a model and a label. New lane pre-fills from the first rule that matches, and the owner can change it.

@@ -120,7 +120,7 @@ export class LaneManager {
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
       if (config.lanes.launchHosts) {
         const notes = req.baseline ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
-        await this.launch(lane, taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes));
+        await this.launch(lane, taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline ? "" : toolsHint(config)));
       }
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
@@ -237,11 +237,24 @@ export class LaneManager {
   }
 }
 
-/** The agent's first message: the project notes (unless a baseline lane), then the task, the handoff or the adoption brief. */
-export function taskText(lane: Lane, adoption?: ServiceProposal, firstPrompt?: string, notes = ""): string {
+/**
+ * What a new lane's agent is told about the ContextLanes tools. Agents rarely reach for an MCP tool from its
+ * description alone (none was called in the first lanes on neo), so the first message names when each pays off.
+ */
+export function toolsHint(config: Config): string {
+  const helper = config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
+  return [
+    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading an unfamiliar module's files; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review.",
+    helper ? "delegate sends bounded work to a local model on this machine and keeps it out of your context: use kind read to answer a narrow question about several files, and check to run the project's checks and get the failures sorted." : "",
+  ].filter(Boolean).join(" ");
+}
+
+/** The agent's first message: the project notes (unless a baseline lane), then the task, the handoff or the adoption brief, then the tools hint. */
+export function taskText(lane: Lane, adoption?: ServiceProposal, firstPrompt?: string, notes = "", tools = ""): string {
   const asked = firstPrompt ? firstPrompt : adoption ? `${lane.task}\n\nPropose a .contextlanes.json service from this observed process. Keep the outside copy running. Adapt paths to the lane's worktree, replace its observed port with a free $PORT and bind to 127.0.0.1. Request the owner's normal recipe approval before starting the copy. Observed data: ${JSON.stringify(adoption)}` : lane.task;
   // Project notes are what every lane starts with (Insights → What every lane starts with).
-  return notes.trim() ? `Project notes from the owner. Keep to them unless the task says otherwise:\n${notes.trim()}\n\n---\n\n${asked}` : asked;
+  const body = notes.trim() ? `Project notes from the owner. Keep to them unless the task says otherwise:\n${notes.trim()}\n\n---\n\n${asked}` : asked;
+  return tools ? `${body}\n\n---\n\n${tools}` : body;
 }
 
 /** systemd-run arguments for a lane host. Kept separate so it can be tested and documented. */

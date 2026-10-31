@@ -25,7 +25,8 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
     .onRequest(methods.agent.session.setConfigOption, ({ params }) => { if (params.configId === "reasoning_effort") effort = String(params.value); else model = String(params.value); return { configOptions: configs() }; })
     .onNotification(methods.agent.session.cancel, () => cancel?.())
     .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
-      const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("");
+      // A new lane's first message ends with the ContextLanes tools hint; the fake agent acts on the task before it.
+      const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("").replace(/\n\n---\n\nContextLanes tools[\s\S]*$/, "");
       turns.push(text);
       await onPrompt?.();
       if (text === "cost" || text === "foreign-cost") {

@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   await setup.initialize();
   const runtime = new Runtime({ store, bus, config, run });
   const codemaps = new CodeMaps({ run, store, config });
-  const localModels = new LocalModels({ config, run });
+  const localModels = new LocalModels({ config, run, journal: join(config.paths.data, "local-jobs.json") });
   const briefs = new Briefs({ config, store, codemaps, models: localModels });
   const insights = new Insights({ config, store, bus, models: localModels, codemaps, briefs });
   const collisions = new Collisions({ store, bus, codemaps, hosts });

@@ -91,6 +91,12 @@ a.btn.ghost { color: var(--ink); }
 .sec-b > p { margin: 0 0 12px; font-size: 14px; line-height: 1.55; }
 .sec-b > p:last-child { margin-bottom: 0; }
 /* Detail behind a signal: a quiet "Details" toggle, open only on request. */
+/* The step trail scrolls inside its section, opens at the latest step and follows it (Steps.tsx). */
+.steps-win { position: relative; }
+.steps-pane { max-height: max(340px, calc(100dvh - 290px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.steps-pane:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.jump { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); box-shadow: 0 4px 14px rgba(0,0,0,.14); }
+.jump.you { background: var(--you-bg); color: var(--you-ink); border-color: var(--you-line); }
 .more-steps { display: flex; align-items: center; gap: 12px; padding: 10px 0 14px 86px; }
 details.more { padding: 10px 18px 14px; }
 details.more > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
@@ -512,6 +518,7 @@ input.in.mono { font: 400 14px var(--mono); }
 }
 .back { display: none; }
 @media (max-width: 760px) {
+  .steps-pane { max-height: max(300px, calc(100dvh - 230px)); }
   /* An open lane fills the phone (phone-lane.webp): no band, tabs, lane list or main nav; message box pinned to the bottom. */
   body:has(.wk3.has-lane) .band, body:has(.wk3.has-lane) .tabs, body:has(.wk3.has-lane) .top .gnav, body:has(.wk3.has-lane) .top .wm { display: none; }
   .wk3.has-lane > .pane.l { display: none; }

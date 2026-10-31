@@ -1,10 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LOCAL_ROLES, LocalRole as LocalRoleSchema, type LocalRole } from "@contextlanes/protocol";
 import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, type IconName } from "../components/ui";
+import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, agoText, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 
@@ -150,6 +150,17 @@ function LaneLimit({ settings, reload }: { settings: SetupSettings | null; reloa
 }
 
 /** One local endpoint, as on models.webp: server and host, model, this machine's GPU memory, state. */
+/** What the endpoint has actually done: the job running now, else the last one and today's count. */
+function jobLine(s: LocalModelStatus): string {
+  const role = (r: LocalRole | null) => r ?? "a job";
+  const queue = s.waiting ? ` · ${s.waiting} waiting` : "";
+  if (s.running) return `${role(s.current)} now${queue}`;
+  const loaded = s.loaded.includes(s.name) || s.loaded.includes(`${s.name}:latest`) ? " · in memory" : "";
+  if (!s.lastJob) return `no jobs yet${loaded}${queue}`;
+  const last = `${role(s.lastJob.role)} ${s.lastJob.ok ? "" : "failed "}${agoText(s.lastJob.at)}`;
+  return `${last} · ${s.today.jobs} today${s.today.failed ? ` (${s.today.failed} failed)` : ""}${loaded}${queue}`;
+}
+
 function LocalRow({ m, save, remove }: { m: (LocalModelStatus | (Omit<LocalModel, "label" | "roles"> & { label: string | null; roles: LocalRole[]; state: null })); save: (change: { roles?: LocalRole[]; label?: string }) => Promise<void>; remove: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const host = new URL(m.url).host;
@@ -159,10 +170,12 @@ function LocalRow({ m, save, remove }: { m: (LocalModelStatus | (Omit<LocalModel
     <AgentMark agent={m.provider} />
     <span style={{ minWidth: 0 }}><b>{m.label || (m.provider === "ollama" ? "Ollama" : "llama.cpp")}</b><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{host} · {m.roles.length ? m.roles.join(", ") : "every job"}</span>
       <button className="lnk" style={{ fontSize: 12.5 }} onClick={() => setEditing((e) => !e)}>{editing ? "Close" : "Edit"}</button></span>
-    <span style={{ minWidth: 0 }}><span className="mono" style={{ fontSize: 13 }}>{m.name}</span><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{status ? status.running ? `working${status.waiting ? ` · ${status.waiting} waiting` : ""}` : status.waiting ? `${status.waiting} waiting` : status.loaded.length ? `loaded: ${status.loaded.join(", ")}` : "nothing loaded" : ""}</span></span>
+    <span style={{ minWidth: 0 }}><span className="mono" style={{ fontSize: 13 }}>{m.name}</span><span className="mono muted" style={{ display: "block", fontSize: 12 }}>{status ? jobLine(status) : ""}</span></span>
     <span style={{ minWidth: 0 }}>{gpu ? <><span className="mono muted" style={{ display: "flex", fontSize: 12 }}>{gpu.name} · {Math.round(gpu.totalMb / 1024)} GB<span style={{ marginLeft: "auto", color: "var(--ink)" }}>{(gpu.usedMb / 1024).toFixed(1)} GB</span></span>
       <span className="meter" aria-label={`${Math.round(gpu.usedMb / gpu.totalMb * 100)}% of GPU memory used`}><i style={{ width: `${Math.min(100, gpu.usedMb / Math.max(1, gpu.totalMb) * 100)}%` }} /></span></> : <span className="muted" style={{ fontSize: 12.5 }}>{status && !status.local ? "on another machine" : status ? "no GPU reading" : ""}</span>}</span>
-    <span style={{ textAlign: "right" }}>{status ? <Glyph g={status.state === "serving" ? "done" : status.state === "idle" ? "idle" : "fail"}>{status.state === "serving" ? "Serving" : status.state === "idle" ? "Idle" : "Down"}</Glyph> : null}{status?.detail ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{status.detail}</span> : null}</span>
+    <span style={{ textAlign: "right" }}>{status ? <Glyph g={status.state === "working" ? "work" : status.state === "ready" ? "done" : "fail"}>{status.state === "working" ? "Working" : status.state === "ready" ? "Ready" : "Down"}</Glyph> : null}
+      {status?.detail ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{status.detail}</span>
+        : status?.lastFailure && status.lastFailure === status.lastJob ? <span className="muted" style={{ display: "block", fontSize: 12 }} title={status.lastFailure.error ?? undefined}>last job failed</span> : null}</span>
   </div>{editing ? <form className="sec-b" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); void save({ label: String(f.get("label") ?? "").trim() || undefined, roles: LOCAL_ROLE_KEYS.filter((r) => f.get(`role-${r}`)) }).then(() => setEditing(false)); }}>
     <label className="field">Name<input className="in" name="label" maxLength={40} defaultValue={m.label ?? ""} /></label>
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "10px 0" }}>{LOCAL_ROLE_KEYS.map((r) => <label key={r} style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 14 }}><input type="checkbox" name={`role-${r}`} defaultChecked={m.roles.includes(r)} />{LOCAL_ROLES[r]}</label>)}</div>
@@ -176,6 +189,9 @@ export function ModelsPage() {
   const [usage, usageError, reloadUsage] = useJson<UsageSummary>("/api/usage");
   const models = settings?.localModels ?? [];
   const [local, , reloadLocal] = useJson<LocalModelStatus[]>(models.length ? "/api/models/local" : null);
+  // While a job runs or waits, look again every few seconds so the row shows it finish.
+  const busy = local?.some((m) => m.running || m.waiting > 0) ?? false;
+  useEffect(() => { if (!busy) return; const t = setTimeout(reloadLocal, 5000); return () => clearTimeout(t); }, [busy, local, reloadLocal]);
   const [registry, setRegistry] = useState(false);
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg">

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InboxItem, LaneEvent } from "@contextlanes/protocol";
 import { answerItem, errorMessage } from "../api";
 import { Empty, Glyph, Tile, ago, iconFor, type IconName } from "../components/ui";
@@ -10,9 +10,15 @@ export function FilterSwitch({ value, change }: { value: Filter; change: (f: Fil
 }
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
-/** The step trail from the Console board: time, kind tile on a spine, what happened, evidence on the right. */
-/** Steps drawn at once: a lane that ran for days keeps the page fast; earlier ones load on request. */
+/**
+ * The step trail from the Console board, in its own scrolling window so the page keeps its size however long
+ * the lane runs. It reads top to bottom like a conversation and opens at the latest step, next to the
+ * message box. While you are at the bottom it follows new steps; scroll up and it stays where you are,
+ * with a button back to the latest. Earlier steps load as you reach the top, keeping your place.
+ */
 const WINDOW = 200;
+/** Within this many pixels of the bottom counts as "at the latest". */
+const NEAR = 80;
 
 export function Steps({ events, waiting, reload, agent, filter }: { events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; filter: Filter }) {
   const all = useMemo(() => stepsFor(events), [events]);
@@ -21,13 +27,71 @@ export function Steps({ events, waiting, reload, agent, filter }: { events: Lane
   const hidden = Math.max(0, steps.length - shown);
   // The first message (the task) always stays on top, so the lane's purpose is never scrolled away.
   const first = hidden && steps[0]?.type === "text" && steps[0].family === "you" ? steps[0] : null;
+  const pane = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  const [atEnd, setAtEnd] = useState(true);
+  const [unseen, setUnseen] = useState(0);
+  const seen = useRef(steps.length);
+  const restore = useRef<number | null>(null);
+  const toEnd = (smooth = false) => { const el = pane.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" }); pinned.current = true; setAtEnd(true); setUnseen(0); };
+  // A new filter opens at its latest step.
+  useLayoutEffect(() => { toEnd(); seen.current = steps.length; }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = pane.current;
+    if (!el) return;
+    // Earlier steps were added above: keep the step you were reading where it was.
+    if (restore.current !== null) { el.scrollTop += el.scrollHeight - restore.current; restore.current = null; return; }
+    const added = steps.length - seen.current;
+    seen.current = steps.length;
+    // Your own message always brings you to the latest; otherwise follow only while you are at the bottom.
+    if (pinned.current || steps.at(-1)?.family === "you" && added > 0) toEnd();
+    else if (added > 0) setUnseen((n) => n + added);
+  }, [events, steps, shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  const earlier = () => { if (!hidden || !pane.current) return; restore.current = pane.current.scrollHeight; setShown((n) => n + WINDOW); };
+  const onScroll = () => {
+    const el = pane.current;
+    if (!el) return;
+    const end = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR;
+    pinned.current = end;
+    if (end !== atEnd) setAtEnd(end);
+    if (end && unseen) setUnseen(0);
+    if (el.scrollTop < 40 && hidden && restore.current === null) earlier();
+  };
+  // The window takes the height left between what is above it and the message box below, so the whole
+  // lane fits the screen without the page scrolling; on a short screen it keeps a usable minimum.
+  const [fit, setFit] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = pane.current;
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      const top = box.top + window.scrollY;
+      // What sits under the window in the lane column (the message box), not the taller inspector beside it.
+      const column = el.closest(".lane-main") ?? document.body;
+      const end = Math.max(...[...column.children].map((c) => c.getBoundingClientRect().bottom)) + parseFloat(getComputedStyle(column).paddingBottom || "0");
+      const below = end - box.bottom;
+      setFit(Math.max(window.innerWidth <= 760 ? 300 : 340, Math.floor(window.innerHeight - top - below - 16)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [steps.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Resizing the window keeps you at the latest step if you were there.
+  useLayoutEffect(() => { if (pinned.current) toEnd(); }, [fit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const needsYou = waiting.length > 0;
   return <>
     {!steps.length ? <Empty>{filter === "all" ? "No steps yet" : "None of this kind"}</Empty>
-      : <div className="sec-b" style={{ padding: "8px 18px 12px" }}><div className="spine">
-        {first ? <StepRow key={first.seq} step={first} events={events} waiting={waiting} reload={reload} agent={agent} /> : null}
-        {hidden ? <div className="more-steps"><button className="lnk" onClick={() => setShown((n) => n + WINDOW)}>{`Show ${Math.min(WINDOW, hidden)} earlier steps`}</button><span className="mono muted" style={{ fontSize: 12 }}>{hidden} hidden</span></div> : null}
-        {steps.slice(hidden).filter((s) => s !== first).map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
-      </div></div>}
+      : <div className="steps-win">
+        <div className="steps-pane" ref={pane} onScroll={onScroll} role="log" aria-label="Steps" tabIndex={0} style={fit ? { maxHeight: fit } : undefined}>
+          <div className="sec-b" style={{ padding: "8px 18px 12px" }}><div className="spine">
+            {first ? <StepRow key={first.seq} step={first} events={events} waiting={waiting} reload={reload} agent={agent} /> : null}
+            {hidden ? <div className="more-steps"><button className="lnk" onClick={earlier}>{`Show ${Math.min(WINDOW, hidden)} earlier steps`}</button><span className="mono muted" style={{ fontSize: 12 }}>{hidden} hidden</span></div> : null}
+            {steps.slice(hidden).filter((s) => s !== first).map((step) => <StepRow key={step.seq} step={step} events={events} waiting={waiting} reload={reload} agent={agent} />)}
+          </div></div>
+        </div>
+        {!atEnd ? <button className={`btn sm jump${needsYou ? " you" : ""}`} onClick={() => toEnd(true)}>
+          <Chevron down />{needsYou ? "Waiting for you" : unseen ? `${unseen} new ${unseen === 1 ? "step" : "steps"}` : "Latest"}</button> : null}
+      </div>}
   </>;
 }
 
@@ -114,6 +178,6 @@ function PermissionPanel({ item, detail, answered, agent }: { item: InboxItem; d
   </div>;
 }
 
-function Chevron() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>;
+function Chevron({ down = false }: { down?: boolean }) {
+  return <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true" style={down ? { transform: "rotate(90deg)" } : undefined}><path d="m9 6 6 6-6 6" /></svg>;
 }

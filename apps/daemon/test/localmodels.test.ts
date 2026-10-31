@@ -93,10 +93,43 @@ describe("local models", () => {
       return url.pathname === "/health" ? Response.json({ status: "ok" }) : Response.json({ data: [{ id: "gpt-oss-20b" }] });
     }) as unknown as typeof globalThis.fetch;
     const [o, l] = await new LocalModels({ config: config([ollama, llama]), run, fetch }).status();
-    expect(o).toMatchObject({ state: "idle", loaded: ["llama3:8b"], gpu: { name: "NVIDIA RTX PRO 4000 Blackwell", usedMb: 19560, totalMb: 24467 }, detail: "qwen3-coder:30b is not pulled. Run: ollama pull qwen3-coder:30b" });
-    expect(l).toMatchObject({ state: "idle", loaded: ["gpt-oss-20b"], gpu: null, local: false });
+    expect(o).toMatchObject({ state: "ready", loaded: ["llama3:8b"], gpu: { name: "NVIDIA RTX PRO 4000 Blackwell", usedMb: 19560, totalMb: 24467 }, detail: "qwen3-coder:30b is not pulled. Run: ollama pull qwen3-coder:30b" });
+    expect(l).toMatchObject({ state: "ready", loaded: ["gpt-oss-20b"], gpu: null, local: false, lastJob: null, today: { jobs: 0, failed: 0 } });
     const down = await new LocalModels({ config: config(), run, fetch: (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof globalThis.fetch }).status();
     expect(down[0]).toMatchObject({ state: "down" });
+  });
+
+  it("records every job, says which role is running, and keeps the record across restarts", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "cl-jobs-"));
+    try {
+      const journal = join(dir, "local-jobs.json");
+      let release!: () => void;
+      let fail = false;
+      const fetch = (async (url: URL) => {
+        if (url.pathname === "/api/tags") return Response.json({ models: [{ name: ollama.name }] });
+        if (url.pathname === "/api/ps") return Response.json({ models: [{ name: ollama.name, size_vram: 1 }] });
+        await new Promise<void>((r) => { release = r; });
+        return fail ? new Response("out of memory", { status: 500 }) : Response.json({ choices: [{ message: { content: "done" } }], usage: { completion_tokens: 7 } });
+      }) as unknown as typeof globalThis.fetch;
+      const models = new LocalModels({ config: config(), run, fetch, journal });
+      const job = models.chatAny("insights", ollama, [{ role: "user", content: "hi" }]);
+      await new Promise((r) => setTimeout(r, 20));
+      expect((await models.status())[0]).toMatchObject({ state: "working", current: "insights", running: true });
+      release(); await job;
+      fail = true;
+      const failing = models.chat(ollama, [{ role: "user", content: "x" }], { role: "ask" }).catch((e: Error) => e);
+      await new Promise((r) => setTimeout(r, 20)); release();
+      expect(await failing).toBeInstanceOf(Error);
+      const [s] = await models.status();
+      expect(s).toMatchObject({ state: "ready", current: null, today: { jobs: 2, failed: 1 }, lastJob: { role: "ask", ok: false }, lastFailure: { role: "ask", error: expect.stringContaining("answered 500") } });
+      expect(models.history()[0]).toMatchObject({ role: "insights", ok: true, outputTokens: 7, host: "127.0.0.1:11434", model: ollama.name });
+      await new Promise((r) => setTimeout(r, 50));
+      const again = new LocalModels({ config: config(), run, fetch, journal });
+      expect(again.history().map((j) => [j.role, j.ok])).toEqual([["insights", true], ["ask", false]]);
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
   it("sends each job to an endpoint with its role, the free one first, skipping one that is down", async () => {

@@ -102,7 +102,7 @@ export class Helper {
         ? `Task from the lead agent: ${body.task}\nAnswer from these files only. Quote the exact lines that matter with file:line, and keep it short.\n\n${input}`
         : `Task from the lead agent: ${body.task}\nReturn only a unified diff (git format, paths relative to the repository root, a/ and b/ prefixes) that makes this change and nothing else. No explanation.\n\n${input}`;
     }
-    const answer = await this.deps.models.chat(model, [{ role: "system", content: "You help a coding agent by doing one bounded job on a local machine. Be exact and brief." }, { role: "user", content: prompt }], { maxTokens: body.kind === "edit" ? 4000 : 1500 });
+    const answer = await this.deps.models.chat(model, [{ role: "system", content: "You help a coding agent by doing one bounded job on a local machine. Be exact and brief." }, { role: "user", content: prompt }], { maxTokens: body.kind === "edit" ? 4000 : 1500, role: "helper" });
     let result = answer.text;
     let patch: string | null = null;
     if (body.kind === "edit") {

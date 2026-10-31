@@ -56,7 +56,9 @@ export class Insights {
       const last = (await this.saved(p.id))?.generatedAt;
       // A failed run (model down) waits 6 hours before the nightly one tries again, not a minute.
       const tried = this.tried.get(p.id) ?? 0;
-      const nightly = new Date(this.now()).getHours() >= 2 && (!last || this.now() - Date.parse(last) > 20 * 3600_000) && this.now() - tried > 6 * 3600_000;
+      // Once a day after 02:00 on this machine's clock: due when the last run was before today's 02:00.
+      const two = new Date(this.now()); two.setHours(2, 0, 0, 0);
+      const nightly = this.now() >= two.getTime() && (!last || Date.parse(last) < two.getTime()) && this.now() - tried > 6 * 3600_000;
       const afterMerge = (this.due.get(p.id) ?? Infinity) <= this.now();
       if (nightly || afterMerge) {
         this.due.delete(p.id); this.tried.set(p.id, this.now());

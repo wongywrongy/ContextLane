@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { CodeMap } from "@contextlanes/protocol";
 import { Config, LocalModels, Store, type CodeMaps, type Runner } from "@contextlanes/daemon";
 import { Briefs } from "../src/briefs.js";
-import { hostCommand } from "../src/lanes/manager.js";
+import { hostCommand, taskText, toolsHint } from "../src/lanes/manager.js";
 
 const roots: string[] = [];
 afterEach(async () => { for (const r of roots.splice(0)) await rm(r, { recursive: true, force: true }); });
@@ -62,5 +62,16 @@ describe("module briefs", () => {
   it("starts every lane with the project notes", async () => {
     const args = hostCommand({ id: "shop/01", worktree: "/w", task: "Add invoices", agent: "codex", model: null, mode: "ask" } as Parameters<typeof hostCommand>[0], Config.parse({}), undefined, undefined, "Match times are UTC.");
     expect(args.find((a) => a.startsWith("--task="))).toBe("--task=Project notes from the owner. Keep to them unless the task says otherwise:\nMatch times are UTC.\n\n---\n\nAdd invoices");
+  });
+
+  it("ends a new lane's first message with when to use the ContextLanes tools, naming delegate only with a helper", () => {
+    const lane = { id: "shop/01", worktree: "/w", task: "Add invoices", agent: "codex", model: null, mode: "ask" } as Parameters<typeof taskText>[0];
+    const without = toolsHint(Config.parse({ localModels: [{ name: "gpt-oss:20b", provider: "ollama", url: "http://127.0.0.1:11434", roles: ["insights"] }] }));
+    expect(without).toMatch(/get_brief.*ask_owner.*checkpoint/);
+    expect(without).not.toContain("delegate");
+    const withHelper = toolsHint(Config.parse({ localModels: [{ name: "qwen3-coder:30b", provider: "ollama", url: "http://127.0.0.1:11434", roles: ["helper"] }] }));
+    expect(withHelper).toContain("delegate sends bounded work to a local model");
+    expect(taskText(lane, undefined, undefined, "UTC.", withHelper)).toBe(`Project notes from the owner. Keep to them unless the task says otherwise:\nUTC.\n\n---\n\nAdd invoices\n\n---\n\n${withHelper}`);
+    expect(taskText(lane)).toBe("Add invoices");
   });
 });
