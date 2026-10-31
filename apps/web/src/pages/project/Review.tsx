@@ -68,7 +68,7 @@ export function ReviewPage() {
     </aside>
     <main className="rvm" aria-label="Checkpoint">
       {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
-      {lane && checkpoint ? <Packet key={checkpoint.id} lane={lane} checkpoint={checkpoint} number={number} decided={reload} />
+      {lane && checkpoint ? <Packet key={checkpoint.id} lane={lane} checkpoint={checkpoint} number={number} decided={reload} parent={lanes.find((l) => l.id !== lane.id && l.branch === lane.base && ["working", "needs_you", "in_review", "setting_up"].includes(l.state)) ?? null} />
         : <section className="sec"><Empty icon="checkpoint" family="you">Nothing to review</Empty>
           <div className="sec-r"><ol className="flow" aria-label="How work reaches review"><li>Agent works in a lane</li><li>Ask for review</li><li>Checks and screenshots</li><li>You merge or send back</li></ol></div></section>}
     </main>
@@ -86,7 +86,7 @@ function mark(c: Checkpoint): [string, string] {
   return clean(c) ? ["done", "Checks pass"] : ["wait", "Look closer"];
 }
 
-function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint: Checkpoint; number: number; decided: () => void }) {
+function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; checkpoint: Checkpoint; number: number; decided: () => void; parent: Lane | null }) {
   const [history, setHistory] = useState<LaneEvent[]>([]);
   useEffect(() => {
     const abort = new AbortController();
@@ -116,7 +116,7 @@ function Packet({ lane, checkpoint, number, decided }: { lane: Lane; checkpoint:
     </Section>)}
     {checkpoint.secondReview ? <SecondReview review={checkpoint.secondReview} project={lane.project} /> : null}
     <Files checkpoint={checkpoint} focus={focus} />
-    <Decision lane={lane} checkpoint={checkpoint} decided={decided} />
+    <Decision lane={lane} checkpoint={checkpoint} decided={decided} parent={parent} />
   </>;
 }
 
@@ -239,7 +239,7 @@ function SecondReview({ review, project }: { review: NonNullable<Checkpoint["sec
   </Section>;
 }
 
-function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Checkpoint; decided: () => void }) {
+function Decision({ lane, checkpoint, decided, parent }: { lane: Lane; checkpoint: Checkpoint; decided: () => void; parent: Lane | null }) {
   const [, , reloadInbox] = useInbox();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -256,7 +256,7 @@ function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Check
     finally { setBusy(false); }
   };
   return <section className="sec" aria-label="Decision"><div className="rva">
-    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? "Rebasing and pushing…" : "Approve and merge"}</button>
+    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
     <button className="btn ghost" disabled={busy} onClick={() => {
       // The judge's blockers and should-fixes start the note, one per line; edit before sending.
       const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
@@ -264,7 +264,7 @@ function Decision({ lane, checkpoint, decided }: { lane: Lane; checkpoint: Check
       setAsking(true);
     }}>Request changes</button>
     {reviewer && !checkpoint.secondReview ? <button className="btn ghost" disabled={busy} onClick={() => void postJson(`/api/checkpoints/${checkpoint.id}/second-review`, { agent: reviewer }).then(decided, (e) => setError(errorMessage(e)))}>Ask {AGENT_NAMES[reviewer] ?? reviewer} to review</button> : null}
-    {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">opens a pull request into {lane.base ?? "main"}</span>}
+    {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">{parent ? `lane ${laneNumber(parent.id)}'s agent merges it into its branch` : `opens a pull request into ${lane.base ?? "main"}`}</span>}
   </div>
   {asking ? <Dialog title="Request changes" meta={`back to ${AGENT_NAMES[lane.agent] ?? lane.agent} in this lane`} onClose={() => setAsking(false)}
     footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || !note.trim()} onClick={() => void send("request-changes", { note })}>Send to the agent</button></>}>

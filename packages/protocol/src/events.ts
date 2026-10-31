@@ -94,6 +94,8 @@ const payloads = {
   /** The lane's agent session was replaced: a fresh session of the same agent, or another agent, starting from a handoff. */
   "lane.handoff": z.object({ from: z.string(), to: z.string(), model: z.string().nullable(), chars: z.number().int(), file: z.string() }),
   "lane.forked": z.object({ from: z.string(), to: z.string() }),
+  /** The lane's agent split work into sub-lanes and the owner agreed: each branches from this lane and merges back into it. */
+  "lane.split": z.object({ requestId: z.string(), why: z.string(), children: z.array(z.object({ lane: z.string(), title: z.string() })) }),
   "collision.cleared": z.object({ module: z.string(), lanes: z.array(z.string()) }),
   /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */
   "collision.planned": z.object({ module: z.string(), first: z.string(), message: z.string() }),

@@ -46,6 +46,16 @@ export const TOOLS = {
     description: "Hand bounded work to a local model on this machine, to save your context: read (name the files and the question; get back the lines that matter), check (run the recipe's checks; get back the failures, sorted), edit (name the files and an exact change; get back a patch to review and apply yourself).",
     input: z.object({ kind: z.enum(["read", "edit", "check"]), task: z.string(), files: z.array(z.string()).default([]) }),
   },
+  split_lanes: {
+    phase: 4,
+    description: "Run independent parts of your task in parallel: each sub-lane gets its own agent and checkout, branched from your current commit, and its work merges back into your branch once the owner approves it. Use it when the rest of the task has 2 to 5 parts that touch different files (say, the API and the UI, or separate pages). Commit first. The owner agrees once for all of them; you get the new lanes back. Keep working on your own part, and leave their files alone.",
+    input: z.object({ why: z.string().min(1).max(1000), lanes: z.array(z.object({ title: z.string().min(3).max(100), task: z.string().min(10).max(8000).describe("Everything the sub-lane needs: what to change, which files are its own, and how to test it") })).min(2).max(5) }),
+  },
+  sublane_status: {
+    phase: 4,
+    description: "Where your sub-lanes are: working, waiting for the owner, in review (with the review judge's verdict), or merged into your branch.",
+    input: z.object({}),
+  },
 } as const;
 
 export type ToolName = keyof typeof TOOLS;
@@ -55,4 +65,4 @@ export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
  * Tools agents are given today. A tool joins this list only when its daemon route works; until
  * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
  */
-export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
+export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status"];

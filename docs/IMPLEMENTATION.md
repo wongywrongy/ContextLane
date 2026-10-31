@@ -962,6 +962,18 @@ Kyle's question was whether ContextLanes improves anything. In practice it had b
 - **Test runs** are recognised by the program that runs (`isTestCommand` in the protocol package): `pnpm test`, `vitest`, `pytest`, `go test`, or a title like "Run the unit tests". `sed tests/x.ts` no longer counts, which also fixes Review's "tests ran after the last change".
 - **Inspector.** It drops the plan, which is now in Progress, and the checkout box; the folder is a copy row under "Your access".
 
+#### Sub-lanes: agents run parts in parallel
+
+Codex has no subagents of its own, and Claude Code's subagents share one checkout. Sub-lanes work with any agent, and each part gets its own checkout and review.
+
+- **Tools.** `split_lanes` (toolbox) lets a lane's agent propose 2 to 5 parallel parts, each with a title and a full task. `sublane_status` tells it where they are: state, last checkpoint, and the judge's verdict.
+- **Asking.** The owner gets one question, "Split the rest into 3 parallel sub-lanes?", listing each part, with the options "Start 3 sub-lanes" or "Keep it in one lane". The agent's call waits like `ask_owner`, and retrying it with the same request ID never starts twice. Auto never answers it.
+- **Before splitting.** The parent must be working and must have committed its work, since sub-lanes start from its latest commit.
+- **Each sub-lane** gets the parent's agent, model, permissions, Auto and effort, branches from the parent's branch, and starts with a message saying which part is its own. A `lane.split` event on the parent records the children. Sub-lanes cannot split again, and don't see the tools for it.
+- **Approve, for a sub-lane,** reads "Approve into lane 01". Nothing is pushed: the checkpoint is approved, the sub-lane is marked merged, and the parent's agent gets a message to run `git merge --no-ff <branch>` (the same repository), resolve conflicts and test. The parent's own review then covers everything. If the parent has already finished, approval falls back to the normal pull request.
+- **Visibility.** The split shows as a step in the parent's Progress ("Split into 3 sub-lanes"), and the overview marks each child "sub-lane of 01". New lanes' first message mentions `split_lanes`.
+- Tests: `server.test.ts` (ask, wait, start, no repeat, child tools, no nested split, approve into the parent, decline) and the toolbox polling test.
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.

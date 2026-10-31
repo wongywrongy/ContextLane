@@ -24,7 +24,8 @@ export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; ev
       .sort((a, b) => (a[0] === "No goal" ? 1 : 0) - (b[0] === "No goal" ? 1 : 0) || urgency(a[1]) - urgency(b[1]));
   }, [lanes]);
   // A lane forked from another says where it came from.
-  const from = useMemo(() => new Map(events.flatMap((e) => e.type === "lane.forked" ? [[e.payload.to, e.payload.from] as const] : [])), [events]);
+  const from = useMemo(() => new Map<string, string>(events.flatMap((e): [string, string][] => e.type === "lane.forked" ? [[e.payload.to, `from lane ${e.payload.from.slice(e.payload.from.lastIndexOf("/") + 1)}`]]
+    : e.type === "lane.split" ? e.payload.children.map((c): [string, string] => [c.lane, `sub-lane of ${e.lane.slice(e.lane.lastIndexOf("/") + 1)}`]) : [])), [events]);
   const since = (lane: Lane) => events.findLast((e) => e.lane === lane.id && e.type === "lane.state")?.at ?? lane.createdAt;
   const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (!lanes.length) return <Section title="Lanes"><Empty>No lanes yet</Empty></Section>;
@@ -35,7 +36,7 @@ export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; ev
         end={<span className="mono muted" style={{ fontSize: 12 }}>{clock(start)} → now</span>}>
         {ls.map((lane) => <button className="ov-row" key={lane.id} onClick={() => select(lane.id)}>
           <span className="ov-who"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small /></span>
-          <span className="ov-what"><b>{lane.task}</b><span>{laneNow(lane, events, waiting)}{from.has(lane.id) ? ` · from lane ${from.get(lane.id)!.slice(from.get(lane.id)!.lastIndexOf("/") + 1)}` : ""}</span></span>
+          <span className="ov-what"><b>{lane.task}</b><span>{laneNow(lane, events, waiting)}{from.has(lane.id) ? ` · ${from.get(lane.id)}` : ""}</span></span>
           <span className="timeline-track" aria-label={`Last two hours of ${lane.task}`}>
             {timeline(lane, events, start, now).map((segment, i) => <span key={i} className={`activity-bar ${segment.state}`} style={{ left: `${(segment.from - start) / (now - start) * 100}%`, width: `${(segment.to - segment.from) / (now - start) * 100}%` }} title={`${segment.state.replaceAll("_", " ")} · ${new Date(segment.from).toLocaleTimeString()} to ${new Date(segment.to).toLocaleTimeString()}`} />)}
           </span>

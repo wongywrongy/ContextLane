@@ -20,6 +20,7 @@ import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import { Judge } from "../judge.js";
+import { Sublanes } from "../sublanes.js";
 import type { Schedules } from "../schedules.js";
 import { access } from "node:fs/promises";
 import { Skills } from "../skills.js";
@@ -28,7 +29,7 @@ import { Terminals } from "../terminal/tmux.js";
 import { Tidy } from "../tidy.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
-const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"];
+const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status"];
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -68,7 +69,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const run = deps.run ?? runCommand;
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
-  const review = new Review({ store, bus, hosts: deps.hosts, run, runtime });
+  const sublanes = new Sublanes({ store, bus, lanes: deps.lanes, hosts: deps.hosts, run });
+  const review = new Review({ store, bus, hosts: deps.hosts, run, runtime, sublanes });
   const auth = new Auth(store, config);
   const resources = deps.resources ?? new Resources(store, run);
   const streams = new Set<ServerResponse>();
@@ -321,8 +323,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
     // A bench baseline lane gets phase 2's tools only, so the comparison measures phase 3.
-    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => t !== "get_brief") };
-    return { tools: await helper.available() ? [...LANE_TOOLS, "delegate"] : LANE_TOOLS };
+    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => !["get_brief", "split_lanes", "sublane_status"].includes(t)) };
+    // A sub-lane cannot split again, so it does not see the tools for it.
+    const tools = sublanes.parentOf(lane) ? LANE_TOOLS.filter((t) => t !== "split_lanes" && t !== "sublane_status") : LANE_TOOLS;
+    return { tools: await helper.available() ? [...tools, "delegate"] : tools };
   });
   const insights = deps.insights ?? new Insights({ config, store, bus, models: localModels, codemaps, briefs });
   app.get<{ Params: { project: string } }>("/api/projects/:project/insights", async (req) => insights.view(ProjectId.parse(req.params.project)));
@@ -475,6 +479,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       return answer ? { optionId: answer.optionId, label: original.options.find((o) => o.id === answer.optionId)?.label ?? null } : reply.code(202).send({ pending: true, requestId: body.requestId });
     }
     if (req.params.tool === "checkpoint") return reply.code(202).send(await checker.begin(lane, CheckpointRequest.parse(req.body).summary));
+    if (req.params.tool === "split_lanes") { const r = await sublanes.split(lane, req.body); return "pending" in r ? reply.code(202).send(r) : r; }
+    if (req.params.tool === "sublane_status") return sublanes.status(lane);
     if (req.params.tool === "env_status") return runtime.status(lane);
     if (req.params.tool === "delegate") return helper.delegate(store.getLane(lane)!, DelegateRequest.parse(req.body));
     if (req.params.tool === "get_brief") return { brief: await briefs.forAgent(store.getLane(lane)!.project, BriefQuery.parse(req.body ?? {})) };

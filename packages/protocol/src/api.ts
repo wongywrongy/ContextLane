@@ -104,6 +104,9 @@ export type BenchResult = { id: string; startedAt: string; finishedAt: string | 
 export const AutoRequest = z.object({ on: z.boolean() });
 export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web") });
 export type AnswerRequest = z.input<typeof AnswerRequest>;
+/** split_lanes: the agent proposes 2 to 5 parallel sub-lanes; the owner says yes once for all of them. */
+export const SplitLanesRequest = z.object({ requestId: z.uuid(), why: z.string().trim().min(1).max(1000),
+  lanes: z.array(z.object({ title: z.string().trim().min(3).max(100), task: z.string().trim().min(10).max(8000) })).min(2).max(5) });
 export const AskOwnerRequest = z.object({ requestId: z.uuid(), question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) });
 export const LaneEventsQuery = z.object({ after: z.coerce.number().int().nonnegative().default(0) });
 export const ActivityQuery = z.object({ since: z.iso.datetime().optional() });

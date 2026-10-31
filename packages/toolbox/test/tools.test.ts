@@ -3,14 +3,14 @@ import { createToolbox, LIVE_TOOLS, TOOL_NAMES, TOOLS } from "@contextlanes/tool
 
 describe("toolbox", () => {
   it("offers the eight lane tools", () => {
-    expect(TOOL_NAMES).toEqual(["env_status", "env_start", "get_logs", "preview_url", "ask_owner", "checkpoint", "get_brief", "delegate"]);
+    expect(TOOL_NAMES).toEqual(["env_status", "env_start", "get_logs", "preview_url", "ask_owner", "checkpoint", "get_brief", "delegate", "split_lanes", "sublane_status"]);
   });
   it("validates delegate input", () => {
     expect(TOOLS.delegate.input.parse({ kind: "read", task: "summarise the failing tests" })).toEqual({ kind: "read", task: "summarise the failing tests", files: [] });
     expect(() => TOOLS.delegate.input.parse({ kind: "deploy", task: "x" })).toThrow();
   });
   it("gives agents only the tools that work today", () => {
-    expect(LIVE_TOOLS).toEqual(["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief"]);
+    expect(LIVE_TOOLS).toEqual(["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status"]);
     const server = createToolbox({ daemonUrl: "http://127.0.0.1:4600", lane: "shuttleworks/01", token: "cl-lane-test" }) as unknown as { _registeredTools: Record<string, unknown> };
     expect(Object.keys(server._registeredTools)).toEqual(LIVE_TOOLS);
   });

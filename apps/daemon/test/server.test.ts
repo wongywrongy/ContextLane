@@ -20,7 +20,7 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test" }), store);
+  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test", run }), store);
   return { app, store, calls, lanes };
 }
 
@@ -194,6 +194,47 @@ describe("http api", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toMatch(/Amp cannot run in a lane: Never asks permission/);
     expect(store.listLanes()).toEqual([]);
+  });
+
+  it("splits a lane into sub-lanes once the owner agrees, and sends an approved sub-lane back to its parent", async () => {
+    const { app, store, calls } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const parent = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing", agent: "codex", auto: true } })).json();
+    const tool = (lane: string, name: string, payload: unknown = {}) => app.inject({ method: "POST", url: `/api/lanes/${lane}/tools/${name}`, payload: payload as object });
+    const body = { requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c12", why: "API and UI are independent", lanes: [{ title: "Invoice API", task: "Add the invoice routes in api/invoices.py with tests." }, { title: "Invoice page", task: "Add the invoices page in web/pages/invoices.tsx." }] };
+    // Asks once; the agent's call waits until the owner answers.
+    expect((await tool(parent.id, "split_lanes", body)).statusCode).toBe(202);
+    expect(store.getLane(parent.id)!.state).toBe("needs_you");
+    expect(store.inbox().find((i) => i.lane === parent.id)).toMatchObject({ kind: "question", title: "Split the rest into 2 parallel sub-lanes?" });
+    expect((await tool(parent.id, "split_lanes", body)).statusCode).toBe(202);
+    await app.inject({ method: "POST", url: "/api/answers", payload: { lane: parent.id, requestId: body.requestId, optionId: "0" } });
+    const started = (await tool(parent.id, "split_lanes", body)).json();
+    expect(started.started.map((s: { lane: string }) => s.lane)).toEqual(["shop/02", "shop/03"]);
+    expect(started.note).toContain("leave their files alone");
+    // Same request again: the same lanes, not two more.
+    expect((await tool(parent.id, "split_lanes", body)).json().started).toHaveLength(2);
+    const child = store.getLane("shop/02")!;
+    expect(child).toMatchObject({ agent: "codex", auto: true, base: parent.branch, task: "Invoice API" });
+    expect(calls.some((c) => c.startsWith("git worktree add") && c.endsWith(parent.branch))).toBe(true);
+    expect(store.events("shop/02").find((e) => e.type === "agent.message")!.payload).toMatchObject({ text: expect.stringContaining("You are a sub-lane of lane 01") });
+    // Sub-lanes do not see the split tools, and cannot split again.
+    expect((await app.inject({ url: "/api/lanes/shop/02/tools" })).json().tools).not.toContain("split_lanes");
+    expect((await tool("shop/02", "split_lanes", { ...body, requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c13" })).statusCode).toBe(409);
+    expect((await tool(parent.id, "sublane_status")).json().lanes.map((l: { title: string }) => l.title)).toEqual(["Invoice API", "Invoice page"]);
+    // Approve the sub-lane: it goes to the parent's agent to merge, not to origin.
+    store.insertCheckpoint({ id: "k", lane: "shop/02", base: "a", head: "", summary: "Invoice routes", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
+    store.setLaneState("shop/02", "in_review");
+    const approved = await app.inject({ method: "POST", url: "/api/lanes/shop/02/approve" });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json()).toEqual({ prUrl: null });
+    expect(store.getLane("shop/02")!.state).toBe("merged");
+    expect(calls.some((c) => c.startsWith("git push"))).toBe(false);
+    expect(store.pendingCommands(parent.id).map((c) => c.payload.command)).toContainEqual(expect.objectContaining({ kind: "prompt", text: expect.stringContaining(`git merge --no-ff ${child.branch}`) }));
+    // Declined: the agent is told to carry on alone.
+    const again = { ...body, requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c14" };
+    await tool(parent.id, "split_lanes", again);
+    await app.inject({ method: "POST", url: "/api/answers", payload: { lane: parent.id, requestId: again.requestId, optionId: "1" } });
+    expect((await tool(parent.id, "split_lanes", again)).json()).toMatchObject({ declined: true });
   });
 
   it("gives two lanes started at once their own numbers", async () => {

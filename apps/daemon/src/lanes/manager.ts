@@ -246,7 +246,7 @@ export class LaneManager {
 export function toolsHint(config: Config): string {
   const helper = config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
   return [
-    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading an unfamiliar module's files; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review.",
+    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading an unfamiliar module's files; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review; split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours.",
     helper ? "delegate sends bounded work to a local model on this machine and keeps it out of your context: use kind read to answer a narrow question about several files, and check to run the project's checks and get the failures sorted." : "",
   ].filter(Boolean).join(" ");
 }

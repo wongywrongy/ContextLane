@@ -8,8 +8,9 @@ import { hostUnit } from "./lanes/naming.js";
 import type { Runner } from "./run.js";
 import type { Runtime } from "./runtime.js";
 import { Terminals } from "./terminal/tmux.js";
+import type { Sublanes } from "./sublanes.js";
 
-type Deps = { store: Store; bus: EventBus; hosts: HostLinks; run: Runner; runtime: Runtime };
+type Deps = { store: Store; bus: EventBus; hosts: HostLinks; run: Runner; runtime: Runtime; sublanes?: Sublanes };
 
 /** The owner's decision on a checkpoint. Nothing here force-pushes or writes to the base branch. */
 export class Review {
@@ -33,11 +34,19 @@ export class Review {
   }
 
   /** Rebase, push, open a PR. Each step can run again, so a failure part way is fixed by trying again. */
-  async approve(id: string): Promise<{ prUrl: string }> {
+  async approve(id: string): Promise<{ prUrl: string | null }> {
     const { lane, checkpoint } = this.pending(id);
     if (this.busy.has(id)) throw new Refused("This lane is already being merged.");
     this.busy.add(id);
     try {
+      // A sub-lane goes back to its parent lane, whose agent merges it; nothing is pushed.
+      const parent = this.deps.sublanes?.openParent(lane);
+      if (parent) {
+        if ((await this.git(lane, "rev-parse", "HEAD")).stdout.trim() !== checkpoint.head) throw new Refused("The lane has new commits since this checkpoint. Ask for a new checkpoint so review covers them.");
+        if ((await this.git(lane, "status", "--porcelain")).stdout.trim()) throw new Refused("The lane has uncommitted changes. Ask the agent to commit or discard them first.");
+        for (const event of this.deps.sublanes!.approveIntoParent(lane, parent, checkpoint.id)) this.deps.bus.publish(event);
+        return { prUrl: null };
+      }
       const base = lane.base ?? "main";
       if (lane.branch === base) throw new Refused(`This lane is on ${base} itself, so there is nothing to merge.`);
       // A retry after a failed push or gh starts from the head the earlier attempt rebased to.
