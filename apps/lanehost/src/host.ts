@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { SafeMode, type CommandEnvelope, type NewLaneEvent } from "@contextlanes/protocol";
+import { GENERIC_MODES, SafeMode, UNSAFE_OPTION, agentProfile, type CommandEnvelope, type LaneMode, type NewLaneEvent } from "@contextlanes/protocol";
 import type { AgentSpec } from "./agents.js";
 import { Coalescer, mapPermission } from "./map.js";
 import { DaemonLink } from "./link.js";
@@ -21,6 +21,7 @@ export type LaneHostOptions = {
 
 export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">, emit: (event: NewLaneEvent) => void) {
   const answers = new Map<string, { resolve: (id: string | null) => void; reject: (err: Error) => void; options: Set<string> }>();
+  const profile = agentProfile(opts.agentId);
   const coalescer = new Coalescer(emit);
   const app = client({ name: "contextlanes" }).onRequest(methods.client.session.requestPermission, async ({ params }) => {
     const requestId = randomUUID();
@@ -34,7 +35,9 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
   });
   let child: ReturnType<typeof spawn> | undefined;
   const connection = opts.connect ? opts.connect(app) : (() => {
-    child = spawn(opts.agent.command, opts.agent.args, { cwd: opts.cwd, env: { ...process.env, ...opts.agent.env, CONTEXTLANES_LANE: opts.lane, INITIAL_AGENT_MODE: "read-only" }, stdio: ["pipe", "pipe", "inherit"] });
+    // Agents whose permissions are set at start (OpenCode, goose) get them for the lane's mode.
+    const modeEnv = profile?.env?.[opts.mode === "plan" || opts.mode === "edits" ? opts.mode : "ask"] ?? {};
+    child = spawn(opts.agent.command, opts.agent.args, { cwd: opts.cwd, env: { ...process.env, ...opts.agent.env, ...modeEnv, CONTEXTLANES_LANE: opts.lane, INITIAL_AGENT_MODE: "read-only" }, stdio: ["pipe", "pipe", "inherit"] });
     const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
     return app.connect(stream);
   })();
@@ -45,7 +48,9 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
   const ctx = connection.agent;
   try {
     const init = await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} },
+        // Command output as appended chunks with exit codes (Claude, Codex and Droid send them when asked).
+        _meta: { terminal_output_delta: true } }, clientInfo: { name: "contextlanes", version: "0.1.0" } });
     // A lane is a git worktree: its commits are written to the main repository's git folder, outside the
     // checkout. Agents whose own sandbox limits writes to the checkout (Codex's workspace access) get the parts
     // a commit needs as extra roots: this worktree's folder, objects, refs and logs. Never hooks or config.
@@ -57,11 +62,17 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
     const logs = new SessionUsage(opts.agentId, opts.cwd, session.sessionId, { ...process.env, ...opts.agent.env });
     let sessionCost = 0;
     const compactions = new Set<string>();
-    let currentMode = session.modes?.currentModeId;
     let configOptions = session.newSessionResponse.configOptions ?? [];
     const modelOption = () => configOptions.find((o) => o.type === "select" && (o.category === "model" || o.id === "model"));
-    const effortOption = () => configOptions.find((o) => o.type === "select" && (o.category === "thought_level" || /effort|reasoning|thinking/i.test(o.id)));
+    // Effort: the ACP thought_level category, Mistral Vibe's "thinking", or an option named for it.
+    const effortOption = () => configOptions.find((o) => o.type === "select" && (o.category === "thought_level" || o.category === "thinking" || /effort|reasoning|thinking/i.test(o.id)));
     const modelValues = (option: SessionConfigOption | undefined) => !option || option.type !== "select" ? [] : option.options.flatMap((o) => "options" in o ? o.options : [o]);
+    // Modes are ACP session modes for most agents; OpenCode and Factory Droid offer them as a config option.
+    const modeOption = () => session.modes ? undefined : configOptions.find((o) => o.type === "select" && (profile?.modeOption ? o.id === profile.modeOption : o.category === "mode" && modelValues(o).some((v) => GENERIC_MODES.ask.test(v.value) || GENERIC_MODES.plan.test(v.value))));
+    const allModes = (): { id: string; name: string }[] => session.modes ? session.modes.availableModes.map((m) => ({ id: m.id, name: m.name }))
+      : modelValues(modeOption()).map((v) => ({ id: v.value, name: v.name }));
+    const safe = (m: { id: string; name: string }) => SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success && !profile?.unsafeModes?.includes(m.id.split("#").at(-1)!);
+    let currentMode = session.modes?.currentModeId ?? (() => { const o = modeOption(); return o?.type === "select" ? o.currentValue : undefined; })();
     let commands: { name: string; description: string }[] = [];
     const canImage = !!init.agentCapabilities?.promptCapabilities?.image;
     const reportSession = () => {
@@ -70,21 +81,27 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       emit({ type: "agent.session", payload: { sessionId: session.sessionId, currentMode,
         currentModel: model?.type === "select" ? model.currentValue : undefined,
         efforts: modelValues(effort).map((e) => ({ id: e.value, label: e.name })), currentEffort: effort?.type === "select" ? effort.currentValue : undefined,
-        modes: (session.modes?.availableModes ?? []).filter((m) => SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success).map((m) => ({ id: m.id, label: m.name })),
+        modes: allModes().filter(safe).map((m) => ({ id: m.id, label: m.name })),
         models: modelValues(model).map((m) => ({ id: m.value, label: m.name })), commands, images: canImage } });
+    };
+    const setOption = async (configId: string, value: string | boolean) => {
+      const result = await ctx.request(methods.agent.session.setConfigOption, (typeof value === "boolean" ? { sessionId: session.sessionId, configId, type: "boolean", value } : { sessionId: session.sessionId, configId, value }) as never);
+      configOptions = (result as { configOptions: SessionConfigOption[] }).configOptions;
     };
     const setMode = async (mode: string) => {
       SafeMode.parse(mode);
-      if (!session.modes?.availableModes.some((m) => m.id === mode && SafeMode.safeParse(m.name).success)) throw new Error(`agent does not offer mode ${mode}`);
-      await ctx.request(methods.agent.session.setMode, { sessionId: session.sessionId, modeId: mode });
+      const found = allModes().find((m) => m.id === mode);
+      if (!found || !safe(found)) throw new Error(`agent does not offer mode ${mode}`);
+      const option = modeOption();
+      if (option) await setOption(option.id, mode);
+      else await ctx.request(methods.agent.session.setMode, { sessionId: session.sessionId, modeId: mode });
       currentMode = mode;
       reportSession();
     };
     const setModel = async (model: string) => {
       const option = modelOption();
       if (!option || !modelValues(option).some((m) => m.value === model)) throw new Error(`agent does not offer model ${model}`);
-      const result = await ctx.request(methods.agent.session.setConfigOption, { sessionId: session.sessionId, configId: option.id, value: model });
-      configOptions = result.configOptions;
+      await setOption(option.id, model);
       reportSession();
     };
     const setEffort = async (level: string) => {
@@ -94,19 +111,42 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
       // The owner picks low, medium or high; agents name theirs (minimal, xhigh…), so take the closest.
       const value = values.find((v) => v.value === level)?.value ?? closestEffort(level, values.map((v) => v.value));
       if (!value) throw new Error(`agent does not offer effort ${level}`);
-      const result = await ctx.request(methods.agent.session.setConfigOption, { sessionId: session.sessionId, configId: option.id, value });
-      configOptions = result.configOptions;
+      await setOption(option.id, value);
       reportSession();
     };
-    // Do not inherit an agent's saved bypass mode, and never select an auto-approval mode. "edits" is the
-    // agent's own edit-in-the-checkout mode (Claude's acceptEdits, Codex's workspace access); "ask" its default.
-    const available = session.modes?.availableModes ?? [];
-    const pick = (ids: string[]) => available.find((m) => ids.includes(m.id) && SafeMode.safeParse(m.id).success && SafeMode.safeParse(m.name).success)?.id;
-    const askMode = pick(["default", "read-only", "ask", "on-request", "approve", "manual"]);
-    const initialMode = opts.mode === "plan" ? pick(["plan"]) ?? askMode : opts.mode === "edits" ? pick(["acceptEdits", "workspace-write", "auto-edit", "edit", "edits"]) ?? askMode
-      : opts.mode && opts.mode !== "ask" ? opts.mode : askMode;
-    if (initialMode) await setMode(initialMode);
-    else if (currentMode) SafeMode.parse(currentMode);
+    // Switches that turn prompts off (Copilot's allow_all, Cline's auto_approve…) go off before anything runs.
+    for (const option of [...configOptions]) {
+      const forced = profile?.force?.[option.id];
+      const risky = UNSAFE_OPTION.test(`${option.id} ${option.name}`);
+      if (forced === undefined && !risky) continue;
+      if (option.type === "boolean") { if (option.currentValue !== (forced ?? false)) await setOption(option.id, forced ?? false); continue; }
+      if (option.type !== "select") continue;
+      const off = typeof forced === "string" ? forced : modelValues(option).find((v) => /^(off|false|default|no|none|ask)$/i.test(v.value))?.value;
+      if (!off) throw new Error(`${option.name} could not be turned off, so this agent would act without asking.`);
+      if (option.currentValue !== off) await setOption(option.id, off);
+    }
+    // The lane's mode: the agent's own mode for "ask first", "edit the checkout" or "plan only", from its
+    // profile or by name; never one that lets something else approve. Many agents start in such a mode
+    // (goose, Qwen, Codex), so a lane always sets one, and fails if none of the agent's modes asks first.
+    const wanted: LaneMode = opts.mode === "plan" || opts.mode === "edits" ? opts.mode : "ask";
+    const choose = (mode: LaneMode) => {
+      const modes = allModes().filter(safe);
+      const listed = profile?.modes?.[mode];
+      if (listed) return listed.map((id) => modes.find((m) => m.id === id || m.id.endsWith(`#${id}`))).find(Boolean)?.id;
+      return modes.find((m) => GENERIC_MODES[mode].test(m.id) || GENERIC_MODES[mode].test(m.name))?.id;
+    };
+    const initialMode = opts.mode && !["ask", "edits", "plan"].includes(opts.mode) ? opts.mode : choose(wanted) ?? choose("ask");
+    if (allModes().length) {
+      if (!initialMode) throw new Error(`None of ${profile?.name ?? "this agent"}'s modes asks before acting, so ContextLanes cannot run it in a lane.`);
+      await setMode(initialMode).catch(async (err: Error) => {
+        // Gemini refuses Auto Edit in a folder it does not trust: fall back to asking, and say so.
+        const ask = choose("ask");
+        if (!ask || ask === initialMode) throw err;
+        emit({ type: "agent.error", payload: { message: `The agent refused its ${wanted === "edits" ? "edit" : "plan"} mode (${err.message}); it asks before acting instead.` } });
+        await setMode(ask);
+      });
+    } else if (currentMode && !SafeMode.safeParse(currentMode).success) throw new Error("This agent is in a mode that approves for you, and offers no other.");
+    if (wanted === "plan" && profile?.planOption) await setOption(profile.planOption.id, profile.planOption.value).catch(() => {});
     if (opts.model) await setModel(opts.model);
     if (opts.effort) await setEffort(opts.effort).catch((err: Error) => emit({ type: "agent.error", payload: { message: `Effort was left at the agent's default: ${err.message}` } }));
     reportSession();

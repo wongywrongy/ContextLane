@@ -2,7 +2,12 @@ import { z } from "zod";
 
 export const AgentSpec = z.object({ command: z.string().min(1), args: z.array(z.string().refine((arg) => !/^--(?:dangerously|bypass|yolo|full-auto|auto(?:$|=)|auto-approve|approval-policy=never)/i.test(arg), "approval-bypassing arguments are not available")).default([]), env: z.record(z.string(), z.string()).optional() });
 export type AgentSpec = z.infer<typeof AgentSpec>;
-export const SafeMode = z.string().min(1).max(100).refine((mode) => !/bypass|danger|full.access|yolo|auto.?approv|auto.?review|^(agent|auto|dontask|never)$/i.test(mode), "approval-bypassing modes are not available");
+/**
+ * Mode ids and names that let something other than you approve: bypass and yolo switches, full access,
+ * classifiers and automatic reviewers (smart approve, auto review, autopilot), and autonomy above "low".
+ * Checked against both the id and the name an agent gives a mode.
+ */
+export const SafeMode = z.string().min(1).max(100).refine((mode) => !/bypass|danger|full.access|yolo|auto.?approv|auto.?review|smart.?approv|autopilot|auto-(medium|high)|^(auto|dontask|never)$|(^|#)agent-full-access$/i.test(mode), "approval-bypassing modes are not available");
 const WorktreePath = z.string().min(1).max(512).refine((p) => !p.startsWith("/") && !p.split("/").includes(".."), "a path inside the lane's checkout");
 const ImageType = z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 /** What the composer sends: text, files from the worktree (@ file) and pictures (Attach image), as base64. */

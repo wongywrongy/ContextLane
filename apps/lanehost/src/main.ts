@@ -4,11 +4,19 @@ import { parseArgs } from "node:util";
 import { AgentSpec, LaneId, SafeMode } from "@contextlanes/protocol";
 import { resolveAgent } from "./agents.js";
 import { runLaneHost } from "./host.js";
+import { probeAgent } from "./probe.js";
 
 const { values } = parseArgs({ options: {
+  probe: { type: "boolean" },
   lane: { type: "string" }, agent: { type: "string", default: "claude-code" }, task: { type: "string" }, "task-file": { type: "string" }, socket: { type: "string" },
   mode: { type: "string", default: "ask" }, model: { type: "string" }, effort: { type: "string" }, "agent-spec": { type: "string" }, toolbox: { type: "string" },
 } });
+// contextlanes-lanehost --probe --agent=<id> | --agent-spec=<json>: what the agent reports over ACP, as JSON.
+if (values.probe) {
+  const spec = values["agent-spec"] ? AgentSpec.parse(JSON.parse(values["agent-spec"])) : resolveAgent(values.agent!);
+  process.stdout.write(`${JSON.stringify(await probeAgent({ agent: spec }))}\n`);
+  process.exit(0);
+}
 // A long task (a whole plan) comes as a file: no argument length limit, no escaping, not in `ps`.
 const task = values["task-file"] ? readFileSync(values["task-file"], "utf8") : values.task;
 if (!values.lane || !task || !values.socket) {

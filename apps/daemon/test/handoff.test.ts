@@ -37,7 +37,8 @@ describe("hand off, fresh session and fork", () => {
   it("hands the lane to another agent from a handoff its current agent wrote, in the same checkout", async () => {
     const f = await fixture();
     await f.handoffs.replace(f.lane.id, { agent: "codex", note: "Keep payments out." });
-    await until(() => f.store.events(f.lane.id).some((e) => e.type === "lane.handoff"));
+    // The handoff is recorded, then the new host starts: wait for both.
+    await until(() => f.store.events(f.lane.id).some((e) => e.type === "lane.handoff") && f.calls.some((c) => c[0] === "systemd-run"));
     const e = f.store.events(f.lane.id).find((x) => x.type === "lane.handoff")!;
     expect(e.payload).toMatchObject({ from: "claude-code", to: "codex", model: null });
     expect(await readFile((e.payload as { file: string }).file, "utf8")).toContain("Rule: times are UTC.\n\nFrom the owner: Keep payments out.");
@@ -49,6 +50,13 @@ describe("hand off, fresh session and fork", () => {
     const file = start.find((a) => a.startsWith("--task-file="))!.slice("--task-file=".length);
     expect(await (await import("node:fs/promises")).readFile(file, "utf8")).toContain("from a handoff written by the previous session (claude-code)");
     expect(start.some((a) => a.startsWith("--task="))).toBe(false);
+  });
+
+  it("never hands a lane to an agent that acts without asking, or to one it does not know", async () => {
+    const f = await fixture();
+    await expect(f.handoffs.replace(f.lane.id, { agent: "auggie" })).rejects.toThrow(/Auggie cannot run in a lane/);
+    await expect(f.handoffs.replace(f.lane.id, { agent: "invented" })).rejects.toThrow(/no agent called invented/);
+    expect(f.store.getLane(f.lane.id)!.agent).toBe("claude-code");
   });
 
   it("says why when the agent is not connected", async () => {

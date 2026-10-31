@@ -119,7 +119,7 @@ describe("http api", () => {
       expect(response.json()).toMatchObject({ delivered: false });
     }
     expect(store.pendingCommands("demo/01")).toHaveLength(4);
-    for (const mode of ["auto", "bypassPermissions", "agent", "agent-full-access"]) {
+    for (const mode of ["auto", "bypassPermissions", "agent-full-access", "x#autopilot", "auto-high", "smart_approve"]) {
       expect((await app.inject({ method: "POST", url: "/api/lanes/demo/01/mode", payload: { mode } })).statusCode).toBe(400);
     }
   });
@@ -165,6 +165,15 @@ describe("http api", () => {
     expect((await app.inject({ url: "/api/projects" })).json().map((p: { id: string }) => p.id)).toEqual(["shop", "zed"]);
     expect((await app.inject({ url: "/api/lanes" })).json()).toEqual([]);
     expect(store.projectRecord({ path: "/code/ara" })).toMatchObject({ id: "ara", removed: true });
+  });
+
+  it("refuses to start a lane with an agent that acts without asking", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Try", agent: "amp" } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/Amp cannot run in a lane: Never asks permission/);
+    expect(store.listLanes()).toEqual([]);
   });
 
   it("gives two lanes started at once their own numbers", async () => {

@@ -18,7 +18,7 @@ ${bold("Get started")}
 
 ${bold("Lanes")}
   contextlanes lanes [project]                every lane, its state and what it waits on
-  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent claude-code|codex|opencode] [--model m] [--base branch]")}
+  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id, see Models] [--model m] [--base branch]")}
   contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
   contextlanes inbox                          questions and permissions waiting on you
   contextlanes answer <id> <option>           answer one, using the id and option from inbox

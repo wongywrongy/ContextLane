@@ -8,19 +8,35 @@ import { isAbsolute, join, basename } from "node:path";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AgentRegistry } from "./registry.js";
-import { AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type Project, type SetupLink } from "@contextlanes/protocol";
+import { AGENTS, agentProfile, type AgentProbe, type AgentSpec, AddProjectRequest, AgentId, LoginOwnerRequest, ProjectId, RegisterOwnerRequest, SetupSettings, type DetectedAgent, type Project, type SetupLink } from "@contextlanes/protocol";
 import webPush from "web-push";
 import { Config, configPath, saveConfig } from "./config.js";
 import type { Store } from "./db/store.js";
 import type { Runner } from "./run.js";
 import { hostUnit, slugify } from "./lanes/naming.js";
+import { sandbox } from "./sandbox.js";
 
 export class SetupError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
-const agents = {
-  "claude-code": { cli: "claude", adapter: "claude-agent-acp", login: ["auth", "login"], package: "@agentclientprotocol/claude-agent-acp@0.99.1", cliPackage: "@anthropic-ai/claude-code@2.1.314" },
-  codex: { cli: "codex", adapter: "codex-acp", login: ["login", "--device-auth"], package: "@agentclientprotocol/codex-acp@2.5.0", cliPackage: "@openai/codex@0.166.0" },
-  opencode: { cli: "opencode", adapter: "opencode", login: ["auth", "login"], package: null, cliPackage: "opencode-ai@1.19.5" },
+/**
+ * Sign-in checks that need no ACP session: each agent's own status command. Every other agent is asked over
+ * ACP (contextlanes-lanehost --probe), which opens a session without a prompt and reports auth_required.
+ */
+const STATUS: Record<string, { args: string[]; signedIn: (stdout: string) => boolean }> = {
+  "claude-code": { args: ["auth", "status", "--json"], signedIn: (out) => JSON.parse(out).loggedIn === true },
+  codex: { args: ["login", "status"], signedIn: () => true },
+  opencode: { args: ["auth", "list"], signedIn: (out) => /\b[1-9]\d* credentials?\b/.test(stripVTControlCharacters(out)) },
 };
+/** How long an agent's answer to "are you signed in" is trusted before it is asked again. */
+const PROBE_FOR = 10 * 60_000;
+const brokenProbe = (error: string): AgentProbe => ({ state: "broken", name: null, version: null, protocolVersion: null, auth: [],
+  capabilities: { images: false, loadSession: false, additionalDirectories: false, mcpHttp: false }, modes: [], options: [], error: error.slice(0, 300) });
+/** The lane host prints the probe as its last line. The agent ran in the sandbox, so its words stay plain text. */
+function readProbe(stdout: string): AgentProbe {
+  let p: Partial<AgentProbe> | null = null;
+  try { p = JSON.parse(stdout.trim().split("\n").at(-1) ?? "") as Partial<AgentProbe>; } catch { /* below */ }
+  if (!p || !["ready", "signin", "broken"].includes(p.state as string)) return brokenProbe("The agent's check did not finish.");
+  return { ...brokenProbe(""), ...p, error: typeof p.error === "string" ? p.error.slice(0, 500) : null } as AgentProbe;
+}
 
 export async function findExecutable(name: string): Promise<string | null> {
   if (isAbsolute(name)) {
@@ -214,56 +230,109 @@ export class SetupManager {
     await this.update({ projects: this.config.projects.filter((x) => x.path !== project.path) });
     this.store.removeProject(id);
   }
-  async detectAgents(): Promise<DetectedAgent[]> {
-    return Promise.all(Object.entries(agents).map(async ([key, a]) => {
-      const id = AgentId.parse(key);
-      const find = this.options.find ?? findExecutable;
-      const cli = await find(a.cli);
-      const adapter = await find(this.config.agents[id]?.command ?? a.adapter);
-      let signedIn = false;
-      if (cli && adapter) {
-        try {
-          const args = id === "claude-code" ? ["auth", "status", "--json"] : id === "codex" ? ["login", "status"] : ["auth", "list"];
-          const { stdout } = await this.run(cli, args, { timeout: 5000 });
-          signedIn = id === "claude-code" ? JSON.parse(stdout).loggedIn === true : id === "codex" ? true : /\b[1-9]\d* credentials?\b/.test(stripVTControlCharacters(stdout));
-        } catch { /* Status failures need an explicit sign-in, never a presumed ready state. */ }
+  private probes = new Map<string, { at: number; result: AgentProbe | null; running: Promise<void> | null }>();
+  /** The agent's launch spec: the owner's [agents.<id>] if set, else its profile's command. */
+  agentSpec(id: string): AgentSpec | null {
+    const saved = this.config.agents[id];
+    if (saved) return saved;
+    const profile = agentProfile(id);
+    return profile ? { command: profile.command, args: profile.args } : null;
+  }
+  /** Asks the agent over ACP, in the background; the Models page shows Checking until it answers. */
+  private probe(id: string, spec: AgentSpec, refresh: boolean): AgentProbe | null | "checking" {
+    const cached = this.probes.get(id);
+    if (cached && !refresh && Date.now() - cached.at < PROBE_FOR) return cached.running && !cached.result ? "checking" : cached.result;
+    if (cached?.running) return cached.result ?? "checking";
+    const host = this.config.lanes.host;
+    const entry = { at: Date.now(), result: cached?.result ?? null, running: null as Promise<void> | null };
+    // The probe starts agent code, so it runs in the lanes' sandbox: it can read the agent's own sign-in, not ours.
+    const [bin, ...wrap] = sandbox(this.config);
+    entry.running = this.run(bin!, [...wrap, host.command, ...host.args, "--probe", `--agent-spec=${JSON.stringify(spec)}`], { cwd: this.home, timeout: 45_000 })
+      .then((r) => readProbe(r.stdout))
+      .then((result) => { entry.result = result; }, (err: Error) => { entry.result = brokenProbe(err.message); })
+      .finally(() => { entry.running = null; entry.at = Date.now(); });
+    this.probes.set(id, entry);
+    return entry.result ?? "checking";
+  }
+  private fromProbe(probe: AgentProbe | null | "checking"): Pick<DetectedAgent, "status" | "detail"> {
+    if (probe === "checking" || !probe) return { status: "Checking", detail: null };
+    return { status: probe.state === "ready" ? "Ready" : probe.state === "signin" ? "Sign in" : "Won't start", detail: probe.state === "ready" ? null : probe.error };
+  }
+  /** Every agent ContextLanes has a profile for, then any added from the registry. `refresh` asks them again. */
+  async detectAgents(refresh = false): Promise<DetectedAgent[]> {
+    const find = this.options.find ?? findExecutable;
+    const known = await Promise.all(AGENTS.map(async (profile): Promise<DetectedAgent> => {
+      const spec = this.agentSpec(profile.id)!;
+      const adapter = await find(spec.command);
+      const cli = profile.cli && profile.cli !== profile.command ? await find(profile.cli) : adapter;
+      const installed = !!adapter && !!cli;
+      const base = { id: profile.id, installed, source: "built-in" as const, name: profile.name, support: profile.support, note: profile.note ?? null };
+      if (profile.support === "unsupported") return { ...base, status: "Not supported", detail: null };
+      if (!installed) return { ...base, status: "Install", detail: null };
+      const check = STATUS[profile.id];
+      if (check && cli) {
+        // Status failures need an explicit sign-in, never a presumed ready state.
+        const signedIn = await this.run(cli, check.args, { timeout: 5000 }).then((r) => { try { return check.signedIn(r.stdout); } catch { return false; } }, () => false);
+        return { ...base, status: signedIn ? "Ready" : "Sign in", detail: null };
       }
-      const status: DetectedAgent["status"] = !cli || !adapter ? "Install" : signedIn ? "Ready" : "Sign in";
-      return { id, installed: !!cli, status, source: "built-in" as const };
-    })).then(async (builtIn) => [...builtIn, ...await Promise.all(Object.entries(this.config.agents).filter(([id]) => !(id in agents)).map(async ([id, spec]) => {
-      // Registry agents sign in through their own CLI or ACP; ContextLanes only checks the command is there.
-      const there = await (this.options.find ?? findExecutable)(spec.command);
-      return { id, installed: !!there, status: there ? "Ready" as const : "Install" as const, source: "registry" as const };
-    }))]);
+      return { ...base, ...this.fromProbe(this.probe(profile.id, spec, refresh)) };
+    }));
+    const extra = await Promise.all(Object.entries(this.config.agents).filter(([id]) => !agentProfile(id)).map(async ([id, spec]): Promise<DetectedAgent> => {
+      const there = await find(spec.command);
+      return { id, installed: !!there, source: "registry", support: "limited", note: "Added from the ACP registry; modes are matched by name.", ...(there ? this.fromProbe(this.probe(id, spec, refresh)) : { status: "Install" as const, detail: null }) };
+    }));
+    return [...known, ...extra];
   }
   /** Add from ACP registry: install, then save as [agents.<id>]. */
   async installFromRegistry(registry: AgentRegistry, id: string): Promise<{ installed: true }> {
-    if (id in agents) throw new SetupError("That agent is built in; use Install on its row.");
+    if (agentProfile(id)) throw new SetupError("ContextLanes knows that agent; use Install on its row.");
     const spec = await registry.install(id);
     await this.settings({ agents: { ...this.config.agents, [id]: spec } });
     return { installed: true };
   }
   async removeRegistryAgent(id: string): Promise<void> {
-    if (id in agents) throw new SetupError("Built-in agents cannot be removed.");
+    if (agentProfile(id)) throw new SetupError("This agent is listed by ContextLanes; it cannot be removed.");
     const { [id]: _gone, ...rest } = this.config.agents;
     await this.settings({ agents: rest });
   }
-  async installAgent(body: unknown) {
-    const id = AgentId.parse((body as { id?: unknown })?.id);
-    const a = agents[id];
-    const cli = await (this.options.find ?? findExecutable)(a.cli);
-    const packages = [...(!cli ? [a.cliPackage] : []), ...(a.package ? [a.package] : [])];
-    if (!packages.length) return { installed: true };
-    await this.run("npm", ["install", "--global", "--prefix", join(this.home, ".local"), ...packages], { timeout: 180_000 }).catch(() => { throw new SetupError("The adapter could not be installed; check npm connectivity and choose Install again."); });
-    await this.settings({ agents: { ...this.config.agents, [id]: { command: join(this.home, ".local/bin", a.adapter), args: id === "opencode" ? ["acp"] : [] } } });
+  /** Installs a known agent: its npm packages beside your other tools, or the ACP registry's checked download. */
+  async installAgent(body: unknown, registry?: AgentRegistry) {
+    const profile = agentProfile(AgentId.parse((body as { id?: unknown })?.id));
+    if (!profile) throw new SetupError("ContextLanes has no notes on that agent; add it from the ACP registry.", 404);
+    if (profile.support === "unsupported") throw new SetupError(`${profile.name}: ${profile.note}`, 409);
+    const find = this.options.find ?? findExecutable;
+    if ("registry" in profile.install) {
+      if (!registry) throw new SetupError("The ACP registry is not available here.");
+      const spec = await registry.install(profile.registry ?? profile.id);
+      await this.settings({ agents: { ...this.config.agents, [profile.id]: spec } });
+      this.probes.delete(profile.id);
+      return { installed: true };
+    }
+    const cli = profile.cli && profile.cli !== profile.command ? await find(profile.cli) : null;
+    // The CLI package (second, for Claude and Codex) is skipped when that CLI is already installed.
+    const packages = profile.install.npm.filter((pkg, i) => i === 0 || !cli);
+    await this.run("npm", ["install", "--global", "--prefix", join(this.home, ".local"), ...packages], { timeout: 300_000 }).catch(() => { throw new SetupError(`${profile.name} could not be installed; check npm connectivity and choose Install again.`); });
+    await this.settings({ agents: { ...this.config.agents, [profile.id]: { command: join(this.home, ".local/bin", profile.command), args: profile.args } } });
+    this.probes.delete(profile.id);
     return { installed: true };
   }
+  /** The agent's own sign-in, run in a terminal on the Models page: its CLI's login, or the terminal method it offers over ACP. */
   async loginCommand(id: string): Promise<{ command: string; args: string[]; cwd: string }> {
-    const agent = agents[AgentId.parse(id)];
-    const command = await (this.options.find ?? findExecutable)(agent.cli);
-    if (!command) throw new SetupError("Install this agent’s CLI, then choose Sign in again.");
-    return { command, args: agent.login, cwd: this.home };
+    const profile = agentProfile(AgentId.parse(id));
+    const find = this.options.find ?? findExecutable;
+    const offered = this.probes.get(id)?.result?.auth.find((m) => m.command);
+    if (profile?.cli && profile.login) {
+      const command = await find(profile.cli) ?? (profile.cli === profile.command ? await find(this.agentSpec(id)!.command) : null);
+      if (command) return { command, args: profile.login, cwd: this.home };
+    }
+    if (offered?.command) {
+      const command = await find(offered.command);
+      if (command) return { command, args: offered.args ?? [], cwd: this.home };
+    }
+    throw new SetupError("Install this agent, then choose Sign in again. If it still has no sign-in here, sign in with its own CLI in your SSH session.");
   }
+  /** Forget what agents said, so Check again asks them afresh. */
+  forgetAgentChecks(): void { this.probes.clear(); }
   async enableTailnet() {
     let status;
     try { status = JSON.parse((await this.run("tailscale", ["status", "--json"], { timeout: 5000 })).stdout); }

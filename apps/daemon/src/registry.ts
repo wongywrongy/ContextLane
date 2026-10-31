@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { RegistryAgent } from "@contextlanes/protocol";
+import { AGENTS, type RegistryAgent } from "@contextlanes/protocol";
 import { Refused } from "./lanes/manager.js";
 import type { Runner } from "./run.js";
 import { findExecutable } from "./setup.js";
@@ -20,8 +20,8 @@ const Entry = z.object({
   }),
 });
 const Registry = z.object({ agents: z.array(z.unknown()) });
-/** The three agents ContextLanes sets up itself, with their own sign-in flows. */
-const BUILT_IN = new Set(["claude-acp", "codex-acp", "opencode", "opencode-v2"]);
+/** Agents ContextLanes has a profile for are listed on Models itself, with their own install and sign-in. */
+const BUILT_IN = new Set([...AGENTS.flatMap((a) => [a.id, a.registry ?? a.id]), "opencode-v2"]);
 const PLATFORM = `linux-${process.arch === "arm64" ? "aarch64" : "x86_64"}`;
 /**
  * Switches and settings that turn off an agent's permission prompts. Agents never approve (AGENTS.md), so an

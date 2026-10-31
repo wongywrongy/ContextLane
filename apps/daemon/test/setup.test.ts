@@ -158,19 +158,35 @@ describe("headless setup", () => {
   });
   it("reports Ready/Install/Sign in, installs pinned packages and returns only fixed login commands", async () => {
     const f = await fixture();
-    const detected = await f.setup.detectAgents(); expect(detected.map((a) => a.status)).toEqual(["Ready", "Ready", "Ready"]);
+    const status = async () => Object.fromEntries((await f.setup.detectAgents()).map((a) => [a.id, a.status]));
+    const detected = await f.setup.detectAgents();
     expect(JSON.stringify(detected)).not.toContain("never-return-this");
+    // Claude, Codex and OpenCode answer a status command; the rest are asked over ACP in the background.
+    expect(Object.fromEntries(detected.map((a) => [a.id, a.status]))).toMatchObject({ "claude-code": "Ready", codex: "Ready", opencode: "Ready", gemini: "Checking", amp: "Not supported", auggie: "Not supported" });
+    // The fixture's runner prints no probe, so once the check ends Gemini reads as not starting, with a reason.
+    await vi.waitFor(async () => expect(await status()).toMatchObject({ gemini: "Won't start" }));
+    expect(f.run).toHaveBeenCalledWith("bwrap", expect.arrayContaining(["--probe", '--agent-spec={"command":"gemini","args":["--acp"]}']), expect.anything());
+    expect(detected.find((a) => a.id === "goose")).toMatchObject({ name: "goose", support: "full" });
     f.find.mockImplementation(async (name) => name === "codex-acp" || name === "opencode" ? null : `/fixture/bin/${name}`);
-    expect((await f.setup.detectAgents()).map((a) => a.status)).toEqual(["Ready", "Install", "Install"]);
+    expect(await status()).toMatchObject({ "claude-code": "Ready", codex: "Install", opencode: "Install" });
     f.run.mockRejectedValueOnce(new Error("not signed in")); expect((await f.setup.detectAgents())[0]?.status).toBe("Sign in");
     await f.setup.installAgent({ id: "codex" });
-    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "@agentclientprotocol/codex-acp@2.5.0"], { timeout: 180000 });
+    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "@agentclientprotocol/codex-acp@2.5.0"], { timeout: 300000 });
     expect(loadConfig(f.path).agents.codex?.command).toMatch(/codex-acp$/);
     await f.setup.installAgent({ id: "opencode" });
-    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "opencode-ai@1.19.5"], { timeout: 180000 });
+    expect(f.run).toHaveBeenCalledWith("npm", ["install", "--global", "--prefix", join(f.home, ".local"), "opencode-ai@1.19.5"], { timeout: 300000 });
     expect(await f.setup.loginCommand("codex")).toEqual({ command: "/fixture/bin/codex", args: ["login", "--device-auth"], cwd: f.home });
     await expect(f.setup.loginCommand("codex;bad")).rejects.toThrow();
     await expect(f.setup.installAgent({ id: "invented" })).rejects.toThrow();
+    await expect(f.setup.installAgent({ id: "amp" })).rejects.toThrow(/Amp: Never asks permission/);
+    // Check again forgets every answer and asks the agents once more.
+    await f.claim();
+    const probes = () => f.run.mock.calls.filter(([cmd, args]) => cmd === "bwrap" && args.includes("--probe")).length;
+    const before = probes();
+    const checked = await f.app.inject({ method: "POST", url: "/api/setup/agents/check", headers: { authorization: `Bearer ${f.secret}` } });
+    expect(checked.statusCode).toBe(200);
+    expect(checked.json().find((a: { id: string }) => a.id === "gemini")).toMatchObject({ status: "Checking", name: "Gemini CLI" });
+    expect(probes()).toBeGreaterThan(before);
   });
   it("keeps login terminals owner-only, launches fixed commands and maps native build failures", async () => {
     const f = await fixture();

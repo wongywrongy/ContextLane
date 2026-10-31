@@ -12,3 +12,4 @@ export * from "./machine.js";
 export * from "./resources.js";
 export * from "./testsummary.js";
 export * from "./codemap.js";
+export * from "./agents.js";

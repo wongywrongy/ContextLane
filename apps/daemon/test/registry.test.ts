@@ -9,9 +9,10 @@ import { AgentRegistry } from "../src/registry.js";
 const roots: string[] = [];
 afterEach(async () => { for (const r of roots.splice(0)) await rm(r, { recursive: true, force: true }); });
 
-// Entries as they appear in github.com/agentclientprotocol/registry (gemini/agent.json, goose/agent.json).
+// Entries shaped like github.com/agentclientprotocol/registry's agent.json files. goose and Codex are in the
+// built-in catalog (packages/protocol/src/agents.ts), so the list leaves them to the Models page.
 const registry = (tarball: Buffer) => ({ version: "1.0.0", agents: [
-  { id: "gemini", name: "Gemini CLI", version: "0.66.0", description: "Google's official CLI for Gemini", license: "Apache-2.0", distribution: { npx: { package: "@google/gemini-cli@0.66.0", args: ["--acp"] } } },
+  { id: "acme", name: "Acme CLI", version: "0.66.0", description: "An agent outside the catalog", license: "Apache-2.0", distribution: { npx: { package: "@acme/acme-cli@0.66.0", args: ["--acp"] } } },
   { id: "goose", name: "goose", version: "1.57.0", description: "A local AI agent", distribution: { binary: { [`linux-${process.arch === "arm64" ? "aarch64" : "x86_64"}`]: { archive: "https://example.invalid/goose.tar.bz2", cmd: "./goose", args: ["acp"], sha256: createHash("sha256").update(tarball).digest("hex") } } } },
   { id: "codex-acp", name: "Codex", version: "2.5.0", distribution: { npx: { package: "@agentclientprotocol/codex-acp@2.5.0" } } },
   { id: "risky", name: "Risky", version: "1.0.0", distribution: { npx: { package: "risky@1.0.0", args: ["--acp", "--permission-mode", "bypassPermissions"] } } },
@@ -20,10 +21,10 @@ const registry = (tarball: Buffer) => ({ version: "1.0.0", agents: [
 ] });
 
 describe("ACP registry", () => {
-  it("lists agents it can install here, leaving out the built-in ones and malformed entries", async () => {
+  it("lists agents it can install here, leaving out the catalog's and malformed entries", async () => {
     const fetch = (async () => Response.json(registry(Buffer.from("x")))) as unknown as typeof globalThis.fetch;
-    const list = await new AgentRegistry({ run: async () => ({ stdout: "" }), fetch }).list({ gemini: {} });
-    expect(list.map((a) => [a.id, a.install, a.installed])).toEqual([["gemini", "npm", true], ["goose", "download", false], ["risky", "npm", false], ["risky-env", "npm", false]]);
+    const list = await new AgentRegistry({ run: async () => ({ stdout: "" }), fetch }).list({ acme: {} });
+    expect(list.map((a) => [a.id, a.install, a.installed])).toEqual([["acme", "npm", true], ["risky", "npm", false], ["risky-env", "npm", false]]);
   });
 
   it("installs an npm agent and a checked download, refusing entries that turn off permission prompts", async () => {
@@ -34,11 +35,11 @@ describe("ACP registry", () => {
     const tarball = await readFile(join(home, "goose.tar.bz2"));
     const fetch = (async (url: string) => String(url).endsWith(".tar.bz2") ? new Response(tarball) : Response.json(registry(tarball))) as unknown as typeof globalThis.fetch;
     const run: Runner = async (cmd, args, opts) => {
-      if (cmd === "npm") { const dir = join(home, ".local/lib/node_modules/@google/gemini-cli"); await mkdir(dir, { recursive: true }); await writeFile(join(dir, "package.json"), JSON.stringify({ name: "@google/gemini-cli", bin: { gemini: "dist/index.js" } })); return { stdout: "" }; }
+      if (cmd === "npm") { const dir = join(home, ".local/lib/node_modules/@acme/acme-cli"); await mkdir(dir, { recursive: true }); await writeFile(join(dir, "package.json"), JSON.stringify({ name: "@acme/acme-cli", bin: { acme: "dist/index.js" } })); return { stdout: "" }; }
       return runCommand(cmd, args, opts);
     };
     const reg = new AgentRegistry({ run, fetch, home });
-    expect(await reg.install("gemini")).toEqual({ command: join(home, ".local/bin/gemini"), args: ["--acp"] });
+    expect(await reg.install("acme")).toEqual({ command: join(home, ".local/bin/acme"), args: ["--acp"] });
     const goose = await reg.install("goose");
     expect(goose).toEqual({ command: join(home, ".local/share/acp-agents/goose/1.57.0/goose"), args: ["acp"] });
     const bad = (async (url: string) => String(url).endsWith(".tar.bz2") ? new Response("tampered") : Response.json(registry(tarball))) as unknown as typeof globalThis.fetch;

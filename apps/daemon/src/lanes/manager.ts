@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Skills } from "../skills.js";
-import { laneColour, laneId, laneTitle, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
+import { agentProfile, laneColour, laneId, laneTitle, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
 import type { Store } from "../db/store.js";
@@ -65,6 +65,9 @@ export class LaneManager {
     const { store, config } = this.deps;
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
+    // Agents that act without asking cannot run in a lane: only you approve (AGENTS.md).
+    const profile = agentProfile(req.agent);
+    if (profile?.support === "unsupported") throw new Refused(`${profile.name} cannot run in a lane: ${profile.note}`);
     // Reserved one at a time, from the limit check to the lane row, so two starts never take the same
     // number or both pass the limit. The slow part (checkout, terminal, agent) runs outside the lock.
     const { lane, id, title } = await this.serial(async () => {

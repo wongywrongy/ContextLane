@@ -39,15 +39,18 @@ export class Coalescer {
       const id = update.toolCallId;
       const delta = outputChunk(update._meta);
       if (delta) this.output.set(id, ((this.output.get(id) ?? "") + delta).slice(-MAX_OUTPUT));
-      const exitCode = exitOf(update._meta, update.rawOutput);
-      const ended = update.status === "completed" || update.status === "failed" || exitCode !== undefined;
+      const finished = update.status === "completed" || update.status === "failed";
+      const shown = mapped && (mapped.type === "tool.call" || mapped.type === "tool.update") ? mapped.payload.summary : undefined;
+      const fromRaw = finished && !shown ? rawText(update.rawOutput) : null;
+      const exitCode = exitOf(update._meta, update.rawOutput, finished ? shown ?? fromRaw ?? undefined : undefined);
+      const ended = finished || exitCode !== undefined;
       // A chunk alone is held; the end of the command carries all of it.
       if (mapped && (mapped.type === "tool.call" || mapped.type === "tool.update")) {
         const held = ended ? this.output.get(id) : undefined;
         if (ended) this.output.delete(id);
         const only = mapped.type === "tool.update" && Object.keys(mapped.payload).length === 1 && !held && exitCode === undefined;
         if (only) return;
-        const summary = mapped.payload.summary ?? (held ? clip(stripVTControlCharacters(held)) : undefined);
+        const summary = mapped.payload.summary ?? (held ? clip(stripVTControlCharacters(held)) : fromRaw ? clip(stripVTControlCharacters(fromRaw)) : undefined);
         this.emit({ ...mapped, payload: { ...mapped.payload, ...(summary ? { summary } : {}), ...(exitCode !== undefined ? { exitCode } : {}) } } as NewLaneEvent);
         return;
       }
@@ -73,12 +76,27 @@ function outputChunk(meta: unknown): string | null {
   return typeof data === "string" && data ? data : null;
 }
 
-/** The exit code of a command: `_meta.terminal_exit` for a shell command, `rawOutput.exit_code` otherwise. */
-function exitOf(meta: unknown, raw: unknown): number | null | undefined {
+/**
+ * The exit code of a command, wherever the agent puts it: `_meta.terminal_exit` (Claude, Codex, Droid),
+ * `rawOutput.exit_code` (Codex reads, goose), `rawOutput.metadata.exit` (OpenCode), or only in its text:
+ * "Exit Code: 1" (Qwen), "Command exited with code: 1" (Gemini), "exit code: 1" (Kimi), <return-code> (Auggie).
+ */
+export function exitOf(meta: unknown, raw: unknown, text?: string): number | null | undefined {
   const exit = (meta as { terminal_exit?: { exit_code?: unknown } } | null | undefined)?.terminal_exit;
   if (exit && "exit_code" in exit) return typeof exit.exit_code === "number" ? exit.exit_code : null;
-  const code = (raw as { exit_code?: unknown } | null | undefined)?.exit_code;
-  return typeof code === "number" ? code : undefined;
+  const r = raw as { exit_code?: unknown; exitCode?: unknown; exit?: unknown; metadata?: { exit?: unknown } } | null | undefined;
+  for (const code of [r?.exit_code, r?.exitCode, r?.metadata?.exit, r?.exit]) if (typeof code === "number") return code;
+  const said = text?.match(/(?:exit(?:ed)? (?:with )?code|exit status)[:\s]+(-?\d+)|<return-code>(-?\d+)<\/return-code>/i);
+  return said ? Number(said[1] ?? said[2]) : undefined;
+}
+
+/** Output an agent left only in `rawOutput` (Cline, Auggie, goose): its text, or stdout and stderr. */
+export function rawText(raw: unknown): string | null {
+  if (typeof raw === "string") return raw || null;
+  const r = raw as { output?: unknown; stdout?: unknown; stderr?: unknown } | null | undefined;
+  if (typeof r?.output === "string" && r.output) return r.output;
+  const parts = [r?.stdout, r?.stderr].filter((p): p is string => typeof p === "string" && !!p);
+  return parts.length ? parts.join("\n") : null;
 }
 
 function textChunk(u: SessionUpdate): { kind: "agent.message" | "agent.thought"; text: string } | null {

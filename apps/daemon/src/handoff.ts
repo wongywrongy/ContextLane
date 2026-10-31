@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Lane, LaneEvent } from "@contextlanes/protocol";
+import { agentProfile, type Lane, type LaneEvent } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -59,7 +59,9 @@ export class Handoffs {
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
     if (!["working", "needs_you"].includes(lane.state)) throw new Refused("Only a working lane can start a fresh session.");
-    if (to.agent && !Object.hasOwn(config.agents, to.agent) && !["claude-code", "codex", "opencode"].includes(to.agent)) throw new Refused(`There is no agent called ${to.agent}.`);
+    const profile = agentProfile(to.agent);
+    if (to.agent && !Object.hasOwn(config.agents, to.agent) && !profile) throw new Refused(`There is no agent called ${to.agent}.`);
+    if (profile?.support === "unsupported") throw new Refused(`${profile.name} cannot run in a lane: ${profile.note}`);
     if (this.busy.has(id)) throw new Refused("A handoff is already being written for this lane.");
     this.busy.add(id);
     void (async () => {

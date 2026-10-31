@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import type { LaneState, StepKind } from "@contextlanes/protocol";
+import { AGENTS, type LaneState, type StepKind } from "@contextlanes/protocol";
 
 /** A section: the one container every group of content lives in. */
 export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string; help?: ReactNode }) {
@@ -81,9 +81,10 @@ export function LaneBadge({ id, colour, large = false }: { id: string; colour: s
   return <span className={`lb ${colour}${large ? " lg" : ""}`}>{laneNumber(id)}</span>;
 }
 
-export const AGENT_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp" };
+export const AGENT_NAMES: Record<string, string> = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.name])), hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp" };
 const MARKS: Record<string, [string, string]> = {
-  "claude-code": ["cc", "CC"], codex: ["cx", "CX"], opencode: ["oc", "OC"], hermes: ["ha", "HA"], ollama: ["ol", "OL"], "llama.cpp": ["lc", "LC"],
+  ...Object.fromEntries(AGENTS.map((a) => [a.id, ["oc", a.mark] as [string, string]])),
+  "claude-code": ["cc", "CC"], codex: ["cx", "CX"], hermes: ["ha", "HA"], ollama: ["ol", "OL"], "llama.cpp": ["lc", "LC"],
 };
 /** One mark system for agents and runtimes; official logos can replace these at build time. */
 export function AgentMark({ agent, small = false }: { agent: string; small?: boolean }) {

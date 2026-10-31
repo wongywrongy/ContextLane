@@ -686,9 +686,36 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 
 - **Add from ACP registry** on Models lists the registry's agents (`cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, the format in `github.com/agentclientprotocol/registry`; Gemini CLI, goose, Qwen Code, Cline, Mistral Vibe and about 40 more as of today). `apps/daemon/src/registry.ts` installs one by its own distribution: npm packages into `~/.local` like the built-in adapters; downloads checked against the registry's SHA-256 and unpacked under `~/.local/share/acp-agents/` (outside the data folder, so the sandboxed lane host can run them); `uv` agents run through `uvx`. The result is saved as `[agents.<id>]`, shown under Agents with Remove, and offered in New lane.
 - Safety as for Codex: lanes start each agent in a human-approval mode (now also `approve` and `manual`, the names goose uses); bypass modes are refused by `SafeMode`; and the registry's own arguments are filtered, so goose's `--yolo` style switches are never passed.
-- Registry agents sign in through their own CLI or ACP; ContextLanes only checks that the command is there.
+- Registry agents sign in through their own CLI or ACP. (Since the catalog below, Models also asks them over ACP whether they are signed in.)
 - **Hermes Agent is not in the ACP registry** (checked against the registry repository today), so it is not offered. If it is added there it appears without code changes.
 - Tests: `registry.test.ts` (listing; npm install; a checked download; a tampered download refused; unsafe switches dropped).
+
+#### Every agent with its own notes (2026-10-30)
+
+One catalog, `packages/protocol/src/agents.ts`, now holds what ContextLanes knows about each agent: how it installs, how you sign in, which of its mode ids mean Ask first, Edit the checkout and Plan only, which modes or switches skip approval, and what it must be told at start so that it asks. The facts were read from each adapter's source at the ACP registry's pinned version (October 2026). The agents were not run here: installing outside agent packages is blocked in this workspace, so each one's behaviour is played by a small ACP agent shaped like it (`apps/lanehost/test/agents.test.ts`).
+
+| Agent | Support | What the lane does |
+|---|---|---|
+| Claude Code | full | `default` / `acceptEdits` / `plan` |
+| Codex | full | `read-only` / `workspace-write` / `read-only` plus collaboration mode `plan`; never Auto review or Full access |
+| Gemini CLI | full | `default` / `autoEdit` / `plan`; an untrusted folder refuses Auto Edit, so the lane asks instead and says so |
+| GitHub Copilot | full | `#agent` / `#plan`; `allow_all` turned off; Autopilot never offered |
+| OpenCode | full | starts with `OPENCODE_PERMISSION` set to ask (its build agent allows everything by default); modes are a config option |
+| Qwen Code | full | `default` / `auto-edit` / `plan`; it starts in `auto`, so the lane always switches |
+| Factory Droid | full | autonomy level `normal` / `auto-low` / `spec`; never `auto-medium` or `auto-high` |
+| goose | full | `GOOSE_MODE=approve` at start and mode `approve` / `chat`; never `auto` or `smart_approve` |
+| Mistral Vibe | full | `ask` / `accept-edits`; no plan mode, so Plan only asks before every change |
+| Kimi CLI | limited | one mode, which asks; no effort or usage reports |
+| Cursor | limited | `agent` / `plan`; Cursor's own plan and question requests are not shown yet |
+| Cline | limited | `act` / `plan`, `auto_approve` turned off; it ignores the ContextLanes tools |
+| Auggie | not supported | runs tools without asking unless you write its rules |
+| Amp | not supported | never asks permission over ACP |
+
+- **The lane host** (`host.ts`) applies the catalog: mode env at spawn, mode by id (also `…#id`) or by name for agents not in it, modes as a config option, switches named like allow-all or auto-approve forced off (the lane refuses to start if one will not turn off), and an agent whose modes all skip approval is refused. Effort also reads Vibe's `thinking` category.
+- **Exit codes** are read wherever each agent puts them: `_meta.terminal_exit`, `rawOutput.exit_code`, OpenCode's `metadata.exit`, or the text Qwen, Gemini, Kimi and Auggie print (`map.ts` `exitOf`).
+- **Models** lists every catalog agent. Claude Code, Codex and OpenCode answer a status command; the others are asked over ACP by `contextlanes-lanehost --probe` (initialize and an empty session, no prompt, run in the lanes' sandbox), shown as Checking until they answer, then Ready, Sign in (with the agent's own words), Won't start (with its last error) or Not supported. Sign in runs the agent's login command, or the terminal sign-in it offers over ACP. Check again asks them all again.
+- **Lanes and hand-offs refuse** Amp and Auggie with the reason; the CLI usage no longer names three agents.
+- Tests: `agents.test.ts` (each agent's shape, exit codes, probe, catalog invariants), `setup.test.ts` (statuses, probe in the sandbox, Check again), `server.test.ts` and `handoff.test.ts` (refusals), `registry.test.ts` (catalog agents left to Models).
 
 ### 4.4 Routing (models)
 

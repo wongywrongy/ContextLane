@@ -55,8 +55,11 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   });
   app.get("/api/setup/settings", async () => setup.redactedSettings());
   app.post("/api/setup/settings", async (req) => { await setup.settings(req.body); return { saved: true }; });
+  const registry = new AgentRegistry({ run });
   app.get("/api/setup/agents", async () => setup.detectAgents());
-  app.post("/api/setup/agents/install", async (req) => setup.installAgent(req.body));
+  /** Check again: forget what agents said and ask each one afresh. */
+  app.post("/api/setup/agents/check", async () => { setup.forgetAgentChecks(); return setup.detectAgents(true); });
+  app.post("/api/setup/agents/install", async (req) => setup.installAgent(req.body, registry));
   app.register(async (terminal) => {
     terminal.get<{ Params: { agent: string } }>("/api/setup/agents/:agent/terminal", { websocket: true,
       preValidation: async (req) => { AgentId.parse(req.params.agent); if (req.headers.origin) requestOrigin(req); },
@@ -84,7 +87,6 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   const github = new GitHub(run, setup.config.paths.code);
   app.get("/api/setup/github", async () => github.list());
   app.post("/api/setup/github/clone", async (req) => setup.addProject({ path: await github.clone(CloneRequest.parse(req.body)) }));
-  const registry = new AgentRegistry({ run });
   app.get("/api/setup/registry", async () => registry.list(setup.config.agents));
   app.post("/api/setup/registry/install", async (req) => setup.installFromRegistry(registry, RegistryInstall.parse(req.body).id));
   app.delete<{ Params: { id: string } }>("/api/setup/agents/:id", async (req) => { await setup.removeRegistryAgent(RegistryInstall.parse({ id: req.params.id }).id); return { removed: true }; });

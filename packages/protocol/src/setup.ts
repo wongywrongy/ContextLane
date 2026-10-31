@@ -47,7 +47,8 @@ export const SetupSettings = z.object({
   lanes: z.object({ maxConcurrent: z.number().int().min(1).max(100), launchHosts: z.boolean() }).optional(),
 });
 export type SetupSettings = z.infer<typeof SetupSettings>;
-export const AgentId = z.enum(["claude-code", "codex", "opencode"]);
+/** An agent id: one ContextLanes has a profile for, or one added from the ACP registry. */
+export const AgentId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}$/);
 export type AgentId = z.infer<typeof AgentId>;
 export const TicketRequest = z.object({ path: z.string().regex(/^\/api\/(stream|projects\/[\w-]+\/stream|lanes\/[\w-]+\/\d+\/terminal|setup\/agents\/[\w-]+\/terminal)$/) });
 export const SetupStatus = z.object({ claimed: z.boolean(), authorized: z.boolean(), hasPasskey: z.boolean(), signedOut: z.boolean().default(false),
@@ -55,7 +56,13 @@ export const SetupStatus = z.object({ claimed: z.boolean(), authorized: z.boolea
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
 /** Built-in agents (with their own install and sign-in) and agents added from the ACP registry. */
-export const DetectedAgent = z.object({ id: z.string(), installed: z.boolean(), status: z.enum(["Ready", "Install", "Sign in"]), source: z.enum(["built-in", "registry"]).default("built-in") });
+export const DetectedAgent = z.object({ id: z.string(), installed: z.boolean(),
+  /** Checking: its command is there and ContextLanes is asking it over ACP whether you are signed in.
+   *  Won't start: it is installed but crashed or did not answer; `detail` has its last words. */
+  status: z.enum(["Ready", "Install", "Sign in", "Checking", "Won't start", "Not supported"]), source: z.enum(["built-in", "registry"]).default("built-in"),
+  name: z.string().optional(), support: z.enum(["full", "limited", "unsupported"]).optional(), note: z.string().nullable().optional(),
+  /** The agent's own words when it could not open a session (not signed in, missing provider). */
+  detail: z.string().nullable().optional() });
 export type DetectedAgent = z.infer<typeof DetectedAgent>;
 export const FolderQuery = z.object({ path: z.string().min(1).max(4096).default("~") });
 export const Repository = z.object({ name: z.string(), path: z.string(), branch: z.string().nullable(),

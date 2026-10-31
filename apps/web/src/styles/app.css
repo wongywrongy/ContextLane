@@ -562,9 +562,6 @@ input.in.mono { font: 400 14px var(--mono); }
   .sst { grid-template-columns: 30px minmax(0,1fr); }
   .sst .state { grid-column: 2; grid-row: 2; padding-top: 10px; }
   .setup .hero .wm, .setup .hero .w2 { font-size: 28px; }
-  .agents .agent-usage { flex-wrap: wrap; }
-  .agents .agent-usage b { white-space: nowrap; }
-  .agents .agent-usage .st, .agent-usage .agent-limits { flex-basis: 100%; margin-left: 38px; order: 1; }
 }
 
 /* Architecture (architecture.webp): layers as columns, modules as boxes, links drawn behind them. */
