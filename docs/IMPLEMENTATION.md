@@ -737,6 +737,35 @@ This is the pattern described in [TanStack Virtual's chat guide](https://tanstac
 - **A new lane's first message ends with one paragraph on the ContextLanes tools:** get_brief, ask_owner and checkpoint, plus `delegate` with kinds read and check when a helper endpoint is set up. It is not sent to bench baseline lanes, and the step trail still shows only the task you wrote.
 - Tests: `localmodels.test.ts` (job record, current role, restart), `insights.test.ts` (daily schedule), `briefs.test.ts` (tools hint). The fake agent ignores the hint.
 
+#### Auto mode (2026-10-30)
+
+Auto lets a lane run without stopping for every request, while the worst actions still wait for you. It is a per-lane switch: the Auto option in New lane's Permissions, or the Auto on/off button in a lane's controls. Only the owner's token can change it, and the change is a `lane.auto` event.
+
+**How it works:**
+- The agent stays in a mode that asks, so every action still reaches ContextLanes. In Auto, the daemon answers each request itself (`permission.answered` with `by: "auto"`), never the agent. Turning Auto on also answers what is already waiting, where the guard allows it.
+- It only ever chooses "allow once": "always" would stop the agent asking, and so take later requests past the guard. A request with no allow-once option waits for you.
+- The lane host sends what the request would do, taken from the agent's own tool call rather than its prose (`map.ts` `toolFacts`): the command (Claude's `command`; Codex's argv, unwrapped from `bash -lc`; `cmd` or `script` for others), its working folder, and every file named. Codex sometimes sends only the call's id; the daemon then reads the kind and command from that call's first report.
+- What cannot be seen is not approved: a command with no text, a file change that names no file, or a command run outside the checkout all wait for you.
+
+**What still waits for you** (`packages/protocol/src/guard.ts`). These are fixed rules, not a model's judgement. Commands are read whole, so a rule applies anywhere in a chain, pipe, subshell, `$(…)` or `sh -c '…'`.
+- Force-pushing or deleting remote branches; pushing straight to the base branch; rewriting history; deleting shared branches, tags or other lanes' checkouts; changing remotes or global git settings.
+- Changing GitHub directly (merging PRs, releases, secrets, `gh api` writes); publishing packages or images; deploy and release scripts; infrastructure and cloud CLIs.
+- Deleting or writing anything outside the lane's checkout (`~`, `$HOME` and `..` are resolved; `/tmp` is allowed); file tools that edit, delete or move outside it.
+- Reading credentials: SSH keys, cloud, GitHub and Docker tokens, and other agents' logins, including ContextLanes' own.
+- Running a script straight from the internet (`curl … | sh`); uploading data or sending a request with a body anywhere but this machine; `ssh`, `scp`, `nc`.
+- `sudo`, services, cron, disks and firewalls; installing software for the whole machine; `pkill` and `killall`.
+- Destroying database data (`DROP`, `TRUNCATE`, `FLUSHALL`); using the `contextlanes` CLI.
+
+A held request shows "Auto left this for you: it …" in Steps and Inbox, and notifies you as usual.
+
+**Why fixed rules:** published tests of Claude Code's classifier-based auto mode found force-pushes cleared once the classifier read the owner's request as consent, a `git:*` allow rule that covered `git push --force`, and agents routing around a block on the first try. Fixed rules cannot be talked out of a verdict, and a false alarm costs one tap. Sources: [Anthropic, auto mode](https://claude.com/blog/auto-mode), [Backslash, "auto mode catches a lot but not everything"](https://www.backslash.security/blog/claude-code-auto-mode-catches-a-lot-but-not-everything), [Simon Willison's lethal trifecta, via HiddenLayer](https://www.hiddenlayer.com/research/the-lethal-trifecta-and-how-to-defend-against-it).
+
+**Known limits:**
+- The guard reads requests, not effects. A script in the checkout (`./build.sh`, `make x`) can do what its name hides, and a plain GET can still carry data out in its URL.
+- The sandbox remains the backstop: it hides ContextLanes' tokens, but not the rest of your home folder.
+
+Tests: `guard.test.ts` (ordinary lane work allowed; about 40 dire commands held, including chained and nested ones; file tools; credentials), `hosts.test.ts` (Auto end to end over the lane socket, including a Codex-style request), `server.test.ts` (owner-only switch, answering what waits, no forged `auto` answers), and `agents.test.ts` (`toolFacts` for each agent's shape). AGENTS.md's "Agents never approve" rule now names Auto as the one other way a request is answered.
+
 ### 4.4 Routing (models)
 
 - Rules map a kind of task (keywords the owner writes) to an agent, a model and a label. New lane pre-fills from the first rule that matches, and the owner can change it.

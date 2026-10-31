@@ -69,8 +69,15 @@ const payloads = {
   "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),
   "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
   "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
-  "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional() }),
-  "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli"]) }),
+  "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional(),
+    /** What the request would do, from the agent's own tool call: Auto mode's guard reads it. */
+    tool: z.object({ kind: z.string().nullable(), command: z.string().nullable(), paths: z.array(z.string()), cwd: z.string().nullable().optional(), callId: z.string().optional() }).optional(),
+    /** Why Auto mode left this one for the owner. */
+    held: z.string().optional() }),
+  /** by "auto": ContextLanes approved it in Auto mode (never the agent), with the guard's verdict. */
+  "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli", "auto"]) }),
+  /** Auto mode turned on or off for the lane. */
+  "lane.auto": z.object({ on: z.boolean() }),
   "recipe.requested": z.object({ hash: z.string() }),
   "recipe.approved": z.object({ hash: z.string() }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional(), state: ServiceState.optional(), detail: z.string().optional() }),

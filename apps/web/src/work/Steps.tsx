@@ -147,11 +147,11 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
     const request = step.event.payload;
     const pending = waiting.find((item) => item.id === `${step.event.lane}#${request.requestId}`);
     const answer = events.find((e) => e.type === "permission.answered" && e.payload.requestId === request.requestId);
-    if (pending) return <div className="st3"><span className="tm">now</span><Tile family="you" icon={tileFor(step)} /><PermissionPanel item={pending} detail={request.detail} answered={reload} agent={agent} /><span /></div>;
+    if (pending) return <div className="st3"><span className="tm">now</span><Tile family="you" icon={tileFor(step)} /><PermissionPanel item={pending} detail={request.held ? `Auto left this for you: it ${request.held}.` : request.detail} answered={reload} agent={agent} /><span /></div>;
     if (answer?.type === "permission.answered") {
       const chosen = request.options.find((o) => o.id === answer.payload.optionId);
       const allowed = chosen?.kind.startsWith("allow");
-      right = <span className={`sig${allowed ? "" : " wait"}`}>{chosen ? `${chosen.label.toLowerCase()} · ${answer.payload.by === "web" ? "here" : `from ${answer.payload.by}`}` : "cancelled"}</span>;
+      right = <span className={`sig${allowed ? "" : " wait"}`}>{chosen ? `${chosen.label.toLowerCase()} · ${answer.payload.by === "web" ? "here" : answer.payload.by === "auto" ? "auto" : `from ${answer.payload.by}`}` : "cancelled"}</span>;
     } else right = <span className="sig wait">waiting on you</span>;
     sub = request.detail ?? null;
   }

@@ -7,6 +7,7 @@ import { READY } from "../../features";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
 import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, Help, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
+import { DIRE_ACTIONS } from "@contextlanes/protocol";
 import { useHistory } from "../../work/useWork";
 import { isIdle, stepsFor } from "../../work/model";
 import { FilterSwitch, Steps, type Filter } from "../../work/Steps";
@@ -170,6 +171,10 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     try { await postJson(`/api/lanes/${lane.id}/${kind}`, { [kind]: value }); setNotice(`${kind === "mode" ? "Permissions" : kind === "model" ? "Model" : "Effort"} change sent.`); }
     catch (err) { setNotice(err instanceof Error ? err.message : "The agent setting could not be changed."); }
   };
+  const setAuto = async (on: boolean) => {
+    try { const r = await postJson<{ answered: number }>(`/api/lanes/${lane.id}/auto`, { on }); reload(); reloadInbox(); setNotice(on ? `Auto on${r.answered ? ` · approved ${r.answered} waiting ${r.answered === 1 ? "request" : "requests"}` : ""}. Dire actions still wait for you.` : "Auto off. Every request waits for you."); }
+    catch (err) { setNotice(errorMessage(err)); }
+  };
   const steps = stepsFor(events);
   const first = events[0];
   const agent = AGENT_NAMES[lane.agent] ?? lane.agent;
@@ -203,6 +208,10 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
         : session?.type === "agent.session" && session.payload.modes.length
           ? <div className="seg" role="group" aria-label="Permissions" title="What the agent may do without asking you">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
           : !session && link ? <Glyph g="think">Waiting for the agent to report in</Glyph> : null}
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <button className="btn ghost sm" aria-pressed={lane.auto} title={lane.auto ? "ContextLanes approves the agent's requests except dire ones. Click to ask for every request again." : "Let ContextLanes approve the agent's requests, except dire ones, which wait for you"} onClick={() => void setAuto(!lane.auto)}>
+          <Glyph g={lane.auto ? "work" : "idle"}>{lane.auto ? "Auto on" : "Auto off"}</Glyph></button>
+        <Help label="What does Auto approve?">ContextLanes, not the agent, approves each request once. These still wait for you: {DIRE_ACTIONS.join("; ")}. The lane sandbox still hides your tokens.</Help></span>
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" disabled={offline || !link} title={offline ? "The agent is not connected" : !link ? "The agent is not working" : undefined} onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
     </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>
 

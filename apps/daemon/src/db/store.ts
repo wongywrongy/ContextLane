@@ -181,13 +181,13 @@ export class Store {
     return r.n;
   }
 
-  insertLane(l: Omit<Lane, "createdAt"> & { n: number }): Lane {
+  insertLane(l: Omit<Lane, "createdAt" | "auto"> & { n: number; auto?: boolean }): Lane {
     this.db
       .prepare(
-        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
-         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
+        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, auto, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
+         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @auto, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
       )
-      .run({ ...l, goal: l.goal ?? null, model: l.model ?? null, effort: l.effort ?? null, createdAt: now() });
+      .run({ ...l, goal: l.goal ?? null, model: l.model ?? null, auto: l.auto ? 1 : 0, effort: l.effort ?? null, createdAt: now() });
     return this.getLane(l.id)!;
   }
 
@@ -313,6 +313,12 @@ export class Store {
       AND NOT EXISTS (SELECT 1 FROM event a WHERE a.lane = c.lane AND a.type = 'agent.command.result'
       AND json_extract(a.payload, '$.commandId') = json_extract(c.payload, '$.commandId')) ORDER BY c.seq`).all(lane) as Row[])
       .map(toEvent) as Extract<LaneEvent, { type: "agent.command" }>[];
+  }
+
+  /** The tool call a permission request refers to, as the agent first reported it. */
+  toolCall(lane: LaneId, callId: string): EventPayload<"tool.call"> | null {
+    const row = this.db.prepare("SELECT payload FROM event WHERE lane = ? AND type = 'tool.call' AND json_extract(payload, '$.callId') = ? ORDER BY seq DESC LIMIT 1").get(lane, callId) as Row | undefined;
+    return row ? JSON.parse(String(row.payload)) as EventPayload<"tool.call"> : null;
   }
 
   permission(lane: LaneId, requestId: string): EventPayload<"permission.requested"> | null {
@@ -464,6 +470,14 @@ export class Store {
 
   /** A new token for this lane's host and toolbox. Only its hash is kept. */
   /** Hand off: the lane keeps its checkout and branch, with another agent (and model) from now on. Recorded by lane.handoff. */
+  /** Auto mode on or off, with its event. */
+  setLaneAuto(id: LaneId, on: boolean): LaneEvent {
+    return this.tx(() => {
+      this.db.prepare("UPDATE lane SET auto = ? WHERE id = ?").run(on ? 1 : 0, id);
+      return this.appendEvent(id, { type: "lane.auto", payload: { on } });
+    });
+  }
+
   setLaneAgent(id: string, agent: string, model: string | null): void {
     this.db.prepare("UPDATE lane SET agent = ?, model = ? WHERE id = ?").run(agent, model, id);
   }
@@ -516,6 +530,7 @@ function toLane(r: Row): Lane {
     agent: String(r.agent),
     model: (r.model as string) ?? null,
     mode: r.mode as Lane["mode"],
+    auto: r.auto === 1,
     effort: (r.effort as string) ?? null,
     branch: String(r.branch),
     worktree: String(r.worktree),

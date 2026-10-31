@@ -143,6 +143,27 @@ export function toolEvidence(content: ToolCallContent[] | null | undefined): { d
 }
 
 /** A permission request becomes an inbox item with the agent's own options. */
+/**
+ * What a permission request would do, from the agent's tool call rather than its prose: the shell command
+ * (Claude's `command`, Codex's argv, others' `cmd` or `script`) and every file it names. Auto mode's guard reads this.
+ */
+export function toolFacts(call: RequestPermissionRequest["toolCall"]): { kind: string | null; command: string | null; paths: string[]; cwd: string | null; callId: string } {
+  const raw = (call.rawInput ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null => typeof v === "string" ? v : Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]).map((x) => /\s/.test(x) ? `'${x}'` : x).join(" ") : null;
+  let command = str(raw.command) ?? str(raw.cmd) ?? str(raw.script) ?? str(raw.commandLine) ?? null;
+  // Codex wraps commands as ["bash", "-lc", "…"]; the shell's own text is what runs.
+  const argv = Array.isArray(raw.command) ? raw.command as unknown[] : null;
+  if (argv && argv.length === 3 && /^(ba|z)?sh$/.test(String(argv[0]).split("/").pop() ?? "") && /^-\w*c$/.test(String(argv[1])) && typeof argv[2] === "string") command = argv[2];
+  const paths = new Set<string>();
+  for (const loc of call.locations ?? []) if (loc.path) paths.add(loc.path);
+  for (const key of ["file_path", "filePath", "path", "notebook_path", "target", "destination", "source", "old_path", "new_path"]) { const v = raw[key]; if (typeof v === "string" && v) paths.add(v); }
+  for (const key of ["paths", "files"]) { const v = raw[key]; if (Array.isArray(v)) for (const x of v) if (typeof x === "string") paths.add(x); }
+  // Codex's patch approvals list the files it would change as keys of `changes`.
+  if (raw.changes && typeof raw.changes === "object") for (const k of Object.keys(raw.changes as object)) paths.add(k);
+  const cwd = typeof raw.cwd === "string" ? raw.cwd : typeof raw.workdir === "string" ? raw.workdir : null;
+  return { kind: call.kind ?? null, command: command ? command.slice(0, 8000) : null, paths: [...paths].slice(0, 200), cwd, callId: call.toolCallId };
+}
+
 export function mapPermission(requestId: string, req: RequestPermissionRequest): NewLaneEvent {
   return {
     type: "permission.requested",
@@ -150,6 +171,7 @@ export function mapPermission(requestId: string, req: RequestPermissionRequest):
       requestId,
       title: req.toolCall.title ?? "The agent wants to continue",
       options: req.options.map((o) => ({ id: o.optionId, label: o.name, kind: o.kind })),
+      tool: toolFacts(req.toolCall),
     },
   };
 }

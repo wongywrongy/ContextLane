@@ -38,6 +38,8 @@ export const Lane = z.object({
   agent: z.string(),
   model: z.string().nullable(),
   mode: z.enum(["ask", "edits", "plan"]),
+  /** Auto mode: ContextLanes approves the agent's requests except the dire ones (guard.ts), which wait for you. */
+  auto: z.boolean().default(false),
   /** How hard the agent thinks, when the lane started with a choice: low, medium or high. */
   effort: z.string().nullable().optional(),
   branch: z.string(),
@@ -65,6 +67,7 @@ export const StartLaneRequest = z.object({
   agent: z.string().default("claude-code"),
   model: z.string().optional(),
   mode: z.enum(["ask", "edits", "plan"]).default("ask"),
+  auto: z.boolean().default(false),
   effort: Effort.optional(),
   goal: z.string().optional(),
   adoption: ServiceProposal.optional(),
@@ -97,6 +100,8 @@ export const BenchRequest = z.object({ tasks: z.array(BenchTask).min(1).max(20) 
 export type BenchRun = { lane: string; baseline: boolean; tokens: number | null; minutes: number | null; passed: boolean | null; state: "running" | "checking" | "done" | "failed"; detail: string | null };
 export type BenchResult = { id: string; startedAt: string; finishedAt: string | null; tasks: { task: string; project: string; runs: BenchRun[] }[] };
 
+/** Auto mode for a lane; only the owner's token can change it. */
+export const AutoRequest = z.object({ on: z.boolean() });
 export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web") });
 export type AnswerRequest = z.input<typeof AnswerRequest>;
 export const AskOwnerRequest = z.object({ requestId: z.uuid(), question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) });

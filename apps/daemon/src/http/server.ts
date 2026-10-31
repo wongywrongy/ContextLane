@@ -6,7 +6,7 @@ import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import { AddProjectRequest, AnswerRequest, DiscardLane, LaneId, LaneRename, type AgentLink, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
+import { AddProjectRequest, AnswerRequest, AutoRequest, DiscardLane, LaneId, LaneRename, type AgentLink, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest, EffortRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
@@ -50,6 +50,7 @@ import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
 import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
+import { answerPermission, sweepPending } from "../permissions.js";
 
 export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; onRoute?: (route: { method: string | string[]; url: string }) => void };
 
@@ -354,6 +355,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!lane) throw new NotFound("no such lane");
     return { files: await laneFiles(run, lane, FileQuery.parse(req.query).q) };
   });
+  // Auto mode: the owner's switch. Turning it on also answers what already waits and the guard passes.
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/auto", async (req) => {
+    const lane = laneParam(req.params);
+    if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
+    const { on } = AutoRequest.parse(req.body);
+    if (store.getLane(lane)!.auto !== on) bus.publish(store.setLaneAuto(lane, on));
+    const answered = on ? sweepPending({ store, bus, send: (l, m) => deps.hosts.send(l, m) }, lane) : 0;
+    return { auto: on, answered };
+  });
   for (const action of ["cancel", "mode", "model", "effort"] as const) {
     app.post<{ Params: { project: string; n: string } }>(`/api/lanes/:project/:n/${action}`, async (req, reply) => {
       const lane = laneParam(req.params);
@@ -483,16 +493,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!request) return reply.code(404).send({ error: "no such permission" });
     if (store.answered(body.lane, body.requestId)) return reply.code(409).send({ error: "permission already answered" });
     if (body.optionId !== null && !request.options.some((o) => o.id === body.optionId)) return reply.code(400).send({ error: "not an offered permission option" });
-    const commandId = randomUUID();
-    const command = { kind: "answer" as const, requestId: body.requestId, optionId: body.optionId };
-    const events = store.tx(() => {
-      const events = [store.appendEvent(body.lane, { type: "permission.answered", payload: { requestId: body.requestId, optionId: body.optionId, by: body.via } })];
-      if (request.kind !== "question") events.push(store.appendEvent(body.lane, { type: "agent.command", payload: { commandId, command } }));
-      if (store.getLane(body.lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === body.lane && ["permission", "question"].includes(i.kind))) events.push(store.setLaneState(body.lane, "working"));
-      return events;
-    });
-    for (const event of events) bus.publish(event);
-    return reply.code(202).send({ commandId, delivered: request.kind === "question" || deps.hosts.send(body.lane, { commandId, command }) });
+    return reply.code(202).send(answerPermission({ store, bus, send: (l, m) => deps.hosts.send(l, m) }, body.lane, body.requestId, body.optionId, body.via));
   });
 
   // ── live stream: one SSE connection per project screen ──

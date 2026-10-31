@@ -90,6 +90,7 @@ export class LaneManager {
         agent: req.agent,
         model: req.model ?? null,
         mode: req.mode,
+        auto: req.auto,
         effort: req.effort ?? null,
         branch: names.branch,
         worktree: names.worktree,
@@ -100,6 +101,7 @@ export class LaneManager {
         colour: laneColour(n),
       });
       this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, ...(req.baseline ? { baseline: true } : {}) } }));
+      if (lane.auto) this.emit(store.appendEvent(id, { type: "lane.auto", payload: { on: true } }));
       if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
       // The full task is the lane's first message, shown as the first step.
       this.emit(store.appendEvent(id, { type: "agent.message", payload: { role: "user", text: extra.firstPrompt ?? req.task } }));

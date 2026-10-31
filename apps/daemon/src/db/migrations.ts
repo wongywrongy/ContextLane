@@ -93,4 +93,5 @@ export const MIGRATIONS: readonly string[] = [
   /* 10 */ `CREATE INDEX event_lane_type ON event(lane, type, seq);
   CREATE INDEX event_at ON event(at);`,
   /* 11 */ `ALTER TABLE lane ADD COLUMN effort TEXT;`,
+  /* 12 */ `ALTER TABLE lane ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;`,
 ];

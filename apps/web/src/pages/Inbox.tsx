@@ -55,7 +55,7 @@ function Detail({ item, lane, project, answered }: { item: InboxItem; lane?: Lan
   }, [item.lane]);
   const requestId = item.id.slice(item.id.indexOf("#") + 1);
   const request = events.find((e) => e.type === "permission.requested" && e.payload.requestId === requestId);
-  const detail = request?.type === "permission.requested" ? request.payload.detail : undefined;
+  const detail = request?.type === "permission.requested" ? request.payload.held ? `Auto left this for you: it ${request.payload.held}.` : request.payload.detail : undefined;
   const before = request ? stepsFor(events.filter((e) => e.seq < request.seq)).filter((s) => s.type !== "text" && s.type !== "thought").slice(-3) : [];
   const respond = async (optionId: string) => {
     setBusy(true); setError("");

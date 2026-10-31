@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { agent, methods, PROTOCOL_VERSION, type SessionConfigOption, type SessionMode } from "@agentclientprotocol/sdk/unstable";
 import { openAgentSession } from "@contextlanes/lanehost";
 import { AGENTS, agentProfile, SafeMode, type NewLaneEvent } from "@contextlanes/protocol";
-import { exitOf, rawText } from "../src/map.js";
+import { exitOf, rawText, toolFacts } from "../src/map.js";
 import { probeAgent } from "../src/probe.js";
 
 /**
@@ -123,6 +123,20 @@ describe("what agents say about commands", () => {
     expect(rawText({ output: "built" })).toBe("built");
     expect(rawText({ stdout: "out", stderr: "err" })).toBe("out\nerr");
     expect(rawText("plain")).toBe("plain");
+  });
+});
+
+describe("what a permission request would do", () => {
+  it("reads the command and files from each agent's request", () => {
+    // Claude Code: Bash and Edit inputs.
+    expect(toolFacts({ toolCallId: "a", kind: "execute", title: "Run tests", rawInput: { command: "pnpm test", description: "Run tests" } })).toMatchObject({ kind: "execute", command: "pnpm test", paths: [] });
+    expect(toolFacts({ toolCallId: "b", kind: "edit", title: "Edit", rawInput: { file_path: "/w/src/a.ts", old_string: "x", new_string: "y" }, locations: [{ path: "/w/src/a.ts" }] })).toMatchObject({ paths: ["/w/src/a.ts"] });
+    // Codex: argv wrapped in a shell, a working folder, and patch changes keyed by file.
+    expect(toolFacts({ toolCallId: "c", rawInput: { command: ["bash", "-lc", "git push --force"], cwd: "/home/k/code/shop" } })).toMatchObject({ kind: null, command: "git push --force", cwd: "/home/k/code/shop", callId: "c" });
+    expect(toolFacts({ toolCallId: "d", rawInput: { command: ["git", "commit", "-m", "two words"] } })).toMatchObject({ command: "git commit -m 'two words'" });
+    expect(toolFacts({ toolCallId: "e", kind: "edit", rawInput: { changes: { "/w/a.ts": {}, "/etc/hosts": {} } } }).paths).toEqual(["/w/a.ts", "/etc/hosts"]);
+    // Nothing to read: the guard then refuses to approve it blind.
+    expect(toolFacts({ toolCallId: "f", title: "Run command" })).toMatchObject({ kind: null, command: null, paths: [] });
   });
 });
 

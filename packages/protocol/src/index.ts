@@ -13,3 +13,4 @@ export * from "./resources.js";
 export * from "./testsummary.js";
 export * from "./codemap.js";
 export * from "./agents.js";
+export * from "./guard.js";

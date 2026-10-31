@@ -137,6 +137,26 @@ describe("http api", () => {
     expect(store.events("demo/01").filter((e) => e.type === "permission.answered")).toHaveLength(1);
   });
 
+  it("lets only the owner turn Auto on; turning it on answers what waits and the guard passes", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Auto" } });
+    const options = [{ id: "once", label: "Allow once", kind: "allow_once" as const }];
+    store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "safe", title: "Run pnpm test", options, tool: { kind: "execute", command: "pnpm test", paths: [] } } });
+    store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "dire", title: "Run", options, tool: { kind: "execute", command: "rm -rf ~/code", paths: [] } } });
+    // An answer can never claim to come from Auto.
+    expect((await app.inject({ method: "POST", url: "/api/answers", payload: { lane: "demo/01", requestId: "safe", optionId: "once", via: "auto" } })).statusCode).toBe(400);
+    const on = await app.inject({ method: "POST", url: "/api/lanes/demo/01/auto", payload: { on: true } });
+    expect(on.json()).toEqual({ auto: true, answered: 1 });
+    expect(store.getLane("demo/01")!.auto).toBe(true);
+    expect(store.answered("demo/01", "safe")).toBe(true);
+    expect(store.answered("demo/01", "dire")).toBe(false);
+    expect((await app.inject({ url: "/api/lanes" })).json()[0]).toMatchObject({ auto: true });
+    await app.inject({ method: "POST", url: "/api/lanes/demo/01/auto", payload: { on: false } });
+    expect(store.events("demo/01").filter((e) => e.type === "lane.auto").map((e) => e.payload)).toEqual([{ on: true }, { on: false }]);
+    expect((await app.inject({ method: "POST", url: "/api/lanes/demo/01/auto", payload: { on: "yes" } })).statusCode).toBe(400);
+  });
+
   it("saves, lists and removes a project's shared skills", async () => {
     const { app } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/skillshop" } });

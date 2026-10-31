@@ -17,7 +17,7 @@ export function useWork(project: string) {
   const event = useCallback((event: LaneEvent) => {
     if (++streamed.current > LIVE_LIMIT) { streamed.current = 0; setLive([]); reopen(); }
     else setLive((old) => [...old, event]);
-    if (["lane.created", "lane.state", "lane.renamed"].includes(event.type)) reloadLanes();
+    if (["lane.created", "lane.state", "lane.renamed", "lane.auto"].includes(event.type)) reloadLanes();
   }, [reloadLanes, reopen]);
   useProjectStream(project, event, reopen);
   useEffect(() => { setLive([]); streamed.current = 0; }, [project]);
