@@ -924,6 +924,18 @@ Kyle's read of the live pages: Work overview, Architecture, Review, Run and Insi
   - The left list marks each checkpoint with its verdict.
 - Tests: `judge.test.ts` (diff selection and budget, settling findings and verdicts, the end-to-end run with events and the job record, no model), plus `checker.test.ts` (every checkpoint goes to the judge).
 
+#### Step 2: Work overview and Architecture
+
+- **Work overview** (`work/Overview.tsx`). The graph is gone, and so are its two dependencies (`@xyflow/react`, `elkjs`).
+  - In its place, one section per goal (or a single "Lanes" section), most urgent group first. Each lane is one row: who is on it, what it is doing, its last two hours, and its state with how long it has been in it. Forks say which lane they came from.
+  - The header counts lanes, lanes waiting on you and goals; "1 lanes" is fixed.
+  - The same plain-words line now drives the lane list (`laneNow` and `plainStep` in `work/model.ts`): a command shows as its program and subcommand ("Running git status", "Wants to run rg"), a file tool as its verb and file name.
+- **Architecture.**
+  - Before anything is selected, the side column now shows what is worth looking at: where each open lane works (each module clickable), modules two lanes edit, the modules most of the code depends on, and the largest modules no test covers.
+  - Area cards show test coverage ("1 of 4 modules tested") in place of their layer list.
+  - The key only shows what the view can contain, and the "Open an area" line is gone.
+- **Project header.** When the project's name differs from its repository's, the header says "repo ShuttleWorks · branch 694-ui-13-console", so a project named Yunavero no longer looks mislabelled.
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.

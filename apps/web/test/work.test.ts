@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { environmentFrom, isIdle, loadHistory, mergeEvents, queuedPrompts, stepsFor, timeline } from "../src/work/model";
 
@@ -66,4 +66,15 @@ it("reads a lane's services and recipe wait from its events", () => {
   const after = environmentFrom([...started, event(2, "recipe.approved", { hash: "a" }), event(3, "env.status", { service: "web", up: false, state: "starting" }), event(4, "env.status", { service: "setup", up: false, state: "failed" }), event(5, "env.status", { service: "web", up: true, state: "healthy", port: 20100 })]);
   expect(after.recipeWaiting).toBe(false);
   expect(after.services).toEqual([{ service: "web", up: true, state: "healthy", port: 20100 }]);
+});
+
+describe("plain words for what a lane does", () => {
+  it("says a command as its program and subcommand, never the whole line", async () => {
+    const { plainCommand } = await import("../src/work/model");
+    expect(plainCommand("rg -n -A14 '^ 2' /tmp/701-foundation-public")).toBe("rg");
+    expect(plainCommand("cd web && FOO=1 pnpm run build --filter x")).toBe("pnpm run build");
+    expect(plainCommand("git branch --track 701 origin/701 && make worktree NAME=x")).toBe("git branch");
+    expect(plainCommand("test -d .codegraph && echo indexed; git status --short")).toBe("test");
+    expect(plainCommand("/usr/bin/python3 -m pytest -q")).toBe("python3 pytest");
+  });
 });

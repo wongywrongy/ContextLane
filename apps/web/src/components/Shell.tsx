@@ -124,7 +124,7 @@ export function ProjectShell() {
         <div className={`cover ${coverFor(project)}`} />
         <div className="shade" />
         <div className="in">
-          <div><div className="meta"><Link to="/">Projects</Link> / {repoName}{branches?.current ? ` · ${branches.current}` : ""}</div><h1>{info?.name ?? project}</h1></div>
+          <div><div className="meta"><Link to="/">Projects</Link>{repoName.split("/").pop()!.toLowerCase() !== (info?.name ?? project).toLowerCase() ? ` / repo ${repoName}` : ` / ${repoName}`}{branches?.current ? ` · branch ${branches.current}` : ""}</div><h1>{info?.name ?? project}</h1></div>
           <div className="facts">
             <Glyph g="work">{active.length} {active.length === 1 ? "lane" : "lanes"}</Glyph>
             {waiting ? <Glyph g="wait">{waiting} need{waiting === 1 ? "s" : ""} you</Glyph> : null}

@@ -52,7 +52,7 @@ These settle disputes. When a screen and a principle disagree, the screen change
 | Inbox | Answer everything waiting on you |
 | Models | Who does the work: agents with their limits, local models, helper, routing |
 | Settings | Configure the machine |
-| Work | Run and steer lanes: overview graph or one lane (Steps / Terminal) |
+| Work | Run and steer lanes: the overview (one row per lane) or one lane (Steps / Terminal) |
 | Review | Decide on finished work |
 | Run | Keep each lane's app running |
 | Architecture | How the code fits together and where lanes touch it |
@@ -131,4 +131,4 @@ Meaning is never carried by colour alone: every state has a shape, every step ki
 
 Plain words. Say what happened and what to do: "Claude wants to run a command", "Allow once", "Keeps running when you close this tab". No AI jargon in the UI.
 
-**Work overview:** goal cards lead to numbered lane cards; a dashed amber gate appears only for lanes awaiting an answer or review. Nodes include words and glyphs. The two-hour strip uses event times and idle periods; a new lane may have only a tiny mark at the right edge. Timeline rows are keyboard-accessible alternatives to graph selection.
+**Work overview:** one section per goal (or one "Lanes" section when no lane has a goal), the group with something waiting on you first. Each lane is one row: badge and agent mark, task, what it is doing in plain words ("Running pnpm test", "Wants to run rg", never the raw command line), its last two hours as a bar, and its state with how long it has been in it. It reads the same with one lane or thirty, so it replaced the graph (October 2026), which was empty with few lanes and tangled with many.

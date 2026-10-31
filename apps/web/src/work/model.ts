@@ -1,4 +1,5 @@
-import { STEP_FAMILY, type Lane, type LaneEvent, type EventPayload, type ServiceState } from "@contextlanes/protocol";
+import { STEP_FAMILY, type InboxItem, type Lane, type LaneEvent, type EventPayload, type ServiceState } from "@contextlanes/protocol";
+import { GLYPH } from "../components/ui";
 
 export function mergeEvents(...groups: LaneEvent[][]): LaneEvent[] {
   const unique = new Map<string, LaneEvent>();
@@ -113,4 +114,65 @@ export function timeline(lane: Lane, events: LaneEvent[], start: number, end: nu
   }
   if (cursor < end) segments.push({ from: cursor, to: end, state: state === "working" && !active ? "idle" : state });
   return segments.filter((s) => s.to > s.from && s.to > start);
+}
+
+function firstLine(text: string): string {
+  const line = text.split("\n").find((l) => l.trim()) ?? text;
+  const end = line.search(/[.!?](\s|$)/);
+  return end > 0 ? line.slice(0, end + 1) : line;
+}
+
+const SUBCOMMAND = /^(git|npm|pnpm|yarn|bun|npx|docker|kubectl|cargo|go|make|uv|pip|python3?\s+-m|gh|terraform)$/;
+const TESTS = /\b(test|tests|vitest|jest|pytest|mocha|playwright|cargo test|go test)\b/i;
+/** A command line as a person would say it: "git status", "pnpm test", "rg"; never the whole quoted line. */
+export function plainCommand(line: string): string {
+  const first = line.split(/&&|\|\||;|\|/).map((p) => p.trim()).find((p) => p && !/^(cd|export|set|source|\.)\s/.test(p)) ?? line.trim();
+  const words = first.replace(/^(\w+=\S*\s+)+/, "").split(/\s+/).filter(Boolean);
+  const program = (words[0] ?? "").split("/").pop() ?? "";
+  const pair = `${program} ${words[1] ?? ""}`;
+  if (SUBCOMMAND.test(program) || SUBCOMMAND.test(pair.trim())) {
+    const sub = words.slice(1).find((w) => !w.startsWith("-")) ?? "";
+    return `${program} ${sub === "run" ? `run ${words[words.indexOf("run") + 1] ?? ""}` : sub}`.trim();
+  }
+  return program || first.slice(0, 40);
+}
+
+/** A step in a few plain words: "Running pnpm test", "Editing dates.py", "Searching the code". */
+export function plainStep(step: Step): string {
+  if (step.type === "text") return step.family === "you" ? "Reading your message" : "Writing a reply";
+  if (step.type === "thought") return "Thinking";
+  if (step.type === "plan") return "Planning";
+  const tool = step.tool;
+  if (!tool) return firstLine(step.title).slice(0, 60);
+  const file = tool.files[0]?.split("/").pop();
+  switch (tool.kind) {
+    case "execute": return TESTS.test(step.title) ? `Running tests (${plainCommand(step.title)})` : `Running ${plainCommand(step.title)}`;
+    case "read": return file ? `Reading ${file}` : "Reading files";
+    case "edit": return file ? `Editing ${file}${tool.files.length > 1 ? ` and ${tool.files.length - 1} more` : ""}` : "Editing files";
+    case "delete": return file ? `Deleting ${file}` : "Deleting files";
+    case "move": return file ? `Moving ${file}` : "Moving files";
+    case "search": return "Searching the code";
+    case "fetch": return "Reading a web page";
+    case "think": return "Thinking";
+    default: return firstLine(step.title).slice(0, 60);
+  }
+}
+
+/** What a lane is doing, in a few words, for the lane list and the overview. */
+export function laneNow(lane: Lane, events: LaneEvent[], waiting: InboxItem[]): string {
+  const asked = waiting.find((i) => i.lane === lane.id);
+  if (asked) return asked.kind === "question" ? `Asks: ${asked.title}` : asked.kind === "review" ? "Ready for your review" : asked.kind === "permission" ? `Wants to run ${plainCommand(asked.title)}` : firstLine(asked.title);
+  const mine = events.filter((e) => e.lane === lane.id);
+  if (lane.state === "failed") {
+    const error = mine.findLast((e) => e.type === "agent.error");
+    const change = mine.findLast((e) => e.type === "lane.state" && e.payload.to === "failed");
+    const why = change?.type === "lane.state" && change.payload.reason ? change.payload.reason : error?.type === "agent.error" ? error.payload.message : "";
+    return why ? firstLine(why) : "Stopped";
+  }
+  if (isIdle(lane, events)) return "Idle · waiting for your message";
+  const latest = mine.findLast((e) => e.type === "agent.error" || e.type === "agent.session" || e.type === "agent.message" || e.type === "tool.call");
+  if (lane.state === "working" && latest?.type === "agent.error") return latest.payload.message.startsWith("Agent restarted") ? "Restarting the agent" : `Problem: ${firstLine(latest.payload.message)}`;
+  const last = stepsFor(mine).findLast((s) => s.type !== "text" || s.family !== "you");
+  if (lane.state === "working" && last) return plainStep(last);
+  return lane.state === "working" ? "Working · no steps yet" : GLYPH[lane.state][1];
 }

@@ -1,68 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
-import { ReactFlow, Controls, MarkerType, Position, type Node, type Edge } from "@xyflow/react";
-import ELK from "elkjs/lib/elk.bundled.js";
-import type { Lane, LaneEvent } from "@contextlanes/protocol";
-import { AgentMark, Empty, LaneBadge, Section, StateGlyph } from "../components/ui";
-import { isIdle, timeline } from "./model";
-import "@xyflow/react/dist/style.css";
+import type { InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
+import { AgentMark, Empty, LaneBadge, Section, StateGlyph, ago } from "../components/ui";
+import { isIdle, laneNow, timeline } from "./model";
 
-const elk = new ELK();
-export function Overview({ lanes, events, select }: { lanes: Lane[]; events: LaneEvent[]; select: (id: string) => void }) {
-  const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
-  const [layoutError, setLayoutError] = useState("");
+/** Most urgent first: what waits on you, then what is moving, then the rest. */
+const RANK: Record<Lane["state"], number> = { needs_you: 0, in_review: 1, failed: 2, working: 3, setting_up: 4, paused: 5, draft: 6, merged: 7, cleaned: 8, archived: 9 };
+
+/**
+ * The overview: every open lane as one row, grouped by goal, most urgent first. A row says who is on it,
+ * what it is doing in plain words, its last two hours, and its state. It reads the same with one lane or
+ * thirty, and needs no layout engine.
+ */
+export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; events: LaneEvent[]; waiting: InboxItem[]; select: (id: string) => void }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
-  const idle = lanes.map((l) => isIdle(l, events) ? "1" : "0").join("");
-  const structure = useMemo(() => {
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
-    // Goal cards only when the owner set goals; lanes without one stand alone (no invented "goal").
-    const goals = lanes.some((l) => l.goal) ? new Set(lanes.map((l) => l.goal ?? "No goal")) : new Set<string>();
-    for (const goal of goals) {
-      nodes.push({ id: `goal:${goal}`, position: { x: 0, y: 0 }, data: { label: <div className="goal-node"><span>Goal</span><strong>{goal}</strong></div> }, className: "goal-node-box", sourcePosition: Position.Right, style: { width: 240, height: 90 } });
-    }
-    for (const lane of lanes) {
-      nodes.push({ id: lane.id, position: { x: 0, y: 0 }, data: { label: <div className="lane-node"><div><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} /></div><strong>{lane.task}</strong><StateGlyph state={lane.state} idle={isIdle(lane, events)} label /></div> }, className: `lane-node-box ${lane.colour}`, sourcePosition: Position.Right, targetPosition: Position.Left, style: { width: 260, height: 128 } });
-      if (goals.size) edges.push({ id: `goal:${lane.id}`, source: `goal:${lane.goal ?? "No goal"}`, target: lane.id, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#9C958A" } });
-      if (["needs_you", "in_review"].includes(lane.state)) {
-        nodes.push({ id: `gate:${lane.id}`, position: { x: 0, y: 0 }, data: { label: <div className="gate-node"><StateGlyph state={lane.state} label /><span>{lane.state === "in_review" ? "Your review" : "Your answer"}</span></div> }, className: "gate-node-box", targetPosition: Position.Left, style: { width: 170, height: 80 } });
-        edges.push({ id: `gate-edge:${lane.id}`, source: lane.id, target: `gate:${lane.id}`, style: { stroke: "#A66400", strokeDasharray: "6 4" } });
-      }
-    }
-    return { nodes, edges };
-    // Laid out again only when a lane's state or idleness changes, not on every streamed event.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lanes, idle]);
-  useEffect(() => {
-    let live = true;
-    void elk.layout({ id: "overview", layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "28", "elk.layered.spacing.nodeNodeBetweenLayers": "65" },
-      children: structure.nodes.map((n) => ({ id: n.id, width: Number(n.style!.width), height: Number(n.style!.height) })),
-      edges: structure.edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })) }).then((graph) => {
-        if (live) { setPositions(new Map(graph.children?.map((n) => [n.id, { x: n.x ?? 0, y: n.y ?? 0 }]))); setLayoutError(""); }
-      }, () => { if (live) setLayoutError("The graph could not be laid out. Open a lane from the list below."); });
-    return () => { live = false; };
-  }, [structure]);
   const start = now - 2 * 60 * 60_000;
+  const groups = useMemo(() => {
+    const goals = lanes.some((l) => l.goal);
+    const by = new Map<string, Lane[]>();
+    for (const lane of lanes) { const key = goals ? lane.goal ?? "No goal" : "Lanes"; by.set(key, [...(by.get(key) ?? []), lane]); }
+    const urgency = (ls: Lane[]) => Math.min(...ls.map((l) => RANK[l.state]));
+    return [...by].map(([goal, ls]) => [goal, [...ls].sort((a, b) => RANK[a.state] - RANK[b.state] || b.createdAt.localeCompare(a.createdAt))] as const)
+      .sort((a, b) => (a[0] === "No goal" ? 1 : 0) - (b[0] === "No goal" ? 1 : 0) || urgency(a[1]) - urgency(b[1]));
+  }, [lanes]);
+  // A lane forked from another says where it came from.
+  const from = useMemo(() => new Map(events.flatMap((e) => e.type === "lane.forked" ? [[e.payload.to, e.payload.from] as const] : [])), [events]);
+  const since = (lane: Lane) => events.findLast((e) => e.lane === lane.id && e.type === "lane.state")?.at ?? lane.createdAt;
+  const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (!lanes.length) return <Section title="Lanes"><Empty>No lanes yet</Empty></Section>;
   return <>
-    <Section title="Goals and lanes" meta={`${lanes.length} lanes · choose one to steer it`}>
-      {!lanes.length ? <Empty>No lanes yet</Empty> : <>
-        {layoutError ? <p className="sec-b" role="alert">{layoutError}</p> : <div className="overview-graph" aria-label="Goals, lanes and owner gates">
-          {positions.size ? <ReactFlow nodes={structure.nodes.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position }))} edges={structure.edges} fitView fitViewOptions={{ maxZoom: 1 }} proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} onNodeClick={(_event, node) => { if (lanes.some((l) => l.id === node.id)) select(node.id); else if (node.id.startsWith("gate:")) select(node.id.slice(5)); }} minZoom={0.25} maxZoom={1.5}>
-            <Controls showInteractive={false} />
-          </ReactFlow> : <Empty>Arranging the lanes…</Empty>}
-        </div>}
-        {lanes.some((l) => l.goal) || lanes.some((l) => ["needs_you", "in_review"].includes(l.state)) ? <div className="sec-f graph-legend">{[lanes.some((l) => l.goal) ? "Arrow: goal → lane" : "", lanes.some((l) => ["needs_you", "in_review"].includes(l.state)) ? "dashed amber box: waits on you" : ""].filter(Boolean).join(" · ")}</div> : null}
-      </>}
-    </Section>
-    <Section title="Last two hours" meta={`${new Date(start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — ${new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}>
-      {lanes.map((lane) => <button className="timeline-row" key={lane.id} onClick={() => select(lane.id)}>
-        <span className="timeline-label"><LaneBadge id={lane.id} colour={lane.colour} /><span>{lane.task}</span></span>
-        <span className="timeline-track" aria-label={`Recorded activity for ${lane.task}`}>
-          {timeline(lane, events, start, now).map((segment, i) => <span key={i} className={`activity-bar ${segment.state}`} style={{ left: `${(segment.from - start) / (now - start) * 100}%`, width: `${(segment.to - segment.from) / (now - start) * 100}%` }} title={`${segment.state.replaceAll("_", " ")} · ${new Date(segment.from).toLocaleTimeString()} to ${new Date(segment.to).toLocaleTimeString()}`} />)}
-        </span><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
-      </button>)}
-      {!lanes.length ? <Empty>No activity yet</Empty> : null}
-      <div className="sec-f graph-legend">Solid: working · stripes: waiting on you · red: failed · pale: idle or paused.</div>
-    </Section>
+    {groups.map(([goal, ls]) => {
+      const need = ls.filter((l) => l.state === "needs_you" || l.state === "in_review").length;
+      return <Section key={goal} title={goal} meta={`${ls.length} ${ls.length === 1 ? "lane" : "lanes"}${need ? ` · ${need} ${need === 1 ? "needs" : "need"} you` : ""}`}
+        end={<span className="mono muted" style={{ fontSize: 12 }}>{clock(start)} → now</span>}>
+        {ls.map((lane) => <button className="ov-row" key={lane.id} onClick={() => select(lane.id)}>
+          <span className="ov-who"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small /></span>
+          <span className="ov-what"><b>{lane.task}</b><span>{laneNow(lane, events, waiting)}{from.has(lane.id) ? ` · from lane ${from.get(lane.id)!.slice(from.get(lane.id)!.lastIndexOf("/") + 1)}` : ""}</span></span>
+          <span className="timeline-track" aria-label={`Last two hours of ${lane.task}`}>
+            {timeline(lane, events, start, now).map((segment, i) => <span key={i} className={`activity-bar ${segment.state}`} style={{ left: `${(segment.from - start) / (now - start) * 100}%`, width: `${(segment.to - segment.from) / (now - start) * 100}%` }} title={`${segment.state.replaceAll("_", " ")} · ${new Date(segment.from).toLocaleTimeString()} to ${new Date(segment.to).toLocaleTimeString()}`} />)}
+          </span>
+          <span className="ov-state"><StateGlyph state={lane.state} idle={isIdle(lane, events)} label /><small>{ago(since(lane), now)}</small></span>
+        </button>)}
+      </Section>;
+    })}
+    <p className="graph-legend" style={{ margin: "0 2px" }}>Bars show the last two hours. Solid: working · stripes: waiting on you · red: failed · pale: idle or paused.</p>
   </>;
 }

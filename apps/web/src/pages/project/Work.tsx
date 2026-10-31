@@ -9,13 +9,20 @@ import { NewLaneDialog } from "../../components/NewLane";
 import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, Help, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
 import { DIRE_ACTIONS } from "@contextlanes/protocol";
 import { useHistory } from "../../work/useWork";
-import { isIdle, stepsFor } from "../../work/model";
+import { isIdle, laneNow, stepsFor } from "../../work/model";
 import { FilterSwitch, Steps, type Filter } from "../../work/Steps";
 import { Composer } from "../../work/Composer";
 import { Inspector } from "../../work/Inspector";
 
 const Terminal = lazy(() => import("../../components/Terminal").then((module) => ({ default: module.Terminal })));
-const Overview = lazy(() => import("../../work/Overview").then((module) => ({ default: module.Overview })));
+import { Overview } from "../../work/Overview";
+
+/** "3 lanes · 2 waiting on you · 1 goal": the overview's header, counted. */
+function overviewMeta(lanes: Lane[], waiting: InboxItem[]): string {
+  const need = new Set(waiting.map((i) => i.lane).filter((id) => lanes.some((l) => l.id === id))).size;
+  const goals = new Set(lanes.flatMap((l) => l.goal ? [l.goal] : [])).size;
+  return [`${lanes.length} ${lanes.length === 1 ? "lane" : "lanes"}`, need ? `${need} waiting on you` : "", goals ? `${goals} ${goals === 1 ? "goal" : "goals"}` : ""].filter(Boolean).join(" · ");
+}
 
 /** Work: lane list on the left; the Overview or one lane in the middle; that lane's inspector on the right. */
 export function WorkPage() {
@@ -42,8 +49,8 @@ export function WorkPage() {
       {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
       {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
         : <>
-          <div className="ph"><h2>Overview</h2><span className="m">every lane as a graph · click a lane to open it</span></div>
-          {open.length ? <Suspense fallback={<Empty>Opening the overview…</Empty>}><Overview lanes={open} events={work.events} select={choose} /></Suspense>
+          <div className="ph"><h2>Overview</h2><span className="m">{overviewMeta(open, inbox ?? [])}</span></div>
+          {open.length ? <Overview lanes={open} events={work.events} waiting={inbox ?? []} select={choose} />
             : <section className="sec"><div className="empty">{work.lanes.length ? "No open lanes; archived ones are in the list." : "No lanes yet."} A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>{work.lanes.length ? "Start one" : "Start the first one"}</button>.</div></section>}
         </>}
     </main>
@@ -52,26 +59,7 @@ export function WorkPage() {
   </div>;
 }
 
-/** What a lane is doing, in a few words, for the lane list. */
-function laneNow(lane: Lane, events: LaneEvent[], waiting: InboxItem[]): string {
-  const asked = waiting.find((i) => i.lane === lane.id);
-  if (asked) return asked.kind === "question" ? `Asks: ${asked.title}` : asked.kind === "review" ? "Ready for your review" : asked.kind === "permission" ? `Wants: ${asked.title}` : firstSentence(asked.title);
-  const mine = events.filter((e) => e.lane === lane.id);
-  if (lane.state === "failed") {
-    const error = mine.findLast((e) => e.type === "agent.error");
-    const change = mine.findLast((e) => e.type === "lane.state" && e.payload.to === "failed");
-    const why = change?.type === "lane.state" && change.payload.reason ? change.payload.reason : error?.type === "agent.error" ? error.payload.message : "";
-    return why ? firstSentence(why) : "Stopped";
-  }
-  if (isIdle(lane, events)) return "Idle · waiting for your message";
-  const latest = mine.findLast((e) => e.type === "agent.error" || e.type === "agent.session" || e.type === "agent.message" || e.type === "tool.call");
-  if (lane.state === "working" && latest?.type === "agent.error") return latest.payload.message.startsWith("Agent restarted") ? "Restarting the agent" : `Problem: ${firstSentence(latest.payload.message)}`;
-  const last = stepsFor(mine).findLast((s) => s.type !== "text" || s.family !== "you");
-  if (lane.state === "working" && last) return last.type === "text" ? "Writing a reply" : last.title;
-  return lane.state === "working" ? "Working · no steps yet" : GLYPH[lane.state][1];
-}
-
-function firstSentence(text: string): string {
+export function firstSentence(text: string): string {
   const line = text.split("\n").find((l) => l.trim()) ?? text;
   const end = line.search(/[.!?](\s|$)/);
   return end > 0 ? line.slice(0, end + 1) : line;
@@ -99,7 +87,7 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
     <div className="ps">
       <div className="ps-h" style={{ marginBottom: 10 }}><span className="lbl">Lanes · {lanes.length}</span><div className="e"><button className="btn sm" onClick={create}>New lane</button></div></div>
       <div className="lanes-scroll">
-        <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane as a graph</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
+        <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane at a glance</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
         {groups.map(([goal, group]) => <div key={goal ?? ""} style={{ display: "contents" }}>
           {hasGoals ? <div className="grp">{goal ? <><i className="g work" aria-hidden="true" />Goal · {goal}</> : "No goal"}</div> : null}
           {group.filter((l) => showArchived || l.state !== "archived" || l.id === selected).map((l) => {
