@@ -115,6 +115,10 @@ function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiti
   const mine = waiting.filter((i) => i.lane === lane.id);
   const idle = isIdle(lane, events);
   const g = mine.length ? "wait" : lane.state === "failed" ? "fail" : idle ? "idle" : lane.state === "working" ? "work" : "idle";
+  const usage = events.findLast((e) => e.type === "usage");
+  const share = usage?.type === "usage" && usage.payload.contextSize ? usage.payload.contextUsed / usage.payload.contextSize : 0;
+  const [restarted, setRestarted] = useState("");
+  const restart = () => { if (window.confirm("The agent writes a summary of the work so far, then a fresh session continues from it in the same checkout. Takes a minute or two.")) void postJson(`/api/lanes/${lane.id}/handoff`, {}).then(() => setRestarted("Writing the summary · the fresh session starts after"), (e) => setRestarted(errorMessage(e))); };
   const askForPlan = () => void postJson(`/api/lanes/${lane.id}/prompt`, { text: PLAN_PROMPT, immediate: false }).then(() => setAsked("Asked · it writes one after its current step"), (e) => setAsked(errorMessage(e)));
   return <div className="now">
     <div className="now-r"><span className="lbl">Now</span><Glyph g={g}>{laneNow(lane, events, waiting)}</Glyph></div>
@@ -124,6 +128,9 @@ function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiti
         <span>{done} of {entries.length}{current ? <span className="muted"> · {current.status === "in_progress" ? "on" : "next"}: {current.text}</span> : null}</span></button>
         : <><Glyph g="idle">No plan yet</Glyph>{asked ? <span className="muted" style={{ fontSize: 13 }}>{asked}</span> : lane.state === "working" || lane.state === "needs_you" ? <button className="btn ghost sm" onClick={askForPlan}>Ask for a plan</button> : null}</>}
     </div>
+    {share >= 0.7 && (lane.state === "working" || lane.state === "needs_you") ? <div className="now-r"><span className="lbl">Context</span>
+      <Glyph g={share >= 0.85 ? "fail" : "wait"}>{`${Math.round(share * 100)}% full`}</Glyph>
+      {restarted ? <span className="muted" style={{ fontSize: 13 }}>{restarted}</span> : <button className="btn ghost sm" title="The agent writes a summary, and a fresh session continues from it in the same checkout" onClick={restart}>Restart with a summary</button>}</div> : null}
     {open ? <div className="plan" style={{ padding: "4px 0 6px 92px" }}>{entries.map((entry, i) => <Glyph key={i} g={entry.status === "completed" ? "done" : entry.status === "in_progress" ? "think" : "idle"}>{entry.text}</Glyph>)}</div> : null}
   </div>;
 }

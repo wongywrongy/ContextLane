@@ -21,6 +21,7 @@ import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import { Judge } from "../judge.js";
 import { Sublanes } from "../sublanes.js";
+import { Nudges } from "../nudges.js";
 import type { Schedules } from "../schedules.js";
 import { access } from "node:fs/promises";
 import { Skills } from "../skills.js";
@@ -343,6 +344,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const secondReviews = new SecondReviews({ store, bus, lanes: deps.lanes, run });
   const judge = deps.judge ?? new Judge({ store, bus, models: localModels, diff: (c) => checker.diff(c) });
   if (!deps.judge) judge.start();
+  new Nudges({ store, bus, hosts: deps.hosts }).start();
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/judge", async (req, reply) => reply.code(202).send(judge.again(req.params.id)));
   app.get<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.estimate(z.uuid().parse(req.params.id)));
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.start(z.uuid().parse(req.params.id), SecondReviewRequest.parse(req.body).agent));

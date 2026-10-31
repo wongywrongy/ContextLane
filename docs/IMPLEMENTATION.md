@@ -974,6 +974,14 @@ Codex has no subagents of its own, and Claude Code's subagents share one checkou
 - **Visibility.** The split shows as a step in the parent's Progress ("Split into 3 sub-lanes"), and the overview marks each child "sub-lane of 01". New lanes' first message mentions `split_lanes`.
 - Tests: `server.test.ts` (ask, wait, start, no repeat, child tools, no nested split, approve into the parent, decline) and the toolbox polling test.
 
+#### Nudges
+
+- **What it does.** `apps/daemon/src/nudges.ts` steps in at most once per lane and kind, as a queued message delivered after the agent's current step (it never interrupts), recorded as a `lane.nudged` event:
+  - **No plan after 40 steps:** asks for a 3-to-7-step plan, and suggests `split_lanes` when the rest has independent parts.
+  - **Context past 70%:** asks the agent to commit what works, stay focused, and avoid re-reading large files.
+- **Owner side.** Progress shows a Context row past 70% ("85% full") with "Restart with a summary". Each nudge appears as a step ("ContextLanes asked for a plan").
+- Tests: `nudges.test.ts` (plan after 40 steps, once; no nudge when a plan exists; context once).
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.
