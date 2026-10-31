@@ -182,6 +182,9 @@ describe("http api", () => {
     const res = await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/restart` });
     expect(res.statusCode).toBe(200);
     expect(calls.some((c) => c.startsWith("systemctl --user stop"))).toBe(true);
+    // Just started and not on the socket yet: the lane says "starting", not "not connected".
+    expect((await app.inject({ url: `/api/lanes/${lane.id}/agent` })).json()).toEqual({ connected: false, starting: true });
+    expect((await app.inject({ url: "/api/lanes/shop/99/agent" })).statusCode).toBe(404);
     const started = calls.find((c) => c.startsWith("systemd-run") && c.includes("--lane="))!;
     expect(started).toContain("--task-file=");
     expect(started).not.toContain("Step 1");

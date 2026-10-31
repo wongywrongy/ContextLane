@@ -17,6 +17,8 @@ import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
  */
 export class LaneManager {
   private readonly terminals: Terminals;
+  /** When each lane's agent host was last started by this daemon, so the UI can say "starting" instead of "not connected". */
+  private readonly launched = new Map<string, { at: number; since: number }>();
 
   constructor(
     private readonly deps: { store: Store; bus: EventBus; config: Config; run: Runner },
@@ -134,7 +136,15 @@ export class LaneManager {
     await writeFile(file, text, { mode: 0o600 });
     const since = store.lastSeq(lane.id);
     await run("systemd-run", hostCommand(lane, config, undefined, undefined, "", file), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(lane.id) } });
+    this.launched.set(lane.id, { at: Date.now(), since });
     this.watch(lane, since);
+  }
+
+  /** True until the agent reports in, for at most 90 seconds after this daemon started its host: the watchdog's window. */
+  starting(id: string): boolean {
+    const launch = this.launched.get(id);
+    if (!launch || Date.now() - launch.at >= 90_000) return false;
+    return !this.deps.store.eventsOfType(["agent.session"], { lanes: [id], afterSeq: launch.since }).length;
   }
 
   /** Stops the lane's agent and starts it again from its first task, with a new token. Its checkout is untouched. */

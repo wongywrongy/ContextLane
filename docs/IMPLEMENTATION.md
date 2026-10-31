@@ -738,6 +738,15 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - **Delete a lane.** The lane panel's **Delete this lane…** (any state but merged, which Clean up handles) shows what would be lost (uncommitted changes, commits only on its branch), then stops its agent, services and terminal, removes its checkout with `--force`, deletes the branch only when ticked (ticked by default when it has no commits of its own), and archives it. `GET/POST /api/lanes/:p/:n/discard`.
 - **Long plans.** A task can be a whole markdown plan. The lane gets a short title (`laneTitle`: first line without markdown, cut at a word) for lists, the branch and the header, editable in New lane; the full plan is the lane's first message, shown as the first step with Show all. The first message reaches the lane host as a file (`--task-file`) instead of an argument. Lanes already named after a whole plan are shortened at startup.
 
+#### The lane loop end to end (2026-10-30)
+
+`apps/daemon/test/lane.e2e.test.ts` runs a lane the way neo does, minus systemd: the real lane host in real bubblewrap, ACP to an SDK agent, the real socket and lane token, real git with a bare origin; only `systemd-run`/`systemctl` (a shim that runs the same command lines, `$$` and `--setenv` included) and `gh` are faked. It covers permission and answer, a markdown plan with `$` and `%` reaching the agent exactly, Ask for review, request changes, approve (push and pull request), clean up, restart and delete. What it found, and what else was fixed:
+
+- **Ask for review with nothing committed** was a dead end (409). The agent is now asked to commit and send it for review; if it is not connected, the error says to restart it or commit in the terminal.
+- **Agent connection on the lane.** `GET /api/lanes/:p/:n/agent` says whether the host is on the socket and whether it was just started. The controls row shows Starting the agent…, Agent not connected with Restart the agent, or the modes; Interrupt is off while nothing is connected. A failed lane's note offers Restart the agent instead of "start a new lane".
+- **Readable command failures.** `runCommand` errors lead with the program and what it printed (`systemd-run failed (exit 1): …`) instead of the full command line, so a failed lane shows the reason, not a page of flags.
+- **Lane list.** A working lane whose last event is a problem says `Problem: <first sentence>`. Outside sessions are collapsed to one line with Show.
+
 #### Stability, clarity and the CLI (2026-10-30)
 
 Two independent reviews, one of the daemon's reliability over weeks of running and one of the UI as a first-time user, led to:
@@ -791,7 +800,7 @@ An independent read of `773e700..a0a3f2b` found that the daemon, which runs outs
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.
 - **Lane host integration:** connect the ACP client to an in-process fake agent built with the SDK's `agent()` app (`ClientApp.connect(agentApp)`), so permission and streaming flows are tested without a real model.
 - **Web:** Playwright smoke tests against `vite preview` with a seeded daemon; screenshots compared with the canvas boards by eye at first.
-- **End to end:** a nightly job on neo starts a lane on a fixture repo with a cheap local model and checks the full loop.
+- **End to end:** `apps/daemon/test/lane.e2e.test.ts` runs the whole lane loop with the real lane host, bubblewrap, socket and git (systemd and gh faked); it is skipped where bwrap, tmux or git are missing. Still to add: a nightly job on neo that does the same with systemd and a real agent.
 - **Updates:** `apps/daemon/test/update.test.ts` uses real git (a bare remote and the clone install.sh makes) with npm, systemctl and the health check faked. The full path, with real builds, a real daemon restart and a lane waiting through it, was run by hand on 2026-10-30 (see Updating); repeat it before changing the release layout.
 - **Terminal end to end:** `CONTEXTLANES_REAL_TERMINAL=1 pnpm exec vitest run apps/daemon/test/terminal.real.test.ts` opts into real tmux, PTYs, a throwaway git repo and loopback HTTP. The ordinary suite fakes all commands through `Runner`, including its terminal launcher. The opt-in test checks shell state, history beyond the screen, prompt client cleanup, daemon recreation and the actual CLI entry point.
 

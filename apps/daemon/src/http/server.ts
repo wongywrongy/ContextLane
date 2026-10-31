@@ -6,7 +6,7 @@ import type { ServerResponse } from "node:http";
 import { basename } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import { AddProjectRequest, AnswerRequest, DiscardLane, LaneId, LaneRename, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
+import { AddProjectRequest, AnswerRequest, DiscardLane, LaneId, LaneRename, type AgentLink, type DiscardPreview, ProjectId, ProjectOrder, ProjectUpdate, UsageQuery } from "@contextlanes/protocol";
 import { PromptRequest, ModeRequest, ModelRequest, FileQuery, TakeOverRequest, PlanCollisionRequest, BriefQuery, BriefEdit, ProjectNotes, DelegateRequest, HelperToggle, AskRequest, BenchRequest, HandoffRequest, SecondReviewRequest } from "@contextlanes/protocol";
 import { OutsideAgents } from "../outside.js";
 import { CodeMaps } from "../codemap.js";
@@ -210,6 +210,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   /** Stops the lane's agent and starts it again from the lane's first task (a refused or stuck agent). */
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/restart", async (req) => deps.lanes.restart(laneParam(req.params)));
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/agent", async (req): Promise<AgentLink> => {
+    const id = laneParam(req.params);
+    if (!store.getLane(id)) throw new NotFound("no such lane");
+    const connected = deps.hosts.connected(id);
+    return { connected, starting: !connected && deps.lanes.starting(id) };
+  });
   /**
    * Archive hides a finished, failed or paused lane from lists and stops what it still runs (agent host,
    * app services, terminal). Its branch and history stay; a failed lane's checkout stays on disk.
@@ -379,7 +385,22 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // ── checkpoints ──
-  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/checkpoint", async (req, reply) => reply.code(202).send(await checker.begin(laneParam(req.params), CheckpointRequest.parse(req.body).summary)));
+  /**
+   * Ask for review, from the owner. When the work is committed, the checkpoint starts now. When it is not
+   * (uncommitted changes, or nothing committed yet), the lane's agent is asked to commit and send it,
+   * since it knows what the changes are; the owner never gets a dead end.
+   */
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/checkpoint", async (req, reply) => {
+    const id = laneParam(req.params);
+    const { summary } = CheckpointRequest.parse(req.body);
+    try { return reply.code(202).send({ ...(await checker.begin(id, summary)), asked: false }); }
+    catch (err) {
+      if (!(err instanceof Refused) || !/Commit your changes first|no commits to review/.test(err.message)) throw err;
+      const sent = deps.hosts.command(id, { kind: "prompt", text: "The owner asked for review. Finish the step you are on, commit your work on this branch with a clear message (nothing unrelated), then call the checkpoint tool with a short summary of what changed and why.", immediate: false, files: [], images: [] });
+      if (!sent.delivered) throw new Refused(`${err.message} The agent is not connected to do it; restart the agent, or commit in the lane's terminal.`, 409);
+      return reply.code(202).send({ started: false, asked: true });
+    }
+  });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req) => review.approve(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
     return reply.code(202).send(review.requestChanges(laneParam(req.params), RequestChanges.parse(req.body).note));

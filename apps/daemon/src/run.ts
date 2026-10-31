@@ -25,9 +25,29 @@ export type Runner = {
 /** Commands without their own timeout are stopped after five minutes, so one hung tool never wedges a loop or a request. */
 export const DEFAULT_TIMEOUT = 300_000;
 export const runCommand: Runner = async (cmd, args, opts) => {
-  const { stdout } = await exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout ?? DEFAULT_TIMEOUT, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
-  return { stdout };
+  try {
+    const { stdout } = await exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout ?? DEFAULT_TIMEOUT, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
+    return { stdout };
+  } catch (err) {
+    throw readable(err, cmd, args);
+  }
 };
+
+/**
+ * Node's message for a failed command is the whole command line, which for a lane host is hundreds of
+ * characters of flags and paths, and the reason comes last. Lead with the program and what it said.
+ * The error keeps stdout, stderr and code for callers that look at them.
+ */
+export function readable(err: unknown, cmd: string, args: string[]): unknown {
+  if (!(err instanceof Error)) return err;
+  const e = err as Error & { stderr?: string; stdout?: string; code?: number | string; killed?: boolean; signal?: string };
+  const name = [cmd.slice(cmd.lastIndexOf("/") + 1), ...(args[0] && !args[0].startsWith("-") ? [args[0]] : [])].join(" ");
+  const said = String(e.stderr ?? "").trim() || String(e.stdout ?? "").trim();
+  const tail = said.split("\n").slice(-8).join("\n").slice(-1500);
+  const why = e.killed || e.signal === "SIGTERM" ? "timed out" : e.code === "ENOENT" ? "is not installed" : typeof e.code === "number" ? `failed (exit ${e.code})` : "failed";
+  e.message = `${name} ${why}${tail ? `: ${tail}` : e.code === "ENOENT" ? "" : `: ${e.message.split("\n")[0]!.slice(0, 300)}`}`;
+  return e;
+}
 
 export const PTY_HOST = fileURLToPath(new URL("../bin/pty-host.py", import.meta.url));
 

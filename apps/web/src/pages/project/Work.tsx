@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { sharing } from "./Review";
-import type { InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
+import type { AgentLink, InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
 import { errorMessage, postJson, useInbox, useJson } from "../../api";
 import { READY } from "../../features";
 import { useProjectWork } from "../../components/Shell";
@@ -56,9 +56,26 @@ function laneNow(lane: Lane, events: LaneEvent[], waiting: InboxItem[]): string 
     return error?.type === "agent.error" ? error.payload.message : "Could not start. Open it to see why.";
   }
   if (isIdle(lane, events)) return "Idle · waiting for your message";
+  const latest = mine.findLast((e) => e.type === "agent.error" || e.type === "agent.session" || e.type === "agent.message" || e.type === "tool.call");
+  if (lane.state === "working" && latest?.type === "agent.error") return latest.payload.message.startsWith("Agent restarted") ? "Restarting the agent" : `Problem: ${firstSentence(latest.payload.message)}`;
   const last = stepsFor(mine).findLast((s) => s.type !== "text" || s.family !== "you");
   if (lane.state === "working" && last) return last.type === "text" ? "Writing a reply" : last.title;
   return lane.state === "working" ? "Working · no steps yet" : GLYPH[lane.state][1];
+}
+
+function firstSentence(text: string): string {
+  const line = text.split("\n").find((l) => l.trim()) ?? text;
+  const end = line.search(/[.!?](\s|$)/);
+  return end > 0 ? line.slice(0, end + 1) : line;
+}
+
+/** Whether the lane's agent is connected, checked every few seconds while the lane is live. */
+function useAgentLink(lane: Lane, version: number): AgentLink | null {
+  const live = lane.state === "working" || lane.state === "needs_you";
+  const [link, , reload] = useJson<AgentLink>(live ? `/api/lanes/${lane.id}/agent` : null);
+  useEffect(() => { if (!live) return; const t = setInterval(reload, 5_000); return () => clearInterval(t); }, [live, reload]);
+  useEffect(() => reload(), [version, reload]);
+  return live ? link : null;
 }
 
 function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: Lane[]; events: LaneEvent[]; inbox: InboxItem[]; selected: string | null; choose: (id: string | null) => void; create: () => void }) {
@@ -98,18 +115,21 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
   const project = params.project ?? fromLanes;
   const [data, , reload] = useJson<{ agents: OutsideAgent[] }>(project ? `/api/projects/${project}/outside-agents` : null);
   const [message, setMessage] = useState("");
+  const [open, setOpen] = useState(false);
   useEffect(() => { const t = setInterval(reload, 15_000); return () => clearInterval(t); }, [reload]);
   const agents = data?.agents ?? [];
   if (!agents.length) return null;
+  const running = agents.filter((a) => a.running).length;
   const take = (a: OutsideAgent) => { setMessage(""); void postJson<Lane>(`/api/projects/${project}/takeover`, { pid: a.pid, startedAt: a.startedAt }).then((lane) => { reload(); choose(lane.id); }, (err: Error) => setMessage(err.message)); };
   return <div className="ps">
-    <div className="ps-h" style={{ marginBottom: 8 }}><span className="lbl">Watching only</span></div>
-    {agents.map((a) => <div key={`${a.pid}${a.startedAt}`} style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+    <div className="ps-h" style={{ marginBottom: 8 }}><span className="lbl">Outside sessions · {agents.length}</span><div className="e"><button className="lnk" style={{ fontSize: 13 }} aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Show"}</button></div></div>
+    {!open ? <span className="muted" style={{ fontSize: 12.5 }}>Claude Code or Codex sessions started in a terminal for this project{running ? `, ${running} still running` : ""}. Watching only; take one over to continue it in a lane.</span> : null}
+    {open ? agents.map((a) => <div key={`${a.pid}${a.startedAt}`} style={{ display: "grid", gap: 6, marginBottom: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}><AgentMark agent={a.agent} small /><span style={{ fontSize: 14 }}>Terminal session</span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>pid {a.pid}</span></div>
       <span className="muted" style={{ fontSize: 12.5 }}>{a.running ? "Started outside ContextLanes. Close it there, then take it over to talk to it here." : `Ended ${agoText(a.endedAt!)}. Take it over to continue in a lane.`}</span>
       <span className="mono muted" style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>{a.cwd}</span>
       <div><button className="btn sm ghost" disabled={a.running} title={a.running ? "Close it first" : undefined} onClick={() => take(a)}>{a.running ? "Close it first" : "Take over"}</button></div>
-    </div>)}
+    </div>) : null}
     {message ? <p role="alert" style={{ margin: 0, fontSize: 13 }}>{message}</p> : null}
   </div>;
 }
@@ -119,9 +139,12 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const link = useAgentLink(lane, events.length);
+  const offline = link !== null && !link.connected;
   const interrupt = useCallback(() => {
+    if (offline) { setNotice("The agent is not connected, so there is nothing to interrupt."); return; }
     void postJson(`/api/lanes/${lane.id}/cancel`, {}).then(() => setNotice("Interrupt sent. The agent stops after its current action."), (err: Error) => setNotice(err.message));
-  }, [lane.id]);
+  }, [lane.id, offline]);
   useEffect(() => {
     if (view !== "steps") return;
     const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !document.querySelector("dialog[open]")) { event.preventDefault(); interrupt(); } };
@@ -150,20 +173,22 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
       <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · started {ago(lane.createdAt) === "now" ? "just now" : `${ago(lane.createdAt)} ago`}</span>{READY.review && lane.state === "working" ? <button className="btn sm" title="Runs the checks, takes screenshots and puts the work on Review for you to merge" onClick={() => {
         const said = events.findLast((e) => e.type === "agent.message" && e.payload.role === "agent");
         const summary = (said?.type === "agent.message" ? said.payload.text.trim().slice(0, 2000) : "") || lane.task;
-        void postJson(`/api/lanes/${lane.id}/checkpoint`, { summary }).then(() => setNotice("Checks started. The lane moves to Review when they finish."), (err) => setNotice(errorMessage(err)));
+        void postJson<{ asked: boolean }>(`/api/lanes/${lane.id}/checkpoint`, { summary }).then((r) => setNotice(r.asked ? "The work is not committed yet, so the agent was asked to commit it and send it for review. It appears on Review after its checks." : "Checks started. The lane moves to Review when they finish."), (err) => setNotice(errorMessage(err)));
       }}>Ask for review</button> : null}</div>
     </div>
 
-    {lane.state === "failed" ? <FailedNote events={events} /> : null}
+    {lane.state === "failed" ? <FailedNote lane={lane} events={events} /> : null}
 
     <section className="sec" aria-label="Agent controls"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
       {session?.type === "agent.session" && session.payload.models.length
         ? <select className="sel" aria-label="Model" value={session.payload.currentModel ?? ""} onChange={(e) => void control("model", e.target.value)}>{session.payload.models.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select>
         : <span className="sel" style={{ display: "inline-flex", alignItems: "center", cursor: "default" }}>{lane.model ?? `${agent} default`}</span>}
-      {session?.type === "agent.session" && session.payload.modes.length
-        ? <div className="seg" role="group" aria-label="Permission mode">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
-        : <span className="muted" style={{ fontSize: 13 }}>Modes appear when the agent connects</span>}
-      <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
+      {offline && link?.starting ? <Glyph g="think">Starting the agent…</Glyph>
+        : offline ? <><Glyph g="fail">Agent not connected</Glyph><button className="btn sm" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setNotice("Agent restarted. It reports in within a minute."), (err) => setNotice(errorMessage(err))); }}>Restart the agent</button></>
+        : session?.type === "agent.session" && session.payload.modes.length
+          ? <div className="seg" role="group" aria-label="Permission mode">{session.payload.modes.map((m) => <button key={m.id} className={session.payload.currentMode === m.id ? "on" : ""} aria-pressed={session.payload.currentMode === m.id} onClick={() => void control("mode", m.id)}>{m.label}</button>)}</div>
+          : !session && link ? <Glyph g="think">Waiting for the agent to report in</Glyph> : null}
+      <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" disabled={offline} title={offline ? "The agent is not connected" : undefined} onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
     </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>
 
     <section className="sec" aria-label="Lane view">
@@ -187,12 +212,14 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
 }
 
 /** Why a lane failed, from its last state change, in the words the setup step reported. */
-function FailedNote({ events }: { events: LaneEvent[] }) {
+function FailedNote({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
+  const [notice, setNotice] = useState("");
   const change = events.findLast((e) => e.type === "lane.state" && e.payload.to === "failed");
   const error = events.findLast((e) => e.type === "agent.error");
   const reason = change?.type === "lane.state" && change.payload.reason ? change.payload.reason : error?.type === "agent.error" ? error.payload.message : "No reason was recorded.";
   return <section className="sec" style={{ borderColor: "#F0C7BD" }} aria-label="Why this lane failed">
     <div className="sec-h"><Glyph g="fail">This lane stopped</Glyph></div>
-    <div className="sec-b"><div className="out" style={{ marginTop: 0 }}>{reason.trim()}</div><p style={{ margin: "10px 0 0", fontSize: 13.5 }} className="muted">Fix the cause, then start a new lane with the same task. The branch and checkout are kept.</p></div>
+    <div className="sec-b"><div className="out" style={{ marginTop: 0 }}>{reason.trim()}</div><p style={{ margin: "10px 0 0", fontSize: 13.5 }} className="muted">Fix the cause, then restart the agent: it picks up in the same branch and checkout. If the lane is not worth keeping, delete it from the panel.</p></div>
+    <div className="sec-f"><button className="btn sm" onClick={() => void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setNotice("Agent restarted. It reports in within a minute."), (err) => setNotice(errorMessage(err)))}>Restart the agent</button>{notice ? <span role="status" style={{ fontSize: 13 }}>{notice}</span> : null}</div>
   </section>;
 }

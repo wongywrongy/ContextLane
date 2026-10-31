@@ -21,6 +21,10 @@ export const ProjectOrder = z.object({ ids: z.array(ProjectId).min(1).max(500) }
 export const DiscardLane = z.object({ deleteBranch: z.boolean().default(false) });
 export type DiscardPreview = { uncommitted: number; commits: number; branch: string; worktree: string; present: boolean };
 /** A lane's title. */
+/** Whether the lane's agent host is on the daemon's socket right now, and whether it was started recently. */
+export const AgentLink = z.object({ connected: z.boolean(), starting: z.boolean() });
+export type AgentLink = z.infer<typeof AgentLink>;
+
 export const LaneRename = z.object({ task: z.string().trim().min(1).max(300) });
 
 export const Lane = z.object({
