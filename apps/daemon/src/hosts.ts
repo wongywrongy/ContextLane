@@ -8,6 +8,7 @@ import type { Store } from "./db/store.js";
 
 /** Commands and observations are events; reconnect replays only unacknowledged work. */
 export class HostLinks {
+  private refusedAt = new Map<string, number>();
   private readonly links = new Map<string, Socket>();
   private readonly sockets = new Set<Socket>();
   private server: Server | null = null;
@@ -71,6 +72,11 @@ export class HostLinks {
           if (typeof msg.token !== "string" || store.laneForToken(msg.token) !== lane) {
             // A host from before lane tokens runs unsandboxed and can never prove itself, so it stops here.
             if (!store.hasLaneToken(lane) && ["working", "needs_you", "setting_up"].includes(store.getLane(lane)!.state)) bus.publish(store.setLaneState(lane, "failed", "This lane started before the security update. Start a new lane to continue."));
+            // Say so on the lane (at most every 10 minutes), so a refused agent is never a silent "working".
+            else if (["working", "needs_you"].includes(store.getLane(lane)!.state) && Date.now() - (this.refusedAt.get(lane) ?? 0) > 600_000) {
+              this.refusedAt.set(lane, Date.now());
+              bus.publish(store.appendEvent(lane, { type: "agent.error", payload: { message: "The agent is running but ContextLanes refused its connection (its lane token does not match), so its work is not reaching this page. Restart the agent from the lane's panel." } }));
+            }
             lane = null;
             sock.end(`${JSON.stringify({ error: "invalid lane token" })}\n`);
             return;

@@ -178,6 +178,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (e) bus.publish(e);
     return store.getLane(id);
   });
+  /** Stops the lane's agent and starts it again from the lane's first task (a refused or stuck agent). */
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/restart", async (req) => deps.lanes.restart(laneParam(req.params)));
   /**
    * Archive hides a finished, failed or paused lane from lists and stops what it still runs (agent host,
    * app services, terminal). Its branch and history stay; a failed lane's checkout stays on disk.

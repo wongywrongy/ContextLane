@@ -732,6 +732,11 @@ Gate for the whole phase: 30% fewer cloud tokens on the same tasks (3.9).
 - Not checked: that each agent loads them when run over ACP rather than its own CLI. Added to Needs Kyle (start one lane per agent on neo with a skill and ask it to list its skills).
 - Tests: `skills.test.ts` (real git worktree: save, list, refuse bad names, copy per agent, `git status` stays clean, exclude lines not repeated) and the API in `server.test.ts`.
 
+#### First real lane on neo (2026-10-30)
+
+- **Agents were refused.** Saving any setting wrote the whole config, including the lane host and toolbox paths of the first install (`~/.local/share/contextlanes/app/...`). After updates, new lanes still ran that old lane host, which the daemon refused (`invalid lane token`), while the page showed "Working" with no steps. `loadConfig` and `saveConfig` now drop paths to ContextLanes' own lane host and toolbox, so lanes always run the release that is running. A refused host is now reported on the lane, an agent that has not reported in after 90 seconds is reported with the host's last log lines (or the lane fails if the host stopped), and **Restart the agent** (`POST /api/lanes/:p/:n/restart`) starts it again from the lane's first task with a new token.
+- **Long plans.** A task can be a whole markdown plan. The lane gets a short title (`laneTitle`: first line without markdown, cut at a word) for lists, the branch and the header, editable in New lane; the full plan is the lane's first message, shown as the first step with Show all. The first message reaches the lane host as a file (`--task-file`) instead of an argument. Lanes already named after a whole plan are shortened at startup.
+
 #### Stability, clarity and the CLI (2026-10-30)
 
 Two independent reviews, one of the daemon's reliability over weeks of running and one of the UI as a first-time user, led to:

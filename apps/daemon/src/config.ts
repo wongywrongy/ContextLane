@@ -67,15 +67,32 @@ export function configPath(): string {
   return process.env.CONTEXTLANES_CONFIG ?? join(homedir(), ".config/contextlanes/config.toml");
 }
 
+/**
+ * The lane host and toolbox always run from the release that is running now. A config saved by an
+ * earlier version wrote their paths out (pointing at the first install's checkout), which left new
+ * lanes on old code after every update; such paths are dropped on load and never written again.
+ */
+const OURS = [/\/apps\/lanehost\/dist\/main\.js$/, /\/packages\/toolbox\/dist\/main\.js$/];
+function withoutBuiltInPaths(raw: Record<string, unknown>): Record<string, unknown> {
+  const lanes = raw.lanes as Record<string, { args?: unknown }> | undefined;
+  if (!lanes) return raw;
+  const next = { ...lanes };
+  for (const key of ["host", "toolbox"]) {
+    const args = next[key]?.args;
+    if (Array.isArray(args) && typeof args[0] === "string" && OURS.some((re) => re.test(args[0] as string))) delete next[key];
+  }
+  return { ...raw, lanes: next };
+}
+
 export function loadConfig(path = configPath()): Config {
-  const raw = existsSync(path) ? parse(readFileSync(path, "utf8")) : {};
-  return Config.parse(raw);
+  const raw = existsSync(path) ? parse(readFileSync(path, "utf8")) as Record<string, unknown> : {};
+  return Config.parse(withoutBuiltInPaths(raw));
 }
 
 export async function saveConfig(config: Config, path = configPath()): Promise<void> {
   const validated = Config.parse(config);
   // TOML has no null; omit unset optional settings.
-  const raw = JSON.parse(JSON.stringify(validated, (_key, value) => value === null ? undefined : value));
+  const raw = withoutBuiltInPaths(JSON.parse(JSON.stringify(validated, (_key, value) => value === null ? undefined : value)));
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, stringify(raw), { mode: 0o600 });

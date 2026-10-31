@@ -39,7 +39,7 @@ describe("http api", () => {
     expect(setupCalls[1]).toMatch(/^tmux new-session -d -s cl-shuttleworks-01 /);
 
     const events = (await app.inject({ url: "/api/lanes/shuttleworks/01/events" })).json() as { type: string }[];
-    expect(events.map((e) => e.type)).toEqual(["lane.created", "lane.state", "lane.state"]);
+    expect(events.map((e) => e.type)).toEqual(["lane.created", "agent.message", "lane.state", "lane.state"]);
   });
 
   it("lists every project's lanes in one request for the home page", async () => {
@@ -170,5 +170,21 @@ describe("http api", () => {
     const [a, b] = await Promise.all(["One", "Two"].map((task) => app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task } })));
     expect([a!.statusCode, b!.statusCode]).toEqual([201, 201]);
     expect([a!.json().id, b!.json().id].sort()).toEqual(["shop/01", "shop/02"]);
+  });
+
+  it("restarts a lane's agent from its first task with a new token and a task file", async () => {
+    const { app, store, calls } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const plan = "# Billing\n\nStep 1: add invoices.\nStep 2: add tests.";
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: plan } })).json();
+    expect(lane.task).toBe("Billing");
+    expect(lane.branch).toMatch(/^lane\/01-billing$/);
+    const res = await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/restart` });
+    expect(res.statusCode).toBe(200);
+    expect(calls.some((c) => c.startsWith("systemctl --user stop"))).toBe(true);
+    const started = calls.find((c) => c.startsWith("systemd-run") && c.includes("--lane="))!;
+    expect(started).toContain("--task-file=");
+    expect(started).not.toContain("Step 1");
+    expect(store.events(lane.id).find((e) => e.type === "agent.message")).toMatchObject({ payload: { role: "user", text: plan } });
   });
 });

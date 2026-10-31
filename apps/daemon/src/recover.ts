@@ -1,5 +1,6 @@
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { laneTitle } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -23,6 +24,11 @@ export async function recover(deps: { store: Store; bus: EventBus; config: Confi
       else bus.publish(store.setLaneState(lane.id, "failed", "ContextLanes restarted while this lane was being set up. Start a new lane with the same task; this branch is kept."));
       done.push(`${lane.id}: ${store.getLane(lane.id)!.state}`);
     } catch (err) { console.error(`Could not recover ${lane.id}:`, err); }
+  }
+  // Lanes started with a whole plan as their name get a short title; the plan stays as their first message.
+  for (const lane of store.listLanes().filter((l) => l.task.length > 120 || l.task.includes("\n"))) {
+    const e = store.renameLane(lane.id, laneTitle(lane.task));
+    if (e) { bus.publish(e); done.push(`${lane.id}: shortened its title`); }
   }
   // Services started for "before" screenshots, and their temporary checkouts.
   const units = await run("systemctl", ["--user", "list-units", "--all", "--plain", "--no-legend", "--type=service", "contextlanes-env-before-*"], { timeout: 10_000 }).then((r) => r.stdout, () => "");

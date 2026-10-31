@@ -39,7 +39,14 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
   let sub: string | null = null;
   let right: ReactNode = null;
   let extra: ReactNode = null;
-  if (step.type === "text") { title = step.family === "you" ? "You" : agent; sub = step.text ?? ""; }
+  if (step.type === "text") {
+    title = step.family === "you" ? "You" : agent;
+    const text = step.text ?? "";
+    // A long message (a whole plan) shows its start; the rest opens in place, kept as written.
+    if (text.length > 600 || text.split("\n").length > 8) {
+      extra = <><div className="sb" style={{ whiteSpace: "pre-wrap" }}>{open ? text : `${text.split("\n").slice(0, 6).join("\n").slice(0, 500)}…`}</div><button className="tgl" aria-expanded={open} onClick={() => setOpen(!open)}><Chevron />{open ? "Show less" : `Show all ${text.split("\n").length} lines`}</button></>;
+    } else sub = text;
+  }
   if (step.type === "thought") { title = "Thinking"; extra = <><button className="tgl" aria-expanded={open} onClick={() => setOpen(!open)}><Chevron />{open ? "Hide thinking" : "Show thinking"}</button>{open ? <div className="panel mind thought">{step.text}</div> : null}</>; }
   if (step.type === "plan" && step.event.type === "agent.plan") {
     const entries = step.event.payload.entries;

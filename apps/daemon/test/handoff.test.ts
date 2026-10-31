@@ -45,7 +45,10 @@ describe("hand off, fresh session and fork", () => {
     expect(f.calls.map((c) => c.slice(0, 3).join(" "))).toContain("systemctl --user stop");
     const start = f.calls.find((c) => c[0] === "systemd-run")!;
     expect(start.find((a) => a.startsWith("--agent="))).toBe("--agent=codex");
-    expect(start.find((a) => a.startsWith("--task="))).toContain("from a handoff written by the previous session (claude-code)");
+    // The first message goes in a file, not an argument.
+    const file = start.find((a) => a.startsWith("--task-file="))!.slice("--task-file=".length);
+    expect(await (await import("node:fs/promises")).readFile(file, "utf8")).toContain("from a handoff written by the previous session (claude-code)");
+    expect(start.some((a) => a.startsWith("--task="))).toBe(false);
   });
 
   it("says why when the agent is not connected", async () => {

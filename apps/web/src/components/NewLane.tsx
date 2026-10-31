@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { routeTask, type DetectedAgent, type Lane, type Project, type ProjectBranches, type ServiceProposal, type SetupSettings } from "@contextlanes/protocol";
+import { laneTitle, routeTask, type DetectedAgent, type Lane, type Project, type ProjectBranches, type ServiceProposal, type SetupSettings } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, Dialog } from "./ui";
 
@@ -30,11 +30,15 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
     : !ready.length ? "No agent is ready. Install or sign in to one under Models."
     : branchError ? "Branches could not be read for this repository."
     : branches && !branches.branches.length ? "This repository has no commits. Make a first commit, then start a lane." : "";
-  const canStart = !!project && !!agent && !!base && !!task.trim() && !blocked && !busy;
+  // A whole plan is fine as the task: lists, the branch and the header use a short title, editable here.
+  const long = task.trim().length > 80 || task.trim().includes("\n");
+  const [title, setTitle] = useState<string | null>(null);
+  const shownTitle = title ?? laneTitle(task);
+  const canStart = !!project && !!agent && !!base && !!task.trim() && (!long || !!shownTitle.trim()) && !blocked && !busy;
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -48,7 +52,8 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>
       <label className="field">Goal <span className="hint">optional · groups lanes</span><input className="in" list="lane-goals" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="For example: Billing v1" /><datalist id="lane-goals">{goals.map((g) => <option key={g} value={g} />)}</datalist></label>
     </div>
-    <label className="field">Task<textarea className="in" rows={4} value={task} onChange={(e) => setTask(e.target.value)} placeholder="For example: add a /health endpoint with a test" /></label>
+    <label className="field">Task <span className="hint">one line, or a whole plan in markdown; the agent gets all of it</span><textarea className="in" rows={long ? 10 : 4} value={task} onChange={(e) => setTask(e.target.value)} placeholder="For example: add a /health endpoint with a test" /></label>
+    {long ? <label className="field">Title <span className="hint">what lists, the branch name and the lane header show</span><input className="in" value={shownTitle} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></label> : null}
     {adoption ? <div><p>The outside copy keeps running. This lane proposes its own recipe for you to approve.</p><pre className="out">{JSON.stringify({ command: adoption.command, port: adoption.port, folder: adoption.cwd }, null, 2)}</pre></div> : null}
     {blocked && agents ? <p role="alert" style={{ margin: 0 }}>{blocked}{!ready.length ? <> <Link to="/models">Open Models</Link></> : null}</p> : null}
     {error ? <p role="alert" style={{ margin: 0 }}>{error}</p> : null}

@@ -55,7 +55,22 @@ export const StartLaneRequest = z.object({
   base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
   /** contextlanes bench: "baseline" lanes start without project notes, get_brief or delegate. */
   baseline: z.boolean().default(false),
+  /** The lane's short name in lists and its branch; derived from the task when left out (laneTitle). */
+  title: z.string().trim().min(1).max(120).optional(),
 });
+
+/**
+ * A short lane title from a task that may be a whole plan: its first non-empty line without markdown
+ * markers, cut at a word boundary. The full task is still what the agent receives.
+ */
+export function laneTitle(task: string, max = 80): string {
+  const lines = task.split("\n").map((l) => l.replace(/^\s*(#{1,6}\s+|[-*>+]\s+|\d+[.)]\s+)/, "").replace(/[`*_]/g, "").replace(/\s+/g, " ").trim());
+  const line = lines.find(Boolean) ?? task.trim();
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:(\u2013-]+$/, "")}…`;
+}
 export type StartLaneRequest = z.input<typeof StartLaneRequest>;
 
 /** contextlanes bench: each task runs twice from the same commit, without and with phase 3's tools. */

@@ -40,3 +40,15 @@ describe("events", () => {
     expect(STEP_FAMILY.permission).toBe("you");
   });
 });
+
+import { laneTitle } from "../src/index.js";
+describe("lane titles", () => {
+  it("takes a plan's first line without markdown and keeps short tasks as they are", () => {
+    expect(laneTitle("Add a health check")).toBe("Add a health check");
+    expect(laneTitle("\n# Codex: finish play.yunavero.com flow light (#701)\n\nRepo: wongywrongy/ShuttleWorks.")).toBe("Codex: finish play.yunavero.com flow light (#701)");
+    expect(laneTitle("- **Fix** the `login` redirect")).toBe("Fix the login redirect");
+    const long = laneTitle("Rewrite the scheduler so that every court assignment respects rest periods between matches and the venue's opening hours");
+    expect(long.length).toBeLessThanOrEqual(81);
+    expect(long.endsWith("…")).toBe(true);
+  });
+});
