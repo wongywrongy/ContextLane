@@ -936,6 +936,20 @@ Kyle's read of the live pages: Work overview, Architecture, Review, Run and Insi
   - The key only shows what the view can contain, and the "Open an area" line is gone.
 - **Project header.** When the project's name differs from its repository's, the header says "repo ShuttleWorks · branch 694-ui-13-console", so a project named Yunavero no longer looks mislabelled.
 
+#### Step 3: Run and Insights
+
+- **Run** answers "is it up, where do I open it, what's wrong" before anything else.
+  - **Apps**: one row per lane, with a one-word state ("Up 1h 35m", "api is down", "Starting", "Not running") and an Open app button. A service that is down opens its logs without a click.
+  - **Setup facts** sit behind "How it was set up".
+  - **Starting**: the button says "Start the app" and shows the steps it will run. When the recipe needs approval, the row says so and the button opens the recipe.
+  - **Recipe**: shows at the top only when it needs you. When it's missing, the page offers "Have a lane write one", which starts a lane with a task to write `.contextlanes.json`. When it changed or is invalid, a "Review and approve" bar appears.
+  - **Housekeeping** is now one row each for the recipe, clean-up (only when there are merged lanes) and exposure, which flags certificates only when under 14 days. "Started outside ContextLanes" appears only when there is something.
+  - **Logs**: they follow the end only while you are there, mark error lines, count them on the "Errors" filter, and copy in one click.
+- **Insights.**
+  - "What to change" (the suggestions) leads, top 3 first, without the type tabs.
+  - The week's counts now include the review judge: checkpoints judged and how many were ready first time, plus the modules where findings keep landing, as stats the local model can cite (`judged`, `findings:<module>`). The "This week" panel shows "2 of 4 judged ready first time".
+- Tests: `insights.test.ts` (judge stats).
+
 ## Testing
 
 - **Unit and API:** Vitest across the repo (`pnpm test`); daemon routes through `fastify.inject`; commands injected through `Runner` so tests never touch git or tmux.

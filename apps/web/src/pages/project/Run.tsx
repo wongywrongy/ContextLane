@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus, Project, OutsideService, RunFacts } from "@contextlanes/protocol";
 import { useParams } from "react-router";
 import { errorMessage, getJson, postJson, useJson } from "../../api";
@@ -19,60 +19,89 @@ function size(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : bytes >= 1e6 ? `${Math.round(bytes / 1e6)} MB` : `${Math.ceil(bytes / 1e3)} KB`;
 }
 
-/** Run: each lane's copy of the app, from the approved recipe. */
+/** A lane's app in one word: up, starting, down (with which service), or not running. */
+function appState(env: EnvironmentView | null): { g: string; word: string; failing: string | null } {
+  const services = env?.services ?? [];
+  if (!services.length || services.every((s) => s.state === "stopped")) return { g: "idle", word: "Not running", failing: null };
+  const failed = services.find((s) => s.state === "failed");
+  if (failed) return { g: "fail", word: `${failed.name} is down`, failing: failed.name };
+  if (services.some((s) => s.state === "starting")) return { g: "think", word: "Starting", failing: null };
+  return { g: "done", word: env?.startedAt ? `Up ${duration(env.startedAt)}` : "Up", failing: null };
+}
+
+/**
+ * Run: whether each lane's copy of the app is up and where to open it, first. The recipe shows at the top
+ * only when it needs you (missing, changed or invalid); everything else that is not about using the app sits
+ * in Housekeeping at the bottom.
+ */
 export function RunPage() {
   const { project } = useParams();
   const { lanes, environments, reloadEnvironments } = useProjectWork();
   const [projects] = useJson<Project[]>("/api/projects");
   const [adopting, setAdopting] = useState<OutsideService | null>(null);
   const [viewing, setViewing] = useState<RecipeView | null>(null);
+  const [writing, setWriting] = useState(false);
   const exposure = environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
-  const live = environments?.lanes.filter((l) => running(l.environment)).length ?? 0;
   useEffect(() => {
     const timer = setInterval(reloadEnvironments, 5000);
     return () => clearInterval(timer);
   }, [reloadEnvironments]);
   const open = environments?.lanes ?? [];
   const recipe = environments?.recipe ?? null;
+  const states = open.map((e) => appState(e.environment));
+  const up = states.filter((s) => s.g === "done").length;
+  const down = states.filter((s) => s.g === "fail").length;
+  const outside = environments?.facts?.outside ?? [];
   return <main className="pg stack">
     <PageHeader title="Run" meta="each lane's copy of your app" end={<Glyph g="done">{exposure}</Glyph>} />
-    <Section title="Environments" meta={environments ? `${live} running · ${open.length - live} not started` : ""}>
-      {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} facts={environments?.facts?.lanes.find((f) => f.lane === lane.id)} /> : null; })}
+    {environments ? <RecipeNeed recipe={recipe} review={setViewing} write={() => setWriting(true)} /> : null}
+    <Section title="Apps" meta={environments ? [`${up} up`, down ? `${down} down` : "", `${open.length - up - down} not running`].filter(Boolean).join(" · ") : ""}>
+      {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} /> : null; })}
       {environments && !open.length ? <Empty icon="environment" family="run" action={<Link className="btn ghost sm" to={`/p/${project}/work?new=1`}>New lane</Link>}>No open lanes</Empty> : null}
-      <div className="envl"><div className="envl-h"><b>Started outside ContextLanes</b><Help>Servers from this project that you started yourself, found by their listening ports. ContextLanes only watches them; adopt one to run it as a lane's preview instead.</Help>
-        {environments?.facts?.outside === null ? <span className="e"><Fact g="idle" detail="ss unavailable">Ports not readable</Fact></span> : environments?.facts?.outside.length === 0 ? <span className="e"><Fact g="done">None running</Fact></span> : null}</div>
-        {environments?.facts?.outside?.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
-          <Glyph g="idle">{service.name}</Glyph><code>:{service.port}</code><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>pid {service.pid} · {service.cwd} · {service.bind}</span>
-          {service.adoptedLane ? <span className="e" style={{ marginLeft: "auto" }}><Fact g="wait" detail="stop this copy once the lane's runs">Moving to {service.adoptedLane}</Fact></span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
-        </div>)}
-      </div>
     </Section>
-    <Section title="Recipe and housekeeping" meta="every lane in this project">
-      <div className="hk">
-        <div>
-          <div className="h4" role="heading" aria-level={4}>Recipe<Help>A recipe (<span className="mono">.contextlanes.json</span> in the repository) says how to run this app for a lane: setup steps, services and their ports, and the checks run before review. Nothing in it runs until you approve it here. Lanes edit, test and get reviewed without one.</Help>{recipe ? <span className="e">{recipe.error ? <Glyph g="fail">Invalid</Glyph> : recipe.approved ? <Glyph g="done">Approved</Glyph> : <Glyph g="wait">Needs approval</Glyph>}</span> : null}</div>
-          {recipe ? <><span className="mono" style={{ fontSize: 13.5 }}>{recipe.file}</span>
-            <span className="mono muted" style={{ fontSize: 12 }}>sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((s) => s.name).join(", ") || "no services"} · ports per lane` : ""}</span>
-            <div><button className="btn ghost sm" onClick={() => setViewing(recipe)}>View recipe</button></div></>
-            : <><Fact g="idle" detail=".contextlanes.json">No recipe</Fact><span className="muted" style={{ fontSize: 13 }}>Previews and checks need one</span></>}
-        </div>
-        {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
-        <div>
-          <div className="h4" role="heading" aria-level={4}>Exposure<Help>Previews are reachable only on your tailnet{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help></div>
-          <Fact g="done" detail={environments?.previews === "caddy" ? `*.${environments.domain}` : undefined}>{exposure}</Fact>
-          <Fact g="done">Outside listeners stopped</Fact>
-          {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null).map((lane) => <Fact key={lane.lane} g={lane.certificateDays! < 7 ? "wait" : "done"} detail={lane.lane}>{`Certificate ${lane.certificateDays} days`}</Fact>)}
-        </div>
+    {outside.length ? <Section title="Started outside ContextLanes" help="Servers from this project that you started yourself, found by their listening ports. ContextLanes only watches them; adopt one to run it as a lane's preview instead.">
+      {outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
+        <Glyph g="idle">{service.name}</Glyph><code>:{service.port}</code><span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere", minWidth: 0 }}>pid {service.pid} · {service.cwd} · {service.bind}</span>
+        {service.adoptedLane ? <span className="e" style={{ marginLeft: "auto" }}><Fact g="wait" detail="stop this copy once the lane's runs">Moving to {service.adoptedLane}</Fact></span> : <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setAdopting(service)}>Adopt into a lane</button>}
+      </div>)}
+    </Section> : null}
+    <Section title="Housekeeping" meta="every lane in this project">
+      {recipe ? <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Recipe</span>
+        {recipe.error ? <Glyph g="fail">Invalid</Glyph> : recipe.approved ? <Glyph g="done">Approved</Glyph> : <Glyph g="wait">Needs approval</Glyph>}
+        <span className="mono muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>{recipe.file} · sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((x) => x.name).join(", ") || "no services"}` : ""}</span>
+        <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setViewing(recipe)}>View</button></div> : null}
+      {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
+      <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Exposure</span>
+        <Fact g="done" detail={environments?.previews === "caddy" ? `*.${environments.domain}` : undefined}>{exposure}</Fact>
+        <Help>Previews are reachable only on your tailnet{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help>
+        {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null && lane.certificateDays < 14).map((lane) => <Fact key={lane.lane} g="wait" detail={lane.lane}>{`Certificate ${lane.certificateDays} days`}</Fact>)}
       </div>
     </Section>
     {viewing ? <RecipeDialog view={viewing} onClose={() => setViewing(null)} changed={reloadEnvironments} /> : null}
     {adopting && projects ? <NewLaneDialog projects={projects} project={project} adoption={adopting} onClose={() => setAdopting(null)} /> : null}
+    {writing && projects ? <NewLaneDialog projects={projects} project={project} task={WRITE_RECIPE} onClose={() => setWriting(false)} /> : null}
   </main>;
+}
+
+const WRITE_RECIPE = "Write a .contextlanes.json recipe for this project so ContextLanes can run each lane's copy of the app: the setup steps, each service with its start command, the port it reads from $PORT and a health path, and the checks to run before review. Read the README and package scripts first; keep services bound to 127.0.0.1. Commit it and ask for review.";
+
+/** The recipe, at the top only when it needs you: missing, changed since you approved it, or invalid. */
+function RecipeNeed({ recipe, review, write }: { recipe: RecipeView | null; review: (v: RecipeView) => void; write: () => void }) {
+  if (recipe && recipe.approved && !recipe.error) return null;
+  const help = <Help>A recipe (<span className="mono">.contextlanes.json</span> in the repository) says how to run this app for a lane: setup steps, services and their ports, and the checks run before review. Nothing in it runs until you approve it. Lanes edit, test and get reviewed without one.</Help>;
+  if (!recipe) return <Section title="Recipe" end={help}>
+    <Empty icon="environment" family="run" action={<button className="btn sm" onClick={write}>Have a lane write one</button>}>No recipe · lanes can't run the app yet</Empty></Section>;
+  return <section className="sec you" aria-label="Recipe"><div className="sec-r" style={{ flexWrap: "wrap" }}>
+    {recipe.error ? <Glyph g="fail">Recipe is invalid</Glyph> : <Glyph g="wait">Recipe changed · needs your approval</Glyph>}{help}
+    <span className="mono muted" style={{ fontSize: 12 }}>{recipe.file} · sha {recipe.hash.slice(0, 7)}</span>
+    <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => review(recipe)}>{recipe.error ? "See the error" : "Review and approve"}</button>
+  </div>{recipe.error ? <div className="sec-b"><div className="out" style={{ margin: 0 }}>{recipe.error}</div></div> : null}</section>;
 }
 
 function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]; changed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  if (!entries.length) return null;
   const safe = entries.filter((e) => e.unpushed === 0);
   const unpushed = entries.reduce((sum, e) => sum + (e.unpushed ?? 0), 0);
   const unknown = entries.filter((e) => e.unpushed === null).length;
@@ -85,12 +114,12 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
     setBusy(false);
     changed();
   };
-  return <div>
-    <div className="h4" role="heading" aria-level={4}>Clean up<Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help></div>
-    {entries.length ? <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact> : <Fact g="done">Nothing to clean up</Fact>}
-    {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit is" : "commits are"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} could not be checked` : ""}</Glyph> : null}
-    {safe.length ? <div><button className="btn sm" disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button></div> : null}
-    {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{message}</p> : null}
+  return <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Clean up</span>
+    <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact>
+    <Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help>
+    {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit" : "commits"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} not checked` : ""}</Glyph> : null}
+    {safe.length ? <button className="btn ghost sm" style={{ marginLeft: "auto" }} disabled={busy} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button> : null}
+    {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5, flexBasis: "100%" }}>{message}</p> : null}
   </div>;
 }
 
@@ -109,12 +138,13 @@ function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: (
   </Dialog>;
 }
 
-function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; entry: LaneEnvironment; changed: () => void; review: (view: RecipeView) => void; facts?: RunFacts["lanes"][number] }) {
+function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: LaneEnvironment; changed: () => void; review: (view: RecipeView) => void }) {
   const env = entry.environment;
   const recipe = entry.recipe;
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [logs, setLogs] = useState<string | null>(null);
+  const [chosen, setLogs] = useState<string | null>(null);
+  const [setup, setSetup] = useState(false);
   const act = async (action: "start" | "stop" | "restart") => {
     setBusy(action); setError("");
     try { await postJson(`/api/lanes/${lane.id}/env/${action}`, {}); }
@@ -122,28 +152,33 @@ function EnvironmentRow({ lane, entry, changed, review, facts }: { lane: Lane; e
     finally { setBusy(""); changed(); }
   };
   const isRunning = running(env);
+  const state = appState(env);
+  // A service that is down shows its logs without a click; that is the first thing you need.
+  const logs = chosen ?? state.failing;
   const blocked = recipe && (!recipe.approved || recipe.error);
+  const web = env?.services.find((x) => x.name === "web" && x.url) ?? env?.services.find((x) => x.url) ?? null;
   return <div className="envl">
     <div className="envl-h">
       <LaneBadge id={lane.id} colour={lane.colour} /><b>{lane.task}</b>
-      {isRunning ? <Glyph g="done">{env?.startedAt ? `Up ${duration(env.startedAt)}` : "Running"}</Glyph> : <Glyph g="idle">Stopped</Glyph>}
-      <span className="m">{lane.branch}{facts?.diskBytes != null ? ` · ${size(facts.diskBytes)}` : ""}</span>
+      <Glyph g={state.g}>{state.word}</Glyph>
       <div className="e">
+        {isRunning && web?.url && state.g !== "fail" ? <a className="btn sm" href={web.url} target="_blank" rel="noreferrer">Open app ↗</a> : null}
         {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
-          : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Review recipe</button>
-            : recipe ? <button className="btn sm" disabled={!!busy} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start environment"}</button> : null}
+          : blocked ? <button className="btn ghost sm" onClick={() => review(recipe)}>Approve the recipe first</button>
+            : recipe ? <button className="btn sm" disabled={!!busy} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start the app"}</button> : null}
       </div>
     </div>
     {error ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{error}</p> : null}
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}
-    {env?.setup && isRunning ? <div className="envfacts">
-      {env?.setup && isRunning ? <><div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
-      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div>
-      {env.setup.database ? <div><Glyph g="done">Database</Glyph><small>{env.setup.database.kind === "postgres" ? `${env.setup.database.name} from ${env.setup.database.template}` : `${env.setup.database.name} copied`}</small></div> : null}</> : null}
-    </div> : null}
-    {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? null : service.name)} />) : null}
+    {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? "" : service.name)} />) : null}
     {isRunning && logs ? <Logs lane={lane.id} service={logs} /> : null}
-    {!isRunning && recipe?.recipe ? <Plan view={recipe} /> : null}
+    {isRunning && env?.setup ? <button className="lnk" style={{ justifySelf: "start", fontSize: 13 }} aria-expanded={setup} onClick={() => setSetup(!setup)}>{setup ? "Hide how it was set up" : "How it was set up"}</button> : null}
+    {isRunning && env?.setup && setup ? <div className="envfacts">
+      <div><Glyph g="done">Ignored files</Glyph><small>{env.setup.ignored.length ? `${env.setup.ignored.join(", ")} copied` : "none to copy"}</small></div>
+      <div><Glyph g="done">Dependencies</Glyph><small>{env.setup.cache === "none" ? "nothing to bring across" : `${env.setup.cache} from cache · ${env.setup.seconds} s`}</small></div>
+      {env.setup.database ? <div><Glyph g="done">Database</Glyph><small>{env.setup.database.kind === "postgres" ? `${env.setup.database.name} from ${env.setup.database.template}` : `${env.setup.database.name} copied`}</small></div> : null}
+    </div> : null}
+    {!isRunning && recipe?.recipe && !blocked ? <Plan view={recipe} /> : null}
   </div>;
 }
 
@@ -167,21 +202,33 @@ function Service({ service, open, toggle }: { service: ServiceStatus; open: bool
   </div>;
 }
 
+const BAD = /\b(error|exception|fail(ed|ure)?|fatal|panic|traceback|unhandled|refused|denied)\b|\s5\d\d\s/i;
+
+/** One service's log: follows the end while you are there, marks error lines, and filters to them in one tap. */
 function Logs({ lane, service }: { lane: string; service: string }) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"follow" | "errors">("follow");
+  const [copied, setCopied] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
   useEffect(() => {
     let live = true;
-    const load = () => getJson<LogLine[]>(`/api/lanes/${lane}/logs?service=${encodeURIComponent(service)}&lines=200`).then((l) => { if (live) { setLines(l); setError(""); } }, (e) => { if (live) setError(errorMessage(e)); });
+    const load = () => getJson<LogLine[]>(`/api/lanes/${lane}/logs?service=${encodeURIComponent(service)}&lines=300`).then((l) => { if (live) { setLines(l); setError(""); } }, (e) => { if (live) setError(errorMessage(e)); });
     void load();
     const timer = setInterval(() => void load(), 2000);
     return () => { live = false; clearInterval(timer); };
   }, [lane, service]);
-  const shown = mode === "errors" ? lines.filter((l) => /error|exception|fail|fatal/i.test(l.text)) : lines;
+  const bad = lines.filter((l) => BAD.test(l.text));
+  const shown = mode === "errors" ? bad : lines;
+  // New lines keep you at the end only if you were there; scrolling up to read stops the follow.
+  useLayoutEffect(() => { const el = box.current; if (el && atEnd.current) el.scrollTop = el.scrollHeight; }, [shown.length, mode]);
+  const copy = () => void navigator.clipboard?.writeText(shown.map((l) => `${clock(l.at, true)}  ${l.text}`).join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   return <div className="logs">
-    <div className="logs-h">Logs · {service}<span className="m">journald · live</span>
-      <div className="seg3" role="group" aria-label="Log filter"><button className={mode === "follow" ? "on" : ""} aria-pressed={mode === "follow"} onClick={() => setMode("follow")}>Follow</button><button className={mode === "errors" ? "on" : ""} aria-pressed={mode === "errors"} onClick={() => setMode("errors")}>Errors</button></div></div>
-    <div className="term" role="log" aria-live="off">{error ? error : shown.length ? shown.slice(-100).map((l, i) => <div key={i}><span className="c">{clock(l.at, true)}</span>  {l.text}</div>) : mode === "errors" ? "No error lines." : "No log lines yet."}</div>
+    <div className="logs-h">Logs · {service}<span className="m">live · last {lines.length} lines</span>
+      <button className="lnk" style={{ fontSize: 12.5, marginLeft: "auto" }} onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+      <div className="seg3" role="group" aria-label="Log filter" style={{ marginLeft: 0 }}><button className={mode === "follow" ? "on" : ""} aria-pressed={mode === "follow"} onClick={() => setMode("follow")}>All</button><button className={mode === "errors" ? "on" : ""} aria-pressed={mode === "errors"} onClick={() => setMode("errors")}>Errors{bad.length ? ` ${bad.length}` : ""}</button></div></div>
+    <div className="term" ref={box} role="log" aria-live="off" onScroll={(e) => { const el = e.currentTarget; atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
+      {error ? error : shown.length ? shown.map((l, i) => <div key={i} className={BAD.test(l.text) ? "err" : undefined}><span className="c">{clock(l.at, true)}</span>  {l.text}</div>) : mode === "errors" ? "No error lines." : "No log lines yet."}</div>
   </div>;
 }

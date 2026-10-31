@@ -22,7 +22,8 @@ async function fixture(answer: unknown, withModel = true, now?: () => number) {
   const run: Runner = async () => ({ stdout: "" });
   const models = new LocalModels({ config, run, fetch });
   const codemaps = { map: async () => ({ map: null, error: "none" }) } as unknown as CodeMaps;
-  return new Insights({ config, store, bus, models, codemaps, briefs: new Briefs({ config, store, codemaps, models }), ...(now ? { now } : {}) });
+  const insights = new Insights({ config, store, bus, models, codemaps, briefs: new Briefs({ config, store, codemaps, models }), ...(now ? { now } : {}) });
+  return Object.assign(insights, { store });
 }
 
 describe("insights", () => {
@@ -51,6 +52,18 @@ describe("insights", () => {
     expect(v.suggestions.map((s) => s.title)).toEqual(["Answer the fixture question once, in project notes"]);
     await i.dismiss("shop", v.suggestions[0]!.id);
     expect((await i.view("shop")).suggestions).toEqual([]);
+  });
+
+  it("counts what the review judge found: how often work passed first time and where findings keep landing", async () => {
+    const i = await fixture({}, false);
+    const judged = (id: string, lane: string, verdict: "merge" | "fix first", files: string[]) => i.store.insertCheckpoint({ id, lane, base: "a", head: "b", summary: "s", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString(),
+      judge: { state: "done", model: "m", verdict, headline: "h", findings: files.map((file) => ({ severity: "should fix" as const, file, line: null, text: `Missing test for ${file}` })), error: null, at: new Date().toISOString(), skipped: [] } });
+    judged("c1", "shop/01", "merge", []);
+    judged("c2", "shop/01", "fix first", ["solver/model.py"]);
+    judged("c3", "shop/02", "fix first", ["solver/constraints.py"]);
+    const stats = (await i.view("shop")).stats;
+    expect(stats.find((s) => s.id === "judged")).toMatchObject({ value: "3", detail: "3 checkpoints judged: 1 merge, 2 fix first, 0 do not merge" });
+    expect(stats.find((s) => s.id === "findings:solver")).toMatchObject({ value: "2", detail: expect.stringContaining("lanes 01, 02") });
   });
 
   it("runs once a day after 02:00 on this machine's clock, not every 20 hours", async () => {

@@ -112,6 +112,19 @@ export class Insights {
     for (const e of events.filter((x): x is Extract<LaneEvent, { type: "tool.update" }> => x.type === "tool.update" && !!x.payload.summary && x.payload.summary.length > 40_000).slice(0, 2)) add({ id: `output:${e.lane}#${e.seq}`, label: "tokens of output", value: k(estimateTokens(e.payload.summary!)), detail: `lane ${n(e.lane)} read ${k(estimateTokens(e.payload.summary!))} tokens of command output itself` });
     // Plan entries left pending in merged lanes: work nobody owns.
     for (const m of merges) { const plan = events.filter((e) => e.lane === m.lane && e.type === "agent.plan").at(-1); if (plan?.type === "agent.plan") for (const p of plan.payload.entries.filter((x) => x.status !== "completed").slice(0, 2)) add({ id: `plan:${m.lane}#${plan.seq}`, label: "task unowned", value: "1", detail: `"${p.text}" was left in lane ${n(m.lane)}'s plan when it merged` }); }
+    // What the review judge found this week: how often work passed first time, and where findings keep landing.
+    const judged = store.checkpoints(project).filter((c) => Date.parse(c.createdAt) >= since && c.judge?.state === "done" && c.judge.verdict);
+    if (judged.length) {
+      const by = (v: string) => judged.filter((c) => c.judge!.verdict === v).length;
+      add({ id: "judged", label: "judged", value: String(judged.length), detail: `${judged.length} checkpoints judged: ${by("merge")} merge, ${by("fix first")} fix first, ${by("do not merge")} do not merge` });
+      const where = new Map<string, { lanes: Set<string>; texts: string[] }>();
+      for (const c of judged) for (const f of c.judge!.findings.filter((x) => x.severity !== "nit")) {
+        const key = (map ? assign(f.file, map.rules)?.module : null) ?? f.file.split("/").slice(0, -1).join("/") ?? f.file;
+        const w = where.get(key) ?? { lanes: new Set(), texts: [] }; w.lanes.add(c.lane); w.texts.push(f.text); where.set(key, w);
+      }
+      for (const [module, w] of [...where].sort((a, b) => b[1].texts.length - a[1].texts.length).slice(0, 2).filter(([, w]) => w.texts.length >= 2))
+        add({ id: `findings:${module}`, label: "review findings", value: String(w.texts.length), detail: `${module}: ${w.texts.length} findings in lanes ${[...w.lanes].map(n).join(", ")}, e.g. "${w.texts[0]!.slice(0, 120)}"` });
+    }
     if (waits.length) add({ id: "wait", label: "median wait for you", value: `${Math.round(median(waits)!)}m`, detail: `${waits.length} answered questions and permissions` });
     const today = new Date(now); today.setHours(0, 0, 0, 0);
     const byLane = new Map<string, { tokens: number; cache: number; input: number }>();
