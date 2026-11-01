@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Lane } from "@contextlanes/protocol";
 import { Config, Store, EventBus, HostLinks, LaneManager, buildServer, type Runner } from "@contextlanes/daemon";
-import { checkCliArgs, cliArgs } from "../src/lanes/cli.js";
+import { checkCliArgs, cliArgs, launchCli } from "../src/lanes/cli.js";
 import { signedIn } from "./signed-in.js";
 
 const roots: string[] = [];
@@ -33,6 +33,30 @@ describe("CLI lanes", () => {
     expect(calls.find((c) => c.args[0] === "respawn-pane")?.args).toContain(specPath);
     expect((await stat(specPath)).mode & 0o777).toBe(0o600);
     expect(store.events(lane.id)[0]).toMatchObject({ type: "lane.created", payload: { kind: "cli" } });
+    await app.close(); store.close();
+  });
+  it("wires private MCP config and preserves baseline isolation across restart", async () => {
+    const { app, config, store } = await fixture();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Baseline", baseline: true } })).json();
+    const dir = join(config.paths.data, "cli", "demo-01");
+    expect(JSON.parse(await readFile(join(dir, "mcp.json"), "utf8"))).toEqual({ mcpServers: {} });
+    await app.inject({ method: "POST", url: "/api/lanes/demo/01/restart", payload: {} });
+    expect(JSON.parse(await readFile(join(dir, "launch.json"), "utf8")).args).toContain("--strict-mcp-config");
+    const headers = { authorization: `Bearer ${store.mintLaneToken(lane.id)}` };
+    expect((await app.inject({ url: "/api/lanes/demo/01/tools", headers })).json()).toEqual({ tools: [] });
+    for (const name of ["get_brief", "checkpoint", "ask_owner", "lanes_list"]) expect((await app.inject({ method: "POST", url: `/api/lanes/demo/01/tools/${name}`, headers, payload: {} })).statusCode).toBe(409);
+    await app.close(); store.close();
+  });
+  it("disables every resolved Codex MCP server for baselines, refusing an unreadable list", async () => {
+    const { app, config, store } = await fixture();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Codex", agent: "codex" } })).json();
+    const run: Runner = async () => ({ stdout: '[{"name":"user.server"},{"name":"contextlanes"}]' });
+    await launchCli(lane, config, run, "private-token", "Task", undefined, false, true);
+    const spec = JSON.parse(await readFile(join(config.paths.data, "cli", "demo-01", "launch.json"), "utf8"));
+    expect(spec.args).toContain('mcp_servers."user.server".enabled=false');
+    expect(spec.args).toContain('mcp_servers."contextlanes".enabled=false');
+    expect(JSON.stringify(spec.args)).not.toContain("private-token");
+    await expect(launchCli(lane, config, async () => ({ stdout: "invalid" }), "token", "Task", undefined, false, true)).rejects.toThrow();
     await app.close(); store.close();
   });
   it("direct mode keeps the checkout, database and branch on Delete", async () => {
@@ -98,6 +122,6 @@ describe("CLI lanes", () => {
     expect(codex).toContain("workspace-write"); expect(codex).toContain("on-request"); expect(codex).toContain('approval_reviewer="user"');
     expect(cliArgs({ ...base, agent: "codex", mode: "plan" }, "hi")).toContain("read-only");
     expect(cliArgs({ ...base, agent: "codex" }, "", undefined, true).slice(0, 2)).toEqual(["resume", "--last"]);
-    for (const arg of ["--dangerously-skip-permissions", "--yolo", "--approve-for-me", "--permission-mode=bypassPermissions", "-a", "-cfoo=1", "--settings=x", "--sandbox=danger-full-access"]) expect(() => checkCliArgs("codex", [arg])).toThrow();
+    for (const arg of ["--dangerously-skip-permissions", "--yolo", "--approve-for-me", "--permission-mode=bypassPermissions", "-a", "-cfoo=1", "--mcp-config=x", "--strict-mcp-config", "--settings=x", "--sandbox=danger-full-access"]) expect(() => checkCliArgs("codex", [arg])).toThrow();
   });
 });

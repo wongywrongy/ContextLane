@@ -286,7 +286,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // ── lanes ──
-  const hooks = new Hooks({ store, bus, config });
+  const hooks = new Hooks({ store, bus, config, context: (lane, task) => briefs.matching(lane.project, task) });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks", { bodyLimit: 2_000_000 }, async (req) => hooks.receive(laneParam(req.params), req.body));
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks/answer", async (req) => hooks.answer(laneParam(req.params), HookAnswerQuery.parse(req.query).request));
   app.post("/api/lanes", async (req, reply) => {
@@ -349,8 +349,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string; n: string } }>(TOOLS_ROUTE, async (req) => {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
-    // A bench baseline lane gets phase 2's tools only, so the comparison measures phase 3.
-    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => !["get_brief", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS].includes(t)) };
+    // A baseline has no ContextLanes tools, even if called by hand.
+    if (isBaseline(lane.id)) return { tools: [] };
     // A sub-lane cannot split again, so it does not see the tools for it.
     const tools = sublanes.parentOf(lane) ? LANE_TOOLS.filter((t) => t !== "split_lanes" && t !== "sublane_status" && t !== "lane_start") : LANE_TOOLS;
     return { tools: await helper.available() ? [...tools, "delegate"] : tools };
@@ -494,7 +494,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.
   app.post<{ Params: { project: string; n: string; tool: string } }>(TOOL_ROUTE, async (req, reply) => {
     const lane = laneParam(req.params);
-    if (["get_brief", "delegate", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS].includes(req.params.tool) && isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without phase 3 tools.");
+    if (isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without ContextLanes tools.");
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);

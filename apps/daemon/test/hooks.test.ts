@@ -29,7 +29,9 @@ describe("native hook bridge", () => {
     const session = await load("SessionStart");
     if (agent === "codex") {
       const dir = join(f.config.paths.data, "cli", "demo-01", "agent", "sessions"); await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, `rollout-fixture-${session.session_id}.jsonl`), await readFile(new URL("./fixtures/hooks/codex/session.jsonl", import.meta.url)));
+      const log = await readFile(new URL("./fixtures/hooks/codex/session.jsonl", import.meta.url), "utf8");
+      const rate_limits = JSON.parse(await readFile(new URL("./fixtures/hooks/codex/limits.json", import.meta.url), "utf8"));
+      await writeFile(join(dir, `rollout-fixture-${session.session_id}.jsonl`), log + "\n" + JSON.stringify({ type: "event_msg", payload: { type: "token_count", rate_limits } }) + "\n");
     }
     for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop"]) {
       const result = await f.post({ eventId: randomUUID(), payload: await load(event) }); expect(result.statusCode).toBe(200);
@@ -42,7 +44,7 @@ describe("native hook bridge", () => {
     expect(f.store.inbox()).toEqual([]);
     expect(f.store.eventsOfType(["agent.turn"]).at(-1)!.payload.active).toBe(false);
     expect(f.store.eventsOfType(["tool.call"])).toHaveLength(1);
-    if (agent === "codex") { expect(f.store.eventsOfType(["tool.update"]).at(-1)!.payload.exitCode).toBe(0); expect(f.store.eventsOfType(["usage.turn"])).toHaveLength(1); }
+    if (agent === "codex") { expect(f.store.eventsOfType(["tool.update"]).at(-1)!.payload.exitCode).toBe(0); expect(f.store.eventsOfType(["usage.turn"])).toHaveLength(1); expect(f.store.eventsOfType(["usage.limit"])[0]?.payload).toMatchObject({ window: "7d", usedPct: 25, source: "codex-log" }); }
     else { expect((await f.post({ eventId: randomUUID(), payload: await load("Notification") })).statusCode).toBe(200); expect(f.store.eventsOfType(["agent.notice"])).toHaveLength(1); }
   });
   it("accepts only this lane's token and validates payloads", async () => {
@@ -62,6 +64,11 @@ describe("native hook bridge", () => {
     await f.post(f.envelope("Stop", { last_assistant_message: "Done" }));
     expect(f.store.eventsOfType(["agent.turn"]).map((e) => e.payload.active)).toEqual([true, false]);
     expect(f.store.eventsOfType(["agent.message"]).map((e) => e.payload.text)).toEqual(["Write hi", "Done"]);
+  });
+  it("keeps startup notes, briefs and the tools hint out of baseline lanes", async () => {
+    const f = await fixture();
+    f.store.appendEvent("demo/01", { type: "lane.created", payload: { task: "Baseline", agent: "claude-code", branch: "lane/1", worktree: "/workspace", baseline: true } });
+    expect((await f.post(f.envelope("SessionStart"))).json()).toEqual({});
   });
   it("denies dire pre-tools even in Auto, including when an HTTP response is retried", async () => {
     const f = await fixture(true);

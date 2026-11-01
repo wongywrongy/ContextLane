@@ -40,9 +40,13 @@ export function LanePanes({ lane, events, waiting, reload, agent, interrupt, onV
   </section> : <div className={`pane-split ${node.direction}`} key={path}>{render(node.first, `${path}-a`)}{render(node.second, `${path}-b`)}</div>;
   const usage = events.findLast(e => e.type === "usage");
   const context = usage?.type === "usage" && usage.payload.contextSize > 0 ? Math.round(100 * usage.payload.contextUsed / usage.payload.contextSize) : null;
+  const limits = (["5h", "7d"] as const).flatMap(window => {
+    const latest = events.findLast(e => e.type === "usage.limit" && e.payload.window === window);
+    return latest?.type === "usage.limit" && Date.parse(latest.payload.resetsAt) > Date.now() ? [latest.payload] : [];
+  });
   return <section className="sec lane-panes" aria-label="Lane view" onKeyDown={e => { if (e.key === "Escape" && !typingTarget(e.target) && !document.querySelector("dialog[open]") && selected.kind !== "terminal") { e.preventDefault(); interrupt(); } }}>
     <div className="pane-tools"><div className="vt" role="tablist" aria-label="Lane view">{PANE_KINDS.map(kind => <button key={kind} role="tab" aria-selected={selected.kind === kind} className={selected.kind === kind ? "on" : ""} onClick={() => { const existing = kind !== "terminal" ? leaves.find(p => p.kind === kind) : null; if (existing) setActive(existing.id); else choose(selected.id, kind); }}>{kind[0]!.toUpperCase() + kind.slice(1)}</button>)}</div><button className="btn ghost sm" onClick={() => split("row")}>Split right <span className="kbd2">⌘D</span></button><button className="btn ghost sm" onClick={() => split("column")}>Split down <span className="kbd2">⌘⇧D</span></button>{notice ? <span role="status">{notice}</span> : null}</div>
     {render(layout)}
-    <div className="tmux-status"><LaneBadge id={lane.id} colour={lane.colour} /><b>{agent}</b><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />{context !== null ? <span>ctx {context}%</span> : null}{waiting[0] ? <span className="status-question" title={waiting[0].title}><Glyph g="wait">{waiting[0].title}</Glyph></span> : null}</div>
+    <div className="tmux-status"><LaneBadge id={lane.id} colour={lane.colour} /><b>{agent}</b><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />{context !== null ? <span>ctx {context}%</span> : null}{limits.map(limit => <span key={limit.window} title={`Resets ${new Date(limit.resetsAt).toLocaleString()}`}>{limit.window} {Math.round(limit.usedPct)}%</span>)}{waiting[0] ? <span className="status-question" title={waiting[0].title}><Glyph g="wait">{waiting[0].title}</Glyph></span> : null}</div>
   </section>;
 }

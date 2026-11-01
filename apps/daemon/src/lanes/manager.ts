@@ -137,7 +137,7 @@ export class LaneManager {
       if (config.lanes.launchHosts) {
         const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
         const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
-        if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs);
+        if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline);
         else await this.launch(lane, text);
       }
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
@@ -232,7 +232,7 @@ export class LaneManager {
     }
     if (["failed", "needs_you"].includes(store.getLane(id)!.state)) this.emit(store.setLaneState(id, "working", "agent restarted"));
     try {
-      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true);
+      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true, !!store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline);
       else await this.launch(store.getLane(id)!, text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -279,7 +279,7 @@ export class LaneManager {
 export function toolsHint(config: Config): string {
   const helper = config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
   return [
-    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading an unfamiliar module's files; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review; split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours.",
+    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading the files of each module you change, for its current facts and constraints; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review; split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours.",
     helper ? "delegate sends bounded work to a local model on this machine and keeps it out of your context: use kind read to answer a narrow question about several files, and check to run the project's checks and get the failures sorted." : "",
   ].filter(Boolean).join(" ");
 }

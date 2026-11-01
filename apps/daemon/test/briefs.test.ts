@@ -51,6 +51,15 @@ describe("module briefs", () => {
     expect(f.prompts).toEqual([]);
   });
 
+  it("matches cached module paths for startup without indexing or a model call", async () => {
+    const f = await fixture();
+    await f.briefs.edit("shop", "models/tournament.py", "Use UTC.");
+    expect(await f.briefs.matching("shop", "Fix models/tournament.py today")).toContain("Use UTC.");
+    expect(await f.briefs.matching("shop", "Fix tournament.py today")).toContain("Use UTC.");
+    expect(await f.briefs.matching("shop", "Fix tournamentXpy today")).toBe("");
+    expect(await f.briefs.matching("shop", "Unrelated task")).toBe("");
+    expect(f.prompts).toEqual([]);
+  });
   it("answers with facts alone when no local model is set up", async () => {
     const f = await fixture(false);
     const text = await f.briefs.forAgent("shop", { module: "models/tournament.py" });

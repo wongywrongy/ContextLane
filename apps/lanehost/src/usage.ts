@@ -30,12 +30,25 @@ export function reportedLimits(meta: Record<string, unknown> | null | undefined)
   return limits;
 }
 
+/** Native Codex fields verified from token_count; unrelated account metadata is ignored. */
+export function codexLimits(value: unknown): z.infer<typeof UsageLimit>[] {
+  const parsed = z.object({ limit_id: z.literal("codex"), primary: z.unknown().optional(), secondary: z.unknown().optional() }).safeParse(value);
+  if (!parsed.success) return [];
+  return [parsed.data.primary, parsed.data.secondary].flatMap(value => {
+    const parsed = z.object({ used_percent: z.number().min(0).max(100), window_minutes: z.union([z.literal(300), z.literal(10080)]), resets_at: z.number().int().nonnegative().max(8.64e12 - 1) }).safeParse(value);
+    if (!parsed.success) return [];
+    const { used_percent, window_minutes, resets_at } = parsed.data;
+    const limit = UsageLimit.safeParse({ window: window_minutes === 300 ? "5h" : "7d", usedPct: used_percent, resetsAt: new Date(resets_at * 1000).toISOString(), source: "codex-log" });
+    return limit.success ? [limit.data] : [];
+  });
+}
+
 /** Only read the exact native session, and verify its working directory before counting anything. */
 export class SessionUsage {
   private file?: string;
   constructor(private agent: string | undefined, private cwd: string, private sessionId: string, private env: NodeJS.ProcessEnv = process.env) {}
 
-  async read(): Promise<{ source: "claude-log" | "codex-log"; tokens: Tokens; results?: { callId: string; summary: string; exitCode: number | null }[] } | null> {
+  async read(): Promise<{ source: "claude-log" | "codex-log"; tokens: Tokens; limits?: z.infer<typeof UsageLimit>[]; results?: { callId: string; summary: string; exitCode: number | null }[] } | null> {
     if (!this.agent || !/^[\w-]+$/.test(this.sessionId) || !["claude-code", "codex"].includes(this.agent)) return null;
     try {
       if (!this.file) {
@@ -54,6 +67,7 @@ export class SessionUsage {
       const lines = createInterface({ input: createReadStream(this.file!, { end: size - 1 }), crlfDelay: Infinity });
       const messages = new Map<string, Tokens>();
       const results: { callId: string; summary: string; exitCode: number | null }[] = [];
+      let limits: z.infer<typeof UsageLimit>[] = [];
       let matched = false, total: Tokens | null = null;
       for await (const line of lines) {
         let row;
@@ -73,6 +87,7 @@ export class SessionUsage {
             if (result.success) results.push({ callId: result.data.id, summary: result.data.aggregated_output.slice(0, 12_000), exitCode: result.data.exit_code });
           }
           if (!matched || row.type !== "event_msg" || row.payload?.type !== "token_count") continue;
+          if (row.payload.rate_limits) limits = codexLimits(row.payload.rate_limits);
           const parsed = codexUsage.safeParse(row.payload.info?.total_token_usage);
           if (!parsed.success) continue;
           const u = parsed.data;
@@ -80,7 +95,7 @@ export class SessionUsage {
         }
       }
       if (!matched) return null;
-      if (this.agent === "codex") return total ? { source: "codex-log", tokens: total, ...(results.length ? { results } : {}) } : null;
+      if (this.agent === "codex") return total ? { source: "codex-log", tokens: total, limits, ...(results.length ? { results } : {}) } : null;
       const tokens: Record<keyof Tokens, number | null> = zero();
       for (const usage of messages.values()) for (const key of Object.keys(tokens) as (keyof Tokens)[]) {
         const before = tokens[key], value = usage[key];

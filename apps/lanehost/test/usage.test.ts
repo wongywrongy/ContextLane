@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { openAgentSession, runLaneHost } from "@contextlanes/lanehost";
 import { Config, EventBus, HostLinks, LaneManager, Store, buildServer } from "@contextlanes/daemon";
 import { NewLaneEvent, type TurnUsage } from "@contextlanes/protocol";
-import { SessionUsage, usageDelta, reportedLimits } from "../src/usage.js";
+import { SessionUsage, usageDelta, reportedLimits, codexLimits } from "../src/usage.js";
 import { fakeAgent } from "./fake-agent.js";
 
 const roots: string[] = [];
@@ -119,4 +119,9 @@ it("reads Codex cumulative totals once, excludes cached input, rejects mismatche
   expect(await new SessionUsage("codex", "/other", "session", { CODEX_HOME: dir }).read()).toBeNull();
   expect(await new SessionUsage("codex", "/code/demo", "../session", { CODEX_HOME: dir }).read()).toBeNull();
   expect(usageDelta(before!.tokens, after!.tokens)).toBeNull();
+});
+
+it("accepts only reported native Codex windows and omits absent or invalid fields", () => {
+  expect(codexLimits({ limit_id: "codex", primary: { used_percent: 25, window_minutes: 10080, resets_at: 1793775027 }, secondary: null })).toEqual([{ window: "7d", usedPct: 25, resetsAt: "2026-11-04T06:50:27.000Z", source: "codex-log" }]);
+  for (const value of [undefined, {}, { limit_id: "other", primary: { used_percent: 25, window_minutes: 300, resets_at: 100 } }, { limit_id: "codex", primary: { used_percent: 101, window_minutes: 300, resets_at: 100 } }]) expect(codexLimits(value)).toEqual([]);
 });

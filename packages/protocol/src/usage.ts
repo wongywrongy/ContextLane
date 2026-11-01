@@ -17,7 +17,7 @@ export const TurnUsage = TokenUsage.extend({
 export type TurnUsage = z.infer<typeof TurnUsage>;
 export const UsageQuery = z.object({ project: ProjectId.optional(), since: z.iso.datetime().transform((value) => new Date(value).toISOString()).optional() });
 export const UsageLimit = z.object({
-  window: z.enum(["5h", "7d"]), usedPct: z.number().min(0).max(100), resetsAt: z.iso.datetime(), source: z.literal("acp"),
+  window: z.enum(["5h", "7d"]), usedPct: z.number().min(0).max(100), resetsAt: z.iso.datetime(), source: z.enum(["acp", "codex-log"]),
 });
 const totals = TokenUsage.extend({ turns: tokens, costUsd: z.number().nonnegative().nullable(), costTurns: tokens });
 export const UsageSummary = z.object({

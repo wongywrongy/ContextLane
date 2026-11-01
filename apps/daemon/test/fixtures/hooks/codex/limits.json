@@ -1,0 +1,9 @@
+{
+  "limit_id": "codex",
+  "primary": {
+    "used_percent": 25,
+    "window_minutes": 10080,
+    "resets_at": 1793775027
+  },
+  "secondary": null
+}

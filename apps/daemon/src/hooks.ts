@@ -8,9 +8,9 @@ import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { answerPermission, autoVerdict } from "./permissions.js";
-import { NotFound, Refused } from "./lanes/manager.js";
+import { NotFound, Refused, toolsHint } from "./lanes/manager.js";
 
-type Deps = { store: Store; bus: EventBus; config: Config };
+type Deps = { store: Store; bus: EventBus; config: Config; context?: (lane: Lane, task: string) => Promise<string> };
 const output = (event: string, value: object) => ({ hookSpecificOutput: { hookEventName: event, ...value } });
 const text = (v: unknown) => typeof v === "string" ? v : JSON.stringify(v ?? "");
 const inputKey = (p: HookPayload) => createHash("sha256").update(JSON.stringify([p.session_id, p.tool_name, Object.entries(p.tool_input ?? {}).filter(([key]) => key !== "description").sort(([a], [b]) => a.localeCompare(b))])).digest("hex");
@@ -46,7 +46,11 @@ export class Hooks {
       emit({ type: "agent.session", payload: { sessionId: p.session_id, ...(p.transcript_path ? { transcriptPath: p.transcript_path } : {}), modes: [], models: [], images: false } });
       const baseline = store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline;
       const notes = baseline ? "" : await readFile(join(config.paths.data, "notes", `${lane.project}.md`), "utf8").catch(() => "");
-      return notes.trim() ? output(event, { additionalContext: `Project notes from the owner:\n${notes.trim().slice(0, 12_000)}` }) : {};
+      if (baseline) return {};
+      const task = store.eventsOfType(["agent.message"], { lanes: [id] }).find(e => e.payload.role === "user")?.payload.text ?? lane.task;
+      const brief = await this.deps.context?.(lane, task) ?? "";
+      const context = [notes.trim() ? `Project notes from the owner:\n${notes.trim().slice(0, 12_000)}` : "", brief, toolsHint(config)].filter(Boolean).join("\n\n");
+      return output(event, { additionalContext: context });
     }
     if (event === "UserPromptSubmit") {
       this.terminalAnswers(id);
@@ -64,8 +68,8 @@ export class Hooks {
     if (["Stop", "StopFailure", "Interrupt"].includes(event)) {
       this.terminalAnswers(id);
       if (p.last_assistant_message) emit({ type: "agent.message", payload: { role: "agent", text: p.last_assistant_message } });
-      emit({ type: "agent.turn", payload: { active: false, ...(p.error ? { stopReason: p.error } : {}) } });
       await this.usage(lane, p.session_id, eventId);
+      emit({ type: "agent.turn", payload: { active: false, ...(p.error ? { stopReason: p.error } : {}) } });
       return {};
     }
     const previous = p.tool_use_id ? undefined : store.eventsOfType(["tool.call"], { lanes: [id] }).findLast((e) => e.payload.sessionId === p.session_id && e.payload.name === p.tool_name && inputKey({ ...p, tool_input: e.payload.input }) === inputKey(p));
@@ -117,6 +121,10 @@ export class Hooks {
       if (!this.deps.store.toolCall(lane.id, result.callId)) continue;
       const last = this.deps.store.eventsOfType(["tool.update"], { lanes: [lane.id] }).findLast((e) => e.payload.callId === result.callId)?.payload;
       if (last?.exitCode !== result.exitCode || last?.summary !== result.summary) this.emit(lane.id, { type: "tool.update", payload: { ...result, status: result.exitCode !== null && result.exitCode !== 0 ? "failed" : "completed" } });
+    }
+    for (const limit of after.limits ?? []) {
+      const previous = this.deps.store.eventsOfType(["usage.limit"], { lanes: [lane.id] }).findLast(e => e.payload.window === limit.window)?.payload;
+      if (JSON.stringify(previous) !== JSON.stringify(limit)) this.emit(lane.id, { type: "usage.limit", payload: limit });
     }
     const before = this.deps.store.eventsOfType(["usage.snapshot"], { lanes: [lane.id] }).findLast((e) => e.payload.sessionId === session)?.payload.tokens;
     const tokens = usageDelta(after.tokens, before);

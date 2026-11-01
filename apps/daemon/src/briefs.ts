@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assign, estimateTokens, type CodeMap, type ModuleBrief, type ProjectId } from "@contextlanes/protocol";
 import { readInside } from "./safefs.js";
@@ -111,6 +111,20 @@ export class Briefs {
     }
     const note = brief.text ? (brief.stale ? `${brief.text}\n(Written before the module's files last changed; check anything that matters.)` : brief.text) : brief.canWrite ? "No brief yet; it is being written." : "No brief: no local model is set up.";
     return `${note}\n\n${brief.facts}`.slice(0, 6000);
+  }
+
+  /** Fast SessionStart context: cached briefs only; no indexing, model call or network in a hook. */
+  async matching(project: ProjectId, task: string): Promise<string> {
+    const candidates: Saved[] = [];
+    for (const file of (await readdir(this.dir(project)).catch(() => [])).filter(f => /^[a-f0-9]{24}\.json$/.test(f))) {
+      const text = (await readInside(this.dir(project), file, 64_000).catch(() => null))?.text;
+      if (!text) continue;
+      let brief: Saved; try { brief = JSON.parse(text) as Saved; } catch { continue; }
+      if (typeof brief.module !== "string" || typeof brief.text !== "string" || !brief.text.trim()) continue;
+      const words = [brief.module, brief.module.split("/").at(-1)!];
+      if (words.some(word => word && new RegExp(`(^|[^a-z0-9_])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z0-9_])`, "i").test(task))) candidates.push(brief);
+    }
+    return candidates.sort((a, b) => b.module.length - a.module.length).slice(0, 2).map(b => `Cached module brief: ${b.module} (check against current files)\n${b.text.slice(0, 2800)}`).join("\n\n").slice(0, 6000);
   }
 
   async notes(project: ProjectId): Promise<string> { return readFile(this.notesFile(project), "utf8").catch(() => ""); }
