@@ -82,7 +82,7 @@ export const StartLaneRequest = z.object({
   adoption: ServiceProposal.optional(),
   /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */
   base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
-  /** contextlanes bench: "baseline" lanes start without project notes, get_brief or delegate. */
+  /** contextlanes bench: "baseline" lanes start without ContextLanes notes, briefs or MCP tools. */
   baseline: z.boolean().default(false),
   /** The lane's short name in lists and its branch; derived from the task when left out (laneTitle). */
   title: z.string().trim().min(1).max(120).optional(),
@@ -102,12 +102,12 @@ export function laneTitle(task: string, max = 80): string {
 }
 export type StartLaneRequest = z.input<typeof StartLaneRequest>;
 
-/** contextlanes bench: each task runs twice from the same commit, without and with phase 3's tools. */
+/** contextlanes bench: each task runs twice from one pinned commit, without and with ContextLanes enhancers. */
 export const BenchTask = z.object({ project: ProjectId, base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/).default("main"), task: z.string().min(1).max(4000),
-  check: z.array(z.string().min(1)).min(1).max(50), agent: z.string().default("claude-code"), model: z.string().optional(), timeoutMinutes: z.number().int().min(1).max(240).default(60) });
+  check: z.array(z.string().min(1)).min(1).max(50), kind: z.enum(["cli", "acp"]).optional(), agent: z.string().default("claude-code"), model: z.string().optional(), timeoutMinutes: z.number().int().min(1).max(240).default(60) });
 export const BenchRequest = z.object({ tasks: z.array(BenchTask).min(1).max(20) });
-export type BenchRun = { lane: string; baseline: boolean; tokens: number | null; minutes: number | null; passed: boolean | null; state: "running" | "checking" | "done" | "failed"; detail: string | null };
-export type BenchResult = { id: string; startedAt: string; finishedAt: string | null; tasks: { task: string; project: string; runs: BenchRun[] }[] };
+export type BenchRun = { lane: string | null; baseline: boolean; tokens: number | null; minutes: number | null; passed: boolean | null; state: "running" | "checking" | "done" | "failed"; detail: string | null };
+export type BenchResult = { id: string; startedAt: string; finishedAt: string | null; tasks: { task: string; project: string; base?: string; agent?: string; model?: string | null; kind?: "cli" | "acp"; runs: BenchRun[] }[] };
 
 /** Auto mode for a lane; only the owner's token can change it. */
 export const AutoRequest = z.object({ on: z.boolean() });
@@ -201,14 +201,17 @@ export const PlanCollisionRequest = z.object({ module: z.string().min(1).max(300
 export function benchTable(r: BenchResult): string {
   const rows = r.tasks.map((t) => {
     const off = t.runs.find((x) => x.baseline); const on = t.runs.find((x) => !x.baseline);
-    const change = off?.tokens && on?.tokens ? `${Math.round((1 - on.tokens / off.tokens) * 100)}% fewer` : "–";
+    const change = off?.tokens !== null && off?.tokens !== undefined && off.tokens > 0 && on?.tokens !== null && on?.tokens !== undefined ? `${Math.round((1 - on.tokens / off.tokens) * 100)}% fewer` : "–";
     const pass = (x?: BenchRun) => x?.passed === null || x?.passed === undefined ? "–" : x.passed ? "passed" : "failed";
     return `| ${t.task.split("\n")[0]!.slice(0, 60)} | ${off?.tokens ?? "–"} | ${on?.tokens ?? "–"} | ${change} | ${pass(off)} / ${pass(on)} |`;
   });
-  const sum = (b: boolean) => r.tasks.reduce((n, t) => n + (t.runs.find((x) => x.baseline === b)?.tokens ?? 0), 0);
+  const sum = (b: boolean) => {
+    const values = r.tasks.map(t => t.runs.find(x => x.baseline === b)?.tokens);
+    return values.length && values.every((v): v is number => v !== null && v !== undefined) ? values.reduce((a, b) => a + b, 0) : null;
+  };
   const off = sum(true), on = sum(false);
   return ["| Task | Tokens without | Tokens with | Change | Check (without / with) |", "|---|---|---|---|---|", ...rows,
-    `| **All** | ${off} | ${on} | ${off && on ? `${Math.round((1 - on / off) * 100)}% fewer` : "–"} | |`].join("\n");
+    `| **All** | ${off ?? "–"} | ${on ?? "–"} | ${off !== null && off > 0 && on !== null ? `${Math.round((1 - on / off) * 100)}% fewer` : "–"} | |`].join("\n");
 }
 
 /** Hand off (another agent), fresh session (same agent) or fork (a new lane from this one). */

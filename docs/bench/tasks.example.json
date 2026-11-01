@@ -1,0 +1,5 @@
+[
+  { "project": "replace-with-project-id", "base": "main", "agent": "claude-code", "model": "replace-with-model-id", "task": "PLACEHOLDER: Fix one reproducible bug; describe the expected behavior.", "check": ["pnpm", "test"], "timeoutMinutes": 30 },
+  { "project": "replace-with-project-id", "base": "main", "agent": "claude-code", "model": "replace-with-model-id", "task": "PLACEHOLDER: Add one small feature with concrete acceptance criteria.", "check": ["pnpm", "check"], "timeoutMinutes": 30 },
+  { "project": "replace-with-project-id", "base": "main", "agent": "claude-code", "model": "replace-with-model-id", "task": "PLACEHOLDER: Change behavior across two modules; describe the invariant to keep.", "check": ["pnpm", "test"], "timeoutMinutes": 30 }
+]

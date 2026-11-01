@@ -16,6 +16,7 @@ const config = Config.parse({ paths: { data: root, lanes: root }, access: { owne
 const run = async (cmd, args) => ({ stdout: cmd === 'tmux' && args[0] === 'display-message' ? '0' : cmd === 'git' ? args[0] === 'rev-list' ? '1' : ['rev-parse', 'merge-base'].includes(args[0]) ? 'a'.repeat(40) : args.includes('--numstat') ? '3\t1\tapp.ts\n' : '' : '' });
 run.terminal = () => { let output; return { write: text => output?.(text), resize() {}, kill() {}, onData(fn) { output = fn; queueMicrotask(() => fn('\x1b[32mContextLanes browser fixture\x1b[0m\r\nNative session input stays in this pane.\r\n')); return { dispose() {} }; }, onExit() { return { dispose() {} }; } }; };
 const setup = new SetupManager(config, store, run); await setup.initialize();
+setup.detectAgents = async () => ["codex", "claude-code"].map(id => ({ id, name: id === "codex" ? "Codex" : "Claude Code", installed: true, status: "Ready", source: "built-in", support: "full" }));
 const hosts = new HostLinks({ store, bus });
 const lanes = new LaneManager({ store, bus, config, run });
 const schedules = new Schedules({ config, store, lanes, setup, run, home: root, node: process.execPath, cli: join(root, 'fixture-cli') });
@@ -27,7 +28,10 @@ for (const [index, state] of ['working', 'needs_you', 'in_review', 'merged', 'fa
   const lane = store.insertLane({ id, n, project: project.id, goal: null, task: ['Invoice API', 'Currency choice', 'Invoice page', 'Receipt merged', 'Retry failed check', 'Retry failed server', 'Payment tests'][index], agent: index % 2 ? 'claude-code' : 'codex', kind: 'cli', model: null, mode: 'ask', branch: `lane/0${n}-fixture`, worktree: project.path, terminal: `fixture-${n}`, hostUnit: null, base: 'main', state: 'working', colour: `lc${index % 6 + 1}` });
   store.appendEvent(id, { type: 'lane.created', payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree } });
   store.appendEvent(id, { type: 'agent.turn', payload: { active: state === 'working' } });
-  if (n === 1) store.appendEvent(id, { type: 'usage', payload: { contextUsed: 45000, contextSize: 100000 } });
+  if (n === 1) {
+    store.appendEvent(id, { type: 'usage', payload: { contextUsed: 45000, contextSize: 100000 } });
+    store.appendEvent(id, { type: 'usage.limit', payload: { window: '7d', usedPct: 25, resetsAt: new Date(Date.now() + 86400000).toISOString(), source: 'codex-log' } });
+  }
   if (state === 'needs_you') store.appendEvent(id, { type: 'permission.requested', payload: { requestId: 'currency', title: 'Which currency should invoices use?', kind: 'question', options: [{ id: 'usd', label: 'USD', kind: 'allow_once' }, { id: 'eur', label: 'EUR', kind: 'allow_once' }] } });
   if (['in_review', 'merged'].includes(state)) {
     const cp = randomUUID();
@@ -53,6 +57,8 @@ try {
     for (const [name, route] of routes) {
       await page.goto(`${url}${route}`); await page.waitForTimeout(600); await page.evaluate(() => document.fonts.ready);
       if (name === "board") { assert.equal(await page.locator('.board-column').count(), 5); await page.getByText('ctx 45%', { exact: true }).waitFor(); }
+      if (name === "lane") await page.locator(".tmux-status").getByText("7d 25%", { exact: true }).waitFor();
+      if (name === "models") await page.getByText("7d 25%", { exact: true }).waitFor();
       if (name === "projects") await page.locator('.project-need').waitFor();
       await noOverflow(); await page.screenshot({ path: join(screenshots, `${name}-${width}.png`), fullPage: true });
     }

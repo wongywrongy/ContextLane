@@ -30,7 +30,7 @@ ${bold("Lanes")}
 
 ${bold("Projects")}
   contextlanes arch [project]                 areas, modules and where lanes work  ${dim("[--json] [--mermaid]")}
-  contextlanes bench <tasks.json>             measure tokens with and without local models
+  contextlanes bench <tasks.json>             compare CLI tokens with and without enhancers
 
 ${bold("This machine")}
   contextlanes status                         is ContextLanes running, and where to open it
@@ -137,7 +137,7 @@ async function main(argv: string[]): Promise<number> {
       while (!run.finishedAt) {
         await new Promise((r) => setTimeout(r, 15_000));
         run = await api<BenchResult>(`/api/bench/${run.id}`);
-        const line = run.tasks.flatMap((t) => t.runs.map((r) => `${r.lane} ${r.state}`)).join(" · ");
+        const line = run.tasks.flatMap((t) => t.runs.map((r) => `${r.lane ?? "not started"} ${r.state}`)).join(" · ");
         if (line !== last) { console.log(line); last = line; }
       }
       console.log(`\n${benchTable(run)}`);
