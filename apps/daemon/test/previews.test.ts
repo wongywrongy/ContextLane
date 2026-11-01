@@ -20,7 +20,7 @@ function fake(serving: unknown = {}, fail = false) {
   };
   return { run, calls };
 }
-const previews = (run: Runner, previews: unknown = {}, fetcher?: typeof fetch) => new Previews({ config: Config.parse({ previews }), run, fetch: fetcher });
+const previews = (run: Runner, previews: unknown = {}, fetcher?: typeof fetch) => new Previews({ config: Config.parse({ previews: { mode: "serve", ...(previews as object) } }), run, fetch: fetcher });
 
 describe("previews", () => {
   it("names a label from the lane and service", () => {
@@ -102,7 +102,7 @@ describe("previews in the runtime", () => {
       return { stdout: "" };
     };
     const store = Store.open(":memory:");
-    const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ paths: { data: root, lanes: root } }), run, freePort: async () => 20100, fetch: (async () => new Response("ok")) as typeof fetch });
+    const runtime = new Runtime({ store, bus: new EventBus(), config: Config.parse({ previews: { mode: "serve" }, paths: { data: root, lanes: root } }), run, freePort: async () => 20100, fetch: (async () => new Response("ok")) as typeof fetch });
     store.addProject({ id: "shop", name: "Shop", path: root });
     store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "b", worktree: root, terminal: "t", hostUnit: null, base: null, state: "working", colour: "lc1" });
     await writeFile(join(root, RECIPE_FILE), JSON.stringify({ services: [{ name: "web", command: ["node"] }] }));

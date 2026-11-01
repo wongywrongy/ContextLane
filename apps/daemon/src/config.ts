@@ -33,7 +33,8 @@ export const Config = z.object({
   localModels: z.array(LocalModel).default([]),
   projects: z.array(AddProjectRequest).default([]),
   previews: z.object({
-    mode: z.enum(["serve", "services", "caddy"]).default("serve"),
+    mode: z.enum(["local", "serve", "services", "caddy"]).default("local"),
+    localPort: z.number().int().min(1).max(65535).default(4601),
     /** HTTPS ports on the device for serve mode. */
     ports: z.object({ from: z.number().int().min(1).max(65535).default(4700), to: z.number().int().min(1).max(65535).default(4799) }).prefault({}),
     caddy: z.object({

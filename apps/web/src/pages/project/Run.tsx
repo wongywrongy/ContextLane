@@ -41,7 +41,7 @@ export function RunPage() {
   const [adopting, setAdopting] = useState<OutsideService | null>(null);
   const [viewing, setViewing] = useState<RecipeView | null>(null);
   const [writing, setWriting] = useState(false);
-  const exposure = environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
+  const exposure = environments?.previews === "local" ? "This machine only" : environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
   useEffect(() => {
     const timer = setInterval(reloadEnvironments, 5000);
     return () => clearInterval(timer);
@@ -68,12 +68,12 @@ export function RunPage() {
     <Section title="Housekeeping" meta="every lane in this project">
       {recipe ? <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Recipe</span>
         {recipe.error ? <Glyph g="fail">Invalid</Glyph> : recipe.approved ? <Glyph g="done">Approved</Glyph> : <Glyph g="wait">Needs approval</Glyph>}
-        <span className="mono muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>{recipe.file} · sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((x) => x.name).join(", ") || "no services"}` : ""}</span>
+        <span className="mono muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>{recipe.importedFrom ? `Imported from ${recipe.importedFrom} · ` : ""}{recipe.file} · sha {recipe.hash.slice(0, 7)}{recipe.recipe ? ` · ${recipe.recipe.services.map((x) => x.name).join(", ") || "no services"}` : ""}</span>
         <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setViewing(recipe)}>View</button></div> : null}
       {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
       <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Exposure</span>
         <Fact g="done" detail={environments?.previews === "caddy" ? `*.${environments.domain}` : undefined}>{exposure}</Fact>
-        <Help>Previews are reachable only on your tailnet{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help>
+        <Help>Previews are reachable {environments?.previews === "local" ? "only on this machine, through named localhost URLs" : "only on your tailnet"}{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help>
         {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null && lane.certificateDays < 14).map((lane) => <Fact key={lane.lane} g="wait" detail={lane.lane}>{`Certificate ${lane.certificateDays} days`}</Fact>)}
       </div>
     </Section>
@@ -93,7 +93,7 @@ function RecipeNeed({ recipe, review, write }: { recipe: RecipeView | null; revi
     <Empty icon="environment" family="run" action={<button className="btn sm" onClick={write}>Have a lane write one</button>}>No recipe · lanes can't run the app yet</Empty></Section>;
   return <section className="sec you" aria-label="Recipe"><div className="sec-r" style={{ flexWrap: "wrap" }}>
     {recipe.error ? <Glyph g="fail">Recipe is invalid</Glyph> : <Glyph g="wait">Recipe changed · needs your approval</Glyph>}{help}
-    <span className="mono muted" style={{ fontSize: 12 }}>{recipe.file} · sha {recipe.hash.slice(0, 7)}</span>
+    <span className="mono muted" style={{ fontSize: 12 }}>{recipe.importedFrom ? `Imported from ${recipe.importedFrom} · ` : ""}{recipe.file} · sha {recipe.hash.slice(0, 7)}</span>
     <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => review(recipe)}>{recipe.error ? "See the error" : "Review and approve"}</button>
   </div>{recipe.error ? <div className="sec-b"><div className="out" style={{ margin: 0 }}>{recipe.error}</div></div> : null}</section>;
 }
@@ -134,6 +134,7 @@ function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: (
     footer={<>{error ? <span role="alert" style={{ fontSize: 13.5 }}>{error}</span> : null}{!view.approved && !view.error && project ? <button className="btn" onClick={() => void approve()}>Approve this recipe</button> : null}<button className="btn ghost" onClick={onClose}>Close</button></>}>
     {view.error ? <p role="alert">{view.error}</p> : null}
     <p className="muted" style={{ margin: "0 0 10px", fontSize: 13.5 }}>{view.approved ? "Approved. A change to this file needs approval again." : "These commands run on this machine as you. Approve only what you have read."}</p>
+    {view.importedFrom ? <p>Imported from {view.importedFrom} · {view.file}</p> : null}
     <div className="out recipe-text">{view.text}</div>
   </Dialog>;
 }

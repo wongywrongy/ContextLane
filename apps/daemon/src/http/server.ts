@@ -210,6 +210,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const { deleteBranch } = DiscardLane.parse(req.body ?? {});
     const repo = store.getProject(lane.project)!.path;
     await runtime.stop(lane.id).catch(() => {});
+    if (await access(lane.worktree).then(() => true, () => false)) await runtime.teardown(lane.id);
     if (!lane.direct) await runtime.dropDatabase(lane).catch(() => {});
     await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
     await new Terminals(run).kill(lane.terminal).catch(() => {});

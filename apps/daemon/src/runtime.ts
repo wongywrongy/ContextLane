@@ -138,6 +138,32 @@ export class Runtime {
     });
   }
 
+  /** An approved setup runs before the agent; unapproved recipes remain an owner decision. */
+  async prepareWorkspace(lane: Lane): Promise<void> {
+    const project = this.deps.store.getProject(lane.project)!;
+    const view = await laneRecipe(this.deps.store, project, lane);
+    if (!view) return;
+    if (!view.approved || !view.recipe) {
+      if (!this.deps.store.recipeAlreadyRequested(lane.id, view.hash)) this.deps.bus.publish(this.deps.store.appendEvent(lane.id, { type: "recipe.requested", payload: { hash: view.hash } }));
+      return;
+    }
+    const services: ServiceStatus[] = await Promise.all(view.recipe.services.map(async (s) => ({ name: s.name, unit: "", port: await (this.deps.freePort ?? freePort)(), url: null, state: "stopped", detail: null, probes: [], ms: null, lastFailure: null, healthPath: s.health.path, healthStatus: s.health.status })));
+    const ports = Object.fromEntries(services.map((s) => [`PORT_${s.name.toUpperCase().replaceAll("-", "_")}`, String(s.port)]));
+    const setup = await this.prepare(lane, project, view.recipe, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id, ...ports, ...(services[0] ? { PORT: String(services[0].port) } : {}) });
+    this.deps.store.saveEnvironment({ lane: lane.id, recipeHash: view.hash, services, setup, startedAt: null, error: null });
+    this.deps.bus.publish(this.deps.store.appendEvent(lane.id, { type: "env.status", payload: { service: "setup", up: true, state: "healthy" } }));
+  }
+
+  async teardown(id: string): Promise<void> {
+    const lane = this.lane(id);
+    const view = await laneRecipe(this.deps.store, this.deps.store.getProject(lane.project)!, lane);
+    if (!view?.recipe?.scripts.teardown) return;
+    const recipe = this.approved(lane, view);
+    const result = await oneshot(this.deps.run, lane.worktree, scriptArgs(recipe.scripts.teardown!), { PATH: process.env.PATH ?? "/usr/bin:/bin", CONTEXTLANES_LANE: id }, 600, sandbox(this.deps.config));
+    this.deps.bus.publish(this.deps.store.appendEvent(id, { type: "env.status", payload: { service: "teardown", up: result.ok, state: result.ok ? "stopped" : "failed", detail: result.output.slice(-600) } }));
+    if (!result.ok) throw new Refused(`Teardown failed; checkout kept. ${result.output}`);
+  }
+
   /** One pass of the health loop. */
   async poll(): Promise<void> {
     await Promise.all(this.deps.store.liveEnvironments().map((env) => this.probe(env.lane)));
@@ -155,6 +181,7 @@ export class Runtime {
 
   close(): void {
     if (this.timer) clearInterval(this.timer);
+    this.previews.close();
   }
 
   private lane(id: string): Lane {
@@ -276,15 +303,18 @@ export class Runtime {
     }
   }
 
-  /** Copy ignored .env files, bring dependencies across, then run the recipe's setup steps. */
+  /** Copy selected ignored files, bring dependencies across, then run the recipe's setup steps. */
   private async prepare(lane: Lane, project: Project, recipe: Recipe, env: Record<string, string>): Promise<NonNullable<EnvironmentView["setup"]>> {
     const { run } = this.deps;
     const started = Date.now();
-    const listed = await run("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ":(glob)**/.env*"], { cwd: project.path });
+    const listed = recipe.copy.length ? await run("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...recipe.copy.map((pattern) => `:(glob)${pattern}`)], { cwd: project.path }) : { stdout: "" };
     const ignored: string[] = [];
     for (const file of listed.stdout.split("\0").filter(Boolean)) {
       const source = join(project.path, file);
-      if (!(await lstat(source)).isFile()) continue;
+      if (file.startsWith("/") || file.split("/").includes("..")) continue;
+      let linked = false, at = project.path;
+      for (const part of file.split("/")) { at = join(at, part); if ((await lstat(at)).isSymbolicLink()) { linked = true; break; } }
+      if (linked || !(await lstat(source)).isFile()) continue;
       const target = join(lane.worktree, file);
       // The checkout is the agent's: never write through a folder it replaced with a link.
       await mkdirInside(lane.worktree, dirname(file));
@@ -306,12 +336,13 @@ export class Runtime {
     const database = recipe.database ? await createLaneDatabase(run, this.deps.config, recipe.database, lane, project.path) : null;
     const stepEnv = recipe.database && database ? { ...env, ...databaseEnv(this.deps.config, recipe.database, database, lane.worktree) } : env;
     const seconds = Math.round((Date.now() - started) / 100) / 10;
-    for (const step of recipe.setup) {
+    const steps = [...recipe.setup, ...(recipe.scripts.setup ? [{ name: "Setup script", command: scriptArgs(recipe.scripts.setup), timeoutSeconds: 600 }] : [])];
+    for (const step of steps) {
       const result = await oneshot(run, lane.worktree, step.command, stepEnv, step.timeoutSeconds, sandbox(this.deps.config));
       if (!result.ok) throw new Error(`${step.name} failed: ${result.output.trim().slice(-600)}`);
     }
     const disk = await run("du", ["-sb", lane.worktree]).then((r) => Number(r.stdout.split(/\s/)[0]), () => null);
-    return { ignored, cache, seconds, steps: recipe.setup.length, disk: Number.isFinite(disk) ? disk : null, database };
+    return { ignored, cache, seconds, steps: steps.length, disk: Number.isFinite(disk) ? disk : null, database };
   }
 
   private async probe(id: string, deadline?: number): Promise<void> {
@@ -354,7 +385,7 @@ export class Runtime {
 
   /** A healthy service gets its link. A failed link never stops the app; it says why and retries. */
   private async link(id: string, service: ServiceStatus): Promise<void> {
-    if (service.url || Date.now() < (this.previewRetry.get(service.unit) ?? 0)) return;
+    if (service.url && this.deps.config.previews.mode !== "local" || Date.now() < (this.previewRetry.get(service.unit) ?? 0)) return;
     const { store } = this.deps;
     this.previewRetry.set(service.unit, Date.now() + 60_000);
     try {
@@ -378,3 +409,5 @@ export class Runtime {
     if (current.state !== next.state || current.detail !== next.detail || current.url !== next.url) bus.publish(store.appendEvent(env.lane, { type: "env.status", payload: { service: next.name, up: next.state === "healthy", port: next.port, ...(next.url ? { url: next.url } : {}), state: next.state, ...(next.detail ? { detail: next.detail } : {}) } }));
   }
 }
+
+function scriptArgs(script: string | string[]): string[] { return Array.isArray(script) ? script : [`./${script.replace(/^\.\//, "")}`]; }

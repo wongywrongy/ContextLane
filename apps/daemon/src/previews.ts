@@ -3,6 +3,7 @@ import type { Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
 import { slugify } from "./lanes/naming.js";
 import type { Runner } from "./run.js";
+import { LocalProxy } from "./local-proxy.js";
 
 type Options = { config: Config; run: Runner; fetch?: typeof fetch };
 type Serving = { TCP?: Record<string, unknown>; Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }> };
@@ -20,6 +21,7 @@ export function previewLabel(lane: Pick<Lane, "id">, service: string): string {
  * This class only adds and removes its own routes; other Serve routes are left alone.
  */
 export class Previews {
+  private local?: LocalProxy;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly fetch: typeof fetch;
 
@@ -37,6 +39,11 @@ export class Previews {
   publish(lane: Pick<Lane, "id">, service: string, port: number): Promise<string> {
     return this.serial(async () => {
       const label = previewLabel(lane, service);
+      if (this.settings.mode === "local") {
+        this.local ??= new LocalProxy(this.settings.localPort);
+        const [project, n] = lane.id.split("/");
+        return this.local.publish(`${service}--${n}--${project}.localhost`, port);
+      }
       if (this.settings.mode === "caddy") return this.addCaddy(label, port);
       return this.settings.mode === "services" ? this.addService(label, port) : this.addServe(port);
     });
@@ -46,11 +53,14 @@ export class Previews {
     return this.serial(async () => {
       const { hostname, port } = new URL(url);
       const label = hostname.split(".")[0]!;
+      if (this.settings.mode === "local") { this.local?.unpublish(url); return; }
       if (this.settings.mode === "caddy") await this.fetch(`${this.settings.caddy!.admin}/id/cl-${label}`, { method: "DELETE" });
       else if (this.settings.mode === "services") await this.options.run("tailscale", ["serve", "clear", `svc:${label}`], { timeout: 30_000 });
       else await this.options.run("tailscale", ["serve", `--https=${port}`, "off"], { timeout: 30_000 });
     });
   }
+
+  close(): void { this.local?.close(); }
 
   private async status(): Promise<{ dns: string; suffix: string }> {
     const status = JSON.parse((await this.options.run("tailscale", ["status", "--json"], { timeout: 5000 })).stdout) as { BackendState?: string; MagicDNSSuffix?: string; Self?: { DNSName?: string } };

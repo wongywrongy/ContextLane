@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { Runtime } from "../runtime.js";
 import { Skills } from "../skills.js";
 import { agentProfile, laneColour, laneId, laneTitle, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
@@ -128,6 +129,7 @@ export class LaneManager {
         await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
       }
       await extra.prepare?.(lane);
+      await new Runtime(this.deps).prepareWorkspace(lane);
       // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
       // A skill that fails to copy is reported, not fatal: the lane still works without it.
       if (!req.baseline && !lane.direct) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));

@@ -1,5 +1,5 @@
 import { signedIn } from "./signed-in.js";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,5 +85,34 @@ describe("recipe approval", () => {
     await approve(hash);
     expect((await app.inject({ url: "/api/inbox" })).json()).toEqual([]);
     expect(store.events("shop/01").at(-1)).toMatchObject({ type: "recipe.approved", payload: { hash } });
+  });
+});
+
+
+describe("imported recipes", () => {
+  it("proposes Superset commands through the same approval hash and notices changed bytes", async () => {
+    const { root, view, approve } = await setup();
+    await mkdir(join(root, ".superset"));
+    const file = join(root, ".superset/config.json");
+    await writeFile(file, JSON.stringify({ setup: ["pnpm install"], run: ["./.superset/run.sh"], teardown: ["node teardown.js"] }));
+    const first = await view();
+    expect(first).toMatchObject({ importedFrom: "Superset", approved: false, error: null, recipe: { setup: [{ command: ["pnpm", "install"] }], scripts: { teardown: ["node", "teardown.js"] }, services: [{ name: "web", command: ["./.superset/run.sh"] }] } });
+    expect((await approve(first.hash)).statusCode).toBe(200);
+    expect((await view()).approved).toBe(true);
+    await writeFile(file, JSON.stringify({ run: ["node other.js"] }));
+    expect((await approve(first.hash)).statusCode).toBe(409);
+    await writeFile(join(root, RECIPE_FILE), "{}");
+    expect((await view()).importedFrom).toBeUndefined();
+  });
+  it("imports Conductor TOML and refuses shell evaluation instead of silently changing it", async () => {
+    const { root, view, approve } = await setup();
+    await mkdir(join(root, ".conductor"));
+    await writeFile(join(root, ".conductor/settings.toml"), '[scripts]\nsetup = "pnpm install"\narchive = "./cleanup.sh"\n[scripts.run.dev]\ncommand = "pnpm dev --port $PORT"\ndefault = true\n');
+    expect(await view()).toMatchObject({ importedFrom: "Conductor", recipe: { services: [{ command: ["pnpm", "dev", "--port", "$PORT"] }], scripts: { teardown: ["./cleanup.sh"] } } });
+    await mkdir(join(root, ".superset"));
+    await writeFile(join(root, ".superset/config.json"), JSON.stringify({ setup: ["pnpm install && curl evil"] }));
+    const bad = await view();
+    expect(bad).toMatchObject({ recipe: null, error: expect.stringContaining("Shell syntax") });
+    expect((await approve(bad.hash)).statusCode).toBe(409);
   });
 });

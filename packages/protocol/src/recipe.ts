@@ -11,6 +11,7 @@ const Name = z.string().regex(/^[a-z][a-z0-9-]{0,30}$/, "lowercase letters, digi
 const Argv = z.array(z.string().min(1).max(4096)).min(1).max(100);
 const RelativePath = z.string().min(1).max(512).refine((p) => !p.startsWith("/") && !p.split("/").includes(".."), "a path inside the repository");
 const Timeout = (fallback: number) => z.number().int().positive().max(3600).default(fallback);
+const Script = z.union([Argv, RelativePath]);
 
 export const RecipeStep = z.strictObject({ name: z.string().min(1).max(100), command: Argv, timeoutSeconds: Timeout(600) });
 export type RecipeStep = z.infer<typeof RecipeStep>;
@@ -39,6 +40,8 @@ export type RecipeDatabase = z.infer<typeof RecipeDatabase>;
 export type LaneDatabase = { kind: "postgres" | "sqlite"; name: string; template: string | null };
 
 export const Recipe = z.strictObject({
+  copy: z.array(RelativePath).max(50).default(["**/.env*"]),
+  scripts: z.strictObject({ setup: Script.optional(), teardown: Script.optional(), run: Script.optional() }).prefault({}),
   /** Runs once per lane, after ignored files and dependencies arrive. */
   setup: z.array(RecipeStep).max(20).default([]),
   /** Dependency folders taken from the main checkout, such as node_modules. */
@@ -50,7 +53,7 @@ export const Recipe = z.strictObject({
   architecture: ArchitectureConfig.optional(),
   /** Pages for before and after screenshots. */
   screenshots: z.array(z.string().startsWith("/")).max(5).default(["/"]),
-});
+}).transform((recipe) => ({ ...recipe, services: recipe.services.length || !recipe.scripts.run ? recipe.services : [RecipeService.parse({ name: "web", command: Array.isArray(recipe.scripts.run) ? recipe.scripts.run : [`./${recipe.scripts.run.replace(/^\.\//, "")}`] })] }));
 export type Recipe = z.infer<typeof Recipe>;
 
 export const ServiceState = z.enum(["starting", "healthy", "failed", "stopped"]);
@@ -86,7 +89,7 @@ export type EnvironmentView = z.infer<typeof EnvironmentView>;
 
 /** The Run page: the project's recipe, and each open lane's own recipe and environment. */
 export type LaneEnvironment = { lane: string; recipe: RecipeView | null; environment: EnvironmentView | null };
-export type ProjectEnvironments = { cleanup: { lane: string; unpushed: number | null; disk: number | null }[]; previews: "serve" | "services" | "caddy"; domain: string | null; recipe: RecipeView | null; lanes: LaneEnvironment[]; facts: RunFacts };
+export type ProjectEnvironments = { cleanup: { lane: string; unpushed: number | null; disk: number | null }[]; previews: "local" | "serve" | "services" | "caddy"; domain: string | null; recipe: RecipeView | null; lanes: LaneEnvironment[]; facts: RunFacts };
 
 export const StartEnvRequest = z.object({ services: z.array(z.string()).optional() });
 export const LogsQuery = z.object({ service: z.string().min(1), lines: z.coerce.number().int().positive().max(500).default(100) });
@@ -97,6 +100,7 @@ export const ApproveRecipeRequest = z.object({ hash: RecipeHash });
 
 /** The recipe a project or lane would run, and whether the owner approved these exact bytes. */
 export const RecipeView = z.object({
+  importedFrom: z.enum(["Superset", "Conductor"]).optional(),
   file: z.string(),
   hash: RecipeHash,
   text: z.string(),

@@ -36,7 +36,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
     if (cmd === "systemd-run" && args.includes("--wait") && opts.setupFails) throw Object.assign(new Error("exit 1"), { stdout: "migration 12 failed\n" });
     return { stdout: "" };
   };
-  const config = Config.parse({ paths: { data: root, lanes: root } });
+  const config = Config.parse({ previews: { mode: "serve" }, paths: { data: root, lanes: root } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const seen: LaneEvent[] = [];
@@ -232,5 +232,29 @@ describe("services", () => {
     await runtime.start("shop/01", ["api"]);
     const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/env_status", payload: {} });
     expect(res.json().services.map((s: { name: string }) => s.name)).toEqual(["api"]);
+  });
+});
+
+
+describe("workspace scripts", () => {
+  it("copies selected ignored globs without links, keeps existing files and runs scripts in the sandbox", async () => {
+    const { runtime, calls, repo, worktree, approve, store } = await setup({ ignored: ["secret.key", "linked/secret.key"] }, { copy: ["**/*.key"], scripts: { setup: ["node", "setup.js"], teardown: "cleanup.sh", run: ["node", "server.js"] } });
+    await writeFile(join(repo, "secret.key"), "source");
+    await writeFile(join(worktree, "secret.key"), "keep");
+    await symlink(repo, join(repo, "linked"));
+    await approve();
+    await runtime.prepareWorkspace(store.getLane("shop/01")!);
+    expect(await readFile(join(worktree, "secret.key"), "utf8")).toBe("keep");
+    expect(store.environment("shop/01")?.setup?.ignored).toEqual(["secret.key"]);
+    expect(calls.find(c => c[0] === "git")?.at(-1)).toBe(":(glob)**/*.key");
+    await runtime.start("shop/01");
+    expect(calls.filter(c => c.includes("setup.js"))).toHaveLength(1);
+    expect(calls.find(c => c.includes("setup.js"))).toContain("--setenv=PORT=20100");
+    expect(started(calls)[0]).toContain("--setenv=PORT=20100");
+    expect(started(calls)[0]?.at(-1)).toBe("server.js");
+    await runtime.teardown("shop/01");
+    const teardown = calls.find(c => c.includes("./cleanup.sh"))!;
+    expect(teardown).toContain("bwrap");
+    expect(store.events("shop/01").at(-1)).toMatchObject({ type: "env.status", payload: { service: "teardown", state: "stopped" } });
   });
 });
