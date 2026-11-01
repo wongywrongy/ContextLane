@@ -15,4 +15,9 @@ it.each(["claude", "codex"] as const)("registers the checkout and forwards %s ar
   await expect(startCliLane(agent, ["--here", "--model", "small", "A task\nwith `$()` and spaces"])).resolves.toMatchObject({ id: "demo/01" });
   expect(calls.find((c) => c.path === "/api/projects")!.body).toEqual({ path: process.cwd() });
   expect(calls.find((c) => c.path === "/api/lanes")!.body).toMatchObject({ agent: agent === "claude" ? "claude-code" : "codex", kind: "cli", direct: true, base: "develop", cliArgs: ["--model", "small", "A task\nwith `$()` and spaces"] });
+  expect(calls.find((c) => c.path === "/api/lanes")!.body).toHaveProperty("remoteControl", false);
+  if (agent === "claude") {
+    await startCliLane(agent, ["--remote-control"]);
+    expect(calls.at(-1)!.body).toMatchObject({ remoteControl: true, cliArgs: [] });
+  }
 });

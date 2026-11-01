@@ -51,7 +51,7 @@ export class HostLinks {
     const commandId = randomUUID();
     const event = this.deps.store.appendEvent(lane, { type: "agent.command", payload: { commandId, command } });
     this.deps.bus.publish(event);
-    return { commandId, delivered: this.send(lane, { commandId, command }) };
+    return { commandId, delivered: this.deps.store.getLane(lane)!.kind === "cli" || this.send(lane, { commandId, command }) };
   }
 
   close(): Promise<void> {

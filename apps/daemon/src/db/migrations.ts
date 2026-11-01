@@ -96,4 +96,5 @@ export const MIGRATIONS: readonly string[] = [
   /* 12 */ `ALTER TABLE lane ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;`,
   /* 13 */ `ALTER TABLE lane ADD COLUMN kind TEXT NOT NULL DEFAULT 'acp' CHECK (kind IN ('cli', 'acp'));
   ALTER TABLE lane ADD COLUMN direct INTEGER NOT NULL DEFAULT 0;`,
+  /* 14 */ `ALTER TABLE lane ADD COLUMN remote_control INTEGER NOT NULL DEFAULT 0;`,
 ];

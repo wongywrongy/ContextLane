@@ -23,6 +23,7 @@ import { Judge } from "../judge.js";
 import { Sublanes } from "../sublanes.js";
 import { Nudges } from "../nudges.js";
 import { Hooks } from "../hooks.js";
+import { CliInputs } from "../lanes/input.js";
 import { HookAnswerQuery } from "@contextlanes/protocol";
 import type { Schedules } from "../schedules.js";
 import { access } from "node:fs/promises";
@@ -70,6 +71,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false, forceCloseConnections: true });
   const { store, bus, config } = deps;
   const run = deps.run ?? runCommand;
+  const cliInputs = new CliInputs({ store, bus, config, run });
+  app.addHook("onClose", () => cliInputs.close());
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
   const sublanes = new Sublanes({ store, bus, lanes: deps.lanes, hosts: deps.hosts, run });
@@ -288,6 +291,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = laneParam(req.params);
     if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
     const body = PromptRequest.parse(req.body);
+    if (store.getLane(lane)!.kind === "cli" && body.images.length) throw new Refused("Attach images through the agent's own terminal.", 400);
     const prompt = await attach(config, store.getLane(lane)!, body);
     bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } }));
     return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...prompt }) });

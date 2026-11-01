@@ -36,6 +36,8 @@ it("a delivered prompt remains queued until its own turn starts", () => {
   const ack = event(2, "agent.command.result", { commandId: id, ok: true });
   expect(queuedPrompts([queued, ack])).toHaveLength(1);
   expect(queuedPrompts([queued, ack, event(3, "agent.turn", { commandId: id, active: true })])).toHaveLength(0);
+  expect(queuedPrompts([queued, event(3, "agent.input", { commandId: id, phase: "sending" })])).toHaveLength(1);
+  expect(queuedPrompts([queued, event(3, "agent.input", { commandId: id, phase: "sent" })])).toHaveLength(0);
 });
 
 it("clips the two-hour timeline and distinguishes actual idle, working and human waiting periods", () => {

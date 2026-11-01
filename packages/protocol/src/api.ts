@@ -38,6 +38,7 @@ export const Lane = z.object({
   agent: z.string(),
   kind: z.enum(["cli", "acp"]).default("acp"),
   direct: z.boolean().default(false),
+  remoteControl: z.boolean().default(false),
   model: z.string().nullable(),
   mode: z.enum(["ask", "edits", "plan"]),
   /** Auto mode: ContextLanes approves the agent's requests except the dire ones (guard.ts), which wait for you. */
@@ -69,6 +70,7 @@ export const StartLaneRequest = z.object({
   agent: z.string().default("claude-code"),
   kind: z.enum(["cli", "acp"]).optional(),
   direct: z.boolean().default(false),
+  remoteControl: z.boolean().default(false),
   cliArgs: z.array(z.string().max(64_000)).max(100).optional(),
   model: z.string().optional(),
   mode: z.enum(["ask", "edits", "plan"]).default("ask"),

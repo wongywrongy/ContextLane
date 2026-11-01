@@ -52,6 +52,14 @@ describe("CLI lanes", () => {
     expect(r.statusCode).toBe(400); expect(store.listLanes()).toEqual([]); expect(calls).toEqual([]);
     await app.close(); store.close();
   });
+  it("offers Remote Control only for Claude CLI lanes", async () => {
+    const { app, store, config } = await fixture();
+    for (const request of [{ agent: "codex" }, { agent: "claude-code", kind: "acp" }]) expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Task", remoteControl: true, ...request } })).statusCode).toBe(400);
+    expect(store.listLanes()).toHaveLength(0);
+    expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Task", remoteControl: true } })).json()).toMatchObject({ remoteControl: true });
+    expect(JSON.parse(await readFile(join(config.paths.data, "cli", "demo-01", "launch.json"), "utf8")).args).toContain("--remote-control");
+    await app.close(); store.close();
+  });
   it("restarts in the same pane, closes stale permissions and resumes only when a session exists", async () => {
     const { app, config, calls, store } = await fixture();
     await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Write hi" } });
@@ -84,6 +92,8 @@ describe("CLI lanes", () => {
     expect(cliArgs(base, "hi")).toEqual(["--permission-mode", "acceptEdits", "--model", "small", "--effort", "high", "--", "hi"]);
     expect(cliArgs({ ...base, mode: "plan" }, "hi")).toContain("plan");
     expect(cliArgs(base, "", undefined, true)).toContain("--continue");
+    expect(cliArgs({ ...base, remoteControl: true }, "hi")).toContain("--remote-control");
+    expect(cliArgs(base, "hi")).not.toContain("--remote-control");
     const codex = cliArgs({ ...base, agent: "codex" }, "hi");
     expect(codex).toContain("workspace-write"); expect(codex).toContain("on-request"); expect(codex).toContain('approval_reviewer="user"');
     expect(cliArgs({ ...base, agent: "codex", mode: "plan" }, "hi")).toContain("read-only");

@@ -34,6 +34,8 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
   const session = useMemo(() => events.findLast((e) => e.type === "agent.session"), [events]);
   const commands = session?.type === "agent.session" ? session.payload.commands ?? [] : [];
   const takesImages = session?.type === "agent.session" && session.payload.images === true;
+  const failed = events.findLast((e) => e.type === "agent.command.result" && !e.payload.ok);
+  useEffect(() => { if (lane.kind === "cli" && failed?.type === "agent.command.result") setNotice(failed.payload.error ?? "The input could not be sent. Check the terminal."); }, [lane.kind, failed]);
 
   useEffect(() => {
     if (picker !== "file") return;
@@ -42,6 +44,7 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
   }, [picker, query, lane.id]);
 
   const send = async (immediate: boolean) => {
+    if (lane.kind === "cli") immediate = false;
     if (!text.trim() || sending) return;
     setSending(true); setNotice("");
     const draft = { text, files, pictures };
@@ -70,7 +73,7 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
     {queue.map((event) => <div className="q" key={event.payload.commandId}>
       <i className="dot" aria-hidden="true" /><span className="lbl" style={{ fontSize: 11 }}>Queued</span>
       <span className="txt">“{event.payload.command.kind === "prompt" ? event.payload.command.text : ""}”</span>
-      <span className="mono muted" style={{ fontSize: 11.5 }}>{event.payload.command.kind === "prompt" && event.payload.command.immediate ? "interrupting now" : "goes in at the next step"}</span>
+      <span className="mono muted" style={{ fontSize: 11.5 }}>{lane.kind === "cli" ? "goes in when the turn ends" : event.payload.command.kind === "prompt" && event.payload.command.immediate ? "interrupting now" : "goes in at the next step"}</span>
     </div>)}
     {outgoing ? <div className="q out" aria-live="polite">
       <span className="lbl" style={{ fontSize: 11 }}>Sending</span>
@@ -95,10 +98,10 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
       }} onPaste={(event) => { const image = [...event.clipboardData.files].find((f) => f.type.startsWith("image/")); if (image && takesImages) { event.preventDefault(); void addPicture(image); } }} />
       <div className="row">
         <button className={`chipf${picker === "file" ? " on" : ""}`} aria-expanded={picker === "file"} onClick={() => toggle("file")}>@ file</button>
-        <button className={`chipf${picker === "command" ? " on" : ""}`} aria-expanded={picker === "command"} onClick={() => toggle("command")}>/ command</button>
+        {lane.kind !== "cli" ? <button className={`chipf${picker === "command" ? " on" : ""}`} aria-expanded={picker === "command"} onClick={() => toggle("command")}>/ command</button> : null}
         {takesImages ? <><button className="chipf" onClick={() => fileInput.current?.click()}>Attach image</button>
           <input ref={fileInput} type="file" accept={TYPES.join(",")} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void addPicture(f); e.target.value = ""; }} /></> : null}
-        <span className="keys"><span className="kbd2">↵</span> send at the next step · <span className="kbd2">⌘↵</span> interrupt and send · <span className="kbd2">⇧↵</span> new line</span>
+        <span className="keys"><span className="kbd2">↵</span> {lane.kind === "cli" ? "send when idle · / commands work here" : <>send at the next step · <span className="kbd2">⌘↵</span> interrupt and send</>} · <span className="kbd2">⇧↵</span> new line</span>
         <button className={`btn sm${sent ? " sent" : ""}`} disabled={sending || (!text.trim() && !sent)} aria-busy={sending || undefined} onClick={() => void send(false)}>{sending ? "Sending" : sent ? "Sent ✓" : "Send"}</button>
       </div>
       {notice ? <p role="status">{notice}</p> : null}

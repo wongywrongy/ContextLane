@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { guard, HookRequest, type HookPayload, type Lane, type NewLaneEvent, type StepKind } from "@contextlanes/protocol";
+import { cliPromptText, guard, HookRequest, type HookPayload, type Lane, type NewLaneEvent, type StepKind } from "@contextlanes/protocol";
 import { SessionUsage, usageDelta } from "@contextlanes/lanehost/usage";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
@@ -51,8 +51,12 @@ export class Hooks {
     if (event === "UserPromptSubmit") {
       this.terminalAnswers(id);
       const last = store.eventsOfType(["agent.message"], { lanes: [id] }).findLast((e) => e.payload.role === "user");
-      if (p.prompt && last?.payload.text !== p.prompt) emit({ type: "agent.message", payload: { role: "user", text: p.prompt } });
-      emit({ type: "agent.turn", payload: { active: true } });
+      const before = store.eventsOfType(["agent.turn"], { lanes: [id] }).at(-1);
+      const input = store.eventsOfType(["agent.input"], { lanes: [id] }).findLast((e) => e.payload.phase === "sending");
+      const sent = input && input.seq > (before?.seq ?? 0) ? store.eventsOfType(["agent.command"], { lanes: [id] }).find((e) => e.payload.commandId === input.payload.commandId) : null;
+      const delivered = sent?.payload.command.kind === "prompt" && cliPromptText(sent.payload.command).trim() === p.prompt?.trim() ? sent.payload.commandId : null;
+      if (p.prompt && !delivered && (before || last?.payload.text !== p.prompt)) emit({ type: "agent.message", payload: { role: "user", text: p.prompt } });
+      emit({ type: "agent.turn", payload: { active: true, ...(delivered ? { commandId: delivered } : {}) } });
       if (lane.state === "failed") bus.publish(store.setLaneState(id, "working", "The CLI started a new turn"));
       return {};
     }

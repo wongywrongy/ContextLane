@@ -18,6 +18,10 @@ export const PromptRequest = z.object({ text: z.string().min(1).max(100_000), im
 export const PromptCommand = z.object({ text: z.string().min(1).max(100_000), immediate: z.boolean().default(false),
   files: z.array(WorktreePath).max(10).default([]),
   images: z.array(z.object({ mimeType: ImageType, path: z.string().startsWith("/") })).max(3).default([]) });
+/** Native CLIs read @ paths from the same pasted message as the owner's text. */
+export function cliPromptText(prompt: { text: string; files: string[] }): string {
+  return prompt.text + (prompt.files.length ? `\n\n${prompt.files.map((f) => `@${f}`).join("\n")}` : "");
+}
 export const ModeRequest = z.object({ mode: SafeMode });
 export const ModelRequest = z.object({ model: z.string().min(1).max(200) });
 export const EffortRequest = z.object({ effort: z.string().min(1).max(50) });

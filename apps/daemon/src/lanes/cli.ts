@@ -59,7 +59,7 @@ export function cliArgs(lane: Lane, prompt: string, extra?: string[], resume = f
   if (lane.agent === "claude-code") {
     const mode = lane.mode === "edits" ? "acceptEdits" : lane.mode === "plan" ? "plan" : "manual";
     SafeMode.parse(mode);
-    return ["--permission-mode", mode, ...(lane.model ? ["--model", lane.model] : []),
+    return [...(lane.remoteControl ? ["--remote-control"] : []), "--permission-mode", mode, ...(lane.model ? ["--model", lane.model] : []),
       ...(lane.effort ? ["--effort", lane.effort] : []), ...(resume ? ["--continue"] : extra ?? ["--", prompt])];
   }
   return [...(resume ? ["resume", "--last"] : []), "--no-daemon", "--sandbox", lane.mode === "plan" ? "read-only" : "workspace-write", "--ask-for-approval", "on-request",

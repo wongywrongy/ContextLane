@@ -221,7 +221,7 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     </section>
 
     {/* Kept mounted on the Terminal tab, so a half-written message and its files survive the switch. */}
-    <div hidden={view !== "steps"}><Composer lane={lane} events={events} agent={agent} /></div>
+    <div hidden={view !== "steps" && lane.kind !== "cli"}><Composer lane={lane} events={events} agent={agent} /></div>
   </>;
 }
 

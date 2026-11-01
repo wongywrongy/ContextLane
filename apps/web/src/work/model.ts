@@ -81,7 +81,7 @@ export function isIdle(lane: Lane, events: LaneEvent[]): boolean {
 }
 
 export function queuedPrompts(events: LaneEvent[]) {
-  const started = new Set(events.flatMap((e) => e.type === "agent.turn" && e.payload.commandId ? [e.payload.commandId] : e.type === "agent.command.result" && !e.payload.ok ? [e.payload.commandId] : []));
+  const started = new Set(events.flatMap((e) => e.type === "agent.turn" && e.payload.commandId ? [e.payload.commandId] : e.type === "agent.input" && e.payload.phase === "sent" ? [e.payload.commandId] : e.type === "agent.command.result" && !e.payload.ok ? [e.payload.commandId] : []));
   return events.filter((e): e is Extract<LaneEvent, { type: "agent.command" }> => e.type === "agent.command" && e.payload.command.kind === "prompt" && !started.has(e.payload.commandId));
 }
 

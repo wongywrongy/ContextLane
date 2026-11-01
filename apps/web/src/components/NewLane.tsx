@@ -10,6 +10,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const [chosenProject, setProject] = useState(preset ?? "");
   const [chosenAgent, setAgent] = useState("");
   const [kind, setKind] = useState<"cli" | "acp">("cli");
+  const [remoteControl, setRemoteControl] = useState(false);
   const [task, setTask] = useState(adoption ? `Adopt service on port ${adoption.port}` : initialTask ?? "");
   const [goal, setGoal] = useState("");
   const [mode, setMode] = useState<"ask" | "edits" | "plan" | "auto">("ask");
@@ -41,7 +42,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? kind : "acp", ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? kind : "acp", remoteControl: agent!.id === "claude-code" && kind === "cli" && remoteControl, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -52,6 +53,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
       <label className="field">Agent<select className="in" aria-label="Agent" value={agent?.id ?? ""} disabled={!ready.length} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select>{routed && agent?.id === routed.agent ? <span className="hint">picked by your routing rule{routed.model ? ` · ${routed.model}` : ""}</span> : null}</label>
     </div>
     {["claude-code", "codex"].includes(agent?.id ?? "") ? <label className="field">Session<select className="in" aria-label="Session" value={kind} onChange={(e) => setKind(e.target.value as "cli" | "acp")}><option value="cli">Terminal</option><option value="acp">ACP</option></select></label> : null}
+    {agent?.id === "claude-code" && kind === "cli" ? <label className="field"><span><input type="checkbox" checked={remoteControl} onChange={(e) => setRemoteControl(e.target.checked)} /> Claude Remote Control</span><span className="hint">Also connect the official Claude app</span></label> : null}
     <div className="two">
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>
       <label className="field">Goal <span className="hint">optional · groups lanes</span><input className="in" list="lane-goals" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="For example: Billing v1" /><datalist id="lane-goals">{goals.map((g) => <option key={g} value={g} />)}</datalist></label>

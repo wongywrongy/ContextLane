@@ -69,6 +69,7 @@ export class LaneManager {
     const kind = req.kind ?? (["claude-code", "codex"].includes(req.agent) ? "cli" : "acp");
     if (kind === "cli") checkCliArgs(req.agent, req.cliArgs ?? []);
     if (req.direct && kind !== "cli") throw new Refused("Direct mode requires a CLI lane.", 400);
+    if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
     // Agents that act without asking cannot run in a lane: only you approve (AGENTS.md).
@@ -96,6 +97,7 @@ export class LaneManager {
         agent: req.agent,
         kind,
         direct: req.direct,
+        remoteControl: req.remoteControl,
         model: req.model ?? null,
         mode: req.mode,
         auto: req.auto,
@@ -108,7 +110,7 @@ export class LaneManager {
         state: "draft",
         colour: laneColour(n),
       });
-      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, kind, direct: req.direct, ...(req.baseline ? { baseline: true } : {}) } }));
+      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, kind, direct: req.direct, remoteControl: req.remoteControl, ...(req.baseline ? { baseline: true } : {}) } }));
       if (lane.auto) this.emit(store.appendEvent(id, { type: "lane.auto", payload: { on: true } }));
       if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
       // The full task is the lane's first message, shown as the first step.

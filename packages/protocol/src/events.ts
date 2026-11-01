@@ -45,13 +45,14 @@ const testResult = z.object({ name: z.string(), passed: z.boolean() });
 
 const payloads = {
   "lane.renamed": z.object({ from: z.string(), task: z.string() }),
-  "lane.created": z.object({ task: z.string(), agent: z.string(), branch: z.string(), worktree: z.string(), kind: z.enum(["cli", "acp"]).default("acp"), direct: z.boolean().default(false), baseline: z.boolean().optional() }),
+  "lane.created": z.object({ task: z.string(), agent: z.string(), branch: z.string(), worktree: z.string(), kind: z.enum(["cli", "acp"]).default("acp"), direct: z.boolean().default(false), remoteControl: z.boolean().default(false), baseline: z.boolean().optional() }),
   "lane.state": z.object({ from: LaneState, to: LaneState, reason: z.string().optional() }),
   "agent.plan": z.object({ entries: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })) }),
   "agent.thought": z.object({ text: z.string() }),
   "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional() }),
   "agent.command": z.object({ commandId: z.uuid(), command: LaneCommand }),
   "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
+  "agent.input": z.object({ commandId: z.uuid(), phase: z.enum(["sending", "sent"]) }),
   "agent.session": z.object({
     sessionId: z.string(), currentMode: z.string().optional(), currentModel: z.string().optional(),
     transcriptPath: z.string().optional(),
