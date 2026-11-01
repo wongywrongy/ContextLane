@@ -20,7 +20,7 @@ import { Bench } from "../bench.js";
 import { Handoffs } from "../handoff.js";
 import { SecondReviews } from "../second-review.js";
 import { Judge } from "../judge.js";
-import { Sublanes } from "../sublanes.js";
+import { laneStatus, Sublanes } from "../sublanes.js";
 import { Nudges } from "../nudges.js";
 import { Hooks } from "../hooks.js";
 import { CliInputs } from "../lanes/input.js";
@@ -33,8 +33,9 @@ import { Terminals } from "../terminal/tmux.js";
 import { Tidy } from "../tidy.js";
 
 /** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
-const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status"];
-import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest } from "@contextlanes/protocol";
+const ORCHESTRATION_TOOLS = ["lanes_list", "lane_status", "lane_start", "lane_send"];
+const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS];
+import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest, LaneTarget, LaneSendRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { EventBus } from "../bus.js";
@@ -248,6 +249,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return store.getLane(lane.id);
   });
   app.get("/api/lanes", async () => store.listLanes());
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/status", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no lane");
+    return laneStatus(store, lane);
+  });
   app.get<{ Params: { project: string } }>("/api/projects/:project/lanes", async (req) => store.listLanes(ProjectId.parse(req.params.project)));
   app.get<{ Params: { project: string } }>("/api/projects/:project/activity", async (req) => {
     const { since } = ActivityQuery.parse(req.query);
@@ -341,9 +347,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
     // A bench baseline lane gets phase 2's tools only, so the comparison measures phase 3.
-    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => !["get_brief", "split_lanes", "sublane_status"].includes(t)) };
+    if (isBaseline(lane.id)) return { tools: LANE_TOOLS.filter((t) => !["get_brief", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS].includes(t)) };
     // A sub-lane cannot split again, so it does not see the tools for it.
-    const tools = sublanes.parentOf(lane) ? LANE_TOOLS.filter((t) => t !== "split_lanes" && t !== "sublane_status") : LANE_TOOLS;
+    const tools = sublanes.parentOf(lane) ? LANE_TOOLS.filter((t) => t !== "split_lanes" && t !== "sublane_status" && t !== "lane_start") : LANE_TOOLS;
     return { tools: await helper.available() ? [...tools, "delegate"] : tools };
   });
   const insights = deps.insights ?? new Insights({ config, store, bus, models: localModels, codemaps, briefs });
@@ -485,7 +491,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // Toolbox calls from agents (packages/toolbox). Each tool is wired up in the phase that owns it.
   app.post<{ Params: { project: string; n: string; tool: string } }>(TOOL_ROUTE, async (req, reply) => {
     const lane = laneParam(req.params);
-    if (["get_brief", "delegate"].includes(req.params.tool) && isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without phase 3 tools.");
+    if (["get_brief", "delegate", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS].includes(req.params.tool) && isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without phase 3 tools.");
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);
@@ -500,6 +506,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (req.params.tool === "checkpoint") return reply.code(202).send(await checker.begin(lane, CheckpointRequest.parse(req.body).summary));
     if (req.params.tool === "split_lanes") { const r = await sublanes.split(lane, req.body); return "pending" in r ? reply.code(202).send(r) : r; }
+    if (req.params.tool === "lane_start") { const r = await sublanes.start(lane, req.body); return "pending" in r ? reply.code(202).send(r) : r; }
+    if (req.params.tool === "lanes_list") return sublanes.list(lane);
+    if (req.params.tool === "lane_status") return sublanes.inspect(lane, LaneTarget.parse(req.body).lane);
+    if (req.params.tool === "lane_send") { const b = LaneSendRequest.parse(req.body); return sublanes.send(lane, b.lane, b.text); }
     if (req.params.tool === "sublane_status") return sublanes.status(lane);
     if (req.params.tool === "env_status") return runtime.status(lane);
     if (req.params.tool === "delegate") return helper.delegate(store.getLane(lane)!, DelegateRequest.parse(req.body));

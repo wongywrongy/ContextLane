@@ -8,7 +8,7 @@ export type ToolboxOptions = { daemonUrl: string; lane: string; token: string; f
 /** Retrying the same question ID survives a daemon restart without asking twice. */
 export async function callLaneTool(opts: ToolboxOptions, name: ToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ text: string; ok: boolean }> {
   // Tools that wait on the owner retry with the same request ID until answered.
-  const waits = name === "ask_owner" || name === "split_lanes";
+  const waits = name === "ask_owner" || name === "split_lanes" || name === "lane_start";
   const body = waits ? { ...args, requestId: randomUUID() } : args;
   const doFetch = opts.fetch ?? fetch;
   for (;;) {

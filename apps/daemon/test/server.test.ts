@@ -221,6 +221,14 @@ describe("http api", () => {
     expect((await app.inject({ url: "/api/lanes/shop/02/tools" })).json().tools).not.toContain("split_lanes");
     expect((await tool("shop/02", "split_lanes", { ...body, requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c13" })).statusCode).toBe(409);
     expect((await tool(parent.id, "sublane_status")).json().lanes.map((l: { title: string }) => l.title)).toEqual(["Invoice API", "Invoice page"]);
+    expect((await tool(parent.id, "lanes_list")).json().lanes).toHaveLength(3);
+    store.appendEvent(child.id, { type: "agent.plan", payload: { entries: [{ text: "Routes", status: "completed" }] } });
+    expect((await tool(parent.id, "lane_status", { lane: child.id })).json()).toMatchObject({ lane: { id: child.id, agent: "codex" }, plan: [{ text: "Routes", status: "completed" }] });
+    expect((await tool(parent.id, "lane_send", { lane: child.id, text: "Also check errors" })).statusCode).toBe(200);
+    expect(store.pendingCommands(child.id)).toMatchObject([{ payload: { command: { kind: "prompt", text: expect.stringContaining("Also check errors") } } }]);
+    expect((await tool(child.id, "lane_send", { lane: "shop/03", text: "Sideways message" })).statusCode).toBe(403);
+    expect((await tool(child.id, "lane_start", { requestId: randomUUID(), task: "Grandchild" })).statusCode).toBe(409);
+    expect((await app.inject({ url: `/api/lanes/${child.id}/tools` })).json().tools).not.toContain("lane_start");
     // Approve the sub-lane: it goes to the parent's agent to merge, not to origin.
     store.insertCheckpoint({ id: "k", lane: "shop/02", base: "a", head: "", summary: "Invoice routes", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
     store.setLaneState("shop/02", "in_review");
@@ -235,6 +243,33 @@ describe("http api", () => {
     await tool(parent.id, "split_lanes", again);
     await app.inject({ method: "POST", url: "/api/answers", payload: { lane: parent.id, requestId: again.requestId, optionId: "1" } });
     expect((await tool(parent.id, "split_lanes", again)).json()).toMatchObject({ declined: true });
+  });
+
+  it("starts one child only after approval, binds the approved proposal, and coalesces concurrent retries", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const parent = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Lead", kind: "acp", agent: "codex", auto: true, mode: "plan" } })).json();
+    const tool = (name: string, payload: object) => app.inject({ method: "POST", url: `/api/lanes/${parent.id}/tools/${name}`, payload });
+    const body = { requestId: randomUUID(), task: "Write one test", agent: "codex", base: "main" };
+    expect((await tool("lane_start", body)).statusCode).toBe(202);
+    expect(store.listLanes()).toHaveLength(1);
+    expect(store.permission(parent.id, body.requestId)?.detail).toContain("base: main");
+    await app.inject({ method: "POST", url: "/api/answers", payload: { lane: parent.id, requestId: body.requestId, optionId: "0" } });
+    expect((await tool("lane_start", { ...body, task: "Replace with another task" })).statusCode).toBe(409);
+    const result = await Promise.all([tool("lane_start", body), tool("lane_start", body)]);
+    expect(result.map(r => r.json().started)).toEqual([[{ lane: "shop/02", title: "Write one test" }], [{ lane: "shop/02", title: "Write one test" }]]);
+    expect(store.listLanes()).toHaveLength(2);
+    expect(store.getLane("shop/02")).toMatchObject({ mode: "plan", auto: true, base: "main", agent: "codex" });
+    expect(store.eventsOfType(["lane.child"], { lanes: ["shop/02"] })[0]?.payload.parent).toBe(parent.id);
+    store.addProject({ id: "other", name: "Other", path: "/code/other" });
+    const other = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "other", kind: "acp", task: "Other" } })).json();
+    expect((await tool("lane_status", { lane: other.id })).statusCode).toBe(404);
+    const baseline = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", kind: "acp", task: "Baseline", baseline: true } })).json();
+    const tools = (await app.inject({ url: `/api/lanes/${baseline.id}/tools` })).json().tools;
+    for (const name of ["lanes_list", "lane_status", "lane_start", "lane_send"]) {
+      expect(tools).not.toContain(name);
+      expect((await app.inject({ method: "POST", url: `/api/lanes/${baseline.id}/tools/${name}`, payload: body })).statusCode).toBe(409);
+    }
   });
 
   it("gives two lanes started at once their own numbers", async () => {

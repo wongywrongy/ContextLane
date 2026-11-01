@@ -7,7 +7,7 @@ import { LaneState } from "./states.js";
 import { LaneCommand } from "./commands.js";
 import { NotificationChannel } from "./notifications.js";
 import { ServiceState } from "./recipe.js";
-import { ReviewComment } from "./api.js";
+import { ReviewComment, SublaneProposal } from "./api.js";
 
 /**
  * Everything that happens is an event in one append-only log. Pages, the inbox, the CLI
@@ -70,6 +70,9 @@ const payloads = {
   "agent.error": z.object({ message: z.string() }),
   "agent.notice": z.object({ message: z.string() }),
   "review.requested": z.object({ checkpointId: z.string().optional(), note: z.string(), comments: z.array(ReviewComment) }),
+  "lane.proposed": SublaneProposal,
+  "lane.child": z.object({ parent: LaneId, requestId: z.uuid(), part: z.number().int().nonnegative(), title: z.string() }),
+  "lane.sent": z.object({ to: LaneId, text: z.string() }),
   "usage.snapshot": z.object({ sessionId: z.string(), tokens: TokenUsage }),
   "notification.sent": z.object({ requestId: z.string(), channel: NotificationChannel, target: z.string().default("") }),
   "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),

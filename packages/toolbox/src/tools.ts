@@ -56,6 +56,19 @@ export const TOOLS = {
     description: "Where your sub-lanes are: working, waiting for the owner, in review (with the review judge's verdict), or merged into your branch.",
     input: z.object({}),
   },
+  lanes_list: {
+    phase: 4, description: "List this project's lanes, their agents, states and latest checkpoints.", input: z.object({}),
+  },
+  lane_status: {
+    phase: 4, description: "Read a project lane's state, plan progress and latest judge verdict.", input: z.object({ lane: z.string().min(1) }),
+  },
+  lane_start: {
+    phase: 4, description: "Propose one child lane. The owner must approve its task, agent and base before it starts. Children cannot spawn lanes. Use split_lanes for one approval covering two or more children.",
+    input: z.object({ task: z.string().min(1).max(8000), agent: z.string().optional(), base: z.string().optional() }),
+  },
+  lane_send: {
+    phase: 4, description: "Send a message to one of your own child lanes, through its normal input queue.", input: z.object({ lane: z.string().min(1), text: z.string().min(1).max(100_000) }),
+  },
 } as const;
 
 export type ToolName = keyof typeof TOOLS;
@@ -65,4 +78,4 @@ export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
  * Tools agents are given today. A tool joins this list only when its daemon route works; until
  * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
  */
-export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status"];
+export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status", "lanes_list", "lane_status", "lane_start", "lane_send"];

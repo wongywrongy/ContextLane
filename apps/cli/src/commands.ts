@@ -18,7 +18,9 @@ ${bold("Get started")}
   contextlanes add [path]                     add a repository (default: this folder)
 
 ${bold("Lanes")}
-  contextlanes lanes [project]                every lane, its state and what it waits on
+  contextlanes lanes [project] [--json]       every lane, its state and what it waits on
+  contextlanes status <lane> [--json]         lane state, plan and judge verdict
+  contextlanes send <lane> "<text>"           queue a message for its agent
   contextlanes claude [args…]                 start Claude Code in a lane and attach [--here: current checkout]
   contextlanes codex [args…]                  start Codex in a lane and attach [--here: current checkout]
   contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id, see Models] [--model m] [--base branch]")}
@@ -60,6 +62,11 @@ async function main(argv: string[]): Promise<number> {
       console.log(HELP());
       return 0;
     case "status": {
+      if (rest[0]) {
+        const view = await api<{ lane: Lane; plan: { text: string; status: string }[]; verdict: string | null }>(`/api/lanes/${rest[0]}/status`);
+        console.log(values.json ? JSON.stringify(view, null, 2) : `${formatLanes([view.lane])}\n${view.plan.filter(p => p.status === "completed").length}/${view.plan.length} plan steps complete${view.verdict ? ` · judge: ${view.verdict}` : ""}`);
+        return 0;
+      }
       const h = await api<Health>("/api/health").catch(() => null);
       if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 1; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
@@ -69,7 +76,7 @@ async function main(argv: string[]): Promise<number> {
     case "lanes": {
       const projects = rest[0] ? [rest[0]] : (await api<Project[]>("/api/projects")).map((p) => p.id);
       const lanes = (await Promise.all(projects.map((p) => api<Lane[]>(`/api/projects/${p}/lanes`)))).flat();
-      console.log(formatLanes(lanes));
+      console.log(values.json ? JSON.stringify(lanes, null, 2) : formatLanes(lanes));
       return 0;
     }
     case "lane": {
@@ -78,6 +85,12 @@ async function main(argv: string[]): Promise<number> {
       const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model, base } });
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
       console.log(dim(`  Watch it in the browser, or open its shell: contextlanes term ${lane.id}`));
+      return 0;
+    }
+    case "send": {
+      if (!rest[0] || !rest[1]) return usage();
+      await api(`/api/lanes/${rest[0]}/prompt`, { method: "POST", body: { text: rest.slice(1).join(" ") } });
+      console.log("Message queued.");
       return 0;
     }
     case "term": {

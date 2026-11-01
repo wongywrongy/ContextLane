@@ -114,6 +114,11 @@ export type AnswerRequest = z.input<typeof AnswerRequest>;
 /** split_lanes: the agent proposes 2 to 5 parallel sub-lanes; the owner says yes once for all of them. */
 export const SplitLanesRequest = z.object({ requestId: z.uuid(), why: z.string().trim().min(1).max(1000),
   lanes: z.array(z.object({ title: z.string().trim().min(3).max(100), task: z.string().trim().min(10).max(8000) })).min(2).max(5) });
+const Branch = z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/).max(200);
+export const LaneStartRequest = z.object({ requestId: z.uuid(), task: z.string().trim().min(1).max(8000), agent: z.string().min(1).max(100).optional(), base: Branch.optional() });
+export const LaneTarget = z.object({ lane: LaneId });
+export const LaneSendRequest = LaneTarget.extend({ text: z.string().trim().min(1).max(100_000) });
+export const SublaneProposal = z.object({ requestId: z.uuid(), why: z.string().min(1).max(1000), lanes: z.array(z.object({ title: z.string().min(1).max(100), task: z.string().min(1).max(8000), agent: z.string().min(1).max(100).optional(), base: Branch.optional() })).min(1).max(5) });
 export const AskOwnerRequest = z.object({ requestId: z.uuid(), question: z.string().min(1).max(10_000), options: z.array(z.string().min(1).max(200)).min(2).max(4) });
 export const LaneEventsQuery = z.object({ after: z.coerce.number().int().nonnegative().default(0) });
 export const ActivityQuery = z.object({ since: z.iso.datetime().optional() });
