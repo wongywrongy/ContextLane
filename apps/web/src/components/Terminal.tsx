@@ -5,9 +5,10 @@ import type { AgentId, TerminalInput } from "@contextlanes/protocol";
 import { ticketUrl } from "../api";
 import "@xterm/xterm/css/xterm.css";
 
-export function Terminal(props: ({ lane: string; login?: never } | { login: AgentId; lane?: never }) & { onExit?: () => void }) {
+export function Terminal(props: ({ lane: string; login?: never } | { login: AgentId; lane?: never }) & { onExit?: () => void; autoFocus?: boolean; compact?: boolean }) {
   const { lane, login } = props;
   const onExit = useRef(props.onExit); onExit.current = props.onExit;
+  const autoFocus = useRef(props.autoFocus !== false); autoFocus.current = props.autoFocus !== false;
   const container = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState("Connecting to the shell…");
@@ -15,9 +16,9 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
 
   useEffect(() => {
     const term = new Xterm({
-      fontFamily: '"JetBrains Mono", monospace', fontSize: 14,
+      fontFamily: '"JetBrains Mono", monospace', fontSize: 13,
       screenReaderMode: true, scrollback: 5000,
-      theme: { background: "#141310", foreground: "#E9E4DA", cursor: "#E9E4DA", selectionBackground: "#55657A" },
+      theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -39,7 +40,7 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
         setConnected(true);
         setStatus(login ? "Connected · Follow the login instructions below" : "Connected · Keeps running when you close this tab");
         send({ type: "resize", cols: term.cols, rows: term.rows });
-        term.focus();
+        if (autoFocus.current && (document.activeElement === document.body || container.current?.contains(document.activeElement))) term.focus();
       };
       open.onmessage = (event: MessageEvent<string>) => term.write(event.data);
       open.onclose = (event) => {
@@ -56,10 +57,13 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
     const resize = term.onResize(({ cols, rows }) => send({ type: "resize", cols, rows }));
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(container.current!);
+    const theme = new MutationObserver(() => { term.options.theme = terminalTheme(); });
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     void document.fonts.ready.then(() => { if (active) fit.fit(); });
     return () => {
       active = false;
       observer.disconnect();
+      theme.disconnect();
       input.dispose();
       resize.dispose();
       if (socket) { socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null; socket.close(); }
@@ -69,12 +73,18 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
 
   return (
     <>
-      <div className="terminal-status" role="status">
+      {!props.compact || !connected ? <div className="terminal-status" role="status">
         <span>{status}</span>
         {!connected ? <button className="btn ghost" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button> : null}
-      </div>
+      </div> : null}
       <div className="tty" ref={container} aria-label={login ? `Login terminal for ${login}` : `Shell for lane ${lane}`} />
-      {!login && <div className="sec-f terminal-help">Same shell: <code>contextlanes term {lane}</code>. Older history: Ctrl+B, then [.</div>}
+      {!login && !props.compact && <div className="sec-f terminal-help">Same shell: <code>contextlanes term {lane}</code>. Older history: Ctrl+B, then [.</div>}
     </>
   );
+}
+
+function terminalTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const value = (name: string) => css.getPropertyValue(name).trim();
+  return { background: value("--sunk"), foreground: value("--ink"), cursor: value("--accent"), selectionBackground: value("--line"), black: value("--muted"), brightBlack: value("--muted"), red: value("--bad"), green: value("--ok"), yellow: value("--you"), blue: value("--think"), magenta: value("--lc3"), cyan: value("--lc2"), white: value("--ink") };
 }

@@ -26,7 +26,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
     {used || ((READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
       <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
       {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
+        <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="var(--line)" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
       </div> : null}
       {used && share > .8 ? <div style={{ marginTop: 10 }}><Glyph g="idle">Nearly full · the agent compacts it on its own</Glyph></div> : null}

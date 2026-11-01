@@ -1,3 +1,4 @@
+import { ThemeControl } from "../components/ThemeControl";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LOCAL_ROLES, LocalRole as LocalRoleSchema, type LocalRole } from "@contextlanes/protocol";
 import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
@@ -79,6 +80,7 @@ export function SettingsPage() {
     <div className="setw">
       <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ["schedules", "Scheduled lanes"], ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
       <div className="col">
+        <Section title="Appearance"><ThemeControl /></Section>
         <Section id="machine" title="This machine">
           {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
             <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os}{machine.linger === null ? "" : machine.linger ? " · keeps running after you log out" : " · stops when you log out"}</span></div>

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams } from "react-router";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router";
 import type { AskAnswer, Health, Lane, Project, ProjectBranches, ProjectEnvironments } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson, useLiveInbox, InboxContext, useInbox } from "../api";
+import { keyAction, typingTarget } from "../keys";
 import { useWork } from "../work/useWork";
 import { READY } from "../features";
-import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph, coverFor } from "./ui";
+import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph } from "./ui";
 
 export function Shell() {
   const [health, down, recheck] = useJson<Health>("/api/health");
@@ -13,25 +14,67 @@ export function Shell() {
   const inboxQuery = useLiveInbox();
   const [inbox] = inboxQuery;
   const [jump, setJump] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [lanes, , reloadLanes] = useJson<Lane[]>("/api/lanes");
+  useEffect(reloadLanes, [inbox, reloadLanes]);
+  const project = useMatch("/p/:project/*")?.params.project;
+  const [params] = useSearchParams();
+  const selected = lanes?.find(l => l.id === params.get("lane"));
+  const navigate = useNavigate();
   const inProject = useMatch("/p/*") !== null;
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setJump(true); } };
+  useLayoutEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const action = keyAction(event, typingTarget(event.target), !!document.querySelector("dialog[open]"));
+      if (!action) return;
+      event.preventDefault();
+      if (typeof action === "object") {
+        const lane = (lanes ?? []).filter(l => l.state !== "archived" && (!project || l.project === project))[action.lane];
+        if (lane) navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
+      } else if (action === "palette") setJump(true);
+      else if (action === "help") setHelp(true);
+      else if (action === "split-right" || action === "split-down") document.dispatchEvent(new CustomEvent("contextlanes:split", { detail: action === "split-right" ? "row" : "column" }));
+      else if (action === "review") {
+        const focused = document.activeElement?.closest("[data-lane]")?.getAttribute("data-lane");
+        const lane = focused ?? selected?.id;
+        const id = lane?.split("/")[0] ?? project;
+        if (id) navigate(`/p/${id}/review${lane ? `?lane=${encodeURIComponent(lane)}` : ""}`);
+      } else if (action === "answer") {
+        const answer = document.querySelector<HTMLButtonElement>("[data-answer]:not(:disabled)");
+        if (answer) answer.focus();
+        else {
+          const focused = document.activeElement?.closest("[data-lane]")?.getAttribute("data-lane") ?? selected?.id;
+          const question = inbox?.find(i => !focused || i.lane === focused);
+          if (question) navigate(`/inbox?item=${encodeURIComponent(question.id)}`);
+        }
+      } else {
+        const active = document.activeElement;
+        const list = active?.closest("[data-key-list], [role=listbox], ul, ol, table, nav, .sec, .agents") ?? document;
+        let rows = [...list.querySelectorAll<HTMLElement>("[data-list-item], [role=option]")];
+        if (!rows.length) rows = [...list.querySelectorAll<HTMLElement>("a[href], button:not(:disabled), summary, [tabindex=\"0\"]")];
+        rows = rows.filter(el => el.getClientRects().length);
+        const at = rows.findIndex(el => el === active || el.contains(active));
+        rows[Math.max(0, Math.min(rows.length - 1, at < 0 ? 0 : at + (action === "next" ? 1 : -1)))]?.focus();
+      }
+    };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
-  }, []);
+  }, [lanes, project, selected?.id, inbox, navigate]);
   return (
     <InboxContext.Provider value={inboxQuery}>
-      <header className="top">
-        <NavLink className="wm" to="/">Context<span className="ln">Lanes</span></NavLink>
+      <header className="top status-top" aria-busy={lanes === null}>
+        <NavLink className="wm" to="/">ContextLanes</NavLink>
+        <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "This machine"}</span>
+        <nav className="status-breadcrumbs" aria-label="Breadcrumbs">{project ? <><span>/</span><Link to={`/p/${project}/work`}>{project}</Link></> : null}{selected ? <><span>/</span><span>{selected.id.split("/")[1]} {selected.agent}</span></> : null}</nav>
         <nav className="gnav" aria-label="Main">
           <NavLink to="/" end className={({ isActive }) => isActive || inProject ? "active" : ""}>Projects</NavLink>
           <NavLink to="/inbox">Inbox{inbox?.length ? <span className="ib">{inbox.length}</span> : null}</NavLink>
           <NavLink to="/models">Models</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
-        <button className="ask" onClick={() => setJump(true)}>Ask, jump or start a lane<span className="kbd">⌘K</span></button>
-        <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "…"}</span>
+        <button className="ask" onClick={() => setJump(true)}>Command<span className="kbd">⌘K</span></button>
+        <button className="lnk key-help" aria-label="Keyboard shortcuts" onClick={() => setHelp(true)}>?</button>
       </header>
+      {help ? <Dialog title="Keyboard shortcuts" onClose={() => setHelp(false)}><dl className="key-list">{[["⌘1–9", "Jump to a lane"], ["j / k", "Move through the focused list"], ["a", "Open the selected question or focus its answers"], ["r", "Open Review"], [": / ⌘K", "Command palette"], ["⌘D / ⌘⇧D", "Split the selected pane right / down"], ["?", "Show these keys"]].map(([key, text]) => <div key={key}><dt>{key}</dt><dd>{text}</dd></div>)}</dl><p className="muted">Ctrl works in place of ⌘. Shortcuts stay off while typing or using the terminal. Choose an answer yourself with Tab and Enter.</p></Dialog> : null}
       {jump ? <JumpDialog onClose={() => setJump(false)} /> : null}
       <Outlet />
     </InboxContext.Provider>
@@ -75,7 +118,7 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
         if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
         if (e.key === "Enter" && items[active]) go(items[active]!.to);
       }} /></div>
-    <div className="jump-list" role="listbox" aria-label="Results">
+    <div className="jump-list" data-key-list role="listbox" aria-label="Results">
       {items.map((item, i) => <button key={item.key} role="option" aria-selected={i === active} className={i === active ? "on" : ""} onMouseEnter={() => setActive(i)} onClick={() => go(item.to)}>{item.label}<span className="m">{item.meta}</span></button>)}
       {!items.length ? <div className="empty">Nothing matches · try a project, a task or a question</div> : null}
     </div>
@@ -121,8 +164,6 @@ export function ProjectShell() {
   return (
     <>
       <section className="band" aria-label="Project">
-        <div className={`cover ${coverFor(project)}`} />
-        <div className="shade" />
         <div className="in">
           <div><div className="meta"><Link to="/">Projects</Link>{repoName.split("/").pop()!.toLowerCase() !== (info?.name ?? project).toLowerCase() ? ` / repo ${repoName}` : ` / ${repoName}`}{branches?.current ? ` · branch ${branches.current}` : ""}</div><h1>{info?.name ?? project}</h1></div>
           <div className="facts">

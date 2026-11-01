@@ -1,5 +1,5 @@
-import { WorkDiff } from "../../work/ReviewComments";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { LanePanes } from "../../work/LanePanes";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { sharing } from "./Review";
 import type { AgentLink, InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
@@ -7,15 +7,13 @@ import { errorMessage, postJson, useInbox, useJson } from "../../api";
 import { READY } from "../../features";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
-import { AGENT_NAMES, AgentMark, Empty, GLYPH, Glyph, Help, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
+import { AGENT_NAMES, AgentMark, GLYPH, Glyph, Help, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
 import { DIRE_ACTIONS } from "@contextlanes/protocol";
 import { useHistory } from "../../work/useWork";
-import { isIdle, laneNow, stepsFor } from "../../work/model";
-import { FilterSwitch, Steps, type Filter } from "../../work/Steps";
+import { isIdle, laneNow } from "../../work/model";
 import { Composer } from "../../work/Composer";
 import { Inspector } from "../../work/Inspector";
 
-const Terminal = lazy(() => import("../../components/Terminal").then((module) => ({ default: module.Terminal })));
 import { Overview } from "../../work/Overview";
 
 /** "3 lanes · 2 waiting on you · 1 goal": the overview's header, counted. */
@@ -38,8 +36,6 @@ export function WorkPage() {
   useEffect(() => { if (asked) setCreating(true); }, [asked]);
   const lane = work.lanes.find((l) => l.id === params.get("lane")) ?? null;
   const history = useHistory(lane?.id ?? "", work.events, work.version);
-  const [view, setView] = useState<"steps" | "terminal" | "diff">("steps");
-  useEffect(() => setView(lane?.kind === "cli" ? "terminal" : "steps"), [lane?.id, lane?.kind]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
   // Archived lanes are hidden from the list until asked for; the overview follows the list.
   const open = useMemo(() => work.lanes.filter((l) => l.state !== "archived"), [work.lanes]);
@@ -48,14 +44,14 @@ export function WorkPage() {
     <LaneList lanes={work.lanes} events={work.events} inbox={inbox ?? []} selected={lane?.id ?? null} choose={choose} create={() => setCreating(true)} />
     <main className="lane-main" aria-label={lane ? "Lane" : "Overview"}>
       {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
-      {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
+      {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} />
         : <>
           <div className="ph"><h2>Board</h2><span className="m">{overviewMeta(open, inbox ?? [])}</span><button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setCreating(true)}>New lane</button></div>
           {open.length ? <Overview lanes={open} events={work.events} waiting={inbox ?? []} select={choose} />
             : <section className="sec"><div className="empty">{work.lanes.length ? "No open lanes; archived ones are in the list." : "No lanes yet."} A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>{work.lanes.length ? "Start one" : "Start the first one"}</button>.</div></section>}
         </>}
     </main>
-    {lane ? <Inspector key={lane.id} lane={lane} events={history.events} openTerminal={() => setView("terminal")} /> : null}
+    {lane ? <Inspector key={lane.id} lane={lane} events={history.events} openTerminal={() => document.dispatchEvent(new CustomEvent("contextlanes:view", { detail: { lane: lane.id, kind: "terminal" } }))} /> : null}
     {creating && projects ? <NewLaneDialog projects={projects} project={project} task={params.get("task") ?? undefined} onClose={closeNew} onStarted={() => setCreating(false)} /> : null}
   </div>;
 }
@@ -87,13 +83,13 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
   return <aside className="pane l" aria-label="Lanes">
     <div className="ps">
       <div className="ps-h" style={{ marginBottom: 10 }}><span className="lbl">Lanes · {lanes.length}</span><div className="e"><button className="btn sm" onClick={create}>New lane</button></div></div>
-      <div className="lanes-scroll">
+      <div className="lanes-scroll" data-key-list>
         <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane at a glance</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
         {groups.map(([goal, group]) => <div key={goal ?? ""} style={{ display: "contents" }}>
           {hasGoals ? <div className="grp">{goal ? <><i className="g work" aria-hidden="true" />Goal · {goal}</> : "No goal"}</div> : null}
           {group.filter((l) => showArchived || l.state !== "archived" || l.id === selected).map((l) => {
             const [g] = GLYPH[l.state];
-            return <button key={l.id} className={`lrow ${l.colour}${g === "wait" ? " needs" : ""}${l.id === selected ? " on" : ""}`} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
+            return <button data-list-item data-lane={l.id} key={l.id} className={`lrow ${l.colour}${g === "wait" ? " needs" : ""}${l.id === selected ? " on" : ""}`} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
               <span className="rail" /><AgentMark agent={l.agent} small />
               <span className="body"><span className="ttl"><b>{l.task}</b><StateGlyph state={l.state} idle={isIdle(l, events)} /></span><span className="now">{laneNow(l, events, inbox)}</span></span>
             </button>;
@@ -131,11 +127,11 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
   </div>;
 }
 
-function LaneView({ projectName, lane, events, error, reload, view, setView }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal" | "diff"; setView: (v: "steps" | "terminal" | "diff") => void }) {
+function LaneView({ projectName, lane, events, error, reload }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void }) {
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
-  const [filter, setFilter] = useState<Filter>("progress");
+  const [composerVisible, setComposerVisible] = useState(true);
   // Checked again when the agent's connection could have changed, not on every streamed word.
   const changes = useMemo(() => events.filter((e) => e.type === "agent.session" || e.type === "agent.error" || e.type === "lane.state").length, [events]);
   const link = useAgentLink(lane, changes);
@@ -145,15 +141,6 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     if (offline) { setNotice("The agent is not connected, so there is nothing to interrupt."); return; }
     void postJson(`/api/lanes/${lane.id}/cancel`, {}).then(() => setNotice("Interrupt sent. The agent stops after its current action."), (err: Error) => setNotice(err.message));
   }, [lane.id, offline, link]);
-  useEffect(() => {
-    if (view !== "steps") return;
-    // Escape interrupts from anywhere in the lane, including the message box, but not from another field
-    // (rename, a picker), where it means "close this".
-    const field = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || (["INPUT", "SELECT"].includes(t.tagName)) || (t.tagName === "TEXTAREA" && t.id !== "lane-message"));
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.isComposing && !event.defaultPrevented && !field(event.target) && !document.querySelector("dialog[open]")) { event.preventDefault(); interrupt(); } };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [view, interrupt]);
   const laneWaiting = useMemo(() => waiting?.filter((item) => item.lane === lane.id) ?? [], [waiting, lane.id]);
   const session = events.findLast((e) => e.type === "agent.session");
   const control = async (kind: "mode" | "model" | "effort", value: string) => {
@@ -164,8 +151,6 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
     try { const r = await postJson<{ answered: number }>(`/api/lanes/${lane.id}/auto`, { on }); reload(); reloadInbox(); setNotice(on ? `Auto on${r.answered ? ` · approved ${r.answered} waiting ${r.answered === 1 ? "request" : "requests"}` : ""}. Dire actions still wait for you.` : "Auto off. Every request waits for you."); }
     catch (err) { setNotice(errorMessage(err)); }
   };
-  const steps = stepsFor(events);
-  const first = events[0];
   const agent = AGENT_NAMES[lane.agent] ?? lane.agent;
   return <>
     {/* Phone only (phone-lane.webp): the lane fills the screen, with a way back to the project. */}
@@ -204,26 +189,9 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" disabled={offline || !link} title={offline ? "The agent is not connected" : !link ? "The agent is not working" : undefined} onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
     </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>
 
-    <section className="sec" aria-label="Lane view">
-      <div className="sec-h">
-        <div className="vt" role="tablist" aria-label="Lane view">
-          <button role="tab" aria-selected={view === "steps" && filter === "progress"} className={view === "steps" && filter === "progress" ? "on" : ""} onClick={() => { setView("steps"); setFilter("progress"); }}>Progress</button>
-          <button role="tab" aria-selected={view === "steps" && filter !== "progress"} className={view === "steps" && filter !== "progress" ? "on" : ""} onClick={() => { setView("steps"); if (filter === "progress") setFilter("all"); }}>Steps <i>{steps.length}</i></button>
-          <button role="tab" aria-selected={view === "diff"} className={view === "diff" ? "on" : ""} onClick={() => setView("diff")}>Diff</button>
-          <button role="tab" aria-selected={view === "terminal"} className={view === "terminal" ? "on" : ""} onClick={() => setView("terminal")}>Terminal <span className="live" title="Running" /></button>
-        </div>
-        {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span>{filter !== "progress" ? <div className="e"><FilterSwitch value={filter} change={setFilter} /></div> : null}</>
-          : <span className="m">tmux · {lane.terminal} · {lane.kind === "cli" ? "your agent in this lane" : "your shell in this lane"}</span>}
-      </div>
-      {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
-      {view === "diff" ? <WorkDiff key={lane.id} lane={lane.id} version={events.filter(e => e.type === "tool.update" && e.payload.status !== "in_progress").length} /> : view === "terminal"
-        ? <><Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense>
-          <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>{lane.kind === "cli" ? "Your agent" : "Your shell"} · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {lane.id}</span></div></>
-        : <Steps lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
-    </section>
-
-    {/* Kept mounted on the Terminal tab, so a half-written message and its files survive the switch. */}
-    <div hidden={view !== "steps" && lane.kind !== "cli"}><Composer lane={lane} events={events} agent={agent} /></div>
+    {error ? <p role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
+    <LanePanes lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} interrupt={interrupt} onView={setComposerVisible} />
+    <div hidden={lane.kind !== "cli" && !composerVisible}><Composer lane={lane} events={events} agent={agent} /></div>
   </>;
 }
 
@@ -236,7 +204,7 @@ function FailedNote({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
   const text = reason.trim();
   const headline = firstSentence(text).slice(0, 160);
   // The reason as one line; the full output (log lines, a long error) one click away.
-  return <section className="sec" style={{ borderColor: "#F0C7BD" }} aria-label="Why this lane failed">
+  return <section className="sec" style={{ borderColor: "var(--bad)" }} aria-label="Why this lane failed">
     <div className="sec-h"><Glyph g="fail">Stopped</Glyph><span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", minWidth: 0 }}>{headline}</span></div>
     {text.length > headline.length + 1 ? <details className="sec-b more"><summary>Details</summary><div className="out">{text}</div></details> : null}
     <div className="sec-f"><button className="btn sm" onClick={() => void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setNotice("Agent restarted. It reports in within a minute."), (err) => setNotice(errorMessage(err)))}>Restart the agent</button>

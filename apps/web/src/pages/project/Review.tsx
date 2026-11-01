@@ -56,10 +56,10 @@ export function ReviewPage() {
   const checkpoint = lane ? latest(lane.id)! : null;
   const number = checkpoint ? checkpoints!.filter((c) => c.lane === checkpoint.lane).length : 0;
   return <div className="rvw">
-    <aside className="rvl" aria-label="Checkpoints">
+    <aside data-key-list className="rvl" aria-label="Checkpoints">
       <div>
         <span className="lbl">Ready <span>{ready.length}</span></span>
-        {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button key={l.id} className={`rvi${l.id === lane?.id ? " on" : ""}`} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
+        {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button data-list-item data-lane={l.id} key={l.id} className={`rvi${l.id === lane?.id ? " on" : ""}`} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
           <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b>{(() => { const [g, word] = mark(c); return <i className={`g ${g}`} role="img" aria-label={word} title={word} />; })()}<small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
         </button>; })}
         {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}

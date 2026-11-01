@@ -28,10 +28,10 @@ export function InboxPage() {
     {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
     {items && !sorted.length ? <section className="sec"><div className="sec-r"><Glyph g="done">Nothing needs you</Glyph><Link className="btn ghost sm" style={{ marginLeft: "auto" }} to="/settings#notifications">Get it on your phone</Link></div></section>
       : <div className="ibx">
-        <section className="sec" aria-label="Waiting">
+        <section className="sec" aria-label="Waiting" data-key-list>
           {shown.map((item) => {
             const lane = lanes?.find((l) => l.id === item.lane);
-            return <button key={item.id} className={`irow${item.id === selected?.id ? " on" : ""}`} onClick={() => setParams({ item: item.id })}>
+            return <button data-list-item data-lane={item.lane} key={item.id} className={`irow${item.id === selected?.id ? " on" : ""}`} onClick={() => setParams({ item: item.id })}>
               <Tile family="you" icon={KIND_ICON[item.kind]} label={KIND_WORD[item.kind]} />
               <span style={{ minWidth: 0 }}><span className="who">{lane ? <LaneBadge id={lane.id} colour={lane.colour} /> : null}{projects?.find((p) => p.id === item.lane.split("/")[0])?.name ?? item.lane}</span><span className="tt">{item.title}</span></span>
               <span className="t">{ago(item.since)}</span>
@@ -68,7 +68,7 @@ function Detail({ item, lane, project, answered }: { item: InboxItem; lane?: Lan
       <h2>{item.kind === "question" ? `${agent} asks: ` : item.kind === "permission" ? `${agent} wants to: ` : ""}{item.title}</h2>
       {detail ? <div className="out" style={{ margin: "0 0 14px" }}>{detail}</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {item.options.map((o, i) => <button key={o.id} className={`btn${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}
+        {item.options.map((o, i) => <button data-answer key={o.id} className={`btn${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}
         {!item.options.length ? <Link className="btn" to={item.kind === "review" ? reviewLink(item.lane) : item.kind === "collision" ? `/p/${item.lane.split("/")[0]}/architecture` : `/p/${item.lane.split("/")[0]}/work?lane=${encodeURIComponent(item.lane)}`}>{item.kind === "review" ? "Open the review" : item.kind === "collision" ? "Open the architecture" : "Open the lane"}</Link> : null}
       </div>
       {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}

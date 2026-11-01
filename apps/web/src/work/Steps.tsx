@@ -248,7 +248,7 @@ function PermissionPanel({ item, detail, answered, agent }: { item: InboxItem; d
   return <div className="panel you perm" style={{ minWidth: 0 }}>
     <div className="hd"><Glyph g="wait" /><b>{item.kind === "question" ? `${agent} asks` : `${agent} wants to`}: {item.title}</b><span className="t">waiting {ago(item.since)}</span></div>
     {detail ? <div className="out" style={{ marginTop: 10 }}>{detail}</div> : null}
-    <div className="acts">{item.options.map((o, i) => <button key={o.id} className={`btn sm${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}</div>
+    <div className="acts">{item.options.map((o, i) => <button data-answer key={o.id} className={`btn sm${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}</div>
     {error ? <p role="alert" style={{ margin: "8px 0 0" }}>{error}</p> : null}
   </div>;
 }

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import type { BoardLane, Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
-import { GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
+import { Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, type IconName } from "../components/ui";
 
 import { BOARD_COLUMNS, boardColumn } from "../work/board";
 
@@ -33,7 +33,7 @@ export function ProjectsPage() {
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
           <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button></div></div>
         {projects?.length && !board ? <p role="status">Loading lanes…</p> : null}
-        <div className="tiles">
+        <div className="tiles" data-key-list>
           {(board ? projects ?? [] : []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} cards={(board ?? []).filter(c => c.lane.project === p.id)} waiting={waiting ?? []} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
           {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}
         </div>
@@ -52,8 +52,7 @@ function ProjectTile({ project, lanes, cards, waiting, services }: { project: Pr
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
   const line = cards.length ? BOARD_COLUMNS.map(column => <span key={column}>{column} {cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === column).length}</span>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
   const needs = cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === "Needs you");
-  return <section className="project-compact"><Link className="tile" to={`/p/${project.id}/work`}>
-    <div className={`cover ${coverFor(project.id)}`} />
+  return <section className="project-compact"><Link className="tile" data-list-item to={`/p/${project.id}/work`}>
     <div className="tb">
       <div className="nm"><b>{project.name}</b><span className="mono muted">{project.path.split("/").at(-1)}</span></div>
       <div className="lanes">
