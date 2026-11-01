@@ -272,6 +272,17 @@ describe("http api", () => {
     }
   });
 
+  it("serves measured board facts, with no context or preview when unreported", async () => {
+    const { app, store } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Board", kind: "acp" } })).json();
+    expect((await app.inject({ url: "/api/projects/shop/board" })).json()).toMatchObject([{ lane: { id: lane.id }, contextPct: null, verdict: null, preview: null, mergedAt: null }]);
+    store.appendEvent(lane.id, { type: "usage", payload: { contextUsed: 50, contextSize: 100 } });
+    store.setLaneState(lane.id, "in_review");
+    const merged = store.setLaneState(lane.id, "merged");
+    expect((await app.inject({ url: "/api/board" })).json()).toMatchObject([{ contextPct: 50, mergedAt: merged.at }]);
+  });
+
   it("gives two lanes started at once their own numbers", async () => {
     const { app } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });

@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import type { Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
+import type { BoardLane, Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { GLYPH, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, coverFor, type IconName } from "../components/ui";
+
+import { BOARD_COLUMNS, boardColumn } from "../work/board";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment", collision: "subagent" };
 
 /** Home: what needs you, then one tile per project. */
 export function ProjectsPage() {
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
-  const [lanes] = useJson<Lane[]>("/api/lanes");
+  const [board, , reloadBoard] = useJson<BoardLane[]>("/api/board");
+  const lanes = board?.map(card => card.lane);
+  const [waiting] = useInbox();
+  useEffect(reloadBoard, [waiting, reloadBoard]);
   const [health] = useJson<Health>("/api/health");
   const [resources, , reloadResources] = useJson<ResourcesOverview>("/api/resources");
   const [usage, , reloadUsage] = useJson<UsageSummary>("/api/usage");
   const reportedLimits = (usage?.limits ?? []).filter((limit) => Date.parse(limit.resetsAt) > Date.now());
-  useEffect(() => { const timer = setInterval(() => { reloadResources(); reloadUsage(); }, 30_000); return () => clearInterval(timer); }, [reloadResources, reloadUsage]);
+  useEffect(() => { const timer = setInterval(() => { reloadResources(); reloadUsage(); reloadBoard(); }, 30_000); return () => clearInterval(timer); }, [reloadResources, reloadUsage, reloadBoard]);
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(params.get("add") === "1");
   const asked = params.get("add") === "1";
@@ -27,8 +32,9 @@ export function ProjectsPage() {
       <section aria-labelledby="projects-h">
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
           <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button></div></div>
+        {projects?.length && !board ? <p role="status">Loading lanes…</p> : null}
         <div className="tiles">
-          {(projects ?? []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
+          {(board ? projects ?? [] : []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} cards={(board ?? []).filter(c => c.lane.project === p.id)} waiting={waiting ?? []} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
           {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}
         </div>
         {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec-f" style={{ flexWrap: "wrap" }}>
@@ -41,14 +47,12 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectTile({ project, lanes, services }: { project: Project; lanes: Lane[]; services?: ResourcesOverview["projects"][number] }) {
+function ProjectTile({ project, lanes, cards, waiting, services }: { project: Project; lanes: Lane[]; cards: BoardLane[]; waiting: InboxItem[]; services?: ResourcesOverview["projects"][number] }) {
   const open = lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
-  const counts = (["needs_you", "working", "in_review", "failed"] as const).map((s) => [s, open.filter((l) => l.state === s).length] as const).filter(([, n]) => n);
-  const words: Record<string, string> = { needs_you: "need you", working: "working", in_review: "in review", failed: "failed" };
-  // Counts as glyphs, the same marks as the lane badges above, so the tile reads at a glance.
-  const line = counts.length ? counts.map(([s, n]) => <Glyph key={s} g={GLYPH[s][0]}>{`${n} ${words[s]}`}</Glyph>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
-  return <Link className="tile" to={`/p/${project.id}/work`}>
+  const line = cards.length ? BOARD_COLUMNS.map(column => <span key={column}>{column} {cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === column).length}</span>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
+  const needs = cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === "Needs you");
+  return <section className="project-compact"><Link className="tile" to={`/p/${project.id}/work`}>
     <div className={`cover ${coverFor(project.id)}`} />
     <div className="tb">
       <div className="nm"><b>{project.name}</b><span className="mono muted">{project.path.split("/").at(-1)}</span></div>
@@ -59,7 +63,7 @@ function ProjectTile({ project, lanes, services }: { project: Project; lanes: La
       </div>
     </div>
     <div className="tf">{line}{services?.up ? <Glyph g="done">{`${services.up} up`}</Glyph> : null}{services?.down ? <Glyph g="fail">{`${services.down} down`}</Glyph> : null}</div>
-  </Link>;
+  </Link>{needs.map(c => <Link className="sec-r project-need" key={c.lane.id} to={`/p/${project.id}/work?lane=${encodeURIComponent(c.lane.id)}`}><LaneBadge id={c.lane.id} colour={c.lane.colour} /><Glyph g="wait">Needs you</Glyph><span>{c.lane.task}</span></Link>)}</section>;
 }
 
 function NeedsYou({ lanes, projects }: { lanes: Lane[]; projects: Project[] }) {

@@ -1,3 +1,4 @@
+import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { serveWeb } from "./static.js";
 import { ProjectError } from "../projects.js";
@@ -249,6 +250,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return store.getLane(lane.id);
   });
   app.get("/api/lanes", async () => store.listLanes());
+  app.get("/api/board", async () => boardLanes(store));
+  app.get<{ Params: { project: string } }>("/api/projects/:project/board", async req => boardLanes(store, ProjectId.parse(req.params.project)));
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/status", async (req) => {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no lane");

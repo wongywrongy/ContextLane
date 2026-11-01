@@ -1,49 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
-import type { InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
-import { AgentMark, Empty, LaneBadge, Section, StateGlyph, ago } from "../components/ui";
-import { isIdle, laneNow, timeline } from "./model";
+import { useEffect, useState, type DragEvent } from "react";
+import { useParams } from "react-router";
+import type { BoardLane, InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
+import { errorMessage, useJson } from "../api";
+import { AgentMark, Glyph, LaneBadge, Section, StateGlyph } from "../components/ui";
+import { isIdle, laneNow } from "./model";
+import { BOARD_COLUMNS, boardColumn, boardDrop, type BoardColumn } from "./board";
 
-/** Most urgent first: what waits on you, then what is moving, then the rest. */
-const RANK: Record<Lane["state"], number> = { needs_you: 0, in_review: 1, failed: 2, working: 3, setting_up: 4, paused: 5, draft: 6, merged: 7, cleaned: 8, archived: 9 };
-
-/**
- * The overview: every open lane as one row, grouped by goal, most urgent first. A row says who is on it,
- * what it is doing in plain words, its last two hours, and its state. It reads the same with one lane or
- * thirty, and needs no layout engine.
- */
+/** The board groups actual lifecycle state; drag and menu actions share the existing owner APIs. */
 export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; events: LaneEvent[]; waiting: InboxItem[]; select: (id: string) => void }) {
+  const { project } = useParams();
+  const [facts, error, reload] = useJson<BoardLane[]>(`/api/projects/${project}/board`);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
-  const start = now - 2 * 60 * 60_000;
-  const groups = useMemo(() => {
-    const goals = lanes.some((l) => l.goal);
-    const by = new Map<string, Lane[]>();
-    for (const lane of lanes) { const key = goals ? lane.goal ?? "No goal" : "Lanes"; by.set(key, [...(by.get(key) ?? []), lane]); }
-    const urgency = (ls: Lane[]) => Math.min(...ls.map((l) => RANK[l.state]));
-    return [...by].map(([goal, ls]) => [goal, [...ls].sort((a, b) => RANK[a.state] - RANK[b.state] || b.createdAt.localeCompare(a.createdAt))] as const)
-      .sort((a, b) => (a[0] === "No goal" ? 1 : 0) - (b[0] === "No goal" ? 1 : 0) || urgency(a[1]) - urgency(b[1]));
-  }, [lanes]);
-  // A lane forked from another says where it came from.
-  const from = useMemo(() => new Map<string, string>(events.flatMap((e): [string, string][] => e.type === "lane.forked" ? [[e.payload.to, `from lane ${e.payload.from.slice(e.payload.from.lastIndexOf("/") + 1)}`]]
-    : e.type === "lane.split" ? e.payload.children.map((c): [string, string] => [c.lane, `sub-lane of ${e.lane.slice(e.lane.lastIndexOf("/") + 1)}`]) : [])), [events]);
-  const since = (lane: Lane) => events.findLast((e) => e.lane === lane.id && e.type === "lane.state")?.at ?? lane.createdAt;
-  const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (!lanes.length) return <Section title="Lanes"><Empty>No lanes yet</Empty></Section>;
-  return <>
-    {groups.map(([goal, ls]) => {
-      const need = ls.filter((l) => l.state === "needs_you" || l.state === "in_review").length;
-      return <Section key={goal} title={goal} meta={`${ls.length} ${ls.length === 1 ? "lane" : "lanes"}${need ? ` · ${need} ${need === 1 ? "needs" : "need"} you` : ""}`}
-        end={<span className="mono muted" style={{ fontSize: 12 }}>{clock(start)} → now</span>}>
-        {ls.map((lane) => <button className="ov-row" key={lane.id} onClick={() => select(lane.id)}>
-          <span className="ov-who"><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small /></span>
-          <span className="ov-what"><b>{lane.task}</b><span>{laneNow(lane, events, waiting)}{from.has(lane.id) ? ` · ${from.get(lane.id)}` : ""}</span></span>
-          <span className="timeline-track" aria-label={`Last two hours of ${lane.task}`}>
-            {timeline(lane, events, start, now).map((segment, i) => <span key={i} className={`activity-bar ${segment.state}`} style={{ left: `${(segment.from - start) / (now - start) * 100}%`, width: `${(segment.to - segment.from) / (now - start) * 100}%` }} title={`${segment.state.replaceAll("_", " ")} · ${new Date(segment.from).toLocaleTimeString()} to ${new Date(segment.to).toLocaleTimeString()}`} />)}
-          </span>
-          <span className="ov-state"><StateGlyph state={lane.state} idle={isIdle(lane, events)} label /><small>{ago(since(lane), now)}</small></span>
-        </button>)}
-      </Section>;
-    })}
-    <p className="graph-legend" style={{ margin: "0 2px" }}>Bars show the last two hours. Solid: working · stripes: waiting on you · red: failed · pale: idle or paused.</p>
-  </>;
+  const changed = events.findLast(e => ["lane.state", "checkpoint.judged", "usage", "env.status"].includes(e.type));
+  const version = `${changed?.lane}/${changed?.seq}/${lanes.map(l => `${l.id}:${l.state}`).join(",")}`;
+  useEffect(reload, [version, reload]);
+  useEffect(() => { const timer = setInterval(() => { setNow(Date.now()); reload(); }, 30_000); return () => clearInterval(timer); }, [reload]);
+  const act = async (lane: Lane, to: BoardColumn | "Archive") => { if (busy) return; setBusy(lane.id); setNotice(""); try { setNotice(await boardDrop(lane, to)); reload(); } catch (e) { setNotice(errorMessage(e)); } finally { setBusy(null); } };
+  const drop = (e: DragEvent, to: BoardColumn | "Archive") => { e.preventDefault(); const id = e.dataTransfer.getData("application/x-contextlanes-lane"); const lane = lanes.find(l => l.id === id); if (lane) void act(lane, to); };
+  const cards = (facts ?? []).map(card => ({ ...card, lane: lanes.find(l => l.id === card.lane.id) ?? card.lane }));
+  if (!facts) return <Section title="Board"><p className="sec-b" role={error ? "alert" : "status"}>{error ? error.message : "Loading lanes…"}</p></Section>;
+  return <div className="board-wrap">
+    {error ? <p role="alert">{error.message}</p> : null}{notice ? <p role="status">{notice}</p> : null}
+    <div className="lane-board" aria-label="Lane board">{BOARD_COLUMNS.map(column => {
+      const shown = cards.filter(card => boardColumn(card, waiting.some(i => i.lane === card.lane.id), now) === column);
+      return <div className="board-column" key={column} data-column={column} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} onDrop={e => drop(e, column)}><Section title={column} meta={`${shown.length}${column === "Merged" ? " · 7 days" : ""}`}>
+        {shown.map(card => <article className="board-card" key={card.lane.id} data-lane={card.lane.id} draggable={!busy} onDragStart={e => { e.dataTransfer.setData("application/x-contextlanes-lane", card.lane.id); e.dataTransfer.effectAllowed = "move"; }}>
+          <button className="board-open" onClick={() => select(card.lane.id)}><span className="board-who"><LaneBadge id={card.lane.id} colour={card.lane.colour} /><AgentMark agent={card.lane.agent} small /><span>{card.lane.agent}</span></span><b>{card.lane.task}</b><span className="board-now">{laneNow(card.lane, events, waiting)}</span><StateGlyph state={card.lane.state} idle={isIdle(card.lane, events)} label /></button>
+          <div className="board-facts">{card.contextPct !== null ? <span>ctx {card.contextPct}%</span> : null}{card.verdict ? <Glyph g={card.verdict === "merge" ? "done" : card.verdict === "fix first" ? "wait" : "fail"}>{card.verdict}</Glyph> : null}{card.preview ? <a className="lnk" href={card.preview} target="_blank" rel="noreferrer" draggable={false}>Preview ↗</a> : null}</div>
+          {["working", "failed"].includes(card.lane.state) ? <details className="board-actions"><summary aria-label={`Actions for ${card.lane.id}`}>Actions</summary><button className="btn ghost sm" disabled={!!busy} onClick={() => void act(card.lane, card.lane.state === "failed" ? "Archive" : "In review")}>{card.lane.state === "failed" ? "Archive" : "Ask for review"}</button></details> : null}
+        </article>)}
+        {!shown.length ? <div className="sec-b muted">No lanes</div> : null}
+      </Section></div>;
+    })}</div>
+    <section className="sec board-archive" aria-label="Archive failed lane" onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} onDrop={e => drop(e, "Archive")}><div className="sec-r muted">Drop a failed lane here to archive it. Its checkout and history stay.</div></section>
+  </div>;
 }

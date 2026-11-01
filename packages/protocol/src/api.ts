@@ -56,6 +56,8 @@ export const Lane = z.object({
   createdAt: z.string(),
 });
 export type Lane = z.infer<typeof Lane>;
+/** Only measured facts for a board card; absent reporting stays null. */
+export type BoardLane = { lane: Lane; mergedAt: string | null; contextPct: number | null; verdict: "merge" | "fix first" | "do not merge" | null; preview: string | null };
 
 export const AddProjectRequest = z.object({ path: z.string().min(1), name: z.string().optional() });
 export type AddProjectRequest = z.infer<typeof AddProjectRequest>;

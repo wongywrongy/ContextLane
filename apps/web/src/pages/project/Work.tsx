@@ -50,7 +50,7 @@ export function WorkPage() {
       {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
       {lane ? <LaneView key={lane.id} projectName={projects?.find((p) => p.id === project)?.name ?? project} lane={lane} events={history.events} error={history.error} reload={work.reload} view={view} setView={setView} />
         : <>
-          <div className="ph"><h2>Overview</h2><span className="m">{overviewMeta(open, inbox ?? [])}</span></div>
+          <div className="ph"><h2>Board</h2><span className="m">{overviewMeta(open, inbox ?? [])}</span><button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setCreating(true)}>New lane</button></div>
           {open.length ? <Overview lanes={open} events={work.events} waiting={inbox ?? []} select={choose} />
             : <section className="sec"><div className="empty">{work.lanes.length ? "No open lanes; archived ones are in the list." : "No lanes yet."} A lane is one task with its own branch, checkout, shell and agent. <button className="lnk" onClick={() => setCreating(true)}>{work.lanes.length ? "Start one" : "Start the first one"}</button>.</div></section>}
         </>}
