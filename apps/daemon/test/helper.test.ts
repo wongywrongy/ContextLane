@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Lane } from "@contextlanes/protocol";
 import { Config, EventBus, LocalModels, Store, runCommand, type Runner, type Runtime } from "@contextlanes/daemon";
 import { Helper } from "../src/helper.js";
@@ -27,7 +27,6 @@ async function fixture(opts: { model?: boolean; answer?: (prompt: string) => str
   const turnEnd = () => bus.publish(store.appendEvent(lane.id, { type: "agent.turn", payload: { active: false } }));
   return { store, lane, helper, prompts, worktree, turnEnd, bus, root };
 }
-const flush = () => new Promise((r) => setTimeout(r, 50));
 
 describe("local helper", () => {
   it("read: answers from the files, records the tokens it saved, and counts a redo when the lead reads them anyway", async () => {
@@ -43,8 +42,8 @@ describe("local helper", () => {
     await f.helper.delegate(f.lane, { kind: "read", task: "quote it", files: ["host.txt"] });
     expect(f.prompts.slice(before).join("")).toContain("not a regular file");
     f.bus.publish(f.store.appendEvent(f.lane.id, { type: "tool.call", payload: { callId: "c", kind: "read", title: "Read test.log", files: [join(f.worktree, "test.log")] } }));
-    f.turnEnd(); await flush();
-    expect(f.store.events(f.lane.id).filter((e) => e.type === "helper.redone")).toHaveLength(1);
+    f.turnEnd();
+    await vi.waitFor(() => expect(f.store.events(f.lane.id).filter((e) => e.type === "helper.redone")).toHaveLength(1));
   });
 
   it("check: runs only the approved recipe's checks, in the sandbox, and returns the sorted failures", async () => {
@@ -60,8 +59,8 @@ describe("local helper", () => {
     const r = await f.helper.delegate(f.lane, { kind: "edit", task: "double the fee", files: ["fees.py"] });
     expect(r.result).toMatch(/^This patch applies cleanly/);
     expect((await runCommand("git", ["status", "--porcelain"], { cwd: f.worktree })).stdout).toBe(""); // the helper wrote nothing
-    f.turnEnd(); await flush();
-    expect(f.store.events(f.lane.id).filter((e) => e.type === "helper.redone")).toHaveLength(1);
+    f.turnEnd();
+    await vi.waitFor(() => expect(f.store.events(f.lane.id).filter((e) => e.type === "helper.redone")).toHaveLength(1));
   });
 
   it("turns a kind off after too many redos, and lets the owner decide", async () => {

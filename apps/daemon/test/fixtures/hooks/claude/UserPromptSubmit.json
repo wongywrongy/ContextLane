@@ -1,0 +1,10 @@
+{
+  "session_id": "11111111-1111-4111-8111-111111111111",
+  "transcript_path": "/lane-data/agent/projects/workspace/11111111-1111-4111-8111-111111111111.jsonl",
+  "cwd": "/workspace",
+  "scratchpad_dir": "/tmp/agent/scratchpad",
+  "prompt_id": "prompt-one",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Use Bash to run printf hi > hello.txt in this checkout, then reply done and stop."
+}

@@ -8,6 +8,7 @@ const src = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@contextlanes/lanehost/usage": src("./apps/lanehost/src/usage.ts"),
       "@contextlanes/protocol": src("./packages/protocol/src/index.ts"),
       "@contextlanes/toolbox": src("./packages/toolbox/src/index.ts"),
       "@contextlanes/daemon": src("./apps/daemon/src/index.ts"),

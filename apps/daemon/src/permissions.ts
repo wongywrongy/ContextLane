@@ -12,19 +12,20 @@ export type AnswerBy = EventPayload<"permission.answered">["by"];
  * and puts the lane back to working when nothing else waits. The owner's answers (/api/answers) and Auto
  * mode's both come through here; the agent's own requests never can.
  */
-export function answerPermission(deps: Deps, lane: string, requestId: string, optionId: string | null, by: AnswerBy): { commandId: string; delivered: boolean } {
+export function answerPermission(deps: Deps, lane: string, requestId: string, optionId: string | null, by: AnswerBy, message?: string): { commandId: string; delivered: boolean } {
   const { store, bus } = deps;
   const request = store.permission(lane, requestId)!;
+  const cli = store.getLane(lane)?.kind === "cli";
   const commandId = randomUUID();
   const command = { kind: "answer" as const, requestId, optionId };
   const events = store.tx(() => {
-    const events: LaneEvent[] = [store.appendEvent(lane, { type: "permission.answered", payload: { requestId, optionId, by } })];
-    if (request.kind !== "question") events.push(store.appendEvent(lane, { type: "agent.command", payload: { commandId, command } }));
+    const events: LaneEvent[] = [store.appendEvent(lane, { type: "permission.answered", payload: { requestId, optionId, by, ...(message ? { message } : {}) } })];
+    if (request.kind !== "question" && !cli) events.push(store.appendEvent(lane, { type: "agent.command", payload: { commandId, command } }));
     if (store.getLane(lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === lane && ["permission", "question"].includes(i.kind))) events.push(store.setLaneState(lane, "working"));
     return events;
   });
   for (const event of events) bus.publish(event);
-  return { commandId, delivered: request.kind === "question" || deps.send(lane, { commandId, command }) };
+  return { commandId, delivered: cli || request.kind === "question" || deps.send(lane, { commandId, command }) };
 }
 
 /**

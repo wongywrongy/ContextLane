@@ -16,7 +16,7 @@ it("a lane failed by one agent error is working again when the agent takes a new
   await hosts.listen(join(root, "lanes.sock")); cleanups.push(() => hosts.close());
   const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   store.addProject({ id: "shop", name: "shop", path: "/code/shop" });
-  const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ project: "shop", task: "Cart" });
+  const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ kind: "acp", project: "shop", task: "Cart" });
   const sock = createConnection(join(root, "lanes.sock")); cleanups.push(() => sock.destroy());
   const send = (msg: unknown) => sock.write(`${JSON.stringify(msg)}\n`);
   const acks: string[] = [];
@@ -52,7 +52,7 @@ it("in Auto, approves what the guard passes (once, by ContextLanes) and leaves d
   await hosts.listen(join(root, "lanes.sock")); cleanups.push(() => hosts.close());
   const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   store.addProject({ id: "shop", name: "shop", path: "/code/shop" });
-  const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ project: "shop", task: "Cart", auto: true, base: "main" });
+  const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ kind: "acp", project: "shop", task: "Cart", auto: true, base: "main" });
   expect(lane.auto).toBe(true);
   expect(store.events(lane.id).some((e) => e.type === "lane.auto" && e.payload.on)).toBe(true);
   const sock = createConnection(join(root, "lanes.sock")); cleanups.push(() => sock.destroy());

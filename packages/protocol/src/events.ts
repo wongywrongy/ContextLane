@@ -1,6 +1,6 @@
 import { TestCounts } from "./testsummary.js";
 import { z } from "zod";
-import { TurnUsage, UsageLimit } from "./usage.js";
+import { TokenUsage, TurnUsage, UsageLimit } from "./usage.js";
 import { ServiceProposal } from "./resources.js";
 import { LaneId } from "./ids.js";
 import { LaneState } from "./states.js";
@@ -54,6 +54,7 @@ const payloads = {
   "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
   "agent.session": z.object({
     sessionId: z.string(), currentMode: z.string().optional(), currentModel: z.string().optional(),
+    transcriptPath: z.string().optional(),
     modes: z.array(z.object({ id: z.string(), label: z.string() })),
     models: z.array(z.object({ id: z.string(), label: z.string() })),
     /** Reasoning effort levels the agent offers (an ACP thought_level config option), and the current one. */
@@ -65,9 +66,11 @@ const payloads = {
   }),
   "agent.turn": z.object({ active: z.boolean(), stopReason: z.string().optional(), commandId: z.uuid().optional() }),
   "agent.error": z.object({ message: z.string() }),
+  "agent.notice": z.object({ message: z.string() }),
+  "usage.snapshot": z.object({ sessionId: z.string(), tokens: TokenUsage }),
   "notification.sent": z.object({ requestId: z.string(), channel: NotificationChannel, target: z.string().default("") }),
   "notification.failed": z.object({ requestId: z.string(), channel: NotificationChannel, message: z.string() }),
-  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
+  "tool.call": z.object({ callId: z.string(), kind: StepKind, title: z.string(), files: z.array(z.string()).default([]), name: z.string().optional(), input: z.record(z.string(), z.unknown()).optional(), sessionId: z.string().optional(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
   "tool.update": z.object({ callId: z.string(), status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(), title: z.string().optional(), kind: StepKind.optional(), files: z.array(z.string()).optional(), summary: z.string().optional(), diff: diffStat.optional(), tests: z.array(testResult).optional(), counts: TestCounts.optional(), exitCode: z.number().int().nullable().optional() }),
   "permission.requested": z.object({ requestId: z.string(), title: z.string(), detail: z.string().optional(), options: z.array(PermissionOption), kind: z.enum(["permission", "question"]).optional(),
     /** What the request would do, from the agent's own tool call: Auto mode's guard reads it. */
@@ -75,7 +78,7 @@ const payloads = {
     /** Why Auto mode left this one for the owner. */
     held: z.string().optional() }),
   /** by "auto": ContextLanes approved it in Auto mode (never the agent), with the guard's verdict. */
-  "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli", "auto"]) }),
+  "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli", "auto", "terminal"]), message: z.string().max(4000).optional() }),
   /** Auto mode turned on or off for the lane. */
   "lane.auto": z.object({ on: z.boolean() }),
   "recipe.requested": z.object({ hash: z.string() }),

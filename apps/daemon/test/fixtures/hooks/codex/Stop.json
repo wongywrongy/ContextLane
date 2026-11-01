@@ -1,0 +1,11 @@
+{
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "turn_id": "turn-one",
+  "transcript_path": "/lane-data/agent/sessions/rollout-session.jsonl",
+  "cwd": "/workspace",
+  "hook_event_name": "Stop",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "stop_hook_active": false,
+  "last_assistant_message": "done"
+}

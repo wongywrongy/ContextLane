@@ -21,6 +21,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@contextlanes/lanehost": "workspace:*",
     "@colbymchenry/codegraph": "1.6.2",
     "@contextlanes/protocol": "workspace:*",
     "@fastify/websocket": "11.3.4",

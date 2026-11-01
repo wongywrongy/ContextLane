@@ -24,6 +24,25 @@ async function agentHome(agent: string, dir: string): Promise<Record<string, str
   return { [claude ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"]: target };
 }
 
+async function wireHooks(lane: Lane, dir: string): Promise<string[]> {
+  const node = `'${process.execPath.replaceAll("'", "'\\''")}'`;
+  const script = fileURLToPath(new URL("../../../cli/bin/hook.mjs", import.meta.url));
+  const command = `${node} '${script.replaceAll("'", "'\\''")}'`;
+  const events = lane.agent === "claude-code" ? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "Notification"]
+    : ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "Interrupt"];
+  const hooks = Object.fromEntries(events.map((event) => [event, [{ hooks: [{ type: "command", command: `${command} ${event}`, timeout: event === "PermissionRequest" ? 86_400 : 2 }] }]]));
+  const file = join(dir, lane.agent === "claude-code" ? "hooks.json" : "agent/hooks.json");
+  if (lane.agent === "codex") {
+    const previous = JSON.parse(await readFile(file, "utf8").catch(() => "{}")) as { hooks?: Record<string, { hooks?: { command?: string }[] }[]> };
+    for (const [event, entries] of Object.entries(previous.hooks ?? {})) {
+      const kept = entries.map((entry) => ({ ...entry, hooks: entry.hooks?.filter((h) => !h.command?.includes("/apps/cli/bin/hook.mjs")) })).filter((entry) => entry.hooks?.length);
+      hooks[event] = [...kept, ...(hooks[event] ?? [])] as typeof hooks[string];
+    }
+  }
+  await writeFile(file, JSON.stringify({ hooks }), { mode: 0o600 });
+  return lane.agent === "claude-code" ? ["--settings", file] : [];
+}
+
 /** Safety and observation switches belong to the lane, never passthrough arguments. */
 export function checkCliArgs(agent: string, args: string[]): void {
   for (const arg of args) {
@@ -54,6 +73,7 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const file = join(dir, "launch.json");
   const home = await agentHome(lane.agent, dir);
+  const hooks = await wireHooks(lane, dir);
   // A single Linux argument is limited to 128 KiB. Large plans remain a file readable only in this lane.
   const task = join(dir, "task.md");
   if (resume) {
@@ -64,7 +84,7 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
   await writeFile(task, prompt, { mode: 0o600 });
   const first = Buffer.byteLength(prompt) > 64_000 ? `Read ${task} for your task, then carry it out.` : prompt;
   const prefix = sandbox(config, { laneData: dir, agentHome: join(dir, "agent") });
-  await writeFile(file, JSON.stringify({ command: prefix[0], args: [...prefix.slice(1), lane.agent === "claude-code" ? "claude" : "codex", ...cliArgs(lane, first, extra, resume)],
+  await writeFile(file, JSON.stringify({ command: prefix[0], args: [...prefix.slice(1), lane.agent === "claude-code" ? "claude" : "codex", ...hooks, ...cliArgs(lane, first, extra, resume)],
     env: { ...home, PATH: `${process.env.PATH ?? "/usr/bin:/bin"}:${join(homedir(), ".local/bin")}`, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}`, CONTEXTLANES_LANE_TOKEN: token } }), { mode: 0o600 });
   await run("tmux", ["set-option", "-w", "-t", `=${lane.terminal}:`, "remain-on-exit", "on"]);
   await run("tmux", ["respawn-pane", "-k", "-t", `=${lane.terminal}:`, "-c", lane.worktree, process.execPath, fileURLToPath(new URL("../../bin/cli-agent.mjs", import.meta.url)), file]);

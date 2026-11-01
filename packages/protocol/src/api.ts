@@ -107,7 +107,7 @@ export type BenchResult = { id: string; startedAt: string; finishedAt: string | 
 
 /** Auto mode for a lane; only the owner's token can change it. */
 export const AutoRequest = z.object({ on: z.boolean() });
-export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web") });
+export const AnswerRequest = z.object({ optionId: z.string().nullable(), via: z.enum(["web", "phone", "telegram", "cli"]).default("web"), message: z.string().max(4000).optional() });
 export type AnswerRequest = z.input<typeof AnswerRequest>;
 /** split_lanes: the agent proposes 2 to 5 parallel sub-lanes; the owner says yes once for all of them. */
 export const SplitLanesRequest = z.object({ requestId: z.uuid(), why: z.string().trim().min(1).max(1000),

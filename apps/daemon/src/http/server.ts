@@ -22,6 +22,8 @@ import { SecondReviews } from "../second-review.js";
 import { Judge } from "../judge.js";
 import { Sublanes } from "../sublanes.js";
 import { Nudges } from "../nudges.js";
+import { Hooks } from "../hooks.js";
+import { HookAnswerQuery } from "@contextlanes/protocol";
 import type { Schedules } from "../schedules.js";
 import { access } from "node:fs/promises";
 import { Skills } from "../skills.js";
@@ -101,7 +103,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
     if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
     if ((!deps.setup || deps.setup.claimed) && bearer && await auth.owner(bearer)) return;
-    if ((route === TOOL_ROUTE || route === TOOLS_ROUTE) && bearer) {
+    if ((route === TOOL_ROUTE || route === TOOLS_ROUTE || route === "/api/lanes/:project/:n/hooks" || route === "/api/lanes/:project/:n/hooks/answer") && bearer) {
       const { project, n } = req.params as { project: string; n: string };
       if (store.laneForToken(bearer) === `${project}/${n}`) return;
     }
@@ -271,6 +273,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // ── lanes ──
+  const hooks = new Hooks({ store, bus, config });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks", { bodyLimit: 2_000_000 }, async (req) => hooks.receive(laneParam(req.params), req.body));
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks/answer", async (req) => hooks.answer(laneParam(req.params), HookAnswerQuery.parse(req.query).request));
   app.post("/api/lanes", async (req, reply) => {
     reply.code(201);
     return deps.lanes.start(req.body);
@@ -507,7 +512,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!request) return reply.code(404).send({ error: "no such permission" });
     if (store.answered(body.lane, body.requestId)) return reply.code(409).send({ error: "permission already answered" });
     if (body.optionId !== null && !request.options.some((o) => o.id === body.optionId)) return reply.code(400).send({ error: "not an offered permission option" });
-    return reply.code(202).send(answerPermission({ store, bus, send: (l, m) => deps.hosts.send(l, m) }, body.lane, body.requestId, body.optionId, body.via));
+    return reply.code(202).send(answerPermission({ store, bus, send: (l, m) => deps.hosts.send(l, m) }, body.lane, body.requestId, body.optionId, body.via, body.message));
   });
 
   // ── live stream: one SSE connection per project screen ──

@@ -39,6 +39,9 @@ importers:
       '@colbymchenry/codegraph':
         specifier: 1.6.2
         version: 1.6.2
+      '@contextlanes/lanehost':
+        specifier: workspace:*
+        version: link:../lanehost
       '@contextlanes/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

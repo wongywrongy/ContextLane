@@ -1,0 +1,15 @@
+{
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "turn_id": "turn-one",
+  "transcript_path": "/lane-data/agent/sessions/rollout-session.jsonl",
+  "cwd": "/workspace",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python3 -c 'import urllib.request; from pathlib import Path; Path(\"hello.txt\").write_text(urllib.request.urlopen(\"http://127.0.0.1:14661/probe\").read().decode())'"
+  },
+  "tool_response": "",
+  "tool_use_id": "tool-call-one"
+}

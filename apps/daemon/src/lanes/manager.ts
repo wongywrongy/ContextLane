@@ -131,7 +131,7 @@ export class LaneManager {
       if (!req.baseline && !lane.direct) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind === "cli");
       if (config.lanes.launchHosts) {
-        const notes = req.baseline ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
+        const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
         const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
         if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs);
         else await this.launch(lane, text);

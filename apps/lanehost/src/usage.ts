@@ -9,6 +9,7 @@ import { TokenUsage, UsageLimit } from "@contextlanes/protocol";
 const count = z.number().int().nonnegative();
 const claudeUsage = z.object({ input_tokens: count, output_tokens: count, cache_read_input_tokens: count.optional(), cache_creation_input_tokens: count.optional() });
 const codexUsage = z.object({ input_tokens: count, output_tokens: count, cached_input_tokens: count, cache_write_input_tokens: count.optional() });
+const codexCommandResult = z.object({ type: z.literal("CommandExecution"), id: z.string(), aggregated_output: z.string(), exit_code: z.number().int().nullable() });
 type Tokens = z.infer<typeof TokenUsage>;
 const zero = (): Tokens => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 const rateWindow = z.object({ utilization: z.number().min(0).max(1), resetsAt: z.number().int().nonnegative().max(8.64e12) });
@@ -34,7 +35,7 @@ export class SessionUsage {
   private file?: string;
   constructor(private agent: string | undefined, private cwd: string, private sessionId: string, private env: NodeJS.ProcessEnv = process.env) {}
 
-  async read(): Promise<{ source: "claude-log" | "codex-log"; tokens: Tokens } | null> {
+  async read(): Promise<{ source: "claude-log" | "codex-log"; tokens: Tokens; results?: { callId: string; summary: string; exitCode: number | null }[] } | null> {
     if (!this.agent || !/^[\w-]+$/.test(this.sessionId) || !["claude-code", "codex"].includes(this.agent)) return null;
     try {
       if (!this.file) {
@@ -52,6 +53,7 @@ export class SessionUsage {
       if (!size || size > 64 * 1024 * 1024) return null;
       const lines = createInterface({ input: createReadStream(this.file!, { end: size - 1 }), crlfDelay: Infinity });
       const messages = new Map<string, Tokens>();
+      const results: { callId: string; summary: string; exitCode: number | null }[] = [];
       let matched = false, total: Tokens | null = null;
       for await (const line of lines) {
         let row;
@@ -66,6 +68,10 @@ export class SessionUsage {
           messages.set(row.message.id, { inputTokens: u.input_tokens, outputTokens: u.output_tokens, cacheReadTokens: u.cache_read_input_tokens ?? null, cacheWriteTokens: u.cache_creation_input_tokens ?? null });
         } else {
           if (row.type === "session_meta") matched = row.payload?.id === this.sessionId && row.payload?.cwd === this.cwd;
+          if (matched && row.type === "event_msg" && row.payload?.type === "item_completed" && row.payload.thread_id === this.sessionId) {
+            const result = codexCommandResult.safeParse(row.payload.item);
+            if (result.success) results.push({ callId: result.data.id, summary: result.data.aggregated_output.slice(0, 12_000), exitCode: result.data.exit_code });
+          }
           if (!matched || row.type !== "event_msg" || row.payload?.type !== "token_count") continue;
           const parsed = codexUsage.safeParse(row.payload.info?.total_token_usage);
           if (!parsed.success) continue;
@@ -74,7 +80,7 @@ export class SessionUsage {
         }
       }
       if (!matched) return null;
-      if (this.agent === "codex") return total ? { source: "codex-log", tokens: total } : null;
+      if (this.agent === "codex") return total ? { source: "codex-log", tokens: total, ...(results.length ? { results } : {}) } : null;
       const tokens: Record<keyof Tokens, number | null> = zero();
       for (const usage of messages.values()) for (const key of Object.keys(tokens) as (keyof Tokens)[]) {
         const before = tokens[key], value = usage[key];
