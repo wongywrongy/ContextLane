@@ -129,7 +129,12 @@ export const InboxItem = z.object({
 });
 export type InboxItem = z.infer<typeof InboxItem>;
 
-export const RequestChanges = z.object({ note: z.string().trim().min(1).max(10_000) });
+export const ReviewComment = z.object({ file: z.string().min(1).max(512), line: z.number().int().positive().nullable(), side: z.enum(["old", "new"]).default("new"), quote: z.string().max(4000), text: z.string().trim().min(1).max(2000) });
+export type ReviewComment = z.infer<typeof ReviewComment>;
+export const RequestChanges = z.object({ note: z.string().trim().max(10_000).default(""), comments: z.array(ReviewComment).max(50).default([]) }).refine((v) => !!v.note || v.comments.length > 0, "Add a note or a comment.").refine((v) => reviewMessage(v.note, v.comments).length <= 100_000, "Keep the complete request under 100,000 characters.");
+export function reviewMessage(note: string, comments: ReviewComment[]): string {
+  return [note, ...comments.map((c) => `${c.file}${c.line ? `:${c.line}` : ""}${c.side === "old" ? " (before)" : ""}\n${c.quote ? `${c.quote.split("\n").map((line) => `> ${line}`).join("\n")}\n` : ""}${c.text}`)].filter(Boolean).join("\n\n");
+}
 export const CheckpointRequest = z.object({ summary: z.string().trim().min(1).max(2000) });
 
 /** A change ready for review: measured evidence only. */

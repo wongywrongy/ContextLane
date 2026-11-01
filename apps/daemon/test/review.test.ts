@@ -216,6 +216,26 @@ describe("cleanup", () => {
 });
 
 describe("request changes", () => {
+  it("records three comments and delivers one combined message to the fake agent queue", async () => {
+    const { app, store } = await fixture();
+    const comments = [1, 2, 3].map(line => ({ file: "feature.txt", line, side: "new", quote: `line ${line}`, text: `Change ${line}` }));
+    const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { comments } });
+    expect(res.statusCode).toBe(202);
+    expect(store.eventsOfType(["review.requested"])[0]?.payload.comments).toEqual(comments);
+    const commands = store.pendingCommands("shop/01");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.payload.command).toMatchObject({ kind: "prompt", text: "feature.txt:1\n> line 1\nChange 1\n\nfeature.txt:2\n> line 2\nChange 2\n\nfeature.txt:3\n> line 3\nChange 3" });
+  });
+  it("accepts Work comments without a checkpoint and rejects oversized combined requests before mutation", async () => {
+    const { app, store } = await fixture();
+    const comment = { file: "feature.txt", line: 1, side: "old", quote: "before", text: "fix" };
+    const large = await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { comments: Array.from({ length: 50 }, () => ({ ...comment, quote: "x".repeat(4000), text: "y".repeat(2000) })) } });
+    expect(large.statusCode).toBe(400);
+    expect(store.getLane("shop/01")?.state).toBe("in_review");
+    store.setLaneState("shop/01", "working");
+    expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { comments: [comment] } })).statusCode).toBe(202);
+    expect(store.pendingCommands("shop/01")[0]?.payload.command).toMatchObject({ text: expect.stringContaining("feature.txt:1 (before)") });
+  });
   it("sends the note to the same lane as a message and puts the lane back to work", async () => {
     const { app, store } = await fixture();
     const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/request-changes", payload: { note: "Rename the table" } });

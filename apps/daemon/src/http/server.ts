@@ -288,6 +288,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = laneParam(req.params);
     return store.events(lane, LaneEventsQuery.parse(req.query).after);
   });
+  app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/diff", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no lane");
+    return { diff: (await run("git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", lane.base ?? "HEAD", "--"], { cwd: lane.worktree, timeout: 30_000 })).stdout.slice(0, 500_000) };
+  });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/prompt", { bodyLimit: 24 * 1024 * 1024 }, async (req, reply) => {
     const lane = laneParam(req.params);
     if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
@@ -441,7 +446,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req) => review.approve(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
-    return reply.code(202).send(review.requestChanges(laneParam(req.params), RequestChanges.parse(req.body).note));
+    const body = RequestChanges.parse(req.body);
+    return reply.code(202).send(review.requestChanges(laneParam(req.params), body.note, body.comments));
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/cleanup", async (req) => review.cleanup(laneParam(req.params)));
   app.get<{ Params: { project: string } }>("/api/projects/:project/checkpoints", async (req) => store.checkpoints(ProjectId.parse(req.params.project)));

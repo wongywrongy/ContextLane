@@ -689,3 +689,8 @@ input.in.mono { font: 400 14px var(--mono); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @keyframes live { 0%, 100% { box-shadow: 0 0 0 3px rgba(13,12,11,.14); } 50% { box-shadow: 0 0 0 5px rgba(13,12,11,.05); } }
+
+/* Diff comments retain the shared diff view and its own horizontal scroller. */
+.diff-line { display:block; width:100%; border:0; background:transparent; color:inherit; font:inherit; text-align:left; white-space:pre; cursor:pointer; min-width:max-content; padding:0 12px; }
+.diff-line:hover, .diff-line:focus-visible { outline:1px solid var(--line); outline-offset:-1px; }
+.diff-number { display:inline-block; width:5ch; color:var(--muted); user-select:none; }

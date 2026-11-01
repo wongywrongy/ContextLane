@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import type { Checkpoint, Lane, ProjectId } from "@contextlanes/protocol";
+import { reviewMessage, type ReviewComment, type Checkpoint, type Lane, type ProjectId } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Store } from "./db/store.js";
 import type { HostLinks } from "./hosts.js";
@@ -133,15 +133,24 @@ export class Review {
   }
 
   /** The note goes to the same agent as a normal message, and the lane goes back to work. */
-  requestChanges(id: string, note: string): { delivered: boolean } {
-    const { checkpoint } = this.pending(id);
-    if (this.busy.has(id)) throw new Refused("This lane is being merged right now. Wait for approve to finish or fail, then request changes.");
+  requestChanges(id: string, note: string, comments: ReviewComment[] = []): { delivered: boolean } {
     const { store, bus, hosts } = this.deps;
+    const lane = store.getLane(id);
+    if (!lane) throw new NotFound(`no lane ${id}`);
+    const checkpoint = lane.state === "in_review" ? this.pending(id).checkpoint : null;
+    if (!checkpoint && (!comments.length || !["working", "needs_you"].includes(lane.state))) throw new Refused("This lane has no checkpoint waiting for a decision.");
+    if (this.busy.has(id)) throw new Refused("This lane is being merged right now. Wait for approve to finish or fail, then request changes.");
+    const text = reviewMessage(note, comments);
     const events = store.tx(() => {
-      store.decideCheckpoint(checkpoint.id, "changes");
-      return [store.appendEvent(id, { type: "checkpoint.decided", payload: { checkpointId: checkpoint.id, decision: "changes", note } }), store.setLaneState(id, "working", "changes requested"), store.appendEvent(id, { type: "agent.message", payload: { text: note, role: "user" } })];
+      const result = [store.appendEvent(id, { type: "review.requested", payload: { ...(checkpoint ? { checkpointId: checkpoint.id } : {}), note, comments } })];
+      if (checkpoint) {
+        store.decideCheckpoint(checkpoint.id, "changes");
+        result.push(store.appendEvent(id, { type: "checkpoint.decided", payload: { checkpointId: checkpoint.id, decision: "changes", note: text } }), store.setLaneState(id, "working", "changes requested"));
+      }
+      result.push(store.appendEvent(id, { type: "agent.message", payload: { text, role: "user" } }));
+      return result;
     });
     for (const event of events) bus.publish(event);
-    return { delivered: hosts.command(id, { kind: "prompt", text: note, immediate: false, files: [], images: [] }).delivered };
+    return { delivered: hosts.command(id, { kind: "prompt", text, immediate: false, files: [], images: [] }).delivered };
   }
 }

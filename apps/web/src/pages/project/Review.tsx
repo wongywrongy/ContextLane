@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import type { Checkpoint, DetectedAgent, Lane, LaneEvent } from "@contextlanes/protocol";
+import type { Checkpoint, DetectedAgent, Lane, LaneEvent, ReviewComment } from "@contextlanes/protocol";
 import { apiFetch, errorMessage, getJson, postJson, useInbox, useJson, useImage } from "../../api";
 import { useProjectWork } from "../../components/Shell";
 import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, LaneBadge, Section, laneNumber, agoText } from "../../components/ui";
 import { loadHistory, stepsFor } from "../../work/model";
+
+import { DiffLines, ReviewTray } from "../../work/ReviewComments";
+import { useReviewComments } from "../../work/review";
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const totals = (files: Checkpoint["files"]) => files.reduce((sum, f) => ({ added: sum.added + f.added, removed: sum.removed + f.removed }), { added: 0, removed: 0 });
@@ -95,6 +98,9 @@ function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; che
   }, [lane.id]);
   // A finding opens its file's diff below.
   const [focus, setFocus] = useState<{ file: string; n: number } | null>(null);
+  const { comments, setComments, add, clear } = useReviewComments(lane.id);
+  const { environments } = useProjectWork();
+  const preview = environments?.lanes.find(e => e.lane === lane.id)?.environment?.services.find(s => s.state === "healthy" && s.url)?.url;
   const shots = checkpoint.screenshots;
   const base = lane.base ?? "main";
   const steps = useMemo(() => stepsFor(history).filter((s) => s.type === "tool"), [history]);
@@ -105,7 +111,7 @@ function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; che
       <h1>{lane.task} · checkpoint {number}</h1>
       <p>{checkpoint.summary}</p>
     </header>
-    <Verdict checkpoint={checkpoint} open={(file) => setFocus((f) => ({ file, n: (f?.n ?? 0) + 1 }))} />
+    <Verdict checkpoint={checkpoint} add={add} open={(file) => setFocus((f) => ({ file, n: (f?.n ?? 0) + 1 }))} />
     <Evidence lane={lane} checkpoint={checkpoint} history={history} />
     {shots.map((shot) => <Section key={shot.path} title="Before and after" meta={`${shot.path} · ${clock(checkpoint.createdAt)}`} end={shot.url ? <a className="lnk mono" href={shot.url} target="_blank" rel="noreferrer">{new URL(shot.url).host} ↗</a> : undefined}>
       <div className="ba">
@@ -114,14 +120,16 @@ function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; che
       </div>
       {shot.note ? <div className="sec-f" style={{ fontSize: 13 }}>{shot.note}</div> : null}
     </Section>)}
+    {preview ? <Section title="Running app"><div className="ba"><iframe title="Lane preview" src={preview} sandbox="allow-scripts allow-forms allow-same-origin allow-popups" style={{ width: "100%", height: 440, border: 0 }} />{shots[0] ? <Shot checkpoint={checkpoint} file={shots[0].after} label="After screenshot" tag="Checkpoint" /> : null}</div></Section> : null}
     {checkpoint.secondReview ? <SecondReview review={checkpoint.secondReview} project={lane.project} /> : null}
-    <Files checkpoint={checkpoint} focus={focus} />
-    <Decision lane={lane} checkpoint={checkpoint} decided={decided} parent={parent} />
+    <Files checkpoint={checkpoint} focus={focus} add={add} />
+    <ReviewTray comments={comments} remove={index => setComments(c => c.filter((_, i) => i !== index))} />
+    <Decision lane={lane} checkpoint={checkpoint} comments={comments} clear={clear} decided={decided} parent={parent} />
   </>;
 }
 
 /** The local judge's read of the change: verdict, one line, and the findings to look at. */
-function Verdict({ checkpoint, open }: { checkpoint: Checkpoint; open: (file: string) => void }) {
+function Verdict({ checkpoint, open, add }: { checkpoint: Checkpoint; open: (file: string) => void; add: (comment: ReviewComment) => void }) {
   const j = checkpoint.judge;
   const [error, setError] = useState("");
   const again = () => { setError(""); void postJson(`/api/checkpoints/${checkpoint.id}/judge`, {}).catch((e) => setError(errorMessage(e))); };
@@ -139,7 +147,7 @@ function Verdict({ checkpoint, open }: { checkpoint: Checkpoint; open: (file: st
     <div className="sec-r" style={{ gap: 14, flexWrap: "wrap" }}><span style={{ fontSize: 17, fontWeight: 700 }}><Glyph g={g}>{word}</Glyph></span>{j.headline ? <span style={{ fontSize: 15, minWidth: 0, flex: "1 1 320px" }}>{j.headline}</span> : null}</div>
     {j.findings.map((f, i) => { const [fg, fw] = SEVERITY[f.severity]; return <div className={`rvr${f.severity === "blocker" ? " you" : ""}`} key={i}>
       <span style={{ minWidth: 92, alignSelf: "flex-start", paddingTop: 1 }}><Glyph g={fg}>{fw}</Glyph></span>
-      <span style={{ flex: 1 }}>{f.text}<button className="lnk mono" style={{ display: "block", fontSize: 12, marginTop: 3, textAlign: "left", overflowWrap: "anywhere" }} onClick={() => open(f.file)}>{f.file}{f.line ? `:${f.line}` : ""}</button></span>
+      <span style={{ flex: 1 }}>{f.text}<button className="lnk mono" style={{ display: "block", fontSize: 12, marginTop: 3, textAlign: "left", overflowWrap: "anywhere" }} onClick={() => open(f.file)}>{f.file}{f.line ? `:${f.line}` : ""}</button><button className="lnk" onClick={() => add({ file: f.file, line: f.line, side: "new", quote: "", text: f.text })}>Add to request</button></span>
     </div>; })}
     {!j.findings.length ? <div className="rvr"><Fact g="done">Nothing to flag</Fact></div> : null}
     {j.skipped.length ? <div className="sec-f muted" style={{ fontSize: 12.5 }}>Not read: {j.skipped.slice(0, 4).join(", ")}{j.skipped.length > 4 ? ` and ${j.skipped.length - 4} more` : ""}</div> : null}
@@ -150,6 +158,9 @@ function Verdict({ checkpoint, open }: { checkpoint: Checkpoint; open: (file: st
 /** What was measured, in one place: checks, preview, tests after the last edit, plan, shared modules. */
 function Evidence({ lane, checkpoint, history }: { lane: Lane; checkpoint: Checkpoint; history: LaneEvent[] }) {
   const [plan, setPlan] = useState(false);
+  const { comments, setComments, add, clear } = useReviewComments(lane.id);
+  const { environments } = useProjectWork();
+  const preview = environments?.lanes.find(e => e.lane === lane.id)?.environment?.services.find(s => s.state === "healthy" && s.url)?.url;
   const shots = checkpoint.screenshots;
   const previewed = shots.some((s) => s.after);
   const done = checkpoint.plan.filter((p) => p.status === "completed").length;
@@ -178,16 +189,12 @@ function Shot({ checkpoint, file, tag, label, changes }: { checkpoint: Checkpoin
   </figure>;
 }
 
-function DiffLines({ text }: { text: string }) {
-  return <div className="dfv">{text.split("\n").map((line, i) => <div key={i} className={/^(diff |index |--- |\+\+\+ )/.test(line) ? "meta" : line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line || " "}</div>)}</div>;
-}
-
 function Bar({ added, removed }: { added: number; removed: number }) {
   const all = added + removed || 1;
   return <span className="diffbar" aria-hidden="true"><i className="a" style={{ width: `${added / all * 100}%` }} /><i className="d" style={{ width: `${removed / all * 100}%` }} /></span>;
 }
 
-function Files({ checkpoint, focus }: { checkpoint: Checkpoint; focus: { file: string; n: number } | null }) {
+function Files({ checkpoint, focus, add }: { checkpoint: Checkpoint; focus: { file: string; n: number } | null; add: (comment: ReviewComment) => void }) {
   const t = totals(checkpoint.files);
   const [open, setOpen] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ key: string; text: string } | null>(null);
@@ -221,10 +228,10 @@ function Files({ checkpoint, focus }: { checkpoint: Checkpoint; focus: { file: s
   const restTotal = totals(rest);
   return <Section title="Files" meta={`${checkpoint.files.length} · +${t.added} -${t.removed}`} end={<button className="btn ghost sm" aria-expanded={open === "*"} onClick={() => void load(null)}>{open === "*" ? "Close full diff" : "Open full diff"}</button>}>
     {error ? <p role="alert" className="sec-b">{error}</p> : null}
-    {open === "*" && diff?.key === "*" ? <DiffLines text={diff.text} /> : null}
+    {open === "*" && diff?.key === "*" ? <DiffLines text={diff.text} add={add} /> : null}
     {shown.map((file) => <div key={file.path} id={`file-${file.path}`} style={{ scrollMarginTop: 16 }}>
       <button className="frow" aria-expanded={open === file.path} onClick={() => void load(file.path)}><span>{file.path}</span><Bar added={file.added} removed={file.removed} /><span className="n"><i>+{file.added}</i> <em>-{file.removed}</em></span></button>
-      {open === file.path && diff?.key === file.path ? <DiffLines text={diff.text} /> : null}
+      {open === file.path && diff?.key === file.path ? <DiffLines text={diff.text} add={add} /> : null}
     </div>)}
     {rest.length ? <button className="frow" onClick={() => setMore(true)}><span>{rest.length} more {rest.length === 1 ? "file" : "files"}</span><Bar added={restTotal.added} removed={restTotal.removed} /><span className="n"><i>+{restTotal.added}</i> <em>-{restTotal.removed}</em></span></button> : null}
   </Section>;
@@ -239,7 +246,7 @@ function SecondReview({ review, project }: { review: NonNullable<Checkpoint["sec
   </Section>;
 }
 
-function Decision({ lane, checkpoint, decided, parent }: { lane: Lane; checkpoint: Checkpoint; decided: () => void; parent: Lane | null }) {
+function Decision({ lane, checkpoint, comments, clear, decided, parent }: { lane: Lane; checkpoint: Checkpoint; comments: ReviewComment[]; clear: () => void; decided: () => void; parent: Lane | null }) {
   const [, , reloadInbox] = useInbox();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -251,7 +258,7 @@ function Decision({ lane, checkpoint, decided, parent }: { lane: Lane; checkpoin
   const [estimate] = useJson<{ tokens: number }>(reviewer && !checkpoint.secondReview ? `/api/checkpoints/${checkpoint.id}/second-review` : null);
   const send = async (path: string, body: unknown) => {
     setBusy(true); setError("");
-    try { await postJson(`/api/lanes/${lane.id}/${path}`, body); setAsking(false); decided(); reloadInbox(); }
+    try { await postJson(`/api/lanes/${lane.id}/${path}`, body); if (path === "request-changes") clear(); setAsking(false); decided(); reloadInbox(); }
     catch (err) { setError(errorMessage(err)); }
     finally { setBusy(false); }
   };
@@ -260,14 +267,15 @@ function Decision({ lane, checkpoint, decided, parent }: { lane: Lane; checkpoin
     <button className="btn ghost" disabled={busy} onClick={() => {
       // The judge's blockers and should-fixes start the note, one per line; edit before sending.
       const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
-      if (!note.trim() && found.length) setNote(found.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""}: ${f.text}`).join("\n"));
+      if (!comments.length && !note.trim() && found.length) setNote(found.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""}: ${f.text}`).join("\n"));
       setAsking(true);
     }}>Request changes</button>
     {reviewer && !checkpoint.secondReview ? <button className="btn ghost" disabled={busy} onClick={() => void postJson(`/api/checkpoints/${checkpoint.id}/second-review`, { agent: reviewer }).then(decided, (e) => setError(errorMessage(e)))}>Ask {AGENT_NAMES[reviewer] ?? reviewer} to review</button> : null}
     {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">{parent ? `lane ${laneNumber(parent.id)}'s agent merges it into its branch` : `opens a pull request into ${lane.base ?? "main"}`}</span>}
   </div>
   {asking ? <Dialog title="Request changes" meta={`back to ${AGENT_NAMES[lane.agent] ?? lane.agent} in this lane`} onClose={() => setAsking(false)}
-    footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || !note.trim()} onClick={() => void send("request-changes", { note })}>Send to the agent</button></>}>
+    footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || (!note.trim() && !comments.length)} onClick={() => void send("request-changes", { note, comments })}>Send to the agent</button></>}>
+    {comments.length ? <p>{comments.length} comments will be sent with this note.</p> : null}
     <textarea className="in" rows={5} autoFocus aria-label="What should change" placeholder="What should change" value={note} onChange={(e) => setNote(e.target.value)} />
     {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}
   </Dialog> : null}

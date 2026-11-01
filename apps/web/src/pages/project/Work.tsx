@@ -1,3 +1,4 @@
+import { WorkDiff } from "../../work/ReviewComments";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { sharing } from "./Review";
@@ -37,7 +38,7 @@ export function WorkPage() {
   useEffect(() => { if (asked) setCreating(true); }, [asked]);
   const lane = work.lanes.find((l) => l.id === params.get("lane")) ?? null;
   const history = useHistory(lane?.id ?? "", work.events, work.version);
-  const [view, setView] = useState<"steps" | "terminal">("steps");
+  const [view, setView] = useState<"steps" | "terminal" | "diff">("steps");
   useEffect(() => setView(lane?.kind === "cli" ? "terminal" : "steps"), [lane?.id, lane?.kind]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
   // Archived lanes are hidden from the list until asked for; the overview follows the list.
@@ -130,7 +131,7 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
   </div>;
 }
 
-function LaneView({ projectName, lane, events, error, reload, view, setView }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal"; setView: (v: "steps" | "terminal") => void }) {
+function LaneView({ projectName, lane, events, error, reload, view, setView }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void; view: "steps" | "terminal" | "diff"; setView: (v: "steps" | "terminal" | "diff") => void }) {
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -208,13 +209,14 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
         <div className="vt" role="tablist" aria-label="Lane view">
           <button role="tab" aria-selected={view === "steps" && filter === "progress"} className={view === "steps" && filter === "progress" ? "on" : ""} onClick={() => { setView("steps"); setFilter("progress"); }}>Progress</button>
           <button role="tab" aria-selected={view === "steps" && filter !== "progress"} className={view === "steps" && filter !== "progress" ? "on" : ""} onClick={() => { setView("steps"); if (filter === "progress") setFilter("all"); }}>Steps <i>{steps.length}</i></button>
+          <button role="tab" aria-selected={view === "diff"} className={view === "diff" ? "on" : ""} onClick={() => setView("diff")}>Diff</button>
           <button role="tab" aria-selected={view === "terminal"} className={view === "terminal" ? "on" : ""} onClick={() => setView("terminal")}>Terminal <span className="live" title="Running" /></button>
         </div>
         {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span>{filter !== "progress" ? <div className="e"><FilterSwitch value={filter} change={setFilter} /></div> : null}</>
           : <span className="m">tmux · {lane.terminal} · {lane.kind === "cli" ? "your agent in this lane" : "your shell in this lane"}</span>}
       </div>
       {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
-      {view === "terminal"
+      {view === "diff" ? <WorkDiff key={lane.id} lane={lane.id} version={events.filter(e => e.type === "tool.update" && e.payload.status !== "in_progress").length} /> : view === "terminal"
         ? <><Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense>
           <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>{lane.kind === "cli" ? "Your agent" : "Your shell"} · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {lane.id}</span></div></>
         : <Steps lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
