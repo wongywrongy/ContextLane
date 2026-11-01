@@ -18,7 +18,7 @@ export function socketPath(config: Config): string {
  * hide the data folder while leaving the release inside it, which holds the lane host's own code.
  * Whole folders are hidden, not single files: a file that is later replaced would come back into view.
  */
-export function sandbox(config: Config, opts: { socket?: boolean; ssh?: boolean } = {}): string[] {
+export function sandbox(config: Config, opts: { socket?: boolean; ssh?: boolean; laneData?: string; agentHome?: string } = {}): string[] {
   const { data } = config.paths;
   const tmux = `/tmp/tmux-${process.getuid?.() ?? 0}`;
   const resolver = existsSync("/etc/resolv.conf") ? dirname(realpathSync("/etc/resolv.conf")) : null;
@@ -29,6 +29,8 @@ export function sandbox(config: Config, opts: { socket?: boolean; ssh?: boolean 
     "--tmpfs", "/run", ...(resolver?.startsWith("/run/") ? ["--ro-bind-try", resolver, resolver] : []),
     ...(existsSync(tmux) ? ["--tmpfs", tmux] : []),
     ...(opts.socket ? ["--bind", dirname(socketPath(config)), dirname(socketPath(config))] : []),
+    ...(opts.laneData ? ["--ro-bind", opts.laneData, opts.laneData] : []),
+    ...(opts.agentHome ? ["--bind", opts.agentHome, opts.agentHome] : []),
     // The daemon's push may need the owner's SSH agent, which usually lives under /run.
     ...(opts.ssh && process.env.SSH_AUTH_SOCK && existsSync(process.env.SSH_AUTH_SOCK) ? ["--bind", dirname(process.env.SSH_AUTH_SOCK), dirname(process.env.SSH_AUTH_SOCK)] : []), "--"];
 }

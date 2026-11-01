@@ -40,7 +40,7 @@ async function fixture() {
     return { stdout: "" };
   };
   const lanes = new LaneManager({ store, bus, config, run });
-  lane = await lanes.start({ project: "demo", task: "Task" });
+  lane = await lanes.start({ kind: "acp", project: "demo", task: "Task" });
   store.saveEnvironment({ lane: lane.id, recipeHash: "a".repeat(64), setup: null, startedAt: null, error: null, services: [
     { name: "web", unit: "owned-web", port: 20001, url: "https://fixture.invalid:4700", state: "healthy", detail: null, probes: [true], ms: 1, lastFailure: null, healthPath: "/", healthStatus: 200 },
     { name: "api", unit: "owned-api", port: 20002, url: null, state: "failed", detail: "failed", probes: [false], ms: null, lastFailure: null, healthPath: "/", healthStatus: 200 },
@@ -76,7 +76,7 @@ it("records an owner's adoption proposal in a fresh lane without stopping the ou
   const f = await fixture();
   const outside = (await f.resources.project("demo")).outside![0]!;
   const app = signedIn(buildServer({ ...f, version: "test" }), f.store); cleanups.push(() => app.close());
-  const result = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Propose a service recipe", adoption: outside } });
+  const result = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Propose a service recipe", adoption: outside } });
   expect(result.statusCode).toBe(201);
   const lane = result.json();
   expect(hostCommand(f.store.getLane(lane.id)!, f.config, outside).find((arg) => arg.startsWith("--task="))).toContain("normal recipe approval");

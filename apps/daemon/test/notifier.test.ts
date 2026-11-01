@@ -16,7 +16,7 @@ async function setup() {
   const app = signedIn(buildServer({ store, bus, config, hosts, lanes, run, version: "test" }), store);
   cleanup.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
-  await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Notify" } });
+  await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Notify" } });
   store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "request", title: "Run a check?", options: [
     { id: "yes", label: "Allow once", kind: "allow_once" }, { id: "always", label: "Allow always", kind: "allow_always" }, { id: "no", label: "Deny", kind: "reject_once" },
   ] } });

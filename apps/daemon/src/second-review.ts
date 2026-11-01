@@ -38,7 +38,7 @@ export class SecondReviews {
       c.plan.length ? `Its plan: ${c.plan.map((p) => `${p.status === "completed" ? "[done]" : "[open]"} ${p.text}`).join("; ")}` : "",
       c.checks.length ? `Checks: ${c.checks.map((x) => `${x.name} ${x.passed ? "passed" : "failed"}`).join(", ")}` : "",
       `Reply with findings only, most serious first, one per line: "blocker", "should fix" or "nit" — file:line — what is wrong and why. Then one line: "Verdict: merge", "Verdict: merge after fixes" or "Verdict: do not merge".`].filter(Boolean).join("\n\n");
-    const review = await lanes.start({ project: lane.project, task: `Second review of ${lane.id.split("/")[1]} by ${agent}`, agent, mode: "plan", base: lane.branch, goal: lane.goal ?? undefined }, { firstPrompt: prompt });
+    const review = await lanes.start({ project: lane.project, task: `Second review of ${lane.id.split("/")[1]} by ${agent}`, agent, kind: "acp", mode: "plan", base: lane.branch, goal: lane.goal ?? undefined }, { firstPrompt: prompt });
     store.setSecondReview(c.id, { agent, lane: review.id, state: review.state === "failed" ? "failed" : "running", text: null, at: new Date().toISOString() });
     return store.checkpoint(c.id)!;
   }

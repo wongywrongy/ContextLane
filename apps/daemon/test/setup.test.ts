@@ -151,7 +151,7 @@ describe("headless setup", () => {
     expect(first.id).not.toBe(second.id);
     expect((await f.setup.addProject({ path: "~/two/repo" })).id).toBe(second.id);
     await f.setup.initialize(); expect(f.store.listProjects()).toHaveLength(2);
-    const lane = (await f.app.inject({ method: "POST", url: "/api/lanes", headers: f.owner, payload: { project: first.id, task: "First task" } })).json();
+    const lane = (await f.app.inject({ method: "POST", url: "/api/lanes", headers: f.owner, payload: { kind: "acp", project: first.id, task: "First task" } })).json();
     expect(lane.state).toBe("working"); expect(f.store.hasStartedLane()).toBe(true);
     f.store.setLaneState(lane.id, "failed", "Fixture later failure");
     expect((await f.app.inject("/api/setup/status")).json().hasLane).toBe(true);

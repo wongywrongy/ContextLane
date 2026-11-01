@@ -19,7 +19,7 @@ describe("second-agent review", () => {
     const calls: string[][] = [];
     const run: Runner = async (cmd, args, opts) => { if (cmd === "git") return runCommand(cmd, args, opts); calls.push([cmd, ...args]); return { stdout: "" }; };
     const lanes = new LaneManager({ store, bus, config: Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } }), run });
-    const lane = await lanes.start({ project: "shop", task: "Billing", agent: "claude-code", base: "main" });
+    const lane = await lanes.start({ kind: "acp", project: "shop", task: "Billing", agent: "claude-code", base: "main" });
     await writeFile(join(lane.worktree, "a.txt"), "one\ntwo\n"); await git(lane.worktree, "commit", "-qam", "two");
     const head = (await git(lane.worktree, "rev-parse", "HEAD")).stdout.trim();
     const base = (await git(repo, "rev-parse", "HEAD")).stdout.trim();

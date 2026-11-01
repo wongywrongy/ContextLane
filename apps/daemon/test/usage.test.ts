@@ -22,7 +22,7 @@ it("sums all turns by lane and UTC day, validates filters and preserves missing 
   try {
     for (const project of ["demo", "other"]) {
       store.addProject({ id: project, name: project, path: `/code/${project}` });
-      await lanes.start({ project, task: "Task" });
+      await lanes.start({ kind: "acp", project, task: "Task" });
     }
     const payload = { turnId: randomUUID(), sessionId: "session", source: "acp" as const, inputTokens: 10, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 1, costUsd: .1 };
     const first = store.appendEvent("demo/01", { type: "usage.turn", payload });

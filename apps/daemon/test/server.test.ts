@@ -34,7 +34,7 @@ describe("http api", () => {
   it("starts a lane: worktree, terminal, then working", async () => {
     const { app, calls } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shuttleworks", name: "ShuttleWorks" } });
-    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shuttleworks", task: "Billing phase 0" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shuttleworks", task: "Billing phase 0" } });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ id: "shuttleworks/01", state: "working", terminal: "cl-shuttleworks-01", colour: "lc1" });
     const setupCalls = calls.filter((c) => /^(git worktree|tmux new-session)/.test(c));
@@ -48,15 +48,15 @@ describe("http api", () => {
   it("lists every project's lanes in one request for the home page", async () => {
     const { app } = setup();
     for (const path of ["/code/ara", "/code/shop"]) await app.inject({ method: "POST", url: "/api/projects", payload: { path } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "ara", task: "Wake word" } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "ara", task: "Wake word" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart" } });
     expect((await app.inject({ url: "/api/lanes" })).json().map((l: { id: string }) => l.id).sort()).toEqual(["ara/01", "shop/01"]);
   });
 
   it("picks the next free branch and terminal when an old lane's branch or tmux session is still there", async () => {
     const { app, calls } = setup({ taken: ["lane/01-billing", "lane/01-billing-2"], sessions: ["cl-shop-01", "other"] });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Billing" } })).json();
     expect(lane).toMatchObject({ state: "working", branch: "lane/01-billing-3", terminal: "cl-shop-01-3" });
     expect(lane.worktree).toMatch(/01-billing-3$/);
     expect(calls.find((c) => c.startsWith("git worktree"))).toMatch(/^git worktree add -b lane\/01-billing-3 /);
@@ -65,7 +65,7 @@ describe("http api", () => {
   it("gives the host a free unit name when an old unit still holds the lane id", async () => {
     const { app, calls, store } = setup({ units: ["contextlanes-lane-shop-01", "contextlanes-lane-shop-01-2"] });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Billing" } })).json();
     expect(lane).toMatchObject({ state: "working", hostUnit: "contextlanes-lane-shop-01-3", branch: "lane/01-billing-3" });
     expect(store.getLane("shop/01")!.hostUnit).toBe("contextlanes-lane-shop-01-3");
     expect(calls.find((c) => c.startsWith("systemd-run") && c.includes("--unit="))).toContain("--unit=contextlanes-lane-shop-01-3");
@@ -75,21 +75,21 @@ describe("http api", () => {
   it("refuses a base branch that git would read as an option", async () => {
     const { app, calls } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    for (const base of ["--force", "-b", "a..b", "main branch"]) expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", base } })).statusCode).toBe(400);
+    for (const base of ["--force", "-b", "a..b", "main branch"]) expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart", base } })).statusCode).toBe(400);
     expect(calls.some((c) => c.startsWith("git worktree"))).toBe(false);
   });
 
   it("marks the lane failed when setup breaks", async () => {
     const { app } = setup({ fail: true });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/ara" } });
-    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "ara", task: "Wake word" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "ara", task: "Wake word" } });
     expect(res.json()).toMatchObject({ state: "failed" });
   });
 
   it("answers a permission from the inbox", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shuttleworks" } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shuttleworks", task: "Billing" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shuttleworks", task: "Billing" } });
     store.appendEvent("shuttleworks/01", { type: "permission.requested", payload: { requestId: "r1", title: "Run npm i", options: [{ id: "allow", label: "Allow once", kind: "allow_once" }] } });
     expect((await app.inject({ url: "/api/inbox" })).json()).toHaveLength(1);
     const res = await app.inject({ method: "POST", url: "/api/answers", payload: { lane: "shuttleworks/01", requestId: "r1", optionId: "allow", via: "phone" } });
@@ -105,14 +105,14 @@ describe("http api", () => {
 
   it("returns 400 for a bad request", async () => {
     const { app } = setup();
-    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "Not Valid!" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "Not Valid!" } });
     expect(res.statusCode).toBe(400);
   });
 
   it("records disconnected controls for replay and rejects bypass modes", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Controls" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Controls" } });
     for (const [action, payload] of [["prompt", { text: "Next", immediate: true }], ["cancel", {}], ["mode", { mode: "plan" }], ["model", { model: "large" }]] as const) {
       const response = await app.inject({ method: "POST", url: `/api/lanes/demo/01/${action}`, payload });
       expect(response.statusCode).toBe(202);
@@ -127,7 +127,7 @@ describe("http api", () => {
   it("only accepts an offered option for a pending permission, once", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Permission" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Permission" } });
     store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "request", title: "Continue?", options: [{ id: "once", label: "Allow once", kind: "allow_once" }] } });
     const answer = (requestId: string, optionId: string) => app.inject({ method: "POST", url: "/api/answers", payload: { lane: "demo/01", requestId, optionId } });
     expect((await answer("missing", "once")).statusCode).toBe(404);
@@ -140,7 +140,7 @@ describe("http api", () => {
   it("lets only the owner turn Auto on; turning it on answers what waits and the guard passes", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
-    await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Auto" } });
+    await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Auto" } });
     const options = [{ id: "once", label: "Allow once", kind: "allow_once" as const }];
     store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "safe", title: "Run pnpm test", options, tool: { kind: "execute", command: "pnpm test", paths: [] } } });
     store.appendEvent("demo/01", { type: "permission.requested", payload: { requestId: "dire", title: "Run", options, tool: { kind: "execute", command: "rm -rf ~/code", paths: [] } } });
@@ -174,7 +174,7 @@ describe("http api", () => {
     expect((await app.inject({ method: "PATCH", url: "/api/projects/shop", payload: {} })).statusCode).toBe(400);
     expect((await app.inject({ method: "PUT", url: "/api/projects/order", payload: { ids: ["zed", "ara"] } })).json().map((p: { id: string }) => p.id)).toEqual(["shop", "zed", "ara"]);
 
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "ara", task: "Wake word" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "ara", task: "Wake word" } })).json();
     expect((await app.inject({ method: "PATCH", url: `/api/lanes/${lane.id}`, payload: { task: "Wake word, Korean" } })).json()).toMatchObject({ task: "Wake word, Korean" });
     expect(store.events(lane.id).at(-1)).toMatchObject({ type: "lane.renamed", payload: { from: "Wake word", task: "Wake word, Korean" } });
     expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/archive` })).statusCode).toBe(409);
@@ -190,7 +190,7 @@ describe("http api", () => {
   it("refuses to start a lane with an agent that acts without asking", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Try", agent: "amp" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Try", agent: "amp" } });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toMatch(/Amp cannot run in a lane: Never asks permission/);
     expect(store.listLanes()).toEqual([]);
@@ -199,7 +199,7 @@ describe("http api", () => {
   it("splits a lane into sub-lanes once the owner agrees, and sends an approved sub-lane back to its parent", async () => {
     const { app, store, calls } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const parent = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Billing", agent: "codex", auto: true } })).json();
+    const parent = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Billing", agent: "codex", auto: true } })).json();
     const tool = (lane: string, name: string, payload: unknown = {}) => app.inject({ method: "POST", url: `/api/lanes/${lane}/tools/${name}`, payload: payload as object });
     const body = { requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c12", why: "API and UI are independent", lanes: [{ title: "Invoice API", task: "Add the invoice routes in api/invoices.py with tests." }, { title: "Invoice page", task: "Add the invoices page in web/pages/invoices.tsx." }] };
     // Asks once; the agent's call waits until the owner answers.
@@ -240,7 +240,7 @@ describe("http api", () => {
   it("gives two lanes started at once their own numbers", async () => {
     const { app } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const [a, b] = await Promise.all(["One", "Two"].map((task) => app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task } })));
+    const [a, b] = await Promise.all(["One", "Two"].map((task) => app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task } })));
     expect([a!.statusCode, b!.statusCode]).toEqual([201, 201]);
     expect([a!.json().id, b!.json().id].sort()).toEqual(["shop/01", "shop/02"]);
   });
@@ -249,7 +249,7 @@ describe("http api", () => {
     const { app, store, calls } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
     const plan = "# Billing\n\nStep 1: add invoices.\nStep 2: add tests.";
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: plan } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: plan } })).json();
     expect(lane.task).toBe("Billing");
     expect(lane.branch).toMatch(/^lane\/01-billing$/);
     const res = await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/restart` });
@@ -267,20 +267,20 @@ describe("http api", () => {
   it("starts a lane with the permissions and effort the owner chose, and changes effort later", async () => {
     const { app, calls } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", mode: "edits", effort: "high" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart", mode: "edits", effort: "high" } })).json();
     expect(lane).toMatchObject({ mode: "edits", effort: "high" });
     const started = calls.find((c) => c.startsWith("systemd-run") && c.includes("--lane="))!;
     expect(started).toContain("--mode=edits");
     expect(started).toContain("--effort=high");
     expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/effort`, payload: { effort: "low" } })).statusCode).toBe(202);
-    expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart", effort: "ludicrous" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart", effort: "ludicrous" } })).statusCode).toBe(400);
   });
 
   it("refuses to delete a lane while it is still being set up", async () => {
     let release!: () => void;
     const { app, store } = setup({ hold: new Promise<void>((r) => { release = r; }) });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const starting = app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Slow" } });
+    const starting = app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Slow" } });
     await vi.waitFor(() => expect(store.getLane("shop/01")?.state).toBe("setting_up"));
     const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/discard", payload: {} });
     expect(res.statusCode).toBe(409);
@@ -292,7 +292,7 @@ describe("http api", () => {
   it("restart closes what the old session owed: queued stops, open permissions; keeps the owner's messages", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart" } })).json();
     const stop = randomUUID(), prompt = randomUUID();
     store.appendEvent(lane.id, { type: "agent.command", payload: { commandId: stop, command: { kind: "cancel" } } });
     store.appendEvent(lane.id, { type: "agent.command", payload: { commandId: prompt, command: { kind: "prompt", text: "also tests", immediate: false, files: [], images: [] } } });
@@ -308,7 +308,7 @@ describe("http api", () => {
   it("fails a working lane whose agent host died quietly, once it is past starting", async () => {
     const { app, store, lanes } = setup({ inactive: true });
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart" } })).json();
     expect(await lanes.sweep(() => false)).toEqual([]);
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
@@ -323,7 +323,7 @@ describe("http api", () => {
   it("drops permissions of deleted lanes from the inbox", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Cart" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Cart" } })).json();
     store.appendEvent(lane.id, { type: "permission.requested", payload: { requestId: "r1", title: "Run npm test", options: [{ id: "yes", label: "Allow", kind: "allow_once" }] } });
     expect(store.inbox()).toHaveLength(1);
     await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/discard`, payload: {} });
@@ -333,7 +333,7 @@ describe("http api", () => {
   it("deletes a working lane: stops it, removes the checkout, keeps the branch unless asked", async () => {
     const { app, store } = setup();
     await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop" } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", task: "Stuck" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", task: "Stuck" } })).json();
     expect((await app.inject({ url: `/api/lanes/${lane.id}/discard` })).json()).toMatchObject({ branch: lane.branch, present: false });
     const res = await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/discard`, payload: { deleteBranch: true } });
     expect(res.json()).toMatchObject({ state: "archived" });

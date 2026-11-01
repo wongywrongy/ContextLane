@@ -38,7 +38,7 @@ export function WorkPage() {
   const lane = work.lanes.find((l) => l.id === params.get("lane")) ?? null;
   const history = useHistory(lane?.id ?? "", work.events, work.version);
   const [view, setView] = useState<"steps" | "terminal">("steps");
-  useEffect(() => setView("steps"), [lane?.id]);
+  useEffect(() => setView(lane?.kind === "cli" ? "terminal" : "steps"), [lane?.id, lane?.kind]);
   const choose = useCallback((id: string | null) => setParams(id ? { lane: id } : {}), [setParams]);
   // Archived lanes are hidden from the list until asked for; the overview follows the list.
   const open = useMemo(() => work.lanes.filter((l) => l.state !== "archived"), [work.lanes]);
@@ -211,12 +211,12 @@ function LaneView({ projectName, lane, events, error, reload, view, setView }: {
           <button role="tab" aria-selected={view === "terminal"} className={view === "terminal" ? "on" : ""} onClick={() => setView("terminal")}>Terminal <span className="live" title="Running" /></button>
         </div>
         {view === "steps" ? <><span className="m">{first ? `since ${new Date(first.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}` : ""}</span>{filter !== "progress" ? <div className="e"><FilterSwitch value={filter} change={setFilter} /></div> : null}</>
-          : <span className="m">tmux · {lane.terminal} · your shell in this lane</span>}
+          : <span className="m">tmux · {lane.terminal} · {lane.kind === "cli" ? "your agent in this lane" : "your shell in this lane"}</span>}
       </div>
       {error ? <p className="sec-b" role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
       {view === "terminal"
         ? <><Suspense fallback={<Empty>Opening your terminal…</Empty>}><Terminal lane={lane.id} /></Suspense>
-          <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>Your shell, not the agent’s · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {lane.id}</span></div></>
+          <div className="sec-f"><Glyph g="done"><span style={{ fontWeight: 500, color: "var(--text)" }}>{lane.kind === "cli" ? "Your agent" : "Your shell"} · keeps running when you close this tab</span></Glyph><span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>same session from any terminal</span><span className="mono" style={{ fontSize: 12.5, background: "#F1ECE3", padding: "3px 8px", borderRadius: 5 }}>contextlanes term {lane.id}</span></div></>
         : <Steps lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} filter={filter} />}
     </section>
 

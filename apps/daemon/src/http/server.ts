@@ -205,14 +205,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const { deleteBranch } = DiscardLane.parse(req.body ?? {});
     const repo = store.getProject(lane.project)!.path;
     await runtime.stop(lane.id).catch(() => {});
-    await runtime.dropDatabase(lane).catch(() => {});
+    if (!lane.direct) await runtime.dropDatabase(lane).catch(() => {});
     await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
     await new Terminals(run).kill(lane.terminal).catch(() => {});
     // The owner asked for it, so uncommitted changes go too (--force); the branch stays unless asked.
-    if (await access(lane.worktree).then(() => true, () => false)) await run("git", ["worktree", "remove", "--force", lane.worktree], { cwd: repo, timeout: 120_000 });
-    await run("git", ["worktree", "prune"], { cwd: repo, timeout: 30_000 }).catch(() => {});
-    if (deleteBranch) await run("git", ["branch", "-D", lane.branch], { cwd: repo, timeout: 30_000 }).catch(() => {});
-    if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", `Deleted by you: agent stopped and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
+    if (!lane.direct) {
+      if (await access(lane.worktree).then(() => true, () => false)) await run("git", ["worktree", "remove", "--force", lane.worktree], { cwd: repo, timeout: 120_000 });
+      await run("git", ["worktree", "prune"], { cwd: repo, timeout: 30_000 }).catch(() => {});
+      if (deleteBranch) await run("git", ["branch", "-D", lane.branch], { cwd: repo, timeout: 30_000 }).catch(() => {});
+    }
+    if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", lane.direct ? "Direct lane stopped; checkout and branch kept." : `Deleted by you: agent stopped and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
     return store.getLane(lane.id);
   });
   /** Stops the lane's agent and starts it again from the lane's first task (a refused or stuck agent). */
@@ -220,7 +222,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/agent", async (req): Promise<AgentLink> => {
     const id = laneParam(req.params);
     if (!store.getLane(id)) throw new NotFound("no such lane");
-    const connected = deps.hosts.connected(id);
+    const connected = store.getLane(id)!.kind === "cli" ? await deps.lanes.cliConnected(id) : deps.hosts.connected(id);
     return { connected, starting: !connected && deps.lanes.starting(id) };
   });
   /**

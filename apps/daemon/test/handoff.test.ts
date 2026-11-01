@@ -19,7 +19,7 @@ async function fixture(connected = true) {
   const run: Runner = async (cmd, args, opts) => { if (cmd === "git") return runCommand(cmd, args, opts); calls.push([cmd, ...args]); return { stdout: "" }; };
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const lanes = new LaneManager({ store, bus, config, run });
-  const lane = await lanes.start({ project: "shop", task: "Billing", agent: "claude-code", base: "main" });
+  const lane = await lanes.start({ kind: "acp", project: "shop", task: "Billing", agent: "claude-code", base: "main" });
   const hosts = { command: (id: string, c: { kind: string }) => {
     const commandId = "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c11";
     if (connected && c.kind === "prompt") setTimeout(() => {

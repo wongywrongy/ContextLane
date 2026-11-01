@@ -23,14 +23,14 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const ringColour = share > .85 ? "var(--bad)" : share > .6 ? "var(--you)" : "var(--ok)";
   return <aside className="pane r" aria-label="Lane details">
     {/* Shown once the agent reports it (or when Restart with a summary is offered): unknown stays silent. */}
-    {used || (READY.handoff && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
+    {used || ((READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
       <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
       {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="#E9E3D8" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
       </div> : null}
       {used && share > .8 ? <div style={{ marginTop: 10 }}><Glyph g="idle">Nearly full · the agent compacts it on its own</Glyph></div> : null}
-      {READY.handoff && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
+      {(READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
     </section> : null}
     {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
@@ -40,7 +40,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
-      {READY.handoff ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
+      {(READY.handoff && lane.kind !== "cli") ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
         <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>
         <button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Copy into a new lane</button></> : null}
       {["working", "needs_you", "failed"].includes(lane.state) ? <button className="act" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setCopied("Agent restarted. It reports in within a minute."), (e) => setCopied(errorMessage(e))); }}><Tile family="run" icon="execute" small />Restart the agent</button> : null}
@@ -100,11 +100,11 @@ function DeleteDialog({ lane, onClose }: { lane: Lane; onClose: () => void }) {
   const deleteBranch = branch ?? (preview ? preview.commits === 0 : false);
   const go = () => { setBusy(true); setError(""); void postJson(`/api/lanes/${lane.id}/discard`, { deleteBranch }).then(() => { onClose(); navigate(`/p/${lane.project}/work`); }, (e) => setError(errorMessage(e))).finally(() => setBusy(false)); };
   return <Dialog title={`Delete lane ${laneNumber(lane.id)}?`} onClose={onClose} footer={<div className="e">{error ? <span role="alert">{error}</span> : null}<button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={busy || !preview} aria-busy={busy || undefined} onClick={go}>{busy ? "Deleting…" : "Delete lane"}</button></div>}>
-    <p style={{ margin: "0 0 10px", fontSize: 14 }}>Stops its agent, services and terminal, and removes its folder <span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{lane.worktree}</span>. Its history stays under Show archived.</p>
-    {preview ? <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 14, display: "grid", gap: 4 }}>
+    <p style={{ margin: "0 0 10px", fontSize: 14 }}>{lane.direct ? "Stops this lane’s agent, services and terminal. Keeps the current checkout and branch:" : "Stops its agent, services and terminal, and removes its folder"} <span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{lane.worktree}</span>. Its history stays under Show archived.</p>
+    {lane.direct ? null : preview ? <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 14, display: "grid", gap: 4 }}>
       {preview.uncommitted ? <li><b>{preview.uncommitted} uncommitted {preview.uncommitted === 1 ? "change" : "changes"}</b> in the folder will be lost.</li> : <li>No uncommitted changes.</li>}
       <li>{preview.commits ? <><b>{preview.commits} {preview.commits === 1 ? "commit" : "commits"}</b> exist only on its branch.</> : "Its branch has no commits of its own."}</li>
     </ul> : <p className="muted" style={{ fontSize: 13.5 }}>Checking what the lane has…</p>}
-    <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}><input type="checkbox" checked={deleteBranch} onChange={(e) => setBranch(e.target.checked)} />Also delete the branch <span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{lane.branch}</span></label>
+    {!lane.direct ? <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}><input type="checkbox" checked={deleteBranch} onChange={(e) => setBranch(e.target.checked)} />Also delete the branch <span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{lane.branch}</span></label> : null}
   </Dialog>;
 }

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { elapsed, Steps } from "../src/term.js";
 
 const stream = (tty: boolean) => { const out: string[] = []; return { out, s: { isTTY: tty, write: (t: string) => { out.push(t); return true; } } as unknown as NodeJS.WriteStream }; };
+afterEach(() => vi.unstubAllEnvs());
 
 describe("terminal steps", () => {
   it("prints plain lines when not on a terminal", () => {
@@ -11,6 +12,7 @@ describe("terminal steps", () => {
     expect(out.join("")).toBe("  Checking for updates…\n  ✓ 2 new changes on main:\n    abc Faster lanes\n  ! The new version did not start, so ContextLanes is going back to abc.\n\n  Open ContextLanes  http://127.0.0.1:4600 (this machine only)\n");
   });
   it("spins on a terminal and marks the step done with its time", () => {
+    vi.stubEnv("TERM", "xterm-256color"); vi.stubEnv("NO_COLOR", "");
     const { out, s } = stream(true);
     let now = 0;
     const steps = new Steps(s, () => now);

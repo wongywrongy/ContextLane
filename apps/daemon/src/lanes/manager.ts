@@ -10,6 +10,7 @@ import type { Runner } from "../run.js";
 import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
+import { checkCliArgs, launchCli } from "./cli.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -65,6 +66,11 @@ export class LaneManager {
     const { store, config } = this.deps;
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
+    const kind = req.kind ?? (["claude-code", "codex"].includes(req.agent) ? "cli" : "acp");
+    if (kind === "cli") checkCliArgs(req.agent, req.cliArgs ?? []);
+    if (req.direct && kind !== "cli") throw new Refused("Direct mode requires a CLI lane.", 400);
+    const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
+    if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
     // Agents that act without asking cannot run in a lane: only you approve (AGENTS.md).
     const profile = agentProfile(req.agent);
     if (profile?.support === "unsupported") throw new Refused(`${profile.name} cannot run in a lane: ${profile.note}`);
@@ -88,19 +94,21 @@ export class LaneManager {
         goal: req.goal ?? null,
         task: title,
         agent: req.agent,
+        kind,
+        direct: req.direct,
         model: req.model ?? null,
         mode: req.mode,
         auto: req.auto,
         effort: req.effort ?? null,
-        branch: names.branch,
-        worktree: names.worktree,
+        branch: directBranch ?? names.branch,
+        worktree: req.direct ? project.path : names.worktree,
         terminal: names.terminal,
         hostUnit: names.hostUnit,
         base: req.base,
         state: "draft",
         colour: laneColour(n),
       });
-      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, ...(req.baseline ? { baseline: true } : {}) } }));
+      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, kind, direct: req.direct, ...(req.baseline ? { baseline: true } : {}) } }));
       if (lane.auto) this.emit(store.appendEvent(id, { type: "lane.auto", payload: { on: true } }));
       if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
       // The full task is the lane's first message, shown as the first step.
@@ -110,19 +118,23 @@ export class LaneManager {
     });
 
     try {
-      await mkdir(dirname(lane.worktree), { recursive: true });
-      // A base that exists only on origin (a pull request's branch) starts from origin's copy; the lane still merges back to its name.
-      const local = await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${req.base}`], { cwd: project.path }).then(() => true, () => false);
-      const remote = !local && await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${req.base}`], { cwd: project.path }).then(() => true, () => false);
-      await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
+      if (!lane.direct) {
+        await mkdir(dirname(lane.worktree), { recursive: true });
+        // A base that exists only on origin (a pull request's branch) starts from origin's copy; the lane still merges back to its name.
+        const local = await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${req.base}`], { cwd: project.path }).then(() => true, () => false);
+        const remote = !local && await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${req.base}`], { cwd: project.path }).then(() => true, () => false);
+        await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
+      }
       await extra.prepare?.(lane);
       // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
       // A skill that fails to copy is reported, not fatal: the lane still works without it.
-      if (!req.baseline) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
-      await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id });
+      if (!req.baseline && !lane.direct) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
+      await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind === "cli");
       if (config.lanes.launchHosts) {
         const notes = req.baseline ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
-        await this.launch(lane, taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline ? "" : toolsHint(config)));
+        const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
+        if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs);
+        else await this.launch(lane, text);
       }
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
@@ -159,6 +171,10 @@ export class LaneManager {
     if (!config.lanes.launchHosts) return [];
     const failed: string[] = [];
     for (const lane of store.listLanes().filter((l) => (l.state === "working" || l.state === "needs_you") && !connected(l.id) && !this.starting(l.id))) {
+      if (lane.kind === "cli") {
+        if (!await this.cliConnected(lane.id)) { this.emit(store.setLaneState(lane.id, "failed", "The CLI stopped. Restart the agent to resume its session.")); failed.push(lane.id); }
+        continue;
+      }
       const active = await run("systemctl", ["--user", "is-active", "--quiet", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).then(() => true, () => false);
       const now = store.getLane(lane.id);
       if (active || connected(lane.id) || !now || !["working", "needs_you"].includes(now.state)) continue;
@@ -181,6 +197,12 @@ export class LaneManager {
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
     if (!["working", "needs_you", "failed"].includes(lane.state)) throw new Refused("Only a working, waiting or failed lane's agent can be restarted.");
+    if (lane.kind === "cli") {
+      if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, true);
+      this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: "CLI restarted by you; resuming the last session in this checkout." } }));
+      await this.relaunch(lane, "");
+      return store.getLane(id)!;
+    }
     await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
     await run("systemctl", ["--user", "reset-failed", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).catch(() => {});
     const first = store.eventsOfType(["agent.message"], { lanes: [id] }).find((e) => e.payload.role === "user")?.payload.text ?? lane.task;
@@ -206,7 +228,8 @@ export class LaneManager {
     }
     if (["failed", "needs_you"].includes(store.getLane(id)!.state)) this.emit(store.setLaneState(id, "working", "agent restarted"));
     try {
-      await this.launch(store.getLane(id)!, text);
+      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true);
+      else await this.launch(store.getLane(id)!, text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.emit(store.setLaneState(id, "failed", `The agent could not be started again: ${message}`));
@@ -236,6 +259,12 @@ export class LaneManager {
 
   private emit(e: ReturnType<Store["appendEvent"]>): void {
     this.deps.bus.publish(e);
+  }
+
+  async cliConnected(id: string): Promise<boolean> {
+    const lane = this.deps.store.getLane(id);
+    if (!lane || lane.kind !== "cli") return false;
+    return this.deps.run("tmux", ["display-message", "-p", "-t", `=${lane.terminal}:`, "#{pane_dead}" ]).then((r) => r.stdout.trim() === "0", () => false);
   }
 }
 

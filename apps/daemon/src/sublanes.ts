@@ -60,7 +60,7 @@ export class Sublanes {
         `Your part: ${part.title}`, part.task,
         `Work only on this part and stay out of the other parts' files. Commit as you go. When your part is done and tested, call checkpoint. Once the owner approves, lane ${n(parent.id)} merges your branch.`].join("\n\n");
       try {
-        const child = await lanes.start({ project: parent.project, task: part.task, title: part.title, agent: parent.agent, model: parent.model ?? undefined, mode: parent.mode, auto: parent.auto,
+        const child = await lanes.start({ project: parent.project, task: part.task, title: part.title, agent: parent.agent, kind: parent.kind, model: parent.model ?? undefined, mode: parent.mode, auto: parent.auto,
           ...(parent.effort ? { effort: parent.effort as "low" | "medium" | "high" } : {}), base: parent.branch, ...(parent.goal ? { goal: parent.goal } : {}) }, { firstPrompt: prompt });
         started.push({ lane: child.id, title: part.title });
       } catch (err) { failed.push(`${part.title}: ${(err as Error).message}`); }

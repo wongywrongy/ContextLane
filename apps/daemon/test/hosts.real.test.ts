@@ -39,7 +39,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("keeps two real systemd la
       process.execPath, "--import", loader, "--conditions=source", resolve("apps/daemon/src/main.ts")]);
     await vi.waitFor(() => api("/api/health"), { timeout: 10_000 });
     await api("/api/projects", { path: repo, name: project });
-    for (const agent of ["claude-code", "codex"]) lanes.push(await api<Lane>("/api/lanes", { project, task: "permission", agent }));
+    for (const agent of ["claude-code", "codex"]) lanes.push(await api<Lane>("/api/lanes", { kind: "acp", project, task: "permission", agent }));
     await vi.waitFor(async () => expect(await api<unknown[]>("/api/inbox")).toHaveLength(2), { timeout: 10_000 });
     const pids = await Promise.all(lanes.map((lane) => runCommand("systemctl", ["--user", "show", `contextlanes-lane-${lane.id.replace("/", "-")}`, "--property=MainPID", "--value"])));
     for (const pid of pids) expect(Number(pid.stdout)).toBeGreaterThan(0);

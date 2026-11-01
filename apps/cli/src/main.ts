@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError } from "./client.js";
 import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
+import { startCliLane } from "./wrapper.js";
 
 const HELP = () => `${bold("contextlanes")} ${dim("— run coding agents in parallel lanes on an always-on machine")}
 
@@ -18,6 +19,8 @@ ${bold("Get started")}
 
 ${bold("Lanes")}
   contextlanes lanes [project]                every lane, its state and what it waits on
+  contextlanes claude [args…]                 start Claude Code in a lane and attach [--here: current checkout]
+  contextlanes codex [args…]                  start Codex in a lane and attach [--here: current checkout]
   contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id, see Models] [--model m] [--base branch]")}
   contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
   contextlanes inbox                          questions and permissions waiting on you
@@ -35,6 +38,10 @@ ${bold("This machine")}
 Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
 
 async function main(argv: string[]): Promise<number> {
+  if (argv[0] === "claude" || argv[0] === "codex") {
+    const lane = await startCliLane(argv[0], argv.slice(1));
+    return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  }
   // The updater ships with the daemon; run the copy from the release this command belongs to.
   if (argv[0] === "update") {
     const release = fileURLToPath(new URL("../../../", import.meta.url));

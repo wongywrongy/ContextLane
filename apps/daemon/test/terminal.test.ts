@@ -22,7 +22,7 @@ async function setup() {
   const app = signedIn(buildServer({ store, bus, lanes, hosts, config, run, version: "test" }), store);
   cleanups.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
-  const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Terminal" } })).json();
+  const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Terminal" } })).json();
   const ticketed = async (path: string) => `${path}?ticket=${(await app.inject({ method: "POST", url: "/api/tickets", payload: { path } })).json().ticket}`;
   return { app, store, run, pty, events, lane, ticketed };
 }

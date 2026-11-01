@@ -21,7 +21,7 @@ it("delivers fake-agent usage through the authenticated host socket into the dat
   const run = async () => ({ stdout: "" });
   const lanes = new LaneManager({ store, bus, config, run });
   store.addProject({ id: "demo", name: "Demo", path: dir });
-  const lane = await lanes.start({ project: "demo", task: "usage" });
+  const lane = await lanes.start({ kind: "acp", project: "demo", task: "usage" });
   const fake = fakeAgent(), stop = new AbortController();
   const host = runLaneHost({ lane: lane.id, cwd: dir, task: "usage", agent: { command: "unused", args: [] }, token: store.mintLaneToken(lane.id), socketPath, signal: stop.signal, connect: (client) => client.connect(fake.app) });
   const app = buildServer({ store, bus, hosts, lanes, config, run, version: "test" });

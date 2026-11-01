@@ -73,7 +73,7 @@ it("retains an ACP permission and replays commands after the daemon socket resta
   const makeServer = () => buildServer({ store, bus, lanes, config, hosts, run, version: "test" });
   app = makeServer();
   await app.inject({ method: "POST", url: "/api/projects", headers: { authorization: session }, payload: { path: "/code/demo" } });
-  await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization: session }, payload: { project: "demo", task: "permission" } });
+  await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization: session }, payload: { kind: "acp", project: "demo", task: "permission" } });
   const fake = fakeAgent();
   const stop = new AbortController();
   const host = runLaneHost({ lane: "demo/01", cwd: root, task: "permission", agent: { command: "unused", args: [] }, socketPath: join(root, "lanes.sock"), token: store.mintLaneToken("demo/01"), signal: stop.signal, connect: (client) => client.connect(fake.app) });

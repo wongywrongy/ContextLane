@@ -17,7 +17,7 @@ export async function recover(deps: { store: Store; bus: EventBus; config: Confi
   const { store, bus, config, run } = deps;
   const done: string[] = [];
   for (const lane of store.listLanes().filter((l) => l.state === "draft" || l.state === "setting_up")) {
-    const active = await run("systemctl", ["--user", "is-active", "--quiet", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).then(() => true, () => false);
+    const active = lane.kind === "cli" ? await run("tmux", ["display-message", "-p", "-t", `=${lane.terminal}:`, "#{pane_dead}"]).then((r) => r.stdout.trim() === "0", () => false) : await run("systemctl", ["--user", "is-active", "--quiet", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).then(() => true, () => false);
     try {
       if (lane.state === "draft") bus.publish(store.setLaneState(lane.id, "archived", "ContextLanes restarted before this lane was set up."));
       else if (active) bus.publish(store.setLaneState(lane.id, "working"));

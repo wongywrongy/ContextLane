@@ -75,7 +75,7 @@ it("serves measured machine/backup facts, reuses the CLI check, and exports work
   const store = Store.open(":memory:"), bus = new EventBus(), hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run }), setup = new SetupManager(config, store, run);
   store.addProject({ id: "demo", name: "Demo", path: "/code/demo", remote: "https://git-token-789@github.com/example/demo.git" });
-  const lane = await lanes.start({ project: "demo", task: "Task" });
+  const lane = await lanes.start({ kind: "acp", project: "demo", task: "Task" });
   store.mintLaneToken(lane.id);
   store.appendEvent(lane.id, { type: "agent.message", payload: { role: "agent", text: 'agent-secret-123 bot-secret-456' } });
   store.appendEvent(lane.id, { type: "agent.message", payload: { role: "agent", text: '{"password":"not-for-export"}' } });

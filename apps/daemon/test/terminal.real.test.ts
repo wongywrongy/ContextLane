@@ -28,7 +28,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
     await runCommand("git", ["-c", "user.name=ContextLanes test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Fixture"], { cwd: repo });
     const project = `terminal-${process.pid}`;
     await app.inject({ method: "POST", url: "/api/projects", headers: { authorization }, payload: { path: repo, name: project } });
-    const lane = (await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization }, payload: { project, task: "Persistent terminal" } })).json();
+    const lane = (await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization }, payload: { kind: "acp", project, task: "Persistent terminal" } })).json();
     expect(lane.state).toBe("working");
     session = lane.terminal;
     let output = "";

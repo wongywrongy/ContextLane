@@ -58,6 +58,7 @@ export class Handoffs {
     const { store, bus, config, run } = this.deps;
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
+    if (lane.kind === "cli") throw new Refused("Use the CLI’s own session commands in its terminal.");
     if (!["working", "needs_you"].includes(lane.state)) throw new Refused("Only a working lane can start a fresh session.");
     const profile = agentProfile(to.agent);
     if (to.agent && !Object.hasOwn(config.agents, to.agent) && !profile) throw new Refused(`There is no agent called ${to.agent}.`);
@@ -89,11 +90,12 @@ export class Handoffs {
     const { store, bus, lanes, run } = this.deps;
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
+    if (lane.kind === "cli") throw new Refused("Use the CLI’s own session commands in its terminal.");
     const messages = this.all(id).filter((e): e is Extract<LaneEvent, { type: "agent.message" }> => e.type === "agent.message").map((e) => ({ role: e.payload.role === "user" ? "user" as const : "agent" as const, text: e.payload.text }));
     const handoff = handoffFrom(messages.length ? messages : [{ role: "user", text: lane.task }], lane.worktree).replace("a session that ran outside ContextLanes in", "lane").replace("Its uncommitted changes have been copied into this checkout.", `This is a fork of lane ${lane.id}; its commits and uncommitted changes are in this checkout.`);
     const first = `${handoff}${to.note ? `\n\nFrom the owner: ${to.note}` : ""}`;
     const file = await this.keep(lane, first);
-    const fork = await lanes.start({ project: lane.project, task: `Fork of ${lane.id.split("/")[1]}: ${lane.task}`.slice(0, 300), agent: to.agent ?? lane.agent, model: to.model ?? (to.agent ? undefined : lane.model ?? undefined), base: lane.branch, goal: lane.goal ?? undefined }, {
+    const fork = await lanes.start({ project: lane.project, task: `Fork of ${lane.id.split("/")[1]}: ${lane.task}`.slice(0, 300), agent: to.agent ?? lane.agent, kind: lane.kind, model: to.model ?? (to.agent ? undefined : lane.model ?? undefined), base: lane.branch, goal: lane.goal ?? undefined }, {
       firstPrompt: first,
       prepare: async (l) => {
         const patch = (await run("git", ["diff", "--binary", "HEAD"], { cwd: lane.worktree })).stdout;

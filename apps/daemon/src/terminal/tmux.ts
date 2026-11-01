@@ -7,9 +7,12 @@ import type { Runner } from "../run.js";
 export class Terminals {
   constructor(private readonly run: Runner) {}
 
-  async create(session: string, cwd: string, env: Record<string, string> = {}): Promise<void> {
+  async create(session: string, cwd: string, env: Record<string, string> = {}, independent = false): Promise<void> {
     const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-    await this.run("tmux", ["new-session", "-d", "-s", session, "-c", cwd, ...envArgs]);
+    const args = ["new-session", "-d", "-s", session, "-c", cwd, ...envArgs];
+    // A newly created tmux server must outlive the daemon's cgroup, even on a fresh machine.
+    if (independent) await this.run("systemd-run", ["--user", "--scope", `--unit=contextlanes-terminal-${session}`, "--collect", "--quiet", "tmux", ...args]);
+    else await this.run("tmux", args);
   }
 
   /** = asks for this exact name; tmux would otherwise match cl-shop-01 to cl-shop-01-2, another lane's shell. */

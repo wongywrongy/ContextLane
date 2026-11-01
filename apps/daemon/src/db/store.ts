@@ -181,13 +181,13 @@ export class Store {
     return r.n;
   }
 
-  insertLane(l: Omit<Lane, "createdAt" | "auto"> & { n: number; auto?: boolean }): Lane {
+  insertLane(l: Omit<Lane, "createdAt" | "auto" | "kind" | "direct"> & { n: number; auto?: boolean; kind?: Lane["kind"]; direct?: boolean }): Lane {
     this.db
       .prepare(
-        `INSERT INTO lane (id, project, n, goal, task, agent, model, mode, auto, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
-         VALUES (@id, @project, @n, @goal, @task, @agent, @model, @mode, @auto, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
+        `INSERT INTO lane (id, project, n, goal, task, agent, kind, direct, model, mode, auto, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
+         VALUES (@id, @project, @n, @goal, @task, @agent, @kind, @direct, @model, @mode, @auto, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
       )
-      .run({ ...l, goal: l.goal ?? null, model: l.model ?? null, auto: l.auto ? 1 : 0, effort: l.effort ?? null, createdAt: now() });
+      .run({ ...l, kind: l.kind ?? "acp", direct: l.direct ? 1 : 0, goal: l.goal ?? null, model: l.model ?? null, auto: l.auto ? 1 : 0, effort: l.effort ?? null, createdAt: now() });
     return this.getLane(l.id)!;
   }
 
@@ -534,6 +534,8 @@ function toLane(r: Row): Lane {
     goal: (r.goal as string) ?? null,
     task: String(r.task),
     agent: String(r.agent),
+    kind: r.kind as Lane["kind"],
+    direct: r.direct === 1,
     model: (r.model as string) ?? null,
     mode: r.mode as Lane["mode"],
     auto: r.auto === 1,

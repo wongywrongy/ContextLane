@@ -83,7 +83,7 @@ describe.skipIf(!tools)("a lane end to end", () => {
     try {
       await app.inject({ method: "POST", url: "/api/projects", payload: { path: repo } });
       // A plan with markdown, a $ and a % in it: none of it may be mangled on the way to the agent.
-      const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", agent: "fake", task: "permission" } });
+      const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", agent: "fake", task: "permission" } });
       expect(res.statusCode).toBe(201);
       const lane = res.json() as Lane;
 
@@ -100,7 +100,7 @@ describe.skipIf(!tools)("a lane end to end", () => {
 
       // A whole plan with markdown, $ and % reaches the agent exactly; the lane gets a short title.
       const plan = "# Billing: invoices\n\n1. Read `AGENTS.md`.\n2. Keep $HOME and %h and 100% as written.\n";
-      const second = (await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "shop", agent: "fake", task: plan } })).json() as Lane;
+      const second = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "shop", agent: "fake", task: plan } })).json() as Lane;
       expect(second.task).toBe("Billing: invoices");
       await vi.waitFor(() => expect(events(second.id).some((e) => e.type === "agent.message" && e.payload.role === "agent" && e.payload.text.includes("Finished"))).toBe(true), { timeout: 30_000, interval: 250 });
       const said = events(second.id).filter((e) => e.type === "agent.message" && e.payload.role === "agent").map((e) => e.type === "agent.message" ? e.payload.text : "").join("");

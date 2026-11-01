@@ -19,7 +19,7 @@ async function fixture() {
   const app = buildServer({ store, bus, lanes, hosts: new HostLinks({ store, bus }), config, version: "test", run, setup, onRoute: (r) => routes.push(r) });
   await app.ready();
   store.addProject({ id: "shop", name: "Shop", path: "/code/shop" });
-  for (const task of ["One", "Two"]) await lanes.start({ project: "shop", task });
+  for (const task of ["One", "Two"]) await lanes.start({ kind: "acp", project: "shop", task });
   const token = (lane: string) => store.mintLaneToken(lane);
   return { app, store, routes, token, config };
 }
