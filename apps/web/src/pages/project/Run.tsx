@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus, Project, OutsideService, RunFacts } from "@contextlanes/protocol";
 import { useParams } from "react-router";
@@ -198,9 +199,9 @@ function Service({ service, open, toggle }: { service: ServiceStatus; open: bool
     <b>{service.name}</b>
     <span className="port">:{service.port}</span>
     <span className="ticks" role="img" aria-label={`${service.probes.filter(Boolean).length} of the last ${service.probes.length} health checks passed`}>{service.probes.map((ok, i) => <i key={i} className={ok ? "" : "bad"} />)}</span>
-    <span className={`note${service.detail ? " bad" : ""}`}>{note}</span>
+    <span className={clsx("note", service.detail && "bad")}>{note}</span>
     {service.url ? <a className="lnk" href={service.url} target="_blank" rel="noreferrer">{new URL(service.url).host} ↗</a> : <span />}
-    <button className={`btn sm${open ? "" : " ghost"}`} aria-pressed={open} onClick={toggle}>Logs</button>
+    <button className={clsx("btn sm", !(open) && "ghost")} aria-pressed={open} onClick={toggle}>Logs</button>
   </div>;
 }
 

@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router";
 import type { AskAnswer, Health, Lane, Project, ProjectBranches, ProjectEnvironments } from "@contextlanes/protocol";
@@ -5,6 +6,7 @@ import { errorMessage, postJson, useJson, useLiveInbox, InboxContext, useInbox }
 import { keyAction, typingTarget } from "../keys";
 import { useWork } from "../work/useWork";
 import { READY, useFeatures } from "../features";
+import { Command } from "cmdk";
 import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph } from "./ui";
 
 export function Shell() {
@@ -24,7 +26,7 @@ export function Shell() {
   const inProject = useMatch("/p/*") !== null;
   useLayoutEffect(() => {
     const key = (event: KeyboardEvent) => {
-      const action = keyAction(event, typingTarget(event.target), !!document.querySelector("dialog[open]"));
+      const action = keyAction(event, typingTarget(event.target), !!document.querySelector('[role="dialog"]'));
       if (!action) return;
       event.preventDefault();
       if (typeof action === "object") {
@@ -63,7 +65,7 @@ export function Shell() {
     <InboxContext.Provider value={inboxQuery}>
       <header className="top status-top" aria-busy={lanes === null}>
         <NavLink className="wm" to="/">ContextLanes</NavLink>
-        <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "This machine"}</span>
+        <span className={clsx("host", down && "down")} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "This machine"}</span>
         <nav className="status-breadcrumbs" aria-label="Breadcrumbs">{project ? <><span>/</span><Link to={`/p/${project}/work`}>{project}</Link></> : null}{selected ? <><span>/</span><span>{selected.id.split("/")[1]} {selected.kind === "shell" ? "no agent" : selected.agent}</span></> : null}</nav>
         <nav className="gnav" aria-label="Main">
           <NavLink to="/" end className={({ isActive }) => isActive || inProject ? "active" : ""}>Projects</NavLink>
@@ -86,42 +88,33 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
   const [projects] = useJson<Project[]>("/api/projects");
   const [lanes] = useJson<Lane[]>("/api/lanes");
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
   const [answer, setAnswer] = useState<{ project: string; busy: boolean; result?: AskAnswer; error?: string } | null>(null);
   const navigate = useNavigate();
   const here = useMatch("/p/:project/*")?.params.project;
   const ask = (project: string) => { setAnswer({ project, busy: true }); void postJson<AskAnswer>(`/api/projects/${project}/ask`, { question: query }).then((result) => setAnswer({ project, busy: false, result }), (e) => setAnswer({ project, busy: false, error: errorMessage(e) })); };
-  const items = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const match = (text: string) => !q || text.toLowerCase().includes(q);
-    const list: { key: string; to: string; label: ReactNode; meta: string }[] = [];
-    for (const lane of lanes ?? []) if (match(`${lane.task} ${lane.id}`)) list.push({ key: lane.id, to: `/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`, label: <><LaneBadge id={lane.id} colour={lane.colour} /><AgentMark agent={lane.agent} small /><span>{lane.task}</span><StateGlyph state={lane.state} /></>, meta: lane.project });
-    for (const project of projects ?? []) if (match(`${project.name} ${project.id}`)) {
-      list.push({ key: `p:${project.id}`, to: `/p/${project.id}/work`, label: <span><b>{project.name}</b></span>, meta: "project" });
-      list.push({ key: `n:${project.id}`, to: `/p/${project.id}/work?new=1`, label: <span>Start a lane in {project.name}</span>, meta: "new lane" });
-    }
-    if (match("add repository")) list.push({ key: "add", to: "/?add=1", label: <span>Add a repository</span>, meta: "projects" });
-    // A sentence rather than a name: offer to ask about it, or to start a lane with it as the task.
-    if (q.split(/\s+/).length >= 3) {
-      const targets = (projects ?? []).filter((p) => !here || p.id === here).slice(0, 3);
-      for (const p of targets) list.unshift({ key: `ask:${p.id}`, to: `ask:${p.id}`, label: <span>Ask about {p.name}: <b>{query.trim()}</b></span>, meta: "local model" });
-      for (const p of targets) list.push({ key: `start:${p.id}`, to: `/p/${p.id}/work?new=1&task=${encodeURIComponent(query.trim())}`, label: <span>Start a lane in {p.name}: {query.trim()}</span>, meta: "new lane" });
-    }
-    return list.slice(0, 30);
-  }, [projects, lanes, query, here]);
+  const features = useFeatures();
   const go = (to: string) => { if (to.startsWith("ask:")) { ask(to.slice(4)); return; } onClose(); navigate(to); };
+  // A sentence rather than a name: offer to start a lane with it as the task, and (with insights) to ask about it.
+  const sentence = query.trim().split(/\s+/).length >= 3 ? query.trim() : "";
+  const targets = sentence ? (projects ?? []).filter((p) => !here || p.id === here).slice(0, 3) : [];
+  // cmdk ranks, filters and handles the keys; each item's value is what it matches on.
   return <Dialog title="Jump" onClose={onClose}>
-    <div className="pathin"><input className="in" autoFocus aria-label="Jump to a project or lane" placeholder="Type a project, lane or task" value={query}
-      onChange={(e) => { setQuery(e.target.value); setActive(0); }}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, items.length - 1)); }
-        if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
-        if (e.key === "Enter" && items[active]) go(items[active]!.to);
-      }} /></div>
-    <div className="jump-list" data-key-list role="listbox" aria-label="Results">
-      {items.map((item, i) => <button key={item.key} role="option" aria-selected={i === active} className={i === active ? "on" : ""} onMouseEnter={() => setActive(i)} onClick={() => go(item.to)}>{item.label}<span className="m">{item.meta}</span></button>)}
-      {!items.length ? <div className="empty">Nothing matches · try a project, a task or a question</div> : null}
-    </div>
+    <Command label="Jump to a project or lane" className="jumpk" loop>
+      <div className="pathin"><Command.Input className="in" autoFocus placeholder="Type a project, lane or task" value={query} onValueChange={setQuery} /></div>
+      <Command.List className="jump-list" data-key-list>
+        <Command.Empty className="empty">Nothing matches · try a project, a task or a question</Command.Empty>
+        {features.insights ? targets.map((p) => <Command.Item key={`ask:${p.id}`} value={`ask:${p.id}`} forceMount onSelect={() => go(`ask:${p.id}`)}><span>Ask about {p.name}: <b>{sentence}</b></span><span className="m">local model</span></Command.Item>) : null}
+        {(lanes ?? []).map((lane) => <Command.Item key={lane.id} value={lane.id} keywords={[lane.task, lane.project]} onSelect={() => go(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`)}>
+          <LaneBadge id={lane.id} colour={lane.colour} /><span>{lane.task}</span><span className="m">{lane.id}</span>
+        </Command.Item>)}
+        {(projects ?? []).flatMap((project) => [
+          <Command.Item key={`p:${project.id}`} value={`p:${project.id}`} keywords={[project.name, project.id]} onSelect={() => go(`/p/${project.id}/work`)}><span><b>{project.name}</b></span><span className="m">project</span></Command.Item>,
+          <Command.Item key={`n:${project.id}`} value={`n:${project.id}`} keywords={["start", "new lane", project.name]} onSelect={() => go(`/p/${project.id}/work?new=1`)}><span>Start a lane in {project.name}</span><span className="m">new lane</span></Command.Item>,
+        ])}
+        <Command.Item value="add" keywords={["add repository", "project"]} onSelect={() => go("/?add=1")}><span>Add a repository</span><span className="m">projects</span></Command.Item>
+        {targets.map((p) => <Command.Item key={`start:${p.id}`} value={`start:${p.id}`} forceMount onSelect={() => go(`/p/${p.id}/work?new=1&task=${encodeURIComponent(sentence)}`)}><span>Start a lane in {p.name}: {sentence}</span><span className="m">new lane</span></Command.Item>)}
+      </Command.List>
+    </Command>
     {answer ? <div className="sec-b" role="status" aria-live="polite" style={{ borderTop: "1px solid var(--line-soft)", fontSize: 14, lineHeight: 1.55 }}>
       {answer.busy ? <span className="muted">Asking the local model…</span> : answer.error ? <span role="alert">{answer.error}</span> : answer.result ? <>
         <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{answer.result.answer}</p>

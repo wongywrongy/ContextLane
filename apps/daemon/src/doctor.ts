@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -24,6 +24,7 @@ export type Net = {
 export type DoctorDeps = { config: Config; run: Runner; version: string; previews: Previews; find?: (name: string) => Promise<string | null>; net?: Partial<Net> };
 
 const MIN_NODE = [22, 13];
+export const WS_HANDSHAKE = { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": randomBytes(16).toString("base64") };
 
 export async function doctor(deps: DoctorDeps): Promise<DoctorReport> {
   const { config, run } = deps;
@@ -100,7 +101,8 @@ async function chainChecks(deps: DoctorDeps, net: Net): Promise<Check[]> {
   const host = new URL(url).hostname;
   const responder = createServer((_req, res) => res.end(nonce));
   responder.on("upgrade", (req, socket) => {
-    socket.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: contextlanes-doctor\r\n\r\n");
+    const key = String(req.headers["sec-websocket-key"] ?? "");
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: ${createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64")}\r\n\r\n`);
     socket.on("data", (d) => socket.end(d));
   });
   await new Promise<void>((resolve) => responder.listen(0, "127.0.0.1", resolve));
@@ -151,7 +153,8 @@ function get(url: string): Promise<{ status: number; body: string }> {
 
 function upgrade(url: string): Promise<{ status: number; echoed: boolean }> {
   return new Promise((resolve, reject) => {
-    const req = (url.startsWith("https:") ? httpsRequest : httpRequest)(url, { headers: { Connection: "Upgrade", Upgrade: "contextlanes-doctor" }, timeout: 8000 });
+    // A real WebSocket handshake: proxies (and the router) pass only those through.
+    const req = (url.startsWith("https:") ? httpsRequest : httpRequest)(url, { headers: WS_HANDSHAKE, timeout: 8000 });
     req.on("upgrade", (res, socket) => {
       socket.once("data", (d) => { resolve({ status: res.statusCode ?? 0, echoed: d.toString() === "ping" }); socket.destroy(); });
       socket.write("ping");

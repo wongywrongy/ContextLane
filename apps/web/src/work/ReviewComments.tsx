@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { clsx } from "clsx";
+import { useDiffTokens } from "./highlight";
 import type { ReviewComment } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { Dialog, Section } from "../components/ui";
@@ -8,8 +10,16 @@ type Point = Omit<ReviewComment, "text">;
 export function DiffLines({ text, add }: { text: string; add: (comment: ReviewComment) => void }) {
   const [point, setPoint] = useState<Point | null>(null);
   const [comment, setComment] = useState("");
-  return <><div className="dfv">{diffLines(text).map((row, i) => row.line && row.file
-    ? <button key={i} className={`diff-line ${row.kind}`} aria-label={`Comment on ${row.file}:${row.line}${row.side === "old" ? " (before)" : ""}`} onClick={() => { setPoint({ file: row.file, line: row.line, side: row.side, quote: row.text.slice(1, 4001) }); setComment(""); }}><span className="diff-number">{row.line}</span>{row.text || " "}</button>
+  const rows = useMemo(() => diffLines(text), [text]);
+  const tokens = useDiffTokens(rows);
+  // The +/- marker stays plain; the code after it is coloured by shiki once it has loaded.
+  const code = (i: number, text: string) => {
+    const line = tokens?.get(i);
+    if (!line) return text || " ";
+    return <>{text[0]}{line.map((t, n) => <span key={n} style={{ color: t.color, fontStyle: t.fontStyle === 1 ? "italic" : undefined, fontWeight: t.fontStyle === 2 ? 700 : undefined }}>{t.content}</span>)}</>;
+  };
+  return <><div className="dfv">{rows.map((row, i) => row.line && row.file
+    ? <button key={i} className={clsx("diff-line", row.kind)} aria-label={`Comment on ${row.file}:${row.line}${row.side === "old" ? " (before)" : ""}`} onClick={() => { setPoint({ file: row.file, line: row.line, side: row.side, quote: row.text.slice(1, 4001) }); setComment(""); }}><span className="diff-number">{row.line}</span>{code(i, row.text)}</button>
     : <div key={i} className={row.kind}>{row.text || " "}</div>)}</div>
     {point ? <Dialog title="Line comment" meta={`${point.file}:${point.line}${point.side === "old" ? " · before" : ""}`} onClose={() => setPoint(null)} footer={<><button className="btn ghost" onClick={() => setPoint(null)}>Cancel</button><button className="btn" disabled={!comment.trim()} onClick={() => { add({ ...point, text: comment.trim() }); setPoint(null); }}>Add to request</button></>}>
       <blockquote className="out">{point.quote}</blockquote><textarea className="in" aria-label="Line comment" maxLength={2000} rows={3} autoFocus value={comment} onChange={e => setComment(e.target.value)} />

@@ -1,7 +1,12 @@
 import { createServer, get, request, type Server } from "node:http";
 import { once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { hostnameOf, PreviewRouter, ROUTER_NOT_FOUND } from "../src/preview-router.js";
+
+/** A real WebSocket handshake, as a browser and Vite's HMR client send it. */
+const WS = { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==" };
+const accept = (key: string) => createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
@@ -62,9 +67,11 @@ describe("preview router", () => {
     const { router, port } = await routerFor();
     router.set("web-01-shop", upstream);
     await send(port, "web-01-shop.root.example.dev");
-    expect(seen).toMatchObject({ host: "web-01-shop.root.example.dev", "x-forwarded-host": "web-01-shop.root.example.dev", "x-forwarded-proto": "http", "x-forwarded-for": "127.0.0.1" });
+    expect(seen).toMatchObject({ host: "web-01-shop.root.example.dev", "x-forwarded-host": "web-01-shop.root.example.dev", "x-forwarded-proto": "http" });
+    expect(String(seen["x-forwarded-for"])).toMatch(/127\.0\.0\.1$/);
     await send(port, "web-01-shop.root.example.dev", { headers: { "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9", "x-forwarded-host": "outer.example" } });
-    expect(seen).toMatchObject({ "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9, 127.0.0.1", "x-forwarded-host": "outer.example" });
+    // Appended the standard way: the first value is what the client used.
+    expect(seen).toMatchObject({ "x-forwarded-proto": "https,http", "x-forwarded-for": "203.0.113.9,127.0.0.1", "x-forwarded-host": "outer.example" });
   });
 
   it("carries a 10 MB request body and streams a response as it is written", async () => {
@@ -91,14 +98,14 @@ describe("preview router", () => {
   it("forwards WebSocket upgrades both ways", async () => {
     const upstream = createServer((_req, res) => res.end());
     upstream.on("upgrade", (req, socket, head) => {
-      socket.write(`HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\nX-Seen-Host: ${req.headers.host}\r\n\r\n`);
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: ${accept(req.headers["sec-websocket-key"]!)}\r\nX-Seen-Host: ${req.headers.host}\r\n\r\n`);
       if (head.length) socket.write(head);
       socket.on("data", (data) => socket.write(data));
     });
     const { router, port } = await routerFor();
     router.set("web-01-shop", await listen(upstream));
     await new Promise<void>((resolve, reject) => {
-      const req = request({ host: "127.0.0.1", port, path: "/ws", headers: { host: "web-01-shop.root.example.dev", Connection: "Upgrade", Upgrade: "test" } });
+      const req = request({ host: "127.0.0.1", port, path: "/ws", headers: { host: "web-01-shop.root.example.dev", ...WS } });
       req.on("upgrade", (res, socket) => {
         expect(res.statusCode).toBe(101);
         expect(res.headers["x-seen-host"]).toBe("web-01-shop.root.example.dev");
@@ -109,7 +116,7 @@ describe("preview router", () => {
       req.end();
     });
     const refused = await new Promise<string>((resolve) => {
-      const req = request({ host: "127.0.0.1", port, path: "/ws", headers: { host: "nope.localhost", Connection: "Upgrade", Upgrade: "test" } });
+      const req = request({ host: "127.0.0.1", port, path: "/ws", headers: { host: "nope.localhost", ...WS } });
       req.on("response", (res) => resolve(String(res.statusCode)));
       req.on("upgrade", () => resolve("upgraded"));
       req.on("error", () => resolve("closed"));

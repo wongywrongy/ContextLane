@@ -1,4 +1,5 @@
-import { createServer, request, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
+import { createServer, ServerResponse, type IncomingMessage } from "node:http";
+import { createProxyServer } from "http-proxy-3";
 import type { Socket } from "node:net";
 
 /** The body every router 404 carries, so a check can tell this router's answer from a proxy's. */
@@ -14,46 +15,35 @@ export function hostnameOf(host: string | undefined): string {
 /**
  * One port for every preview and the web app. A request reaches a target only when its hostname is
  * exactly `<label>.<suffix>` for a published label and an accepted suffix; anything else gets a 404.
- * The Host header is passed through unchanged, so the daemon's own checks (which refuse anything
- * but localhost for local setup) still see the name the browser used.
+ * Proxying is http-proxy-3 (what Vite's own dev server uses): the Host header is passed through unchanged,
+ * so the daemon's own checks (which refuse anything but localhost for local setup) still see the name the
+ * browser used, upgrades (hot reload) are piped as they are, and x-forwarded-* are added to what a proxy
+ * in front already set.
  */
 export class PreviewRouter {
   private readonly routes = new Map<string, number>();
   private readonly connections = new Set<Socket>();
   private ready?: Promise<number>;
+  private readonly proxy = createProxyServer({ xfwd: true, changeOrigin: false, ws: true });
   private readonly server = createServer((req, res) => {
     const port = this.target(req);
     if (!port) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end(ROUTER_NOT_FOUND); return; }
-    const upstream = request({ hostname: "127.0.0.1", port, path: req.url, method: req.method, headers: this.forwarded(req) }, (reply) => {
-      res.writeHead(reply.statusCode ?? 502, reply.statusMessage, reply.headers);
-      reply.pipe(res);
-    });
-    upstream.on("error", () => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" }); res.end("ContextLanes: the preview is not answering. Is the service running?"); });
-    req.on("aborted", () => upstream.destroy());
-    res.on("close", () => upstream.destroy());
-    req.pipe(upstream);
+    this.proxy.web(req, res, { target: `http://127.0.0.1:${port}` });
   });
 
   constructor(private port: number, private readonly bind: string, private readonly suffixes: () => string[]) {
+    this.proxy.on("error", (_err, _req, out) => {
+      if (out instanceof ServerResponse) {
+        if (!out.headersSent) out.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+        out.end("ContextLanes: the preview is not answering. Is the service running?");
+      } else (out as Socket | undefined)?.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+    });
     this.server.on("connection", (socket) => { this.connections.add(socket); socket.on("close", () => this.connections.delete(socket)); });
     this.server.on("upgrade", (req, socket: Socket, head) => {
       socket.on("error", () => socket.destroy());
       const port = this.target(req);
       if (!port) { socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"); return; }
-      const upstream = request({ hostname: "127.0.0.1", port, path: req.url, method: req.method, headers: this.forwarded(req) });
-      upstream.on("upgrade", (reply, peer, received) => {
-        const lines = [`HTTP/1.1 ${reply.statusCode} ${reply.statusMessage}`];
-        for (let i = 0; i < reply.rawHeaders.length; i += 2) lines.push(`${reply.rawHeaders[i]}: ${reply.rawHeaders[i + 1]}`);
-        socket.write(`${lines.join("\r\n")}\r\n\r\n`);
-        if (received.length) socket.write(received);
-        if (head.length) peer.write(head);
-        peer.pipe(socket); socket.pipe(peer);
-        peer.on("error", () => socket.destroy());
-        socket.on("close", () => peer.destroy()); peer.on("close", () => socket.destroy());
-      });
-      upstream.on("response", (reply) => { reply.resume(); socket.end(`HTTP/1.1 ${reply.statusCode ?? 502} ${reply.statusMessage ?? "Bad Gateway"}\r\nConnection: close\r\n\r\n`); });
-      upstream.on("error", () => socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"));
-      upstream.end();
+      this.proxy.ws(req, socket, head, { target: `http://127.0.0.1:${port}` });
     });
     this.server.unref();
   }
@@ -94,18 +84,9 @@ export class PreviewRouter {
     return label ? this.routes.get(label) : undefined;
   }
 
-  /** Values a proxy in front already set are kept; otherwise they describe this hop. */
-  private forwarded(req: IncomingMessage): IncomingHttpHeaders {
-    const headers = { ...req.headers };
-    const peer = req.socket.remoteAddress ?? "";
-    headers["x-forwarded-for"] = headers["x-forwarded-for"] ? `${headers["x-forwarded-for"]}, ${peer}` : peer;
-    headers["x-forwarded-host"] ??= req.headers.host ?? "";
-    headers["x-forwarded-proto"] ??= "http";
-    return headers;
-  }
-
   close(): void {
     this.server.close();
+    this.proxy.close();
     for (const socket of this.connections) socket.destroy();
   }
 }

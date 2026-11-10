@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { AREA_THRESHOLD, areaOf, assign, codeAreas, type CodeArea, type CodeMap, type Lane, type Project, type ProjectMap } from "@contextlanes/protocol";
@@ -81,7 +82,7 @@ export function ArchitecturePage() {
         </Section>
         <TidyBlock project={project} changed={reload} />
         {map.paths.length ? <Section title="Main paths" meta="select one to trace it on the diagram">
-          {map.paths.map((p, i) => <button key={p.name + i} className={`mrow${traced === i ? " on" : ""}`} aria-pressed={traced === i} onClick={() => setTraced(traced === i ? null : i)}>
+          {map.paths.map((p, i) => <button key={p.name + i} className={clsx("mrow", traced === i && "on")} aria-pressed={traced === i} onClick={() => setTraced(traced === i ? null : i)}>
             <Icon name="move" /><b style={{ fontSize: 14 }}>{p.name}</b><span className="p">{p.modules.join(" → ")}</span>
           </button>)}
         </Section> : null}

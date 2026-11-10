@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Config, Previews, type Runner } from "@contextlanes/daemon";
-import { doctor, type Net } from "../src/doctor.js";
+import { doctor, WS_HANDSHAKE, type Net } from "../src/doctor.js";
 import { signedIn } from "./signed-in.js";
 
 const run: Runner = async (cmd) => ({ stdout: cmd === "loginctl" ? "yes\n" : "" });
@@ -22,7 +22,7 @@ function throughRouter(port: number): Pick<Net, "get" | "upgrade"> {
   return {
     get: (url) => new Promise((resolve, reject) => { const r = hop(url); r.on("response", (res) => { let body = ""; res.on("data", (d) => body += d); res.on("end", () => resolve({ status: res.statusCode!, body })); }); r.on("error", reject); r.end(); }),
     upgrade: (url) => new Promise((resolve, reject) => {
-      const r = hop(url, { Connection: "Upgrade", Upgrade: "contextlanes-doctor" });
+      const r = hop(url, WS_HANDSHAKE);
       r.on("upgrade", (res, socket) => { socket.once("data", (d) => { resolve({ status: res.statusCode!, echoed: d.toString() === "ping" }); socket.destroy(); }); socket.write("ping"); });
       r.on("response", (res) => resolve({ status: res.statusCode!, echoed: false })); r.on("error", reject); r.end();
     }),

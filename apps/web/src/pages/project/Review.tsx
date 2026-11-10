@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import type { Checkpoint, DetectedAgent, Lane, LaneEvent, ReviewComment } from "@contextlanes/protocol";
@@ -59,7 +60,7 @@ export function ReviewPage() {
     <aside data-key-list className="rvl" aria-label="Checkpoints">
       <div>
         <span className="lbl">Ready <span>{ready.length}</span></span>
-        {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button data-list-item data-lane={l.id} key={l.id} className={`rvi${l.id === lane?.id ? " on" : ""}`} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
+        {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button data-list-item data-lane={l.id} key={l.id} className={clsx("rvi", l.id === lane?.id && "on")} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
           <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b>{(() => { const [g, word] = mark(c); return <i className={`g ${g}`} role="img" aria-label={word} title={word} />; })()}<small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
         </button>; })}
         {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}
@@ -145,7 +146,7 @@ function Verdict({ checkpoint, open, add }: { checkpoint: Checkpoint; open: (fil
   const [g, word] = VERDICT[j.verdict ?? "fix first"];
   return <Section title="Verdict" meta={`${j.model ?? "local model"} · ${agoText(j.at)}`} help="A local model read the diff, plan and checks. It never merges; you decide. Each finding names a file in the change, and a 'merge' is lowered when checks failed or it found a blocker." end={button}>
     <div className="sec-r" style={{ gap: 14, flexWrap: "wrap" }}><span style={{ fontSize: 17, fontWeight: 700 }}><Glyph g={g}>{word}</Glyph></span>{j.headline ? <span style={{ fontSize: 15, minWidth: 0, flex: "1 1 320px" }}>{j.headline}</span> : null}</div>
-    {j.findings.map((f, i) => { const [fg, fw] = SEVERITY[f.severity]; return <div className={`rvr${f.severity === "blocker" ? " you" : ""}`} key={i}>
+    {j.findings.map((f, i) => { const [fg, fw] = SEVERITY[f.severity]; return <div className={clsx("rvr", f.severity === "blocker" && "you")} key={i}>
       <span style={{ minWidth: 92, alignSelf: "flex-start", paddingTop: 1 }}><Glyph g={fg}>{fw}</Glyph></span>
       <span style={{ flex: 1 }}>{f.text}<button className="lnk mono" style={{ display: "block", fontSize: 12, marginTop: 3, textAlign: "left", overflowWrap: "anywhere" }} onClick={() => open(f.file)}>{f.file}{f.line ? `:${f.line}` : ""}</button><button className="lnk" onClick={() => add({ file: f.file, line: f.line, side: "new", quote: "", text: f.text })}>Add to request</button></span>
     </div>; })}
@@ -263,7 +264,7 @@ function Decision({ lane, checkpoint, comments, clear, decided, parent }: { lane
     finally { setBusy(false); }
   };
   return <section className="sec" aria-label="Decision"><div className="rva">
-    <button className={`btn${checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" ? " ghost" : ""}`} disabled={busy} aria-busy={(busy && !asking) || undefined} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
+    <button className={clsx("btn", checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" && "ghost")} disabled={busy} aria-busy={(busy && !asking) || undefined} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
     <button className="btn ghost" disabled={busy} onClick={() => {
       // The judge's blockers and should-fixes start the note, one per line; edit before sending.
       const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
