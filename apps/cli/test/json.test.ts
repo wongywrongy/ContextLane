@@ -37,3 +37,16 @@ describe("--json on every command", () => {
     }
   }, 60_000);
 });
+
+describe("no terminal, no questions", () => {
+  it("prints help or a usage error at once instead of asking, as an agent or a script needs", () => {
+    const bare = cli();
+    expect(bare.exit).toBe(0);
+    expect(bare.out).toContain("cl new");
+    for (const args of [["new"], ["rm"], ["say"], ["sh"]]) {
+      const { exit, out } = cli(...args);
+      expect(exit, args.join(" ")).toBe(2);
+      expect(out).toBe("");
+    }
+  }, 60_000);
+});

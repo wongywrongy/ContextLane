@@ -9,11 +9,14 @@ import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError, UsageError } from "./client.js";
 import { laneCommand } from "./lane.js";
 import { expandShort } from "./short.js";
+import { CANCEL, canAsk, fillIn } from "./interactive.js";
 import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
 
 const HELP = () => `${bold("cl")} ${dim("— run coding agents in parallel lanes on an always-on machine (long name: contextlanes)")}
+
+${dim("In a terminal, cl on its own lists your lanes to pick from, and any command asks for what you left out.")}
 
 ${bold("Lanes")} ${dim("— inside a project folder the project is implied, and a lane is just its number")}
   cl new "<task>"                 start a lane here  ${dim("[--agent id] [--model m] [--base branch]")}
@@ -60,7 +63,14 @@ Every command takes --json. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 not r
 
 async function main(argv: string[]): Promise<number> {
   // Short verbs and bare lane numbers become the long commands below.
-  argv = await expandShort(argv, { api, env: process.env, cwd: process.cwd(), out: () => {}, err: () => {} });
+  const io = { api, env: process.env, cwd: process.cwd(), out: () => {}, err: () => {} };
+  argv = await expandShort(argv, io);
+  // A person at a terminal who left something out is asked for it; agents, scripts and --json never are.
+  if (canAsk(argv, process.env, { in: !!process.stdin.isTTY, out: !!process.stdout.isTTY }) && !["claude", "codex", "daemon", "update"].includes(argv[0] ?? "")) {
+    const filled = await fillIn(argv, io, (await import("./prompts.js")).terminal);
+    if (filled === CANCEL) return 0;
+    argv = filled;
+  }
   if (argv[0] === "claude" || argv[0] === "codex") {
     const lane = await startCliLane(argv[0], argv.slice(1));
     return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;

@@ -53,6 +53,8 @@ cl agent-notes                   # what to put in AGENTS.md so any agent uses th
 
 A lane started with `cl claude` or `cl codex` runs its agent in the sandbox. A `--no-agent` lane is your own shell: its services are still confined, but anything you start in that shell yourself, another agent included, runs with your access.
 
+In a terminal, `cl` on its own lists your lanes to pick from, and a command with something missing (`cl new`, `cl rm`, `cl say`, `cl inbox`) asks for it. Agents, scripts and `--json` are never asked anything.
+
 `cl` is short for `contextlanes`; both work, and so do the long forms (`lane start`, `env start`, `send`, `term`). Inside a project folder a lane is just its number; anywhere else write `shop/01`. `cl help` lists everything.
 
 Add `--json` to any command. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 ContextLanes not reachable, 4 waiting on you (a recipe to approve).
