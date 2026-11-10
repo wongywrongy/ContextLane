@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { LanePanes } from "../../work/LanePanes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -40,7 +41,7 @@ export function WorkPage() {
   // Archived lanes are hidden from the list until asked for; the overview follows the list.
   const open = useMemo(() => work.lanes.filter((l) => l.state !== "archived"), [work.lanes]);
   const closeNew = () => { setCreating(false); if (params.has("new")) setParams(lane ? { lane: lane.id } : {}); };
-  return <div className={`wk3${lane ? " has-lane" : " overview"}`}>
+  return <div className={clsx("wk3", lane ? "has-lane" : "overview")}>
     <LaneList lanes={work.lanes} events={work.events} inbox={inbox ?? []} selected={lane?.id ?? null} choose={choose} create={() => setCreating(true)} />
     <main className="lane-main" aria-label={lane ? "Lane" : "Overview"}>
       {work.error ? <p role="alert">{work.error.message} <button className="btn ghost sm" onClick={work.reload}>Try again</button></p> : null}
@@ -84,12 +85,12 @@ function LaneList({ lanes, events, inbox, selected, choose, create }: { lanes: L
     <div className="ps">
       <div className="ps-h" style={{ marginBottom: 10 }}><span className="lbl">Lanes · {lanes.length}</span><div className="e"><button className="btn sm" onClick={create}>New lane</button></div></div>
       <div className="lanes-scroll" data-key-list>
-        <button className={`ovr${selected ? "" : " on"}`} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane at a glance</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
+        <button className={clsx("ovr", !(selected) && "on")} onClick={() => choose(null)}><Tile family="team" icon="subagent" small /><span><b style={{ fontSize: 14 }}>Overview</b><span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 1 }}>every lane at a glance</span></span><span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{lanes.length}</span></button>
         {groups.map(([goal, group]) => <div key={goal ?? ""} style={{ display: "contents" }}>
           {hasGoals ? <div className="grp">{goal ? <><i className="g work" aria-hidden="true" />Goal · {goal}</> : "No goal"}</div> : null}
           {group.filter((l) => showArchived || l.state !== "archived" || l.id === selected).map((l) => {
             const [g] = GLYPH[l.state];
-            return <button data-list-item data-lane={l.id} key={l.id} className={`lrow ${l.colour}${g === "wait" ? " needs" : ""}${l.id === selected ? " on" : ""}`} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
+            return <button data-list-item data-lane={l.id} key={l.id} className={clsx("lrow", l.colour, g === "wait" && "needs", l.id === selected && "on")} onClick={() => choose(l.id)} aria-current={l.id === selected ? "true" : undefined}>
               <span className="rail" /><AgentMark agent={l.agent} small />
               <span className="body"><span className="ttl"><b>{l.task}</b><StateGlyph state={l.state} idle={isIdle(l, events)} /></span><span className="now">{laneNow(l, events, inbox)}</span></span>
             </button>;

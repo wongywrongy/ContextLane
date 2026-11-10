@@ -1,10 +1,13 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { Dialog as BaseDialog } from "@base-ui/react/dialog";
+import { Popover } from "@base-ui/react/popover";
+import { clsx } from "clsx";
 import { AGENTS, type LaneState, type StepKind } from "@contextlanes/protocol";
 
 /** A section: the one container every group of content lives in. */
 export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string; help?: ReactNode }) {
   return (
-    <section className={`sec${props.tone ? ` ${props.tone}` : ""}`} id={props.id}>
+    <section className={clsx("sec", props.tone)} id={props.id}>
       <div className="sec-h">
         {props.icon}
         <h3>{props.title}</h3>
@@ -39,22 +42,19 @@ export function Empty(props: { children: ReactNode; icon?: IconName; family?: Fa
 
 /**
  * The explanation behind a signal, one click away instead of always on screen: a small "?" that opens
- * a short note. Use it for how something works; never for what the user must do now.
+ * a short note. Use it for how something works; never for what the user must do now. base-ui's Popover
+ * handles focus, Escape, clicks outside and staying on screen.
  */
 export function Help(props: { children: ReactNode; label?: string }) {
-  const ref = useRef<HTMLDetailsElement>(null);
-  // Closes like a popover: a click elsewhere or Escape.
-  useEffect(() => {
-    const close = (event: Event) => {
-      const el = ref.current;
-      if (!el?.open) return;
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !el.contains(event.target as Node)) { el.open = false; if (event instanceof KeyboardEvent) event.preventDefault(); }
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close, true);
-    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close, true); };
-  }, []);
-  return <details className="help" ref={ref}><summary aria-label={props.label ?? "What is this?"} title={props.label ?? "What is this?"}>?</summary><div className="help-b">{props.children}</div></details>;
+  const label = props.label ?? "What is this?";
+  return <Popover.Root>
+    <Popover.Trigger className="help" aria-label={label} title={label}>?</Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Positioner className="pop-pos" side="bottom" align="start" sideOffset={6} collisionPadding={12}>
+        <Popover.Popup className="help-b">{props.children}</Popover.Popup>
+      </Popover.Positioner>
+    </Popover.Portal>
+  </Popover.Root>;
 }
 
 /** A fact as a signal: glyph, short word, and an optional mono detail. For status rows and summaries. */
@@ -78,7 +78,7 @@ export function StateGlyph({ state, label = false, idle = false }: { state: Lane
 
 export function laneNumber(id: string): string { return id.slice(id.lastIndexOf("/") + 1); }
 export function LaneBadge({ id, colour, large = false }: { id: string; colour: string; large?: boolean }) {
-  return <span className={`lb ${colour}${large ? " lg" : ""}`}>{laneNumber(id)}</span>;
+  return <span className={clsx("lb", colour, large && "lg")}>{laneNumber(id)}</span>;
 }
 
 export const AGENT_NAMES: Record<string, string> = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.name])), hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp", none: "No agent" };
@@ -89,7 +89,7 @@ const MARKS: Record<string, [string, string]> = {
 /** One mark system for agents and runtimes; official logos can replace these at build time. */
 export function AgentMark({ agent, small = false }: { agent: string; small?: boolean }) {
   const [cls, text] = MARKS[agent] ?? ["oc", agent.slice(0, 2).toUpperCase()];
-  return <span className={`am ${cls}${small ? " sm" : ""}`} title={AGENT_NAMES[agent] ?? agent}>{text}</span>;
+  return <span className={clsx("am", cls, small && "sm")} title={AGENT_NAMES[agent] ?? agent}>{text}</span>;
 }
 
 /** Step icons from the design canvas, one per kind. Families tint the tile. */
@@ -124,7 +124,7 @@ export function iconFor(kind: StepKind | "message" | "question"): IconName {
   return kind in ICONS ? kind as IconName : "read";
 }
 export function Tile({ family, icon, small = false, label }: { family: Family; icon: IconName; small?: boolean; label?: string }) {
-  return <span className={`k ${family}${small ? " sm" : ""}`} role={label ? "img" : undefined} aria-label={label}><Icon name={icon} /></span>;
+  return <span className={clsx("k", family, small && "sm")} role={label ? "img" : undefined} aria-label={label}><Icon name={icon} /></span>;
 }
 
 /** Each project gets one of six covers, stable for its id. */
@@ -148,18 +148,16 @@ export function tildePath(path: string, home?: string | null): string {
   return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
 }
 
-/** A modal dialog: Escape and the backdrop close it, focus returns where it was. */
+/** A modal dialog on base-ui: focus is trapped and returned, Escape and the backdrop close it. */
 export function Dialog({ title, meta, onClose, children, footer, wide = false }: { title: string; meta?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current!;
-    if (!dialog.open) dialog.showModal();
-    return () => dialog.close();
-  }, []);
-  return <dialog ref={ref} className="dlg" style={wide ? { width: "min(820px, calc(100vw - 32px))" } : undefined} aria-label={title}
-    onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="dlg-h"><h2>{title}</h2>{meta ? <span className="m">{meta}</span> : null}<button className="x" aria-label="Close" onClick={onClose}>×</button></div>
-    <div className="dlg-b">{children}</div>
-    {footer ? <div className="dlg-f">{footer}</div> : null}
-  </dialog>;
+  return <BaseDialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <BaseDialog.Portal>
+      <BaseDialog.Backdrop className="dlg-bd" />
+      <BaseDialog.Popup className={clsx("dlg", wide && "wide")} aria-label={title}>
+        <div className="dlg-h"><BaseDialog.Title>{title}</BaseDialog.Title>{meta ? <span className="m">{meta}</span> : null}<BaseDialog.Close className="x" aria-label="Close">×</BaseDialog.Close></div>
+        <div className="dlg-b">{children}</div>
+        {footer ? <div className="dlg-f">{footer}</div> : null}
+      </BaseDialog.Popup>
+    </BaseDialog.Portal>
+  </BaseDialog.Root>;
 }

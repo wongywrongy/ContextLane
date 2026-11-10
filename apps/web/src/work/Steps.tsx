@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
 import { answerItem, errorMessage, postJson } from "../api";
@@ -102,7 +103,7 @@ export function Steps({ lane, events, waiting, reload, agent, filter }: { lane: 
             {steps.slice(hidden).filter((s) => s !== first).map(row)}
           </div></div>
         </div>
-        {!atEnd ? <button className={`btn sm jump${needsYou ? " you" : ""}`} onClick={() => toEnd(true)}>
+        {!atEnd ? <button className={clsx("btn sm jump", needsYou && "you")} onClick={() => toEnd(true)}>
           <Chevron down />{needsYou ? "Waiting for you" : unseen ? `${unseen} new ${unseen === 1 ? "step" : "steps"}` : "Latest"}</button> : null}
       </div>}
   </>;
@@ -166,7 +167,7 @@ function MilestoneRow({ item }: { item: Extract<ProgressItem, { kind: "milestone
     <div style={{ minWidth: 0 }}><b style={{ fontSize: 15, display: "block" }}>{item.title}</b>
       <button className="tgl" aria-expanded={open} onClick={() => setOpen(!open)}><Chevron />{open ? "Hide command" : "Command"}</button>
       {open ? <div className="out" style={{ marginTop: 6 }}>{item.step.title}</div> : null}</div>
-    <span className={`sig${item.ok === false ? " fail" : ""}`}>{item.what === "tests" ? item.ok ? "passed" : "failed" : item.what}</span>
+    <span className={clsx("sig", item.ok === false && "fail")}>{item.what === "tests" ? item.ok ? "passed" : "failed" : item.what}</span>
   </div>;
 }
 
@@ -215,7 +216,7 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
     else if (failedBefore && status === "completed") right = <>{right}<span className="sig">failed, then fixed</span></>;
     else if (status === "in_progress" || status === "pending") right = <>{right}<span className="sig wait">running</span></>;
   }
-  if (step.type === "check" && step.event.type === "check.result") { sub = step.event.payload.detail ?? null; right = <span className={`sig${step.event.payload.passed ? "" : " fail"}`}>{step.event.payload.passed ? "passed" : "failed"}</span>; }
+  if (step.type === "check" && step.event.type === "check.result") { sub = step.event.payload.detail ?? null; right = <span className={clsx("sig", !(step.event.payload.passed) && "fail")}>{step.event.payload.passed ? "passed" : "failed"}</span>; }
   if (step.type === "status") sub = step.text ?? null;
 
   if (step.type === "permission" && step.event.type === "permission.requested") {
@@ -226,11 +227,11 @@ function StepRow({ step, events, waiting, reload, agent }: { step: Step; events:
     if (answer?.type === "permission.answered") {
       const chosen = request.options.find((o) => o.id === answer.payload.optionId);
       const allowed = chosen?.kind.startsWith("allow");
-      right = <span className={`sig${allowed ? "" : " wait"}`}>{chosen ? `${chosen.label.toLowerCase()} · ${answer.payload.by === "web" ? "here" : answer.payload.by === "auto" ? "auto" : `from ${answer.payload.by}`}` : "cancelled"}</span>;
+      right = <span className={clsx("sig", !(allowed) && "wait")}>{chosen ? `${chosen.label.toLowerCase()} · ${answer.payload.by === "web" ? "here" : answer.payload.by === "auto" ? "auto" : `from ${answer.payload.by}`}` : "cancelled"}</span>;
     } else right = <span className="sig wait">waiting on you</span>;
     sub = request.detail ?? null;
   }
-  return <div className={`st3${step.tool?.failedBefore ? " fixed" : ""}`}>
+  return <div className={clsx("st3", step.tool?.failedBefore && "fixed")}>
     <span className="tm">{time(step.at)}</span>
     <Tile family={step.family} icon={tileFor(step)} label={step.tool?.kind ?? step.type} />
     <div style={{ minWidth: 0 }}><div className="tt">{title}</div>{sub ? <div className="sb">{sub}</div> : null}{extra}</div>
@@ -248,7 +249,7 @@ function PermissionPanel({ item, detail, answered, agent }: { item: InboxItem; d
   return <div className="panel you perm" style={{ minWidth: 0 }}>
     <div className="hd"><Glyph g="wait" /><b>{item.kind === "question" ? `${agent} asks` : `${agent} wants to`}: {item.title}</b><span className="t">waiting {ago(item.since)}</span></div>
     {detail ? <div className="out" style={{ marginTop: 10 }}>{detail}</div> : null}
-    <div className="acts">{item.options.map((o, i) => <button data-answer key={o.id} className={`btn sm${i === 0 || o.kind === "allow_once" ? "" : " ghost"}`} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}</div>
+    <div className="acts">{item.options.map((o, i) => <button data-answer key={o.id} className={clsx("btn sm", !(i === 0 || o.kind === "allow_once") && "ghost")} disabled={busy} onClick={() => void respond(o.id)}>{o.label}</button>)}</div>
     {error ? <p role="alert" style={{ margin: "8px 0 0" }}>{error}</p> : null}
   </div>;
 }

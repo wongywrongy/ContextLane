@@ -1,3 +1,5 @@
+import { Command } from "cmdk";
+import { clsx } from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Lane, LaneEvent } from "@contextlanes/protocol";
 import { getJson, postJson } from "../api";
@@ -67,7 +69,6 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
     setPictures((p) => [...p, { name: file.name, mimeType: file.type as Picture["mimeType"], data }]);
   };
   const toggle = (which: "file" | "command") => { setPicker(picker === which ? null : which); setQuery(""); };
-  const shownCommands = commands.filter((c) => !query || c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 12);
 
   return <section className="compose" aria-label="Message the agent">
     {queue.map((event) => <div className="q" key={event.payload.commandId}>
@@ -79,12 +80,18 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
       <span className="lbl" style={{ fontSize: 11 }}>Sending</span>
       <span className="txt">“{outgoing.text}”</span>
     </div> : null}
-    {picker ? <div className="q">
-      <input className="in mono" style={{ maxWidth: 280, minHeight: 32 }} autoFocus aria-label={picker === "file" ? "Find a file in this lane" : "Find a command"} placeholder={picker === "file" ? "Find a file…" : "Find a command…"} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setPicker(null); } }} />
-      {picker === "file"
-        ? found.length ? found.slice(0, 8).map((f) => <button key={f} className="fchip" style={{ border: 0, cursor: "pointer" }} title={f} onClick={() => { if (!files.includes(f) && files.length < 10) setFiles([...files, f]); setPicker(null); }}>{f}</button>) : <span className="muted" style={{ fontSize: 13 }}>No matching files.</span>
-        : shownCommands.length ? shownCommands.map((c) => <button key={c.name} className="fchip" style={{ border: 0, cursor: "pointer" }} title={c.description} onClick={() => { setText(`/${c.name} ${text.replace(/^\/\S*\s*/, "")}`); setPicker(null); }}>/{c.name}</button>) : <span className="muted" style={{ fontSize: 13 }}>{commands.length ? "No matching commands." : `${agent} has not listed any commands yet.`}</span>}
-    </div> : null}
+    {picker ? <Command className="q picker" label={picker === "file" ? "Find a file in this lane" : "Find a command"} loop
+      // Files are searched by the daemon as you type; commands are ranked here by cmdk.
+      shouldFilter={picker === "command"}
+      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setPicker(null); box.current?.focus(); } }}>
+      <Command.Input className="in mono" autoFocus placeholder={picker === "file" ? "Find a file…" : "Find a command…"} value={query} onValueChange={setQuery} />
+      <Command.List className="pick-list">
+        <Command.Empty className="muted">{picker === "file" ? "No matching files." : commands.length ? "No matching commands." : `${agent} has not listed any commands yet.`}</Command.Empty>
+        {picker === "file"
+          ? found.slice(0, 8).map((f) => <Command.Item key={f} value={f} className="fchip" title={f} onSelect={() => { if (!files.includes(f) && files.length < 10) setFiles([...files, f]); setPicker(null); box.current?.focus(); }}>{f}</Command.Item>)
+          : commands.map((c) => <Command.Item key={c.name} value={c.name} keywords={c.description ? [c.description] : []} className="fchip" title={c.description} onSelect={() => { setText(`/${c.name} ${text.replace(/^\/\S*\s*/, "")}`); setPicker(null); box.current?.focus(); }}>/{c.name}</Command.Item>)}
+      </Command.List>
+    </Command> : null}
     {files.length || pictures.length ? <div className="q" aria-label="Attached">
       <span className="lbl" style={{ fontSize: 11 }}>Attached</span>
       {files.map((f) => <span className="fchip" key={f} title={f}>{f.split("/").at(-1)}<button aria-label={`Remove ${f}`} style={{ border: 0, background: "none", cursor: "pointer", marginLeft: 4 }} onClick={() => setFiles(files.filter((x) => x !== f))}>×</button></span>)}
@@ -97,12 +104,12 @@ export function Composer({ lane, events, agent }: { lane: Lane; events: LaneEven
         if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(event.metaKey || event.ctrlKey); }
       }} onPaste={(event) => { const image = [...event.clipboardData.files].find((f) => f.type.startsWith("image/")); if (image && takesImages) { event.preventDefault(); void addPicture(image); } }} />
       <div className="row">
-        <button className={`chipf${picker === "file" ? " on" : ""}`} aria-expanded={picker === "file"} onClick={() => toggle("file")}>@ file</button>
-        {lane.kind !== "cli" ? <button className={`chipf${picker === "command" ? " on" : ""}`} aria-expanded={picker === "command"} onClick={() => toggle("command")}>/ command</button> : null}
+        <button className={clsx("chipf", picker === "file" && "on")} aria-expanded={picker === "file"} onClick={() => toggle("file")}>@ file</button>
+        {lane.kind !== "cli" ? <button className={clsx("chipf", picker === "command" && "on")} aria-expanded={picker === "command"} onClick={() => toggle("command")}>/ command</button> : null}
         {takesImages ? <><button className="chipf" onClick={() => fileInput.current?.click()}>Attach image</button>
           <input ref={fileInput} type="file" accept={TYPES.join(",")} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void addPicture(f); e.target.value = ""; }} /></> : null}
         <span className="keys"><span className="kbd2">↵</span> {lane.kind === "cli" ? "send when idle · / commands work here" : <>send at the next step · <span className="kbd2">⌘↵</span> interrupt and send</>} · <span className="kbd2">⇧↵</span> new line</span>
-        <button className={`btn sm${sent ? " sent" : ""}`} disabled={sending || (!text.trim() && !sent)} aria-busy={sending || undefined} onClick={() => void send(false)}>{sending ? "Sending" : sent ? "Sent ✓" : "Send"}</button>
+        <button className={clsx("btn sm", sent && "sent")} disabled={sending || (!text.trim() && !sent)} aria-busy={sending || undefined} onClick={() => void send(false)}>{sending ? "Sending" : sent ? "Sent ✓" : "Send"}</button>
       </div>
       {notice ? <p role="status">{notice}</p> : null}
     </div>

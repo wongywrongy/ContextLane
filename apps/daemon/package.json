@@ -28,6 +28,7 @@
     "@fastify/websocket": "11.3.4",
     "@simplewebauthn/server": "14.0.3",
     "fastify": "5.12.5",
+    "http-proxy-3": "2.0.2",
     "pixelmatch": "7.1.0",
     "playwright-core": "1.64.1",
     "pngjs": "7.0.0",

@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useState } from "react";
 import type { FolderListing, GithubListing, Project, RepositoryScan } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
@@ -39,11 +40,11 @@ export function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdd
         {repos.map((repo) => {
           const isAdded = added.has(repo.path);
           const disabled = isAdded || !choosable.includes(repo);
-          return <label className={`repo${disabled ? " off" : ""}`} key={repo.path}>
+          return <label className={clsx("repo", disabled && "off")} key={repo.path}>
             <input type="checkbox" aria-label={`Select ${repo.name}`} disabled={disabled} checked={isAdded || selected.has(repo.path)} onChange={(e) => setSelected((old) => { const next = new Set(old); if (e.target.checked) next.add(repo.path); else next.delete(repo.path); return next; })} />
             <span style={{ minWidth: 0 }}>
               <span className="nm"><b>{repo.name}</b><span className="mono">{tildePath(repo.path, homePath)}</span></span>
-              {repo.note ? <span className={`sub warn`} style={{ display: "block" }}>{repo.note}</span>
+              {repo.note ? <span className="sub warn" style={{ display: "block" }}>{repo.note}</span>
                 : <span className="sub" style={{ display: "block" }}>{[repo.branch ?? "no branch", repo.usedBy.length ? `used with ${repo.usedBy.map((a) => AGENT_NAMES[a]).join(" and ")}${repo.lastUsed ? ` · ${agoText(repo.lastUsed)}` : ""}` : null].filter(Boolean).join(" · ")}</span>}
             </span>
             <span className="meta">{isAdded ? <span className="sig">added</span> : repo.usedBy.map((a) => <AgentMark key={a} agent={a} small />)}</span>

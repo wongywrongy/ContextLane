@@ -40,4 +40,4 @@ pnpm dev              # daemon on :4600 and the web app with /api proxied
 - **The CLI is an interface for agents.** Every command takes `--json` and then prints one JSON document on stdout; errors go to stderr; exit 0 done, 1 failed, 2 usage, 3 unreachable, 4 waiting on the owner. Keep `AGENT_NOTES` (`packages/protocol/src/agent-notes.ts`) and the README block identical; a test checks it.
 - **Tests with every change:** unit tests next to the package in `test/`; API tests through `fastify.inject`.
 - **ESM, strict TypeScript, `.js` extensions in Node imports**, no default exports except React pages.
-- Keep dependencies few and pinned to exact versions.
+- Prefer an established library to a hand-built primitive (dialogs, menus, command lists, drag and drop, proxying, highlighting), styled with our tokens, never its default theme. Keep dependencies few and pinned to exact versions.

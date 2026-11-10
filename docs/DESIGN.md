@@ -35,11 +35,13 @@ These settle disputes. When a screen and a principle disagree, the screen change
 
 ## Look
 
-- Dark first: background `#0c0d0e`, panels `#121315`, raised surfaces `#17191c`, rules `#24272b`.
-- Ink `#e6e6e3`, dim text `#9a9c97`, decorative faint `#62655f`. Small faint text uses the AA counterpart `#93968d`; decorative faint never carries text.
+- Dark first: background `#08090a`, panels `#0f1011`, raised surfaces `#151719`, rules `#3a3e44` (soft rules `#272a2e`).
+- Ink `#f4f4f0`, dim text `#a8aaa4`, decorative faint `#5c5f59`. Small faint text uses the AA counterpart `#9a9d94`; decorative faint never carries text.
 - Accent `#7ee0a3`, needs-you amber `#f2b84b`, errors `#ff6b5e`, information `#7aa7ff`.
 - JetBrains Mono v2.304 is self-hosted with its OFL license. UI is 13px, small text 12px, headings 14px semibold.
-- 1px rules, 2px maximum control radius, square section edges, no cover images or section shadows. Rows start at 28px and grow for content.
+- Square everywhere: no corner radius on any control, section or popup; only status dots are round. 1px rules, no cover images, no soft shadows. A floating part (menu, toast, dragged card) gets a hard 1px ink border and a flat offset shadow in `--line`. Rows start at 28px and grow for content.
+- High contrast: near-black ground, near-white ink, rules visible at a glance. The focused or selected row inverts (ink background, ground text) rather than tinting.
+- Built on established parts, styled only with our tokens: cmdk (jump and composer pickers), base-ui (dialog, popover, menu), dnd kit (board), Sonner (toasts, unstyled), shiki (diff colours through `--sh-*` variables). Never ship a library's default theme.
 - Dark/Light is a browser-local option in Settings. Both token sets pass `node scripts/check-contrast.mjs`; lane badge text and primary buttons are included.
 
 ## Layout rules
