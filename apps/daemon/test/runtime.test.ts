@@ -15,7 +15,7 @@ const RECIPE = { cache: ["node_modules", "missing"], setup: [{ name: "Migrate", 
   { name: "web", command: ["vite", "--port=$PORT", "--host=$HOST"], port: { env: "VITE_PORT" }, health: { timeoutSeconds: 1 } },
 ] };
 
-type Options = { ignored?: string[]; active?: string; ss?: string; setupFails?: boolean; health?: number };
+type Options = { ignored?: string[]; active?: string; ss?: string; setupFails?: boolean; health?: number; previews?: Record<string, unknown> };
 async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
   const root = await mkdtemp(join(tmpdir(), "cl-runtime-"));
   roots.push(root);
@@ -36,7 +36,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
     if (cmd === "systemd-run" && args.includes("--wait") && opts.setupFails) throw Object.assign(new Error("exit 1"), { stdout: "migration 12 failed\n" });
     return { stdout: "" };
   };
-  const config = Config.parse({ previews: { mode: "serve" }, paths: { data: root, lanes: root } });
+  const config = Config.parse({ previews: opts.previews ?? { mode: "serve" }, paths: { data: root, lanes: root } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const seen: LaneEvent[] = [];
@@ -256,5 +256,44 @@ describe("workspace scripts", () => {
     const teardown = calls.find(c => c.includes("./cleanup.sh"))!;
     expect(teardown).toContain("bwrap");
     expect(store.events("shop/01").at(-1)).toMatchObject({ type: "env.status", payload: { service: "teardown", state: "stopped" } });
+  });
+});
+
+describe("lane URLs in the environment", () => {
+  const env = (args: string[]) => Object.fromEntries(args.filter((a) => a.startsWith("--setenv=")).map((a) => a.slice("--setenv=".length).split(/=(.*)/s).slice(0, 2) as [string, string]));
+  const TWO = { setup: [{ name: "Seed", command: ["seed", "--api=$LANE_URL_API"] }], services: [
+    { name: "web", command: ["vite", "--base=$LANE_URL"], env: { VITE_API: "$LANE_URL_API", ORIGIN: "$LANE_URL", SELF: "$LANE_HOSTNAME_WEB:$PORT_WEB", KEEP: "$HOME" }, health: { timeoutSeconds: 1 } },
+    { name: "api", command: ["node", "api.js", "--cors=$LANE_URL_WEB"], health: { timeoutSeconds: 1 } },
+  ] };
+
+  it("tells every service and setup step where each service is reached", async () => {
+    const { runtime, calls, approve } = await setup({ previews: { domain: "root.example.dev" } }, TWO);
+    await approve();
+    await runtime.start("shop/01");
+    const [web, api] = started(calls).map((c) => c.slice(1));
+    const urls = { LANE_URL_WEB: "https://web-01-shop.root.example.dev", LANE_HOSTNAME_WEB: "web-01-shop.root.example.dev", LANE_URL_API: "https://api-01-shop.root.example.dev", LANE_HOSTNAME_API: "api-01-shop.root.example.dev" };
+    expect(env(web!)).toMatchObject({ ...urls, LANE_URL: urls.LANE_URL_WEB, LANE_HOSTNAME: urls.LANE_HOSTNAME_WEB, __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: urls.LANE_HOSTNAME_WEB });
+    expect(env(api!)).toMatchObject({ ...urls, LANE_URL: urls.LANE_URL_API, LANE_HOSTNAME: urls.LANE_HOSTNAME_API, __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: urls.LANE_HOSTNAME_API });
+    // Expanded inside a service's own env values and its arguments; other variables are left for the shell.
+    expect(env(web!)).toMatchObject({ VITE_API: urls.LANE_URL_API, ORIGIN: urls.LANE_URL_WEB, KEEP: "$HOME" });
+    expect(env(web!).SELF).toMatch(/^web-01-shop\.root\.example\.dev:\d+$/);
+    expect(web).toContain(`--base=${urls.LANE_URL_WEB}`);
+    expect(api).toContain(`--cors=${urls.LANE_URL_WEB}`);
+    const seed = calls.find((c) => c[0] === "systemd-run" && c.includes("--wait") && c.includes("seed"))!;
+    expect(seed).toContain(`--api=${urls.LANE_URL_API}`);
+    expect(env(seed.slice(1))).toMatchObject({ LANE_URL: urls.LANE_URL_WEB });
+  });
+
+  it("uses localhost names without a domain, and leaves them out in serve mode", async () => {
+    const local = await setup({ previews: {} }, TWO);
+    await local.approve();
+    await local.runtime.start("shop/01");
+    expect(env(started(local.calls)[0]!.slice(1))).toMatchObject({ LANE_URL: "http://web-01-shop.localhost:4601", LANE_HOSTNAME: "web-01-shop.localhost" });
+    const serve = await setup({}, TWO);
+    await serve.approve();
+    await serve.runtime.start("shop/01");
+    const vars = env(started(serve.calls)[0]!.slice(1));
+    expect(Object.keys(vars).filter((k) => k.startsWith("LANE_") || k.startsWith("__VITE"))).toEqual([]);
+    expect(vars.VITE_API).toBe("$LANE_URL_API");
   });
 });
