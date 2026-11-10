@@ -24,11 +24,37 @@ export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Ru
 /** systemd reads $ in a command; recipes mean a literal one, after our own substitution. */
 const literal = (args: string[]) => args.map((a) => a.replaceAll("$", "$$$$"));
 const setenv = (env: Record<string, string>) => Object.entries(env).map(([k, v]) => `--setenv=${k}=${v}`);
-const expand = (args: string[], env: Record<string, string>) => args.map((a) => a.replace(/\$(PORT(?:_[A-Z0-9_]+)?|HOST)\b/g, (whole, name: string) => env[name] ?? whole));
+/** Variables a recipe may use in command arguments and in a service's env values. */
+const EXPANDED = /\$((?:PORT|LANE_URL|LANE_HOSTNAME)(?:_[A-Z0-9_]+)?|HOST)\b/g;
+export const expand = (args: string[], env: Record<string, string>) => args.map((a) => a.replace(EXPANDED, (whole, name: string) => env[name] ?? whole));
+const envKey = (name: string) => name.toUpperCase().replaceAll("-", "_");
+
+/**
+ * Where each service is reached from a browser: LANE_URL_<SERVICE> and LANE_HOSTNAME_<SERVICE> for every
+ * service, so a web app can point at its API. Empty in serve mode, where a link is chosen only on publish.
+ */
+export function laneUrls(previews: Pick<Previews, "urlFor">, lane: Pick<Lane, "id">, services: string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  services.forEach((name, i) => {
+    const url = previews.urlFor(lane, name);
+    if (!url) return;
+    const host = new URL(url).hostname;
+    Object.assign(env, { [`LANE_URL_${envKey(name)}`]: url, [`LANE_HOSTNAME_${envKey(name)}`]: host }, i === 0 ? { LANE_URL: url, LANE_HOSTNAME: host } : {});
+  });
+  return env;
+}
+
+/** One service's own address as LANE_URL and LANE_HOSTNAME, and its hostname allowed by Vite's dev server. */
+export function ownUrl(env: Record<string, string>, service: string): Record<string, string> {
+  const url = env[`LANE_URL_${envKey(service)}`];
+  const host = env[`LANE_HOSTNAME_${envKey(service)}`];
+  return url && host ? { LANE_URL: url, LANE_HOSTNAME: host, __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: host } : {};
+}
 
 export function serviceArgs(unit: string, dir: string, service: RecipeService, env: Record<string, string>, wrap: string[]): string[] {
+  const own = Object.fromEntries(Object.entries(service.env).map(([key, value]) => [key, expand([value], env)[0]!]));
   return ["--user", `--unit=${unit}`, "--collect", `--working-directory=${dir}`, "--property=Restart=on-failure", "--property=RestartSec=2", "--property=TimeoutStopSec=5",
-    ...setenv({ ...service.env, ...env }), "--", ...literal([...wrap, ...expand(service.command, env)])];
+    ...setenv({ ...own, ...env }), "--", ...literal([...wrap, ...expand(service.command, env)])];
 }
 
 /** Run one command to completion in its own unit, so a timeout ends everything it started. */
@@ -170,7 +196,7 @@ export class Runtime {
     }
     const services: ServiceStatus[] = await Promise.all(view.recipe.services.map(async (s) => ({ name: s.name, unit: "", port: await (this.deps.freePort ?? freePort)(), url: null, state: "stopped", detail: null, probes: [], ms: null, lastFailure: null, healthPath: s.health.path, healthStatus: s.health.status })));
     const ports = Object.fromEntries(services.map((s) => [`PORT_${s.name.toUpperCase().replaceAll("-", "_")}`, String(s.port)]));
-    const setup = await this.prepare(lane, project, view.recipe, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id, ...ports, ...(services[0] ? { PORT: String(services[0].port) } : {}) });
+    const setup = await this.prepare(lane, project, view.recipe, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id, ...ports, ...(services[0] ? { PORT: String(services[0].port) } : {}), ...laneUrls(this.previews, lane, services.map((s) => s.name)) });
     this.deps.store.saveEnvironment({ lane: lane.id, recipeHash: view.hash, services, setup, startedAt: null, error: null });
     this.deps.bus.publish(this.deps.store.appendEvent(lane.id, { type: "env.status", payload: { service: "setup", up: true, state: "healthy" } }));
   }
@@ -289,7 +315,7 @@ export class Runtime {
     const carried = changed ? previous.services.filter((s) => recipe.services.some((r) => r.name === s.name)).map((s) => ({ ...s, state: "stopped" as const })) : previous?.services ?? [];
     const env: EnvironmentView = previous && !changed ? { ...previous, error: null } : { lane: id, recipeHash: view!.hash, services: carried, setup: null, startedAt: null, error: null };
     const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, env.services.find((x) => x.name === s.name)?.port ?? await (this.deps.freePort ?? freePort)()] as const)));
-    const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: id, ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
+    const shared: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: id, ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])), ...laneUrls(this.previews, lane, recipe.services.map((s) => s.name)) };
 
     if (!env.setup) {
       try { env.setup = await this.prepare(lane, project, recipe, shared); }
@@ -313,7 +339,7 @@ export class Runtime {
       const port = ports[service.name]!;
       const row: ServiceStatus = { name: service.name, unit, port, url: this.previews.urlFor(lane, service.name), state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
       store.saveEnvironment({ ...current, services: [...current.services.filter((s) => s.name !== service.name), row] });
-      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
+      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, ...ownUrl(shared, service.name), [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
       catch (err) { this.update(env, row, { state: "failed", detail: err instanceof Error ? err.message.slice(0, 300) : "The service unit could not start." }); continue; }
       this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: service.name, up: false, port, state: "starting" } }));
     }
