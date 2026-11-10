@@ -24,9 +24,10 @@ export async function installService(options: { root: string; home: string; node
     await mkdir(dirname(unit), { recursive: true, mode: 0o700 });
     await writeOwned(unit, content, 0o600);
   }
-  for (const [name, entry] of [["contextlanes", "apps/cli"], ["contextlanes-lanehost", "apps/lanehost"], ["contextlanes-toolbox", "packages/toolbox"]]) {
+  for (const [name, entry] of [["contextlanes", "apps/cli"], ["cl", "apps/cli"], ["contextlanes-lanehost", "apps/lanehost"], ["contextlanes-toolbox", "packages/toolbox"]]) {
     const script = `#!/bin/sh\n# Installed by ContextLanes\nexec ${shellQuote(node)} ${shellQuote(join(root, entry!, "dist/main.js"))} "$@"\n`;
-    await writeOwned(join(bin, name!), script, 0o755);
+    // `cl` is the short name. Someone else's `cl` already there is left alone; the long name always works.
+    await writeOwned(join(bin, name!), script, 0o755).catch((err) => { if (name !== "cl") throw err; });
   }
   if (!systemd) return;
   await run("systemctl", ["--user", "daemon-reload"]);

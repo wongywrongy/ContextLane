@@ -15,7 +15,7 @@ it("groups lifecycle states and uses actual merge time for the seven-day window"
   expect(boardColumn(card("archived"))).toBeNull();
 });
 it("hands a suggested lane over as a command the shell cannot expand", () => {
-  expect(startLaneCommand("shop")).toBe('contextlanes lane start shop "<task>"');
-  expect(startLaneCommand("shop", "Fix Kyle's $HOME `bug`")).toBe("contextlanes lane start shop 'Fix Kyle'\\''s $HOME `bug`'");
+  expect(startLaneCommand("shop")).toBe('cl new shop "<task>"');
+  expect(startLaneCommand("shop", "Fix Kyle's $HOME `bug`")).toBe("cl new shop 'Fix Kyle'\\''s $HOME `bug`'");
   expect(shellQuote("plain")).toBe("'plain'");
 });

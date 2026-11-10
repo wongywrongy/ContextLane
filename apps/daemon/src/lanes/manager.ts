@@ -12,7 +12,7 @@ import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
 import { supervisorFor } from "../supervisor/index.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
-import { checkCliArgs, launchCli } from "./cli.js";
+import { checkCliArgs, launchCli, laneCommandDir } from "./cli.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -27,6 +27,18 @@ export class LaneManager {
     private readonly deps: { store: Store; bus: EventBus; config: Config; run: Runner },
   ) {
     this.terminals = new Terminals(deps.run, supervisorFor(deps.config, deps.run));
+  }
+
+  /**
+   * What the owner's shell in a lane starts with: which lane it is, where the daemon listens, and the
+   * cl command on PATH, so `cl up` works there with nothing installed and nothing to name.
+   */
+  private async terminalEnv(id: string): Promise<Record<string, string>> {
+    const { config } = this.deps;
+    const env: Record<string, string> = { CONTEXTLANES_LANE: id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` };
+    const bin = await laneCommandDir(config.paths.data).catch(() => null);
+    if (bin) env.PATH = `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`;
+    return env;
   }
 
   /**
@@ -139,7 +151,7 @@ export class LaneManager {
       // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
       // A skill that fails to copy is reported, not fatal: the lane still works without it.
       if (!req.baseline && !lane.direct) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
-      await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind !== "acp");
+      await this.terminals.create(lane.terminal, lane.worktree, await this.terminalEnv(id), lane.kind !== "acp");
       if (config.lanes.launchHosts && lane.kind !== "shell") {
         const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
         // CLI lanes learn the contextlanes command from launchCli (system prompt or AGENTS.md); ACP lanes get the MCP tools.
@@ -210,7 +222,7 @@ export class LaneManager {
     if (lane.kind === "shell") throw new Refused("This lane has no agent to restart.", 400);
     if (!["working", "needs_you", "failed"].includes(lane.state)) throw new Refused("Only a working, waiting or failed lane's agent can be restarted.");
     if (lane.kind === "cli") {
-      if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, true);
+      if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, await this.terminalEnv(id), true);
       this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: "CLI restarted by you; resuming the last session in this checkout." } }));
       await this.relaunch(lane, "");
       return store.getLane(id)!;

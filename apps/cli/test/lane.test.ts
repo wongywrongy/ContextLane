@@ -131,6 +131,23 @@ describe("what the owner does from the command line instead of the web app", () 
   });
 });
 
+describe("a recipe written or changed inside a lane", () => {
+  it("is read and approved by naming the lane", async () => {
+    const recipe = { file: ".contextlanes.json", hash: "de4c737aa", approved: false, error: null, text: '{ "services": [] }\n', recipe: { services: [{ name: "web", command: ["node", "server.js"] }] } };
+    const h = harness({
+      "GET /api/projects/shop/environments": () => ({ lanes: [{ lane: "shop/01", recipe: null }, { lane: "shop/04", recipe }] }),
+      "POST /api/projects/shop/recipe/approve": () => ({ approved: true, hash: recipe.hash }),
+    });
+    expect(await h.run(["recipe", "shop/04"])).toBe(0);
+    expect(h.out[0]).toContain("waiting for the owner's approval");
+    expect(h.out[0]).toContain("The whole file, to read before approving:");
+    expect(await h.run(["recipe", "approve", "shop/04"])).toBe(0);
+    expect(h.calls.at(-1)).toMatchObject({ method: "POST", body: { hash: "de4c737aa" } });
+    expect(h.out[1]).toBe("Approved recipe de4c737 for shop/04.");
+    await expect(h.run(["recipe", "approve", "shop/01"])).rejects.toMatchObject({ code: "no_recipe" });
+  });
+});
+
 describe("inside a lane, with only the lane token", () => {
   const vars = { CONTEXTLANES_LANE: "shop/01", CONTEXTLANES_LANE_TOKEN: "lane-secret" };
 

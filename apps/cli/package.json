@@ -12,7 +12,8 @@
     }
   },
   "bin": {
-    "contextlanes": "./dist/main.js"
+    "contextlanes": "./dist/main.js",
+    "cl": "./dist/main.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -15,7 +15,7 @@ describe("--json on every command", () => {
     const { exit, out } = cli("help", "--json");
     expect(exit).toBe(0);
     const { help } = JSON.parse(out) as { help: string };
-    expect(help).toContain("contextlanes lane start");
+    expect(help).toContain("cl new");
     expect(help).not.toContain("\u001b[");
   }, 30_000);
 

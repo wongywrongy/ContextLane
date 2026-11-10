@@ -101,7 +101,8 @@ export async function laneCommandDir(dir: string, node = process.execPath, cli =
   const bin = join(dir, "bin");
   await mkdir(bin, { recursive: true, mode: 0o700 });
   const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
-  await writeFile(join(bin, "contextlanes"), `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} "$@"\n`, { mode: 0o755 });
+  // Both names, so the agent's notes (cl) and anything written for the long name keep working.
+  for (const name of ["contextlanes", "cl"]) await writeFile(join(bin, name), `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} "$@"\n`, { mode: 0o755 });
   return bin;
 }
 

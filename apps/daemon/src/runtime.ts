@@ -281,7 +281,7 @@ export class Runtime {
     if (!view.recipe) throw new Refused(`The recipe cannot be used. ${view.error}`);
     if (!view.approved) {
       if (!store.recipeAlreadyRequested(lane.id, view.hash)) bus.publish(store.appendEvent(lane.id, { type: "recipe.requested", payload: { hash: view.hash } }));
-      throw new Refused(`The recipe ${view.hash.slice(0, 7)} needs the owner's approval on the Run page before it can start.`, 409, "recipe_unapproved");
+      throw new Refused(`The recipe ${view.hash.slice(0, 7)} needs the owner's approval on the Run page before it can start (owner: cl recipe approve ${lane.id}).`, 409, "recipe_unapproved");
     }
     return view.recipe;
   }
