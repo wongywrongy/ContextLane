@@ -34,12 +34,23 @@ On macOS, where bubblewrap does not exist, agents start only after you choose to
 
 ## Use
 
+A **project** is a repository folder you have added. A **lane** is one task inside a project: its own branch, checkout, terminal and copy of the app.
+
 ```sh
 cd ~/code/shop
-cl claude                        # Claude Code in a new lane (or: cl codex)
+cl                               # the menus: Projects → this project's lanes → one lane. Esc goes back a step
+```
+
+Or type the commands:
+
+```sh
+cl add                           # make this folder a project (once)
+cl projects                      # every project and how many lanes it has
+
+cl claude                        # Claude Code in a new lane of this project (or: cl codex)
 cl new "Add a health check"      # a lane for this project; from anywhere: cl new shop "…"
-cl new "Try the app" --here --no-agent   # this checkout, no agent: your own tools, managed services
-cl ls                            # every lane and what it waits on
+cl new "Try the app" --no-agent  # no agent: the checkout, your own shell and the app
+cl ls                            # this machine's open lanes and what they wait on
 
 cl up                            # inside a lane: start the app from .contextlanes.json and wait until it is healthy
 cl url                           # its link
@@ -47,13 +58,13 @@ cl logs web -n 50
 cl say 1 "Use the v2 endpoint"   # a message for lane 1's agent
 cl sh 1                          # your shell in lane 1
 cl rm 1                          # stop and delete it
-cl inbox                         # what waits on you; answer with: cl ok <id> <option>
+cl inbox                         # what waits on you, and answer it
 cl agent-notes                   # what to put in AGENTS.md so any agent uses this
 ```
 
 A lane started with `cl claude` or `cl codex` runs its agent in the sandbox. A `--no-agent` lane is your own shell: its services are still confined, but anything you start in that shell yourself, another agent included, runs with your access.
 
-In a terminal, `cl` on its own lists your lanes to pick from, and a command with something missing (`cl new`, `cl rm`, `cl say`, `cl inbox`) asks for it. Agents, scripts and `--json` are never asked anything.
+In a terminal, a command with something missing (`cl new`, `cl rm`, `cl say`) asks for it, and every list has a way back. Agents, scripts and `--json` are never asked anything.
 
 `cl` is short for `contextlanes`; both work, and so do the long forms (`lane start`, `env start`, `send`, `term`). Inside a project folder a lane is just its number; anywhere else write `shop/01`. `cl help` lists everything.
 

@@ -1,5 +1,6 @@
 import type { Lane, Project } from "@contextlanes/protocol";
 import type { Io } from "./lane.js";
+import { UsageError } from "./client.js";
 
 /** Short verbs, borrowed from git and docker compose, for the long commands they stand for. */
 const VERBS: Record<string, string[]> = {
@@ -43,10 +44,12 @@ export async function expandShort(argv: string[], io: Io, here: (io: Io) => Prom
   const find = async () => project === undefined ? (project = await here(io)) : project;
 
   if (verb === "new") {
-    // One word after `new` is the task; the project is where you are. A folder not added yet is added (".").
+    // One word after `new` is the task; the project is where you are. Projects come first: a folder is made one with `cl add`.
     const words = positions(rest).map((i) => rest[i]!);
     if (words.length !== 1) return ["lane", "start", ...rest];
-    return ["lane", "start", (await find()) ?? ".", ...rest];
+    const owner = await find();
+    if (!owner) throw new UsageError('This folder is not a project yet. Make it one first: cl add   (or name the project: cl new <project> "<task>")');
+    return ["lane", "start", owner, ...rest];
   }
 
   const out = VERBS[verb] ? [...VERBS[verb], ...rest] : [...argv];

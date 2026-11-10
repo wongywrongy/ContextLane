@@ -5,8 +5,8 @@ const or = <T>(value: unknown): T | typeof CANCEL => clack.isCancel(value) ? CAN
 
 /** The terminal's questions, drawn by @clack/prompts: arrows to move, Enter to choose, Esc to back out. */
 export const terminal: Ask = {
-  select: async (message, options) => or(await clack.select({ message, options: options as never })) as never,
-  text: async (message, placeholder) => or<string>(await clack.text({ message, ...(placeholder ? { placeholder } : {}), validate: (v) => v?.trim() ? undefined : "Type something, or press Esc to cancel." })),
+  select: async (message, options, initial) => or(await clack.select({ message, options: options as never, ...(initial !== undefined ? { initialValue: initial as never } : {}) })) as never,
+  text: async (message, initial) => or<string>(await clack.text({ message, ...(initial ? { initialValue: initial } : {}), validate: (v) => v?.trim() ? undefined : "Type something, or press Esc to go back." })),
   confirm: async (message) => or<boolean>(await clack.confirm({ message, initialValue: false })),
   note: (text) => clack.log.message(text),
 };

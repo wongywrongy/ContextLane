@@ -9,17 +9,23 @@ import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError, UsageError } from "./client.js";
 import { laneCommand } from "./lane.js";
 import { expandShort } from "./short.js";
-import { CANCEL, canAsk, fillIn } from "./interactive.js";
-import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid } from "./format.js";
+import { canAsk, fillIn, session } from "./interactive.js";
+import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid, table } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
 
 const HELP = () => `${bold("cl")} ${dim("— run coding agents in parallel lanes on an always-on machine (long name: contextlanes)")}
 
-${dim("In a terminal, cl on its own lists your lanes to pick from, and any command asks for what you left out.")}
+${dim("A project is a repository folder. A lane is one task inside a project: its own branch, checkout, terminal and app.")}
+${dim("In a terminal, cl on its own opens the menus: Projects → a project's lanes → one lane. Esc goes back a step.")}
+
+${bold("Projects")}
+  cl add [path]                   make a folder a project (default: this folder)
+  cl projects                     every project and how many lanes it has
+  cl remove <project>             stop tracking one (the folder is untouched)
 
 ${bold("Lanes")} ${dim("— inside a project folder the project is implied, and a lane is just its number")}
-  cl new "<task>"                 start a lane here  ${dim("[--agent id] [--model m] [--base branch]")}
+  cl new "<task>"                 start a lane in this project  ${dim("[--agent id] [--model m] [--base branch]")}
                                   ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout")}
   cl new <project> "<task>"       start a lane in another project
   cl claude [args…]               start Claude Code in a new lane and attach  ${dim("(or: cl codex)")}
@@ -48,8 +54,6 @@ ${bold("Waiting on you")}
 
 ${bold("This machine")}
   cl setup                        sign in from a browser: prints a one-time link and QR code
-  cl add [path]                   add a repository (default: this folder)
-  cl remove <project>             stop tracking a repository (the folder is untouched)
   cl status                       is ContextLanes running, and where to open it
   cl daemon                       run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
   cl doctor                       check tools, sandbox, router and your proxy, and say how to fix what fails
@@ -62,18 +66,27 @@ lane start, lanes, send, term, lane rm, env start|stop|restart, answer. Talks to
 Every command takes --json. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 not reachable, 4 waiting on the owner.`;
 
 async function main(argv: string[]): Promise<number> {
-  // Short verbs and bare lane numbers become the long commands below.
   const io = { api, env: process.env, cwd: process.cwd(), out: () => {}, err: () => {} };
+  // Short verbs and bare lane numbers become the long commands run() understands.
   argv = await expandShort(argv, io);
-  // A person at a terminal who left something out is asked for it; agents, scripts and --json never are.
+  // A person at a terminal gets the menus: cl alone opens them, and a command with something left out
+  // asks for it. Agents, scripts and --json never get a question.
   if (canAsk(argv, process.env, { in: !!process.stdin.isTTY, out: !!process.stdout.isTTY }) && !["claude", "codex", "daemon", "update"].includes(argv[0] ?? "")) {
-    const filled = await fillIn(argv, io, (await import("./prompts.js")).terminal);
-    if (filled === CANCEL) return 0;
-    argv = filled;
+    const { terminal } = await import("./prompts.js");
+    // Inside the menus a failed command says why and the menu comes back; it does not end the session.
+    const exec = (command: string[]) => run(command).catch((err: unknown) => report(err, false));
+    if (!argv.length) return session(io, terminal, exec);
+    const asked = await fillIn(argv, io, terminal, exec);
+    if (asked !== null) return asked;
   }
+  return run(argv);
+}
+
+/** One complete command in its long form. */
+async function run(argv: string[]): Promise<number> {
   if (argv[0] === "claude" || argv[0] === "codex") {
     const lane = await startCliLane(argv[0], argv.slice(1));
-    return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+    return openTerminal(lane);
   }
   // In the foreground, for any init system or none; logs go to this terminal. Ctrl-C stops it.
   if (argv[0] === "daemon") {
@@ -156,8 +169,7 @@ async function main(argv: string[]): Promise<number> {
       const lanes = await api<Lane[]>(`/api/projects/${project}/lanes`);
       const lane = lanes.find((l) => l.id === `${project}/${n}`);
       if (!lane) throw new Error(`no lane ${rest[0]}`);
-      // "=" makes tmux match the exact session, never cl-shop-010 for cl-shop-01.
-      return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+      return openTerminal(lane);
     }
     case "doctor": {
       const report = await api<DoctorReport>("/api/doctor");
@@ -183,7 +195,14 @@ async function main(argv: string[]): Promise<number> {
     case "add": {
       const project = await addProject(rest[0]);
       if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
-      console.log(ok(`Added ${bold(project.name)}. Start a lane: cl new ${project.id} "<task>"`));
+      console.log(ok(`${bold(project.name)} is a project now (${project.path}). Start a lane in it: cl new "<task>"`));
+      return 0;
+    }
+    case "projects": {
+      const [projects, lanes] = await Promise.all([api<Project[]>("/api/projects"), api<Lane[]>("/api/lanes")]);
+      const open = (id: string) => lanes.filter((l) => l.project === id && !["cleaned", "archived"].includes(l.state)).length;
+      if (values.json) { console.log(JSON.stringify(projects.map((p) => ({ ...p, lanes: open(p.id) })), null, 2)); return 0; }
+      console.log(projects.length ? table(["PROJECT", "LANES", "FOLDER"], projects.map((p) => [p.id, String(open(p.id)), p.path])) : "No projects yet. Inside a repository: cl add");
       return 0;
     }
     case "remove": {
@@ -228,6 +247,18 @@ async function main(argv: string[]): Promise<number> {
       console.error(fail(`Unknown command: ${cmd}\n`));
       return usage();
   }
+}
+
+/**
+ * Puts this terminal in the lane's tmux session. "=" makes tmux match the exact name, never cl-shop-010
+ * for cl-shop-01. Already inside tmux, attaching would nest, so this client switches over instead.
+ */
+function openTerminal(lane: Pick<Lane, "id" | "terminal">): number {
+  if (!process.env.TMUX) return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  const switched = spawnSync("tmux", ["switch-client", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  if (switched === 0) { console.log(dim("  Switched this tmux client to the lane. Ctrl-b L switches back.")); return 0; }
+  console.error(fail(`Could not switch to ${lane.terminal} from inside tmux. From a plain shell: cl sh ${lane.id}`));
+  return 1;
 }
 
 /** Colour codes off, for output a program reads. */

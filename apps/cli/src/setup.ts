@@ -20,7 +20,7 @@ export async function setupOutput(sshHost?: string): Promise<string> {
   return ["", `  ${bold("ContextLanes setup")}`, "", ...(link.messages.length ? [`  ${bold("Do this first")} on this machine:`, ...link.messages.map((m) => `     ${yellow(m)}`)] : []),
     ...(link.tunnel ? ["", `  ${bold("1.")} On your computer, open the SSH tunnel:`, `     ${cyan(link.tunnel)}`, "", `  ${bold("2.")} Then open this link, or scan the code with your phone:`] : ["", `  ${bold("Open this link")}, or scan the code with your phone:`]),
     `     ${cyan(link.url)}`, `     ${dim("Works once and expires in 10 minutes. Run cl setup again for a new one.")}`, "", code,
-    `  ${bold("Next")}, here on the machine: cd into a repository, then ${cyan("cl add")} and ${cyan("cl claude")} (or ${cyan('cl new "<task>"')}).`, ""].join("\n");
+    `  ${bold("Next")}, here on the machine: cd into a repository and run ${cyan("cl")}. It makes the folder a project, then starts lanes in it.`, ""].join("\n");
 }
 
 export async function addProject(path = process.cwd()): Promise<Project> {

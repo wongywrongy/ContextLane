@@ -39,7 +39,9 @@ describe("short commands", () => {
     expect(await expandShort(["new", "Fix the bug"], io(), here)).toEqual(["lane", "start", "shop", "Fix the bug"]);
     expect(await expandShort(["new", "Fix the bug", "--no-agent"], io(), here)).toEqual(["lane", "start", "shop", "Fix the bug", "--no-agent"]);
     expect(await expandShort(["new", "ara", "Wake word"], io(), here)).toEqual(["lane", "start", "ara", "Wake word"]);
-    expect(await expandShort(["new", "Try it"], io(), async () => null)).toEqual(["lane", "start", ".", "Try it"]);
+    // Projects come first: a folder that is not one yet is not made one in passing.
+    await expect(expandShort(["new", "Try it"], io(), async () => null)).rejects.toMatchObject({ exit: 2, message: expect.stringContaining("cl add") });
+    expect(await expandShort(["new"], io(), async () => null)).toEqual(["lane", "start"]);
     expect(await x("lane start shop Task")).toEqual(["lane", "start", "shop", "Task"]);
     expect(await x("env start shop/01")).toEqual(["env", "start", "shop/01"]);
     expect(await x("doctor --json")).toEqual(["doctor", "--json"]);
