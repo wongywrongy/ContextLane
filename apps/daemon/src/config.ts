@@ -64,6 +64,13 @@ export const Config = z.object({
    * the daemon; `app` is a non-admin login that owns each copy and is what lane services get.
    */
   databases: z.object({ postgres: z.object({ admin: z.string().regex(/^postgres(ql)?:\/\//), app: z.string().regex(/^postgres(ql)?:\/\//) }).optional() }).prefault({}),
+  /** How lane services run: systemd user units, or process groups the daemon watches. auto is settled at start. */
+  supervisor: z.object({ driver: z.enum(["auto", "systemd", "process"]).default("auto") }).prefault({}),
+  /**
+   * bwrap keeps agents and lane services away from ContextLanes' own data, sign-in token included. off runs
+   * them as you, unconfined: only by setting it here, for machines without bubblewrap (macOS).
+   */
+  sandbox: z.object({ mode: z.enum(["bwrap", "off"]).default("bwrap") }).prefault({}),
   /** Everything outside the core is off until turned on here (see FEATURES in @contextlanes/protocol). */
   features: z.object(Object.fromEntries(FEATURE_NAMES.map((f) => [f, z.boolean().default(false)])) as Record<Feature, z.ZodDefault<z.ZodBoolean>>).prefault({}),
   lanes: z.object({

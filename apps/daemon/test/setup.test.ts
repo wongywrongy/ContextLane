@@ -410,3 +410,15 @@ describe("the web app through the preview router", () => {
     expect(preview.status).toBe(403);
   });
 });
+
+describe("installing without systemd", () => {
+  it("writes the commands and no service", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cl-install-nosystemd-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const calls: string[] = [];
+    await installService({ root: "/opt/contextlanes", home: root, node: process.execPath, run: async (cmd, args) => { calls.push([cmd, ...args].join(" ")); return { stdout: "" }; }, systemd: false });
+    expect((await stat(join(root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755);
+    await expect(stat(join(root, ".config/systemd/user/contextlanes.service"))).rejects.toThrow();
+    expect(calls).toEqual([]);
+  });
+});

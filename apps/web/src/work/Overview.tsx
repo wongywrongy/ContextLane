@@ -5,11 +5,14 @@ import { errorMessage, useJson } from "../api";
 import { AgentMark, Glyph, LaneBadge, Section, StateGlyph } from "../components/ui";
 import { isIdle, laneNow } from "./model";
 import { BOARD_COLUMNS, boardColumn, boardDrop, type BoardColumn } from "./board";
+import { useFeatures } from "../features";
 
 /** The board groups actual lifecycle state; drag and menu actions share the existing owner APIs. */
 export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; events: LaneEvent[]; waiting: InboxItem[]; select: (id: string) => void }) {
   const { project } = useParams();
   const [facts, error, reload] = useJson<BoardLane[]>(`/api/projects/${project}/board`);
+  // Only review moves lanes to In review and Merged; without it those columns stay empty.
+  const features = useFeatures();
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -23,11 +26,11 @@ export function Overview({ lanes, events, waiting, select }: { lanes: Lane[]; ev
   if (!facts) return <Section title="Board"><p className="sec-b" role={error ? "alert" : "status"}>{error ? error.message : "Loading lanes…"}</p></Section>;
   return <div className="board-wrap">
     {error ? <p role="alert">{error.message}</p> : null}{notice ? <p role="status">{notice}</p> : null}
-    <div className="lane-board" aria-label="Lane board" data-key-list>{BOARD_COLUMNS.map(column => {
+    <div className="lane-board" aria-label="Lane board" data-key-list>{BOARD_COLUMNS.filter(column => features.review || !["In review", "Merged"].includes(column)).map(column => {
       const shown = cards.filter(card => boardColumn(card, waiting.some(i => i.lane === card.lane.id), now) === column);
       return <div className="board-column" key={column} data-column={column} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} onDrop={e => drop(e, column)}><Section title={column} meta={`${shown.length}${column === "Merged" ? " · 7 days" : ""}`}>
         {shown.map(card => <article className="board-card" key={card.lane.id} data-lane={card.lane.id} draggable={!busy} onDragStart={e => { e.dataTransfer.setData("application/x-contextlanes-lane", card.lane.id); e.dataTransfer.effectAllowed = "move"; }}>
-          <button data-list-item className="board-open" onClick={() => select(card.lane.id)}><span className="board-who"><LaneBadge id={card.lane.id} colour={card.lane.colour} /><AgentMark agent={card.lane.agent} small /><span>{card.lane.agent}</span></span><b>{card.lane.task}</b><span className="board-now">{laneNow(card.lane, events, waiting)}</span><StateGlyph state={card.lane.state} idle={isIdle(card.lane, events)} label /></button>
+          <button data-list-item className="board-open" onClick={() => select(card.lane.id)}><span className="board-who"><LaneBadge id={card.lane.id} colour={card.lane.colour} /><AgentMark agent={card.lane.agent} small /><span>{card.lane.kind === "shell" ? "no agent" : card.lane.agent}</span></span><b>{card.lane.task}</b><span className="board-now">{laneNow(card.lane, events, waiting)}</span><StateGlyph state={card.lane.state} idle={isIdle(card.lane, events)} label /></button>
           <div className="board-facts">{card.contextPct !== null ? <span>ctx {card.contextPct}%</span> : null}{card.verdict ? <Glyph g={card.verdict === "merge" ? "done" : card.verdict === "fix first" ? "wait" : "fail"}>{card.verdict}</Glyph> : null}{card.preview ? <a className="lnk" href={card.preview} target="_blank" rel="noreferrer" draggable={false}>Preview ↗</a> : null}</div>
           {["working", "failed"].includes(card.lane.state) ? <details className="board-actions"><summary aria-label={`Actions for ${card.lane.id}`}>Actions</summary><button className="btn ghost sm" disabled={!!busy} onClick={() => void act(card.lane, card.lane.state === "failed" ? "Archive" : "In review")}>{card.lane.state === "failed" ? "Archive" : "Ask for review"}</button></details> : null}
         </article>)}

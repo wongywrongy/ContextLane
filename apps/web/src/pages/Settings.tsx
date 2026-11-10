@@ -88,6 +88,7 @@ export function SettingsPage() {
             <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os}{machine.linger === null ? "" : machine.linger ? " · keeps running after you log out" : " · stops when you log out"}</span></div>
             <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => setUpdates(await postJson<UpdateCheck>("/api/machine/updates", {}))}>Check for updates</Action></div></div>
             <div className="sec-r"><span className="kl">Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user}{machine.service === null ? "" : machine.service ? " · systemd user service" : " · started by hand"} · {machine.address}</span></div>
+            <div className="sec-r"><span className="kl">Lanes</span>{machine.sandbox === "off" ? <Fact g="fail" detail='[sandbox] mode = "off"'>Not confined: agents run with your full access</Fact> : <Fact g="done" detail="bubblewrap">Agents confined</Fact>}<span className="mono muted" style={{ fontSize: 12 }}>{machine.supervisor === "systemd" ? "services as systemd user units" : "services as processes this daemon watches"}</span></div>
           </>}
           {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
         </Section>

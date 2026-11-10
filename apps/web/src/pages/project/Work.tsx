@@ -172,7 +172,10 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
 
     {lane.state === "failed" ? <FailedNote lane={lane} events={events} /> : null}
 
-    <section className="sec" aria-label="Agent controls"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
+    {lane.kind === "shell" ? <section className="sec" aria-label="Lane"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
+      <Glyph g="idle">No agent</Glyph><span className="muted" style={{ fontSize: 13 }}>Work in the terminal, or run your own agent there. <code>contextlanes env start</code> brings up the app.</span>
+    </div></section>
+    : <section className="sec" aria-label="Agent controls"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
       {session?.type === "agent.session" && session.payload.models.length
         ? <select className="sel" aria-label="Model" value={session.payload.currentModel ?? ""} onChange={(e) => void control("model", e.target.value)}>{session.payload.models.map((m) => <option value={m.id} key={m.id}>{m.label}</option>)}</select>
         : <span className="sel" style={{ display: "inline-flex", alignItems: "center", cursor: "default" }}>{lane.model ?? `${agent} default`}</span>}
@@ -188,7 +191,7 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
           <Glyph g={lane.auto ? "work" : "idle"}>{lane.auto ? "Auto on" : "Auto off"}</Glyph></button>
         <Help label="What does Auto approve?">ContextLanes, not the agent, approves each request once. These still wait for you: {DIRE_ACTIONS.join("; ")}. The lane sandbox still hides your tokens.</Help></span>
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}><button className="btn ghost sm" disabled={offline || !link} title={offline ? "The agent is not connected" : !link ? "The agent is not working" : undefined} onClick={interrupt}><span className="kbd2">Esc</span>Interrupt</button></div>
-    </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>
+    </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>}
 
     {error ? <p role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
     <LanePanes lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} interrupt={interrupt} onView={setComposerVisible} />

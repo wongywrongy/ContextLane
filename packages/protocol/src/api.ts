@@ -189,7 +189,7 @@ export const Checkpoint = z.object({
 });
 export type Checkpoint = z.infer<typeof Checkpoint>;
 
-export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string() });
+export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string(), sandbox: z.enum(["bwrap", "off"]).optional() });
 export type Health = z.infer<typeof Health>;
 
 /** A Claude Code or Codex session in a project's folder that no lane started (Work, "Watching only"). */

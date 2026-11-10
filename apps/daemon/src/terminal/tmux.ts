@@ -1,3 +1,4 @@
+import { SystemdSupervisor, type Supervisor } from "../supervisor/index.js";
 import type { Runner } from "../run.js";
 
 /**
@@ -5,13 +6,14 @@ import type { Runner } from "../run.js";
  * agents run commands through ACP. Closing a browser tab or SSH session only detaches.
  */
 export class Terminals {
-  constructor(private readonly run: Runner) {}
+  /** supervisor runs tmux so its server outlives the daemon: a systemd scope, or plainly where tmux daemonizes itself. */
+  constructor(private readonly run: Runner, private readonly supervisor: Pick<Supervisor, "detached"> = new SystemdSupervisor(run)) {}
 
   async create(session: string, cwd: string, env: Record<string, string> = {}, independent = false): Promise<void> {
     const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
     const args = ["new-session", "-d", "-s", session, "-c", cwd, ...envArgs];
     // A newly created tmux server must outlive the daemon's cgroup, even on a fresh machine.
-    if (independent) await this.run("systemd-run", ["--user", "--scope", `--unit=contextlanes-terminal-${session}`, "--collect", "--quiet", "tmux", ...args]);
+    if (independent) await this.supervisor.detached(`contextlanes-terminal-${session}`, ["tmux", ...args]);
     else await this.run("tmux", args);
   }
 

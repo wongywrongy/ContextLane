@@ -10,6 +10,7 @@ import type { Store } from "../db/store.js";
 import type { Runner } from "../run.js";
 import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
+import { supervisorFor } from "../supervisor/index.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
 import { checkCliArgs, launchCli } from "./cli.js";
 
@@ -25,7 +26,7 @@ export class LaneManager {
   constructor(
     private readonly deps: { store: Store; bus: EventBus; config: Config; run: Runner },
   ) {
-    this.terminals = new Terminals(deps.run);
+    this.terminals = new Terminals(deps.run, supervisorFor(deps.config, deps.run));
   }
 
   /**
@@ -73,6 +74,7 @@ export class LaneManager {
     if (kind === "shell" && (req.cliArgs?.length || req.remoteControl || req.auto)) throw new Refused("A lane without an agent takes no agent options.", 400);
     if (req.direct && kind === "acp") throw new Refused("Direct mode requires a CLI or shell lane.", 400);
     if (kind === "acp" && !config.features.acp) throw new Refused(featureOff("acp"), 400, "feature_off");
+    if (kind === "acp" && config.supervisor.driver === "process") throw new Refused("ACP lanes run their agent host as a systemd user unit, and this machine runs without systemd. Use Claude Code or Codex, which run as their own CLIs.", 400, "needs_systemd");
     if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
@@ -115,7 +117,7 @@ export class LaneManager {
         state: "draft",
         colour: laneColour(n),
       });
-      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, kind, direct: req.direct, remoteControl: req.remoteControl, ...(req.baseline ? { baseline: true } : {}) } }));
+      this.emit(store.appendEvent(id, { type: "lane.created", payload: { task: lane.task, agent: lane.agent, branch: lane.branch, worktree: lane.worktree, kind, direct: req.direct, remoteControl: req.remoteControl, ...(req.baseline ? { baseline: true } : {}), ...(config.sandbox.mode === "off" && kind !== "shell" ? { sandbox: "off" as const } : {}) } }));
       if (lane.auto) this.emit(store.appendEvent(id, { type: "lane.auto", payload: { on: true } }));
       if (req.adoption) this.emit(store.appendEvent(id, { type: "service.proposed", payload: req.adoption }));
       // The full task is the lane's first message, shown as the first step.

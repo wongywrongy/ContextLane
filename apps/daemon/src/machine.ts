@@ -22,6 +22,7 @@ export async function machineInfo(config: Config, version: string, run: Runner):
   const at = exited ? new Date(exited) : null;
   const lastRun = at && Number.isFinite(at.getTime()) ? at.toISOString() : null;
   return MachineInfo.parse({ host: config.host.name, os, user, version, address: `${config.listen.host}:${config.listen.port}`,
+    supervisor: config.supervisor.driver === "process" ? "process" : "systemd", sandbox: config.sandbox.mode,
     linger: linger === "yes" ? true : linger === "no" ? false : null,
     service: pid === undefined ? null : pid === String(process.pid),
     backups: { scheduled: timer, lastRun, result: lastRun ? backup?.match(/^Result=(.*)$/m)?.[1] ?? null : null, directory: join(config.paths.data, "backups", "nightly") } });

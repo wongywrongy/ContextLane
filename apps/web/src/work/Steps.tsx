@@ -130,7 +130,7 @@ function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiti
       {entries.length ? <button className="planbar" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? "Hide the plan" : "Show the plan"}>
         <span className="segs" aria-hidden="true">{entries.map((e, i) => <i key={i} className={e.status === "completed" ? "d" : e.status === "in_progress" ? "p" : ""} />)}</span>
         <span>{done} of {entries.length}{current ? <span className="muted"> · {current.status === "in_progress" ? "on" : "next"}: {current.text}</span> : null}</span></button>
-        : <><Glyph g="idle">No plan yet</Glyph>{asked ? <span className="muted" style={{ fontSize: 13 }}>{asked}</span> : lane.state === "working" || lane.state === "needs_you" ? <button className="btn ghost sm" onClick={askForPlan}>Ask for a plan</button> : null}</>}
+        : <><Glyph g="idle">No plan yet</Glyph>{asked ? <span className="muted" style={{ fontSize: 13 }}>{asked}</span> : lane.kind !== "shell" && (lane.state === "working" || lane.state === "needs_you") ? <button className="btn ghost sm" onClick={askForPlan}>Ask for a plan</button> : null}</>}
     </div>
     {share >= 0.7 && (lane.state === "working" || lane.state === "needs_you") ? <div className="now-r"><span className="lbl">Context</span>
       <Glyph g={share >= 0.85 ? "fail" : "wait"}>{`${Math.round(share * 100)}% full`}</Glyph>

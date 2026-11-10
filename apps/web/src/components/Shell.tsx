@@ -64,7 +64,7 @@ export function Shell() {
       <header className="top status-top" aria-busy={lanes === null}>
         <NavLink className="wm" to="/">ContextLanes</NavLink>
         <span className={`host${down ? " down" : ""}`} title={down ? "Daemon not reachable" : "Machine online"}><i />{health?.host ?? "This machine"}</span>
-        <nav className="status-breadcrumbs" aria-label="Breadcrumbs">{project ? <><span>/</span><Link to={`/p/${project}/work`}>{project}</Link></> : null}{selected ? <><span>/</span><span>{selected.id.split("/")[1]} {selected.agent}</span></> : null}</nav>
+        <nav className="status-breadcrumbs" aria-label="Breadcrumbs">{project ? <><span>/</span><Link to={`/p/${project}/work`}>{project}</Link></> : null}{selected ? <><span>/</span><span>{selected.id.split("/")[1]} {selected.kind === "shell" ? "no agent" : selected.agent}</span></> : null}</nav>
         <nav className="gnav" aria-label="Main">
           <NavLink to="/" end className={({ isActive }) => isActive || inProject ? "active" : ""}>Projects</NavLink>
           <NavLink to="/inbox">Inbox{inbox?.length ? <span className="ib">{inbox.length}</span> : null}</NavLink>

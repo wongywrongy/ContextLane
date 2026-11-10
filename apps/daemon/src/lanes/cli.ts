@@ -55,7 +55,8 @@ async function wireToolbox(lane: Lane, config: Config, dir: string, baseline: bo
   }
   if (baseline) {
     // An empty table merges rather than clears Codex's inherited servers. Disable every resolved name.
-    const result = await run(prefix[0]!, [...prefix.slice(1), "codex", "mcp", "list", "--json"], { cwd: lane.worktree, env, timeout: 10_000 });
+    const [bin, ...args] = [...prefix, "codex", "mcp", "list", "--json"];
+    const result = await run(bin!, args, { cwd: lane.worktree, env, timeout: 10_000 });
     const servers = z.array(z.object({ name: z.string().min(1) })).parse(JSON.parse(result.stdout));
     return servers.flatMap(({ name }) => ["-c", `mcp_servers.${JSON.stringify(name)}.enabled=false`]);
   }
@@ -146,7 +147,8 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
   const env = { ...home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}:${join(homedir(), ".local/bin")}`, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}`, CONTEXTLANES_LANE_TOKEN: token };
   const mcp = await wireToolbox(lane, config, dir, baseline, run, prefix, env);
   const notes = await wireNotes(lane.agent, dir, baseline);
-  await writeFile(file, JSON.stringify({ command: prefix[0], args: [...prefix.slice(1), lane.agent === "claude-code" ? "claude" : "codex", ...hooks, ...mcp, ...notes, ...cliArgs(lane, first, extra, resume)],
+  const [command, ...args] = [...prefix, lane.agent === "claude-code" ? "claude" : "codex", ...hooks, ...mcp, ...notes, ...cliArgs(lane, first, extra, resume)];
+  await writeFile(file, JSON.stringify({ command, args,
     env }), { mode: 0o600 });
   await run("tmux", ["set-option", "-w", "-t", `=${lane.terminal}:`, "remain-on-exit", "on"]);
   await run("tmux", ["respawn-pane", "-k", "-t", `=${lane.terminal}:`, "-c", lane.worktree, process.execPath, fileURLToPath(new URL("../../bin/cli-agent.mjs", import.meta.url)), file]);

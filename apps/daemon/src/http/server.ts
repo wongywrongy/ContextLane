@@ -136,7 +136,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   serveWeb(app);
 
   app.post("/api/tickets", async (req) => ({ ticket: auth.ticket(TicketRequest.parse(req.body).path) }));
-  app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name }));
+  app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name, ...(config.sandbox.mode === "off" ? { sandbox: "off" as const } : {}) }));
   app.get("/api/machine", async () => machineInfo(config, deps.version, run));
   app.post("/api/machine/updates", async () => checkForUpdates(run));
   app.get("/api/data/export", async (_req, reply) => {

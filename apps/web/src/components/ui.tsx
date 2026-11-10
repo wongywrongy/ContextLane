@@ -81,10 +81,10 @@ export function LaneBadge({ id, colour, large = false }: { id: string; colour: s
   return <span className={`lb ${colour}${large ? " lg" : ""}`}>{laneNumber(id)}</span>;
 }
 
-export const AGENT_NAMES: Record<string, string> = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.name])), hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp" };
+export const AGENT_NAMES: Record<string, string> = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.name])), hermes: "Hermes Agent", ollama: "Ollama", "llama.cpp": "llama.cpp", none: "No agent" };
 const MARKS: Record<string, [string, string]> = {
   ...Object.fromEntries(AGENTS.map((a) => [a.id, ["oc", a.mark] as [string, string]])),
-  "claude-code": ["cc", "CC"], codex: ["cx", "CX"], hermes: ["ha", "HA"], ollama: ["ol", "OL"], "llama.cpp": ["lc", "LC"],
+  "claude-code": ["cc", "CC"], codex: ["cx", "CX"], hermes: ["ha", "HA"], ollama: ["ol", "OL"], "llama.cpp": ["lc", "LC"], none: ["oc", "SH"],
 };
 /** One mark system for agents and runtimes; official logos can replace these at build time. */
 export function AgentMark({ agent, small = false }: { agent: string; small?: boolean }) {
