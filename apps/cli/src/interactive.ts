@@ -1,5 +1,6 @@
 import type { InboxItem, Lane, Project } from "@contextlanes/protocol";
 import type { Io } from "./lane.js";
+import { unmounted } from "./short.js";
 
 /** What a prompt returns when the person presses Esc: one step back, or out at the top. */
 export const CANCEL = Symbol("cancel");
@@ -44,7 +45,9 @@ async function world(io: Io): Promise<World> {
 }
 
 /** The project whose folder, or one of whose lane checkouts, holds this folder. */
-function projectAt(cwd: string, w: World): Project | null {
+function projectAt(cwd: string, w: World, env: Record<string, string | undefined> = {}): Project | null {
+  // In Docker, a folder the container cannot see: the command is not really "in" any project.
+  if (env.CONTEXTLANES_UNMOUNTED) return null;
   const byFolder = w.projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0];
   if (byFolder) return byFolder;
   const lane = w.lanes.find((l) => inside(cwd, l.worktree));
@@ -60,7 +63,7 @@ function projectAt(cwd: string, w: World): Project | null {
  */
 export async function session(io: Io, ask: Ask, exec: Exec): Promise<number> {
   ask.note("↑ ↓ move   ·   Enter opens   ·   Esc goes back a step");
-  let project: string | null = projectAt(io.cwd, await world(io))?.id ?? null;
+  let project: string | null = projectAt(io.cwd, await world(io), io.env)?.id ?? null;
   for (;;) {
     if (project === null) {
       const chosen = await projectsScreen(io, ask, exec);
@@ -74,13 +77,14 @@ export async function session(io: Io, ask: Ask, exec: Exec): Promise<number> {
 async function projectsScreen(io: Io, ask: Ask, exec: Exec): Promise<string | null> {
   for (;;) {
     const w = await world(io);
-    const here = projectAt(io.cwd, w);
+    const here = projectAt(io.cwd, w, io.env);
+    const hidden = unmounted(io.env);
     const choice = await ask.select<string>(w.projects.length ? "Projects" : "No projects yet · a project is a repository folder", [
       ...w.projects.map((p) => {
         const lanes = w.lanes.filter((l) => l.project === p.id), need = w.waiting.filter((i) => i.lane.startsWith(`${p.id}/`)).length;
         return { value: `p:${p.id}`, label: p.name, hint: [tilde(p.path, io), lanes.length ? plural(lanes.length, "lane") : "no lanes", ...(need ? [`${need} need you`] : [])].join(" · ") };
       }),
-      ...(here ? [] : [{ value: "+add", label: "+ Make this folder a project", hint: tilde(io.cwd, io) }]),
+      ...(here ? [] : hidden ? [{ value: "+hidden", label: "Why is this folder not listed?", hint: io.env.CONTEXTLANES_UNMOUNTED }] : [{ value: "+add", label: "+ Make this folder a project", hint: tilde(io.cwd, io) }]),
       ...(w.waiting.length ? [{ value: "+inbox", label: "Answer what is waiting on you", hint: `${w.waiting.length}` }] : []),
       { value: "+help", label: "Every command" },
       { value: BACK, label: "Quit" },
@@ -88,9 +92,10 @@ async function projectsScreen(io: Io, ask: Ask, exec: Exec): Promise<string | nu
     if (gone(choice)) return null;
     if (choice === "+help") { await exec(["help"]); return null; }
     if (choice === "+inbox") { await inboxScreen(io, ask, exec, "Projects"); continue; }
+    if (choice === "+hidden") { ask.note(hidden!); continue; }
     if (choice === "+add") {
       if (await exec(["add"]) !== 0) continue;
-      const added = projectAt(io.cwd, await world(io));
+      const added = projectAt(io.cwd, await world(io), io.env);
       if (added) return added.id;
       continue;
     }
@@ -138,9 +143,33 @@ async function newLane(project: string, io: Io, ask: Ask, exec: Exec, flags: str
       back("Change the task"),
     ]);
     if (gone(who)) continue;
+    const branch = await whichBranch(project, io, ask);
+    if (branch === CANCEL) continue;
     const before = new Set((await io.api<Lane[]>("/api/lanes")).map((l) => l.id));
-    if (await exec(["lane", "start", project, task, ...(who ? ["--agent", who] : ["--no-agent"]), ...flags]) !== 0) return null;
+    if (await exec(["lane", "start", project, task, ...(who ? ["--agent", who] : ["--no-agent"]), ...(branch ? ["--branch", branch] : []), ...flags]) !== 0) return null;
     return (await io.api<Lane[]>("/api/lanes")).find((l) => l.project === project && !before.has(l.id))?.id ?? null;
+  }
+}
+
+/**
+ * Where the lane's work goes: a new branch of its own (the default), or a branch that already exists.
+ * Returns the existing branch's name, "" for a new one, or CANCEL to go back.
+ */
+async function whichBranch(project: string, io: Io, ask: Ask): Promise<Answer<string>> {
+  const info = await io.api<{ branches: string[]; defaultBranch: string | null; current?: string | null }>(`/api/projects/${encodeURIComponent(project)}/branches`).catch(() => null);
+  // Branches a lane could take: not ones lanes made, and not the one open in the project folder itself.
+  const others = (info?.branches ?? []).filter((b) => !b.startsWith("lane/") && b !== info?.current);
+  if (!others.length) return "";
+  for (;;) {
+    const how = await ask.select<string>("On which branch?", [
+      { value: "new", label: "A new branch for this lane", hint: `from ${info?.defaultBranch ?? "the default branch"}` },
+      { value: "pick", label: "A branch that already exists", hint: `${others.length} ${others.length === 1 ? "branch" : "branches"}` },
+      back("Who works on it"),
+    ]);
+    if (gone(how)) return CANCEL;
+    if (how === "new") return "";
+    const picked = await ask.select<string>("Which branch?", [...others.map((b) => ({ value: b, label: b })), back("Back")]);
+    if (!gone(picked)) return picked;
   }
 }
 
@@ -221,7 +250,7 @@ export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Prom
   if (words[0] === "lane" && words[1] === "start" && words.length < 4) {
     const w = await world(io);
     // `cl new` works inside a project; anywhere else, which project comes first.
-    const project = words[2] && w.projects.some((p) => p.id === words[2]) ? words[2] : projectAt(io.cwd, w)?.id ?? await pickProject(w, io, ask, exec);
+    const project = words[2] && w.projects.some((p) => p.id === words[2]) ? words[2] : projectAt(io.cwd, w, io.env)?.id ?? await pickProject(w, io, ask, exec);
     if (!project) return 0;
     await newLane(project, io, ask, exec, flags);
     return 0;
@@ -230,7 +259,7 @@ export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Prom
     if (command.some((word, i) => words[i] !== word)) continue;
     const given = words[command.length];
     const w = await world(io);
-    const here = projectAt(io.cwd, w);
+    const here = projectAt(io.cwd, w, io.env);
     const lanes = here ? w.lanes.filter((l) => l.project === here.id) : w.lanes;
     let lane = given;
     if (!lane) {
@@ -267,5 +296,5 @@ async function pickProject(w: World, io: Io, ask: Ask, exec: Exec): Promise<stri
   if (gone(choice)) return null;
   if (choice !== "+add") return choice.slice(2);
   if (await exec(["add"]) !== 0) return null;
-  return projectAt(io.cwd, await world(io))?.id ?? null;
+  return projectAt(io.cwd, await world(io), io.env)?.id ?? null;
 }

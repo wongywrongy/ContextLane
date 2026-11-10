@@ -115,6 +115,33 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
     expect(s.screens[5]!.message).toBe("Shop / 09  ·  Add CSV export");
   });
 
+  it("asks which branch only when there is one to choose, and can go back from it", async () => {
+    const withBranches = () => {
+      const made = machine(); const api = made.io.api;
+      made.io.api = (async (path: string) => path === "/api/projects/shop/branches" ? { branches: ["main", "feature/flow", "lane/01-x", "fix-login"], defaultBranch: "main", current: "main" } : api(path)) as Io["api"];
+      return made;
+    };
+    const m = withBranches();
+    const s = script("New lane", "Finish the flow", "Codex", "A branch that already exists", "Back", "A branch that already exists", "feature/flow", "Shop", "Projects", "Quit");
+    await session(m.io, s.ask, m.exec);
+    expect(m.ran).toEqual([["lane", "start", "shop", "Finish the flow", "--agent", "codex", "--branch", "feature/flow"]]);
+    const which = s.screens.find((x) => x.message === "Which branch?")!;
+    expect(which.labels).toEqual(["feature/flow", "fix-login", "← Back"]);
+    const fresh = withBranches();
+    await session(fresh.io, script("New lane", "Something new", "No agent", "A new branch for this lane", "Shop", "Projects", "Quit").ask, fresh.exec);
+    expect(fresh.ran).toEqual([["lane", "start", "shop", "Something new", "--no-agent"]]);
+  });
+
+  it("in Docker, says why a folder the container cannot see is not offered as a project", async () => {
+    const m = machine({}, "/data/home");
+    Object.assign(m.io.env, { CONTEXTLANES_UNMOUNTED: "/home/kyle/work/api", CONTEXTLANES_CODE: "/home/kyle/code", CONTEXTLANES_LANES: "/home/kyle/lanes" });
+    const s = script("Why is this folder not listed", "Quit");
+    await session(m.io, s.ask, m.exec);
+    expect(s.screens[0]!.labels).not.toContain("+ Make this folder a project");
+    expect(s.notes.at(-1)).toContain("/home/kyle/work/api is outside what the ContextLanes container can see (/home/kyle/code and /home/kyle/lanes)");
+    expect(m.ran).toEqual([]);
+  });
+
   it("backs out of a new lane with Esc without starting anything", async () => {
     const m = machine();
     await session(m.io, script("New lane", CANCEL, "Projects", "Quit").ask, m.exec);

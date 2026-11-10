@@ -9,7 +9,7 @@ const VERBS: Record<string, string[]> = {
 };
 
 /** Flags that take a value, which is therefore never a lane. */
-const VALUE_FLAGS = new Set(["-n", "--lines", "--agent", "--model", "--base"]);
+const VALUE_FLAGS = new Set(["-n", "--lines", "--agent", "--model", "--base", "--branch"]);
 
 /** Which arguments of a command may name a lane: every one of them, or only the first. */
 function lanePlaces(cmd: string, sub: string | undefined): "any" | "first" | null {
@@ -20,8 +20,21 @@ function lanePlaces(cmd: string, sub: string | undefined): "any" | "first" | nul
 }
 
 /** The project a bare lane number belongs to: this lane's, or the one whose folder or lane checkout holds this folder. */
+/**
+ * In Docker, the folder the host command was run in when the container cannot see it: outside the
+ * folders mounted into it. Says which folders it can see.
+ */
+export function unmounted(env: Record<string, string | undefined>): string | null {
+  const where = env.CONTEXTLANES_UNMOUNTED;
+  if (!where) return null;
+  const seen = [env.CONTEXTLANES_CODE, env.CONTEXTLANES_LANES].filter(Boolean).join(" and ");
+  return `${where} is outside what the ContextLanes container can see${seen ? ` (${seen})` : ""}. Set CONTEXTLANES_CODE in the stack's .env to a folder that contains it, update paths.code in data/config.toml to match, then: docker compose up -d`;
+}
+
 export async function projectHere(io: Io): Promise<string | null> {
   if (io.env.CONTEXTLANES_LANE) return io.env.CONTEXTLANES_LANE.split("/")[0]!;
+  // The container is not in the folder the command was typed in, so nothing here says which project.
+  if (io.env.CONTEXTLANES_UNMOUNTED) return null;
   const inside = (root: string) => io.cwd === root || io.cwd.startsWith(`${root}/`);
   const projects = await io.api<Project[]>("/api/projects");
   const project = projects.filter((p) => inside(p.path)).sort((a, b) => b.path.length - a.path.length)[0];
@@ -48,6 +61,7 @@ export async function expandShort(argv: string[], io: Io, here: (io: Io) => Prom
     const words = positions(rest).map((i) => rest[i]!);
     if (words.length !== 1) return ["lane", "start", ...rest];
     const owner = await find();
+    if (!owner && unmounted(io.env)) throw new UsageError(unmounted(io.env)!);
     if (!owner) throw new UsageError('This folder is not a project yet. Make it one first: cl add   (or name the project: cl new <project> "<task>")');
     return ["lane", "start", owner, ...rest];
   }

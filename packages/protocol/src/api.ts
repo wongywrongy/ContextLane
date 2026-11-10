@@ -86,6 +86,11 @@ export const StartLaneRequest = z.object({
   adoption: ServiceProposal.optional(),
   /** A branch name git cannot read as an option: no leading "-", no "..", no spaces. */
   base: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").default("main"),
+  /**
+   * Work on this existing branch instead of making a new lane/NN-… branch off `base`. The lane checks it
+   * out in its own folder, so it must not be open anywhere else (git allows a branch in one place at a time).
+   */
+  branch: z.string().regex(/^(?!-)(?!.*\.\.)[\w./-]+$/, "Use a branch name").max(200).optional(),
   /** contextlanes bench: "baseline" lanes start without ContextLanes notes, briefs or MCP tools. */
   baseline: z.boolean().default(false),
   /** The lane's short name in lists and its branch; derived from the task when left out (laneTitle). */

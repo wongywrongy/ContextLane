@@ -42,6 +42,24 @@ export class LaneManager {
   }
 
   /**
+   * The branch a lane was asked to work on, checked before anything is created: it must exist (here or
+   * on origin) and not be open in another checkout, since git allows a branch in one place at a time.
+   */
+  private async existingBranch(repo: string, branch: string | undefined): Promise<{ name: string; remoteOnly: boolean } | null> {
+    if (!branch) return null;
+    const has = (ref: string) => this.deps.run("git", ["rev-parse", "--verify", "--quiet", ref], { cwd: repo }).then(() => true, () => false);
+    const local = await has(`refs/heads/${branch}`);
+    if (!local && !await has(`refs/remotes/origin/${branch}`)) throw new Refused(`There is no branch ${branch} in this repository or on origin. Leave the branch out to start a new one.`, 400, "no_branch");
+    const open = (await this.deps.run("git", ["worktree", "list", "--porcelain"], { cwd: repo }).then((r) => r.stdout, () => "")).split("\n\n")
+      .find((entry) => entry.split("\n").includes(`branch refs/heads/${branch}`));
+    if (open) {
+      const where = open.split("\n").find((line) => line.startsWith("worktree "))?.slice(9) ?? "another checkout";
+      throw new Refused(`${branch} is already open in ${where}, and git allows a branch in one place at a time. Use --here to work in that checkout, or pick another branch.`, 409, "branch_in_use");
+    }
+    return { name: branch, remoteOnly: !local };
+  }
+
+  /**
    * Lane numbers restart with a fresh database, and branches and tmux sessions outlive their lanes,
    * so lane/01-x, cl-project-01 or a contextlanes-lane-project-01 unit may already exist. Add -2, -3…
    * until the branch, the checkout folder, the terminal session and the host unit are all free.
@@ -90,6 +108,7 @@ export class LaneManager {
     if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
+    const ownBranch = req.direct ? null : await this.existingBranch(project.path, req.branch);
     // Agents that act without asking cannot run in a lane: only you approve (AGENTS.md).
     const profile = agentProfile(req.agent);
     if (profile?.support === "unsupported") throw new Refused(`${profile.name} cannot run in a lane: ${profile.note}`);
@@ -121,7 +140,7 @@ export class LaneManager {
         mode: req.mode,
         auto: req.auto,
         effort: req.effort ?? null,
-        branch: directBranch ?? names.branch,
+        branch: directBranch ?? ownBranch?.name ?? names.branch,
         worktree: req.direct ? project.path : names.worktree,
         terminal: names.terminal,
         hostUnit: names.hostUnit,
@@ -144,7 +163,9 @@ export class LaneManager {
         // A base that exists only on origin (a pull request's branch) starts from origin's copy; the lane still merges back to its name.
         const local = await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${req.base}`], { cwd: project.path }).then(() => true, () => false);
         const remote = !local && await this.deps.run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${req.base}`], { cwd: project.path }).then(() => true, () => false);
-        await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
+        // On an existing branch the lane checks that branch out; otherwise it gets a new one from the base.
+        if (ownBranch) await this.deps.run("git", ["worktree", "add", ...(ownBranch.remoteOnly ? ["--track", "-b", ownBranch.name, lane.worktree, `origin/${ownBranch.name}`] : [lane.worktree, ownBranch.name])], { cwd: project.path });
+        else await this.deps.run("git", ["worktree", "add", "-b", lane.branch, lane.worktree, remote ? `origin/${req.base}` : req.base], { cwd: project.path });
       }
       await extra.prepare?.(lane);
       await new Runtime(this.deps).prepareWorkspace(lane);
