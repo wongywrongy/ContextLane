@@ -1,0 +1,43 @@
+# ContextLanes as a stack. Copy .env.example to .env, set the three folders, then:
+#   docker compose up -d --build
+#   sudo ln -s "$PWD/docker/cl" /usr/local/bin/cl
+#   cl setup
+# Full guide: docs/DOCKER.md
+name: contextlanes
+
+services:
+  contextlanes:
+    container_name: ${CONTEXTLANES_CONTAINER:-contextlanes}
+    image: contextlanes:local
+    build:
+      context: .
+      args:
+        MISE_VERSION: ${MISE_VERSION:-}
+    restart: unless-stopped
+    init: true
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      CONTEXTLANES_NAME: ${CONTEXTLANES_NAME:-docker}
+      CONTEXTLANES_CODE: ${CONTEXTLANES_CODE:?Set CONTEXTLANES_CODE in .env}
+      CONTEXTLANES_LANES: ${CONTEXTLANES_LANES:?Set CONTEXTLANES_LANES in .env}
+      CONTEXTLANES_DOMAIN: ${CONTEXTLANES_DOMAIN:-}
+      CONTEXTLANES_SANDBOX: ${CONTEXTLANES_SANDBOX:-bwrap}
+    volumes:
+      # Settings, database and agent logins.
+      - ./data:/data
+      # Your repositories and the lane checkouts, at the same path inside as outside, so git worktrees
+      # and every path ContextLanes prints mean the same thing on the host.
+      - ${CONTEXTLANES_CODE}:${CONTEXTLANES_CODE}
+      - ${CONTEXTLANES_LANES}:${CONTEXTLANES_LANES}
+    ports:
+      # The one port: every lane's app and the web app, by hostname. Point your reverse proxy's wildcard
+      # entry here. 127.0.0.1 keeps it to this machine; see docs/DOCKER.md for a proxy in another container.
+      - "${CONTEXTLANES_PUBLISH:-127.0.0.1:4601}:4601"
+    # The sandbox that hides ContextLanes' own data from agents (bubblewrap) makes namespaces inside the
+    # container, which Docker's default profiles refuse. Remove these three lines only together with
+    # CONTEXTLANES_SANDBOX=off, which lets agents read ContextLanes' sign-in token.
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined

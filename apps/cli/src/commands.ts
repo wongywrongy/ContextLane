@@ -53,7 +53,7 @@ ${bold("Waiting on you")}
   cl ok <id> <option>             answer one, using the id and option from inbox
 
 ${bold("This machine")}
-  cl setup                        sign in from a browser: prints a one-time link and QR code
+  cl setup                        sign a browser in to the web page, once per browser: a one-time link and QR code
   cl status                       is ContextLanes running, and where to open it
   cl daemon                       run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
   cl doctor                       check tools, sandbox, router and your proxy, and say how to fix what fails
@@ -97,6 +97,12 @@ async function run(argv: string[]): Promise<number> {
   }
   // The updater ships with the daemon; run the copy from the release this command belongs to.
   if (argv[0] === "update") {
+    // In Docker the image is the release: it is rebuilt from the stack folder, not swapped in place.
+    if (process.env.CONTEXTLANES_DOCKER) {
+      const how = "ContextLanes runs in Docker here. Update it from the stack folder: git pull && docker compose up -d --build";
+      if (argv.includes("--json")) console.error(JSON.stringify({ error: how, code: "docker" })); else console.error(how);
+      return 1;
+    }
     const release = fileURLToPath(new URL("../../../", import.meta.url));
     const args = ["--disable-warning=ExperimentalWarning", join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1).filter((a) => a !== "--json")];
     if (!argv.includes("--json")) return spawnSync(process.execPath, args, { stdio: "inherit" }).status ?? 1;
@@ -254,6 +260,8 @@ async function run(argv: string[]): Promise<number> {
  * for cl-shop-01. Already inside tmux, attaching would nest, so this client switches over instead.
  */
 function openTerminal(lane: Pick<Lane, "id" | "terminal">): number {
+  // Lanes made before the wheel fix get it when they are next opened (see Terminals.wheel in the daemon).
+  spawnSync("tmux", ["set-option", "-t", `=${lane.terminal}:`, "mouse", "on"], { stdio: "ignore" });
   if (!process.env.TMUX) return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
   const switched = spawnSync("tmux", ["switch-client", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
   if (switched === 0) { console.log(dim("  Switched this tmux client to the lane. Ctrl-b L switches back.")); return 0; }

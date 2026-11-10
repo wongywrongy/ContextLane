@@ -1,0 +1,12 @@
+#!/bin/sh
+# cl on the host, when ContextLanes runs in Docker: the same command, run inside the container.
+#   sudo ln -s /opt/stacks/contextlanes/docker/cl /usr/local/bin/cl
+# With a terminal you get the menus and can attach to lanes; in a pipe or a script it stays plain.
+name="${CONTEXTLANES_CONTAINER:-contextlanes}"
+user="cl"
+[ "$(docker exec "$name" id -u cl 2>/dev/null)" ] || user="root"
+tty=""
+[ -t 0 ] && [ -t 1 ] && tty="-t"
+exec docker exec -i $tty --user "$user" \
+  -e "CL_CWD=$PWD" -e "TERM=${TERM:-xterm-256color}" -e "COLUMNS=${COLUMNS:-}" -e "LINES=${LINES:-}" \
+  "$name" /opt/contextlanes/docker/in-container.sh "$@"

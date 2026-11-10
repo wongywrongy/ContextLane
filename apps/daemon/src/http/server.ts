@@ -110,7 +110,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req, appHostnames(config));
     if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
-    const caller = (!deps.setup || deps.setup.claimed) && bearer ? await auth.caller(bearer) : null;
+    // The command line proves itself with the machine's own credential, so it works from the first
+    // minute. A browser session only exists once the owner has signed one in.
+    const who = bearer ? await auth.caller(bearer) : null;
+    const caller = who === "cli" || !deps.setup || deps.setup.claimed ? who : null;
     if (caller) {
       // The web app views and decides; only the command line changes lanes, projects and settings.
       if (caller === "browser" && !browserMay(config, req.method, route)) return reply.code(403).send(VIEWER_REFUSAL);

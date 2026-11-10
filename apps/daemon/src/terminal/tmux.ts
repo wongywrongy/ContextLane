@@ -15,6 +15,17 @@ export class Terminals {
     // A newly created tmux server must outlive the daemon's cgroup, even on a fresh machine.
     if (independent) await this.supervisor.detached(`contextlanes-terminal-${session}`, ["tmux", ...args]);
     else await this.run("tmux", args);
+    await this.wheel(session);
+  }
+
+  /**
+   * Mouse on, for this session only. Without it a terminal turns the scroll wheel into arrow keys while
+   * a full-screen program such as an agent is open, so scrolling walks through its input history. With
+   * it the wheel scrolls back through output, and programs that read the mouse still get it. Selecting
+   * text to copy then takes Shift-drag. Best effort: a session without it still works.
+   */
+  async wheel(session: string): Promise<void> {
+    await this.run("tmux", ["set-option", "-t", `=${session}:`, "mouse", "on"]).catch(() => {});
   }
 
   /** = asks for this exact name; tmux would otherwise match cl-shop-01 to cl-shop-01-2, another lane's shell. */

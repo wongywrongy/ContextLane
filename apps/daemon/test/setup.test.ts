@@ -48,6 +48,11 @@ describe("headless setup", () => {
     const f = await fixture();
     expect((await stat(f.setup.controlFile)).mode & 0o777).toBe(0o600);
     for (const path of ["/api/projects", "/api/setup/projects/scan", "/api/setup/projects/folders", "/api/projects/unknown/branches"]) expect((await f.app.inject(path)).statusCode).toBe(401);
+    // Before anyone has signed a browser in: the command line already works with the machine's credential,
+    // and a browser session, even a leftover one, does not.
+    expect(f.setup.claimed).toBe(false);
+    expect((await f.app.inject({ url: "/api/projects", headers: { authorization: `Bearer ${f.secret}` } })).statusCode).toBe(200);
+    expect((await f.app.inject({ url: "/api/projects", headers: { authorization: `Bearer ${f.store.ownerSession()}` } })).statusCode).toBe(401);
     expect((await f.app.inject("/api/setup/status")).body).not.toContain(f.secret);
     expect((await f.app.inject({ method: "POST", url: "/api/setup/local", payload: {} })).statusCode).toBe(403);
     for (const headers of [{ origin: "http://localhost" }, { "tailscale-user-login": "kyle@example.com" }, { host: "rebind.example" }]) expect((await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}`, ...headers }, payload: {} })).statusCode).toBe(403);
@@ -89,6 +94,19 @@ describe("headless setup", () => {
     expect((await f.app.inject({ url: "/api/setup/settings", headers: { host: "rebind.example" } })).statusCode).toBe(401);
     expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: f.home } })).statusCode).toBe(403);
   });
+  it("in Docker, links to the web app on the published router port and gives no host-only advice", async () => {
+    vi.stubEnv("CONTEXTLANES_DOCKER", "1");
+    try {
+      const f = await fixture();
+      f.find.mockResolvedValue(null);
+      f.run.mockResolvedValue({ stdout: "no\n" });
+      const result = (await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}` }, payload: {} })).json();
+      expect(result.url).toMatch(/^http:\/\/lanes\.localhost:4601\/setup#signin=/);
+      expect(result.messages).toEqual([]);
+      expect(result.tunnel).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("prints the exact linger command and gives one missing-Tailscale line plus SSH fallback", async () => {
     const f = await fixture();
     f.find.mockResolvedValue(null);
