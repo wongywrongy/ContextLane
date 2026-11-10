@@ -41,8 +41,12 @@ These settle disputes. When a screen and a principle disagree, the screen change
 - JetBrains Mono v2.304 is self-hosted with its OFL license. UI is 13px, small text 12px, headings 14px semibold.
 - Square everywhere: no corner radius on any control, section or popup; only status dots are round. 1px rules, no cover images, no soft shadows. A floating part (menu, toast, dragged card) gets a hard 1px ink border and a flat offset shadow in `--line`. Rows start at 28px and grow for content.
 - High contrast: near-black ground, near-white ink, rules visible at a glance. The focused or selected row inverts (ink background, ground text) rather than tinting.
-- Built on established parts, styled only with our tokens: cmdk (jump and composer pickers), base-ui (dialog, popover, menu), dnd kit (board), Sonner (toasts, unstyled), shiki (diff colours through `--sh-*` variables). Never ship a library's default theme.
+- Built on established parts, styled only with our tokens: cmdk (jump), base-ui (dialog, popover), shiki (diff colours through `--sh-*` variables). Never ship a library's default theme.
 - Dark/Light is a browser-local option in Settings. Both token sets pass `node scripts/check-contrast.mjs`; lane badge text and primary buttons are included.
+
+## Viewer
+
+The web app shows lanes and takes two decisions: answering a question or permission, and approving a recipe. It has no other buttons that change a lane, a project, an environment or a setting. Where a page used to act, it shows the command instead (`Cmd`: a `$` prompt, the command in mono, click to copy), so the owner or an agent runs it on the machine. The lane terminal is watch-only. Settings shows what `config.toml` holds and the lines that change it.
 
 ## Layout rules
 

@@ -6,6 +6,8 @@ import { Refused } from "./lanes/manager.js";
 /** Routes that belong to a feature outside the core, by their registered pattern. */
 const ROUTES: [RegExp, Feature][] = [
   [/^\/api\/setup\/registry(\/|$)/, "acp"],
+  // Removing an agent that came from the ACP registry.
+  [/^\/api\/setup\/agents\/:id$/, "acp"],
   [/^\/api\/lanes\/:project\/:n\/(checkpoint|approve|request-changes)$/, "review"],
   [/^\/api\/projects\/:project\/checkpoints$/, "review"],
   [/^\/api\/checkpoints\//, "review"],

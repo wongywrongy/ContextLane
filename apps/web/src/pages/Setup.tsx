@@ -3,9 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 import type { DetectedAgent, OutsideAgent, Project, ProjectEnvironments, ProjectMap, SetupStatus } from "@contextlanes/protocol";
 import { postJson, saveSession, useJson, RequestError, errorMessage } from "../api";
-import { Empty, Glyph, Section, Tile, type Family, type IconName } from "../components/ui";
-import { AddRepoDialog } from "../components/AddRepo";
-import { useLaneForm } from "../components/NewLane";
+import { Cmd, Empty, Glyph, Section, Tile, type Family, type IconName } from "../components/ui";
+import { useFeatures } from "../features";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 import { PasskeyButton } from "./Settings";
@@ -64,7 +63,9 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
   const [agents, agentError, reloadAgents] = useJson<DetectedAgent[]>(status.authorized ? "/api/setup/agents" : null);
   const [projects, , reloadProjects] = useJson<Project[]>(status.authorized ? "/api/projects" : null);
   const [opened, setOpened] = useState<number | null>(null);
-  const [adding, setAdding] = useState(false);
+  const features = useFeatures();
+  // The steps after sign-in are done on the machine; this page watches for them.
+  useEffect(() => { if (!status.authorized) return; const t = setInterval(() => { reload(); reloadAgents(); reloadProjects(); }, 5_000); return () => clearInterval(t); }, [status.authorized, reload, reloadAgents, reloadProjects]);
   const signed = status.authorized;
   const ready = !!agents?.some((a) => a.status === "Ready");
   const hasProject = !!projects?.length;
@@ -75,7 +76,8 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
   const [seen, setSeen] = useState(() => remembered("cl-projects-surveyed"));
   const [skipped, setSkipped] = useState(() => remembered("cl-skip-first-lane"));
   const surveyed = hasProject && projects!.every((p) => mapped[p.id]);
-  const done = [signed, ready, hasProject, status.hasLane || seen, status.hasLane || skipped];
+  // Mapping belongs to the architecture feature; without it that step counts as done.
+  const done = [signed, ready, hasProject, !features.architecture || status.hasLane || seen, status.hasLane || skipped];
   const current = opened ?? done.findIndex((d) => !d);
   const state = (i: number): StepState => i === current ? "now" : done[i] ? "done" : "next";
   const finished = signed && (status.hasLane || skipped);
@@ -95,31 +97,30 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
       </> : status.hasLane ? <PasskeyButton /> : null}
     </Step>
     <Step n={2} state={state(1)} title="Connect an agent" change={done[1] && current !== 1 ? () => setOpened(1) : undefined}
-      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready · they keep their own logins` : "Install and sign in to one coding agent."}>
+      desc={ready ? `${agents!.filter((a) => a.status === "Ready").length} ready · they keep their own logins` : "Install and sign in to one coding agent, in the machine's shell."}>
       {state(1) === "now" ? <><AgentRows agents={agents} error={agentError} reload={reloadAgents} />{opened === 1 ? <div><button className="btn" disabled={!ready} onClick={() => setOpened(null)}>Continue</button></div> : null}</> : null}
     </Step>
     <Step n={3} state={state(2)} title="Add projects" change={done[2] && current !== 2 ? () => setOpened(2) : undefined}
-      desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "Pick the repositories your agents work in."}>
-      {state(2) === "now" ? <div style={{ display: "flex", gap: 8 }}><button className="btn" onClick={() => setAdding(true)}>{hasProject ? "Add more" : "Add repositories"}</button>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
+      desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "On the machine, inside each repository your agents work in:"}>
+      {state(2) === "now" ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><Cmd>contextlanes add</Cmd>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
     </Step>
-    <Step n={4} state={state(3)} title="Map your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
+    {features.architecture ? <Step n={4} state={state(3)} title="Map your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
       desc={done[3] && current !== 3 ? "Mapped · see Architecture and Run." : "Its code and how it runs · read on this machine only."}>
       {state(3) === "now" && projects?.length ? <><div className="agents">{projects.map((p) => <ProjectSurvey key={p.id} project={p} done={() => setMapped((m) => m[p.id] ? m : { ...m, [p.id]: true })} />)}</div>
         <div><button className="btn" disabled={!surveyed} onClick={() => { remember("cl-projects-surveyed"); setSeen(true); setOpened(null); }}>{surveyed ? "Continue" : "Mapping…"}</button></div></> : null}
+    </Step> : null}
+    <Step n={features.architecture ? 5 : 4} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped · start one any time from the machine." : "One task · its own branch, checkout and shell. From the machine, or ask your agent to:"}>
+      {state(4) === "now" && projects?.length ? <><div><Cmd>{`contextlanes lane start ${projects[0]!.id} "<task>"`}</Cmd></div><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
     </Step>
-    <Step n={5} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped · start one from Work." : "One task · its own branch, checkout and shell."}>
-      {state(4) === "now" && projects?.length ? <><FirstLane projects={projects} /><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
-    </Step>
-    <Step n={6} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
+    <Step n={features.architecture ? 6 : 5} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
       {finished ? <div className="choice">
         <Link to="/settings#notifications"><b>Phone push</b><span>install as an app</span></Link>
-        <Link to="/settings#notifications"><b>Telegram</b><span>reply to answer</span></Link>
+        <Link to="/settings#notifications"><b>Telegram</b><span>tap to answer</span></Link>
         <Link to="/settings#notifications"><b>ntfy</b><span>self-hosted</span></Link>
       </div> : null}
     </Step>
-    <Step n={7} state="next" optional title="Local models" desc={<>Ollama or llama.cpp, for small jobs.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} />
+    {features.helper ? <Step n={features.architecture ? 7 : 6} state="next" optional title="Local models" desc={<>Ollama or llama.cpp, for small jobs.{signed ? <> <Link to="/models">Open Models</Link></> : null}</>} /> : null}
     {finished ? <div className="sec-f"><span>You’re set up.</span><div style={{ marginLeft: "auto" }}><Link className="btn sm" to="/">Open projects</Link></div></div> : null}
-    {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={() => { reloadProjects(); setOpened(null); }} /> : null}
   </section>;
 }
 
@@ -149,11 +150,6 @@ function ProjectSurvey({ project, done }: { project: Project; done: () => void }
     </span>
     {m ? <Link className="btn ghost sm" to={`/p/${project.id}/architecture`}>Architecture</Link> : null}
   </div>;
-}
-
-function FirstLane({ projects }: { projects: Project[] }) {
-  const form = useLaneForm(projects);
-  return <div className="agents">{form.fields}<div className="sec-f"><button className="btn" disabled={!form.canStart} onClick={() => void form.start()}>{form.busy ? "Starting…" : "Start lane"}</button></div></div>;
 }
 
 export function ClaimGuard({ children }: { children: ReactNode }) {

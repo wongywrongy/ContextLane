@@ -4,14 +4,13 @@ import { Link } from "react-router";
 import type { InboxItem, Lane, LaneEvent } from "@contextlanes/protocol";
 import { useProjectWork } from "../components/Shell";
 import { Empty, Glyph, LaneBadge, StateGlyph } from "../components/ui";
-import { typingTarget } from "../keys";
 import { FilterSwitch, Steps, type Filter } from "./Steps";
 import { WorkDiff } from "./ReviewComments";
 import { isIdle } from "./model";
 import { PANE_KINDS, paneLeaves, parseLayout, replacePane, type PaneKind, type PaneLayout, type PaneLeaf } from "./panes";
 const Terminal = lazy(() => import("../components/Terminal").then(module => ({ default: module.Terminal })));
 
-export function LanePanes({ lane, events, waiting, reload, agent, interrupt, onView }: { lane: Lane; events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string; interrupt: () => void; onView: (composerVisible: boolean) => void }) {
+export function LanePanes({ lane, events, waiting, reload, agent }: { lane: Lane; events: LaneEvent[]; waiting: InboxItem[]; reload: () => void; agent: string }) {
   const key = `cl-panes:${lane.id}`;
   const [layout, setLayout] = useState<PaneLayout>(() => { try { return parseLayout(JSON.parse(localStorage.getItem(key) ?? "null"), lane.kind === "cli" ? "terminal" : "progress"); } catch { return { id: "main", kind: lane.kind === "cli" ? "terminal" : "progress" }; } });
   const [active, setActive] = useState(() => paneLeaves(layout)[0]!.id);
@@ -21,7 +20,6 @@ export function LanePanes({ lane, events, waiting, reload, agent, interrupt, onV
   const preview = environments?.lanes.find(e => e.lane === lane.id)?.environment?.services.find(s => s.state === "healthy" && s.url)?.url;
   const leaves = paneLeaves(layout);
   const selected = leaves.find(p => p.id === active) ?? leaves[0]!;
-  useEffect(() => onView(selected.kind === "progress" || selected.kind === "steps"), [selected.kind, onView]);
   useEffect(() => { try { localStorage.setItem(key, JSON.stringify(layout)); } catch { /* A private window still has working panes. */ } }, [key, layout]);
   const choose = (id: string, kind: PaneKind) => setLayout(before => replacePane(before, id, { id, kind })!);
   const split = (direction: "row" | "column") => {
@@ -45,7 +43,7 @@ export function LanePanes({ lane, events, waiting, reload, agent, interrupt, onV
     const latest = events.findLast(e => e.type === "usage.limit" && e.payload.window === window);
     return latest?.type === "usage.limit" && Date.parse(latest.payload.resetsAt) > Date.now() ? [latest.payload] : [];
   });
-  return <section className="sec lane-panes" aria-label="Lane view" onKeyDown={e => { if (e.key === "Escape" && !typingTarget(e.target) && !document.querySelector('[role="dialog"]') && selected.kind !== "terminal") { e.preventDefault(); interrupt(); } }}>
+  return <section className="sec lane-panes" aria-label="Lane view">
     <div className="pane-tools"><div className="vt" role="tablist" aria-label="Lane view">{PANE_KINDS.map(kind => <button key={kind} role="tab" aria-selected={selected.kind === kind} className={selected.kind === kind ? "on" : ""} onClick={() => { const existing = kind !== "terminal" ? leaves.find(p => p.kind === kind) : null; if (existing) setActive(existing.id); else choose(selected.id, kind); }}>{kind[0]!.toUpperCase() + kind.slice(1)}</button>)}</div><button className="btn ghost sm" onClick={() => split("row")}>Split right <span className="kbd2">⌘D</span></button><button className="btn ghost sm" onClick={() => split("column")}>Split down <span className="kbd2">⌘⇧D</span></button>{notice ? <span role="status">{notice}</span> : null}</div>
     {render(layout)}
     <div className="tmux-status"><LaneBadge id={lane.id} colour={lane.colour} /><b>{agent}</b><StateGlyph state={lane.state} idle={isIdle(lane, events)} label />{context !== null ? <span>ctx {context}%</span> : null}{limits.map(limit => <span key={limit.window} title={`Resets ${new Date(limit.resetsAt).toLocaleString()}`}>{limit.window} {Math.round(limit.usedPct)}%</span>)}{waiting[0] ? <span className="status-question" title={waiting[0].title}><Glyph g="wait">{waiting[0].title}</Glyph></span> : null}</div>

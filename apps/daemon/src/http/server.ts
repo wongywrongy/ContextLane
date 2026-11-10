@@ -53,6 +53,7 @@ import { Review } from "../review.js";
 import { laneRecipe, readRecipe } from "../recipes.js";
 import { Runtime } from "../runtime.js";
 import { Auth } from "./auth.js";
+import { browserMay, browserSettings, browserTicket, VIEWER_REFUSAL } from "./viewer.js";
 import { runCommand, type Runner } from "../run.js";
 import { attachArgs } from "../terminal/tmux.js";
 import { connectTerminal } from "../terminal/socket.js";
@@ -94,6 +95,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // Every request arrives from loopback through Serve, and a local process can send any header, so only a credential says who is asking.
+  /** Requests signed with a browser session, for the few handlers that answer a browser differently. */
+  const browsers = new WeakSet<object>();
   app.addHook("onRequest", async (req, reply) => {
     const login = req.headers["tailscale-user-login"];
     const owner = config.access.owner;
@@ -107,7 +110,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req, appHostnames(config));
     if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
-    if ((!deps.setup || deps.setup.claimed) && bearer && await auth.owner(bearer)) return;
+    const caller = (!deps.setup || deps.setup.claimed) && bearer ? await auth.caller(bearer) : null;
+    if (caller) {
+      // The web app views and decides; only the command line changes lanes, projects and settings.
+      if (caller === "browser" && !browserMay(config, req.method, route)) return reply.code(403).send(VIEWER_REFUSAL);
+      if (caller === "browser") browsers.add(req);
+      return;
+    }
     if ((route === TOOL_ROUTE || route === TOOLS_ROUTE || route === "/api/lanes/:project/:n/hooks" || route === "/api/lanes/:project/:n/hooks/answer") && bearer) {
       const { project, n } = req.params as { project: string; n: string };
       if (store.laneForToken(bearer) === `${project}/${n}`) return;
@@ -119,6 +128,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // Runs after the credential check, so a route of a feature that is off still answers 401 to strangers.
   app.addHook("preHandler", async (req) => { requireFeature(config, routeFeature(req.routeOptions.url)); });
+  app.addHook("preHandler", async (req, reply) => {
+    if (browsers.has(req) && req.method === "POST" && req.routeOptions.url === "/api/setup/settings" && !browserSettings(config, req.body)) return reply.code(403).send(VIEWER_REFUSAL);
+  });
   app.get("/api/features", async () => config.features);
   app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links }));
 
@@ -137,7 +149,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   if (deps.setup) setupRoutes(app, deps.setup, store, run, auth);
   serveWeb(app);
 
-  app.post("/api/tickets", async (req) => ({ ticket: auth.ticket(TicketRequest.parse(req.body).path) }));
+  app.post("/api/tickets", async (req, reply) => {
+    const { path } = TicketRequest.parse(req.body);
+    // A ticket opens one stream or terminal. The agent sign-in terminal takes typing, so a browser gets none for it.
+    if (browsers.has(req) && !browserTicket(path)) return reply.code(403).send(VIEWER_REFUSAL);
+    return { ticket: auth.ticket(path) };
+  });
   app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name, ...(config.sandbox.mode === "off" ? { sandbox: "off" as const } : {}) }));
   app.get("/api/machine", async () => machineInfo(config, deps.version, run));
   app.post("/api/machine/updates", async () => checkForUpdates(run));
@@ -495,7 +512,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       const lane = store.getLane(laneParam(req.params))!;
       try {
         if (!run.terminal) throw new Error("terminal runner unavailable");
-        connectTerminal(socket, run.terminal("tmux", attachArgs(lane.terminal), { cwd: lane.worktree, cols: 80, rows: 24 }));
+        // Only the browser opens this socket, and the browser watches: tmux attaches read-only and input is dropped.
+        connectTerminal(socket, run.terminal("tmux", attachArgs(lane.terminal, { watch: true }), { cwd: lane.worktree, cols: 80, rows: 24 }), { input: false });
       } catch {
         socket.close(1011, "Could not attach to the lane terminal. Check that tmux is installed and the session exists.");
       }

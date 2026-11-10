@@ -19,7 +19,7 @@ it("sums all turns by lane and UTC day, validates filters and preserves missing 
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = signedIn(buildServer({ store, bus, hosts, lanes, config, run, version: "test" }), store);
+  const app = signedIn(buildServer({ store, bus, hosts, lanes, config, run, version: "test" }), store, config);
   try {
     for (const project of ["demo", "other"]) {
       store.addProject({ id: project, name: project, path: `/code/${project}` });

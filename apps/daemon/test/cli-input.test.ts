@@ -1,3 +1,4 @@
+import { cliToken } from "./signed-in.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ async function fixture(http = true) {
   const app = http ? buildServer({ store, bus, config, run, hosts, lanes, version: "test" }) : null;
   if (app) cleanups.push(() => app.close());
   const turn = (active: boolean) => bus.publish(store.appendEvent("demo/01", { type: "agent.turn", payload: { active } }));
-  const post = (text: string, immediate = false) => app!.inject({ method: "POST", url: "/api/lanes/demo/01/prompt", headers: { authorization: `Bearer ${store.ownerSession()}` }, payload: { text, immediate } });
+  const post = (text: string, immediate = false) => app!.inject({ method: "POST", url: "/api/lanes/demo/01/prompt", headers: { authorization: `Bearer ${cliToken(config)}` }, payload: { text, immediate } });
   return { store, bus, config, run, calls, pasted, hosts, app, turn, post };
 }
 describe("CLI input", () => {
@@ -32,7 +33,7 @@ describe("CLI input", () => {
     const paste = f.calls.find((c) => c[1] === "paste-buffer")!;
     expect(paste).toEqual(["tmux", "paste-buffer", "-d", "-p", "-b", expect.stringMatching(/^cl-/), "-t", "=cl-demo-01:"]);
     expect(f.calls.findIndex((c) => c[1] === "send-keys" && c.at(-1) === "Enter")).toBeGreaterThan(f.calls.indexOf(paste));
-    expect((await f.app!.inject({ method: "POST", url: "/api/lanes/demo/01/hooks", headers: { authorization: `Bearer ${f.store.ownerSession()}` }, payload: { eventId: randomUUID(), payload: { hook_event_name: "UserPromptSubmit", session_id: "native-session", cwd: f.config.paths.data, prompt: "First line\nSecond line ✓" } } })).statusCode).toBe(200);
+    expect((await f.app!.inject({ method: "POST", url: "/api/lanes/demo/01/hooks", headers: { authorization: `Bearer ${cliToken(f.config)}` }, payload: { eventId: randomUUID(), payload: { hook_event_name: "UserPromptSubmit", session_id: "native-session", cwd: f.config.paths.data, prompt: "First line\nSecond line ✓" } } })).statusCode).toBe(200);
     expect(f.store.eventsOfType(["agent.message"]).map((e) => e.payload.text)).toEqual(["First line\nSecond line ✓", "Another task"]);
     expect(f.store.eventsOfType(["agent.turn"]).at(-1)!.payload.commandId).toBe(f.store.eventsOfType(["agent.command"])[0]!.payload.commandId);
     expect(f.pasted).toHaveLength(1); f.turn(false);
@@ -40,7 +41,7 @@ describe("CLI input", () => {
   });
   it("sends Escape while busy, without sending the queued prompt", async () => {
     const f = await fixture(); f.turn(true); await f.post("Wait for idle");
-    expect((await f.app!.inject({ method: "POST", url: "/api/lanes/demo/01/cancel", headers: { authorization: `Bearer ${f.store.ownerSession()}` }, payload: {} })).statusCode).toBe(202);
+    expect((await f.app!.inject({ method: "POST", url: "/api/lanes/demo/01/cancel", headers: { authorization: `Bearer ${cliToken(f.config)}` }, payload: {} })).statusCode).toBe(202);
     await vi.waitFor(() => expect(f.calls).toContainEqual(["tmux", "send-keys", "-t", "=cl-demo-01:", "Escape"]));
     expect(f.pasted).toEqual([]);
   });

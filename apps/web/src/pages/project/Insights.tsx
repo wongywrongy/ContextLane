@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import type { InsightsView, Project, ProjectSkill, Suggestion } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { NewLaneDialog } from "../../components/NewLane";
+import { StartLaneDialog } from "../../components/StartLane";
 import { Empty, Fact, Glyph, LaneBadge, PageHeader, Section, Tile, agoText, type IconName } from "../../components/ui";
 
 const TYPES: Record<Suggestion["type"], [string, IconName]> = { process: ["Process", "message"], code: ["Code", "edit"], tokens: ["Tokens", "read"], next: ["Next", "checkpoint"], notes: ["Notes", "plan"] };
@@ -93,7 +93,7 @@ export function InsightsPage() {
       <div className="sec-r wrap"><Tile family="look" icon="read" small /><span className="grow"><b>Module briefs</b><span className="muted" style={{ display: "block", fontSize: 13 }}>{view.startsWith.briefs} written · agents ask for them</span></span><Link className="btn ghost sm" to={`/p/${project}/architecture`}>Architecture</Link></div>
       <SkillsBlock project={project} />
     </Section>
-    {starting && projects ? <NewLaneDialog projects={projects} project={project} task={starting} onClose={() => setStarting(null)} /> : null}
+    {starting ? <StartLaneDialog project={project} task={starting} onClose={() => setStarting(null)} /> : null}
   </main>;
 }
 

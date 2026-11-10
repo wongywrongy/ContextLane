@@ -3,7 +3,8 @@ import { TerminalInput } from "@contextlanes/protocol";
 import type { TerminalProcess } from "../run.js";
 
 /** The PTY is only a tmux client. Hanging it up leaves the session and shell alive. */
-export function connectTerminal(socket: WebSocket, pty: TerminalProcess): void {
+/** With input off the socket only watches: keystrokes are dropped here as well as by tmux, and only resizes pass. */
+export function connectTerminal(socket: WebSocket, pty: TerminalProcess, opts: { input?: boolean } = {}): void {
   let detached = false;
   const detach = () => {
     if (detached) return;
@@ -34,7 +35,7 @@ export function connectTerminal(socket: WebSocket, pty: TerminalProcess): void {
     try {
       if (binary) throw new Error("text frames only");
       const msg = TerminalInput.parse(JSON.parse(raw.toString()));
-      if (msg.type === "input") pty.write(msg.data);
+      if (msg.type === "input") { if (opts.input !== false) pty.write(msg.data); }
       else pty.resize(msg.cols, msg.rows);
     } catch {
       socket.close(1008, "Invalid terminal input.");

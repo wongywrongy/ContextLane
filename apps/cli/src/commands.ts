@@ -17,6 +17,7 @@ const HELP = () => `${bold("contextlanes")} ${dim("— run coding agents in para
 ${bold("Get started")}
   contextlanes setup                          sign in from a browser: prints a one-time link and QR code
   contextlanes add [path]                     add a repository (default: this folder)
+  contextlanes remove <project>               stop tracking a repository (the folder is untouched)
 
 ${bold("Lanes")}
   contextlanes lanes [project] [--json]       every lane, its state and what it waits on
@@ -26,6 +27,9 @@ ${bold("Lanes")}
   contextlanes codex [args…]                  start Codex in a lane and attach [--here: current checkout]
   contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id] [--model m] [--base branch]")}
                                               ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout (project .)")}
+  contextlanes lane rename <lane> "<task>"    change what a lane is called
+  contextlanes lane restart <lane>            start the lane's agent again where it left off
+  contextlanes lane auto <lane> on|off        let ContextLanes allow safe requests once for you; dire ones still wait
   contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
   contextlanes inbox                          questions and permissions waiting on you
   contextlanes answer <id> <option>           answer one, using the id and option from inbox
@@ -125,7 +129,7 @@ async function main(argv: string[]): Promise<number> {
       const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project, task: rest[2], ...(kind ? { kind } : { agent: values.agent, model: values.model }), direct: !!values.here, ...(base ? { base } : {}) } });
       if (values.json) { console.log(JSON.stringify(lane, null, 2)); return lane.state === "failed" ? 1 : 0; }
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
-      console.log(dim(`  Watch it in the browser, or open its shell: contextlanes term ${lane.id}`));
+      console.log(dim(`  Watch it in the browser. Open its shell: contextlanes term ${lane.id}`));
       return lane.state === "failed" ? 1 : 0;
     }
     case "send": {
@@ -167,7 +171,14 @@ async function main(argv: string[]): Promise<number> {
     case "add": {
       const project = await addProject(rest[0]);
       if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
-      console.log(ok(`Added ${bold(project.name)}. Start a lane from the browser, or: contextlanes lane start ${project.id} "<task>"`));
+      console.log(ok(`Added ${bold(project.name)}. Start a lane: contextlanes lane start ${project.id} "<task>"`));
+      return 0;
+    }
+    case "remove": {
+      if (!rest[0]) return usage(values.json);
+      if (process.env.CONTEXTLANES_LANE_TOKEN) throw new ClientError("Only the owner can remove a project.", { exit: 4, code: "owner_only" });
+      await api(`/api/projects/${encodeURIComponent(rest[0])}`, { method: "DELETE" });
+      console.log(values.json ? JSON.stringify({ removed: true, project: rest[0] }) : ok(`Removed ${bold(rest[0])} from ContextLanes. The repository itself is untouched.`));
       return 0;
     }
     case "schedule": {

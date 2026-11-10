@@ -144,6 +144,25 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
     }
 
     case "lane": {
+      if (args[0] === "rename" || args[0] === "restart" || args[0] === "auto") {
+        const [verb, lane, value] = args;
+        const shape = { rename: 'contextlanes lane rename <project/NN> "<new task>"', restart: "contextlanes lane restart <project/NN>", auto: "contextlanes lane auto <project/NN> on|off" }[verb];
+        if (!lane || !isLane(lane) || (verb === "rename" && !value) || (verb === "auto" && value !== "on" && value !== "off")) throw new UsageError(`Usage: ${shape}`);
+        // These change a lane for its owner; a lane's own agent may not rename it, restart it or loosen its approvals.
+        if (token(io)) throw new ClientError(`Only the owner can ${verb === "auto" ? "turn Auto on or off" : `${verb} a lane`}.`, { exit: 4, code: "owner_only" });
+        if (verb === "rename") {
+          const result = await io.api<Lane>(`/api/lanes/${encodeLane(lane)}`, { method: "PATCH", body: { task: args.slice(2).join(" ") } });
+          print(io, flags, result, () => `Renamed ${lane}: ${result.task}`);
+        } else if (verb === "restart") {
+          const result = await io.api<unknown>(`/api/lanes/${encodeLane(lane)}/restart`, { method: "POST", body: {} });
+          print(io, flags, result ?? { restarted: true, lane }, () => `Restarted the agent in ${lane}.`);
+        } else {
+          const on = value === "on";
+          const result = await io.api<{ answered?: number }>(`/api/lanes/${encodeLane(lane)}/auto`, { method: "POST", body: { on } });
+          print(io, flags, { lane, auto: on, ...result }, () => on ? `Auto is on for ${lane}: safe requests are allowed once; dire ones still wait for you.` : `Auto is off for ${lane}.`);
+        }
+        return 0;
+      }
       if (args[0] !== "rm") return null;
       const lane = args[1];
       if (!lane || !isLane(lane)) throw new UsageError("Name the lane: contextlanes lane rm <project/NN> [--force] [--delete-branch]");

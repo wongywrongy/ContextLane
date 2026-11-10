@@ -8,6 +8,7 @@ Give every coding task its own lane: a branch and checkout, a terminal that keep
 - **Links that work.** Every service gets `https://<service>-<n>-<project>.<your domain>`, known before it starts and passed to it as `$LANE_URL`. One wildcard entry in your proxy covers every lane.
 - **Made for agents.** `contextlanes env start`, `url`, `logs`, all with `--json` and exit codes an agent can act on. Agents are told about them when a lane starts.
 - **You decide.** Questions and permission requests from every lane in one inbox, answerable from your phone. New or changed recipes run only after you approve them. Agents never approve themselves.
+- **The web app only shows and asks.** It is a viewer for every lane plus those two decisions. Everything that changes a lane is a `contextlanes` command, so an agent can do whatever you can, and a stolen browser session cannot start, message or delete anything.
 - **Self-hosted and confined.** The API listens on 127.0.0.1 only. Agents and lane services run in a bubblewrap sandbox that cannot see ContextLanes' own data.
 
 ## Run it
@@ -42,6 +43,8 @@ contextlanes lane start . "Try the app" --here --no-agent   # this checkout, no 
 contextlanes env start        # inside a lane: start the app from .contextlanes.json and wait until it is healthy
 contextlanes url web          # its link
 contextlanes logs web -n 50
+contextlanes send shop/01 "Use the v2 endpoint"       # a message for a lane's agent
+contextlanes lane restart shop/01                     # also: lane rename, lane auto on|off, lane rm
 contextlanes inbox            # what waits on you
 contextlanes agent-notes      # what to put in AGENTS.md so any agent uses this
 ```

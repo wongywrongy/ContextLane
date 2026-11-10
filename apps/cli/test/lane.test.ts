@@ -112,6 +112,25 @@ describe("env, logs and url as the owner", () => {
   });
 });
 
+describe("what the owner does from the command line instead of the web app", () => {
+  it("renames a lane, restarts its agent and turns Auto on or off", async () => {
+    const h = harness({
+      "PATCH /api/lanes/shop/01": () => ({ id: "shop/01", task: "Cart totals" }),
+      "POST /api/lanes/shop/01/restart": () => ({ id: "shop/01" }),
+      "POST /api/lanes/shop/01/auto": () => ({ answered: 2 }),
+    });
+    expect(await h.run(["lane", "rename", "shop/01", "Cart", "totals"])).toBe(0);
+    expect(h.calls[0]).toMatchObject({ method: "PATCH", body: { task: "Cart totals" } });
+    expect(await h.run(["lane", "restart", "shop/01"])).toBe(0);
+    expect(await h.run(["lane", "auto", "shop/01", "on"])).toBe(0);
+    expect(h.calls[2]).toMatchObject({ path: "/api/lanes/shop/01/auto", body: { on: true } });
+    expect(await h.run(["lane", "auto", "shop/01", "off"])).toBe(0);
+    expect(h.calls[3]!.body).toEqual({ on: false });
+    await expect(h.run(["lane", "auto", "shop/01", "maybe"])).rejects.toMatchObject({ exit: 2 });
+    await expect(h.run(["lane", "rename", "shop/01"])).rejects.toMatchObject({ exit: 2 });
+  });
+});
+
 describe("inside a lane, with only the lane token", () => {
   const vars = { CONTEXTLANES_LANE: "shop/01", CONTEXTLANES_LANE_TOKEN: "lane-secret" };
 
@@ -135,6 +154,7 @@ describe("inside a lane, with only the lane token", () => {
     const h = harness({}, vars);
     await expect(h.run(["recipe", "approve"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
     await expect(h.run(["lane", "rm", "shop/01"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
+    for (const argv of [["lane", "auto", "shop/01", "on"], ["lane", "rename", "shop/01", "Easier"], ["lane", "restart", "shop/01"]]) await expect(h.run(argv), argv.join(" ")).rejects.toMatchObject({ exit: 4, code: "owner_only" });
     expect(h.calls).toEqual([]);
   });
 });

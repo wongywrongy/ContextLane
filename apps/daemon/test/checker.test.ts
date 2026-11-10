@@ -30,7 +30,7 @@ async function setup(git: Git = {}, recipe: unknown = { checks: [{ name: "Tests"
   const bus = new EventBus();
   const runtime = new Runtime({ store, bus, config, run });
   const checker = new Checker({ store, bus, config, run, runtime, shoot: async () => {} });
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime, checker }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, runtime, checker }), store, config);
   store.addProject({ id: "shop", name: "Shop", path: root });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01", worktree: root, terminal: "t", hostUnit: null, base: "trunk", state: "working", colour: "lc1" });
   await writeFile(join(root, RECIPE_FILE), JSON.stringify(recipe));

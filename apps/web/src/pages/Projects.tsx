@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import type { BoardLane, Health, InboxItem, Lane, Project, ResourcesOverview, UsageSummary } from "@contextlanes/protocol";
 import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api";
-import { AddRepoDialog } from "../components/AddRepo";
-import { Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, type IconName } from "../components/ui";
+import { Cmd, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, type IconName } from "../components/ui";
 
 import { BOARD_COLUMNS, boardColumn } from "../work/board";
 
@@ -12,6 +11,8 @@ const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission
 /** Home: what needs you, then one tile per project. */
 export function ProjectsPage() {
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
+  // A project added from the machine shows up here without a reload.
+  useEffect(() => { const timer = setInterval(reloadProjects, 10_000); return () => clearInterval(timer); }, [reloadProjects]);
   const [board, , reloadBoard] = useJson<BoardLane[]>("/api/board");
   const lanes = board?.map(card => card.lane);
   const [waiting] = useInbox();
@@ -21,28 +22,22 @@ export function ProjectsPage() {
   const [usage, , reloadUsage] = useJson<UsageSummary>("/api/usage");
   const reportedLimits = (usage?.limits ?? []).filter((limit) => Date.parse(limit.resetsAt) > Date.now());
   useEffect(() => { const timer = setInterval(() => { reloadResources(); reloadUsage(); reloadBoard(); }, 30_000); return () => clearInterval(timer); }, [reloadResources, reloadUsage, reloadBoard]);
-  const [params, setParams] = useSearchParams();
-  const [adding, setAdding] = useState(params.get("add") === "1");
-  const asked = params.get("add") === "1";
-  useEffect(() => { if (asked) setAdding(true); }, [asked]);
-  const close = () => { setAdding(false); if (params.has("add")) setParams({}); };
   return (
     <main className="pg">
       <NeedsYou lanes={lanes ?? []} projects={projects ?? []} />
       <section aria-labelledby="projects-h">
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
-          <div className="e"><Link className="btn ghost sm" to="/settings#projects">Arrange</Link><button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button></div></div>
+          <div className="e"><Cmd note="add a repository">contextlanes add [path]</Cmd></div></div>
         {projects?.length && !board ? <p role="status">Loading lanes…</p> : null}
         <div className="tiles" data-key-list>
           {(board ? projects ?? [] : []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} cards={(board ?? []).filter(c => c.lane.project === p.id)} waiting={waiting ?? []} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
-          {projects && !projects.length ? <button className="tile add" onClick={() => setAdding(true)}>+ Add your first repository<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>Pick from the repos your agents already use</span></button> : null}
+          {projects && !projects.length ? <div className="tile add">No repositories yet<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>On the machine, run this inside a repository:</span><Cmd>contextlanes add</Cmd></div> : null}
         </div>
         {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec-f" style={{ flexWrap: "wrap" }}>
           {reportedLimits.map((limit) => <span className="mono" style={{ fontSize: 12 }} key={`${limit.agent}/${limit.window}`}>{limit.agent === "claude-code" ? "Claude" : limit.agent} {limit.usedPct.toFixed(0)}% of {limit.window}</span>)}
           {resources?.gpus?.map((gpu, i) => <span className="mono" style={{ fontSize: 12 }} key={`${gpu.name}/${i}`}>{gpu.name}{gpu.usePct !== null ? ` · GPU ${gpu.usePct}%` : ""}{gpu.memoryUsedMiB !== null ? ` · ${gpu.memoryUsedMiB} MiB${gpu.memoryTotalMiB !== null ? ` of ${gpu.memoryTotalMiB} MiB` : ""}` : ""}</span>)}
         </div> : null}
       </section>
-      {adding ? <AddRepoDialog onClose={close} onAdded={reloadProjects} /> : null}
     </main>
   );
 }

@@ -112,7 +112,7 @@ A lane waits on you only in `needs_you` and `in_review`. `archived` can be reach
 | `GET /api/lanes/:project/:n/events?after=` | Event history |
 | `POST /api/lanes/:project/:n/prompt` | Message the agent |
 | `POST /api/lanes/:project/:n/cancel`, `/mode`, `/model` | Interrupt or change an agent setting; commands survive daemon restart |
-| `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
+| `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a read-only PTY tmux client (`attach -r`) for watching; typed input is dropped; browser disconnect detaches only that client |
 | `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
 | `GET /api/projects/:project/recipe`, `POST …/recipe/approve` | The project's recipe; approve by hash (owner session only) |
 | `GET /api/projects/:project/environments` | Run page: recipes, environments and what can be cleaned up |
@@ -143,6 +143,7 @@ Each terminal runs in its own PTY host process (`apps/daemon/bin/pty-host.py`, P
 
 ## Security
 
+- A browser session only views and decides: reads, `POST /api/answers`, recipe approval, tickets for streams, and its own passkey and push subscription. Any other write from a browser gets 403 `viewer`; the CLI credential (`setup-token`, hidden from lanes by the sandbox) may do everything. Routes of a feature that is on are open to the browser too.
 - The daemon binds `127.0.0.1`, and the router or Tailscale Serve proxies to it, so every request arrives from loopback. A local process can send any header, so loopback addresses, `Host` and Tailscale headers prove nothing. Only a credential says who a request is from: a browser session token (`Authorization: Bearer`, kept in localStorage), `<data>/setup-token` from the CLI, a single-use ticket for a stream or terminal, a lane token, or a notification action token. Every route except health, setup status and the sign-in routes answers 401 without one. A Tailscale login that is not the configured owner gets 403; the owner's login signs nobody in.
 - Sessions are in localStorage because storage belongs to one origin. Lane previews are sibling names under the same domain (`web-01-shop.<domain>` beside `lanes.<domain>`) and cookies could be shared with them; localStorage cannot. Origin checks accept `localhost`, the Tailscale Serve address and `lanes.<domain>` only, never a preview's name.
 - The router passes the `Host` header through unchanged, so the local control endpoint and the setup-token path, which require `Host: localhost`, stay unreachable through it. It answers only names it published; anything else, including `127.0.0.1`, gets its 404.

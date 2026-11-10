@@ -20,7 +20,7 @@ async function setup() {
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, run, version: "test" }), store);
+  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, run, version: "test" }), store, config);
   cleanups.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
   const lane = (await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Terminal" } })).json();
@@ -29,20 +29,19 @@ async function setup() {
 }
 
 describe("lane terminal", () => {
-  it("attaches through Runner, streams output, accepts input and resize, and only detaches on close", async () => {
+  it("attaches read-only through Runner, streams output, drops input, accepts resize, and only detaches on close", async () => {
     const { app, store, run, pty, events, lane, ticketed } = await setup();
     const before = store.events(lane.id);
     const ws = await app.injectWS(await ticketed("/api/lanes/demo/01/terminal"), { headers: { host: "contextlanes.test", origin: "https://contextlanes.test", "tailscale-user-login": "kyle@example.com" } });
-    expect(run.terminal).toHaveBeenCalledWith("tmux", ["attach-session", "-t", `=${lane.terminal}`], { cwd: lane.worktree, cols: 80, rows: 24 });
+    expect(run.terminal).toHaveBeenCalledWith("tmux", ["attach-session", "-r", "-f", "ignore-size", "-t", `=${lane.terminal}`], { cwd: lane.worktree, cols: 80, rows: 24 });
     const output = once(ws, "message");
     events.emit("data", "hello\r\n");
     expect(String((await output)[0])).toBe("hello\r\n");
     ws.send(JSON.stringify({ type: "input", data: "pwd\r" }));
     ws.send(JSON.stringify({ type: "resize", cols: 100, rows: 32 }));
-    await vi.waitFor(() => {
-      expect(pty.write).toHaveBeenCalledWith("pwd\r");
-      expect(pty.resize).toHaveBeenCalledWith(100, 32);
-    });
+    await vi.waitFor(() => expect(pty.resize).toHaveBeenCalledWith(100, 32));
+    // The browser watches; what it types never reaches the lane.
+    expect(pty.write).not.toHaveBeenCalled();
     const closed = once(ws, "close");
     ws.terminate();
     await closed;
