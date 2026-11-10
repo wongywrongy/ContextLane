@@ -131,6 +131,17 @@ export class Runtime {
     return this.deps.store.environment(id);
   }
 
+  /** Restart everything, or only the named services (the rest keep running). */
+  async restart(id: string, only?: string[]): Promise<EnvironmentView> {
+    if (!only?.length) { await this.stop(id); return this.start(id); }
+    const env = this.deps.store.environment(id);
+    for (const service of env?.services.filter((s) => only.includes(s.name) && s.state !== "stopped") ?? []) {
+      await this.deps.run("systemctl", ["--user", "stop", service.unit]).catch(() => {});
+      this.update(this.deps.store.environment(id)!, service, { state: "stopped", detail: null, ms: null });
+    }
+    return this.start(id, only);
+  }
+
   previewUrl(id: string, name: string): { service: string; url: string } {
     const lane = this.lane(id);
     const service = this.deps.store.environment(id)?.services.find((s) => s.name === name);
@@ -284,11 +295,11 @@ export class Runtime {
 
   private approved(lane: Lane, view: RecipeView | null): Recipe {
     const { store, bus } = this.deps;
-    if (!view) throw new Refused("This project has no .contextlanes.json yet, so there is nothing to start.");
+    if (!view) throw new Refused("This project has no .contextlanes.json yet, so there is nothing to start.", 409, "no_recipe");
     if (!view.recipe) throw new Refused(`The recipe cannot be used. ${view.error}`);
     if (!view.approved) {
       if (!store.recipeAlreadyRequested(lane.id, view.hash)) bus.publish(store.appendEvent(lane.id, { type: "recipe.requested", payload: { hash: view.hash } }));
-      throw new Refused(`The recipe ${view.hash.slice(0, 7)} needs the owner's approval on the Run page before it can start.`);
+      throw new Refused(`The recipe ${view.hash.slice(0, 7)} needs the owner's approval on the Run page before it can start.`, 409, "recipe_unapproved");
     }
     return view.recipe;
   }

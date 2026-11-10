@@ -65,6 +65,14 @@ describe("who a request is from", () => {
     const a = { authorization: `Bearer ${token("shop/01")}` };
     expect((await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/env_status", headers: a, payload: {} })).statusCode).not.toBe(401);
     expect((await app.inject({ method: "POST", url: "/api/lanes/shop/02/tools/env_status", headers: a, payload: {} })).statusCode).toBe(401);
+    // The CLI's tools inside a lane: its own lane only, and never the owner's environment routes.
+    for (const tool of ["env_stop", "env_restart", "recipe_status", "preview_url", "get_logs", "env_start"]) {
+      expect([tool, (await app.inject({ method: "POST", url: `/api/lanes/shop/01/tools/${tool}`, headers: a, payload: { service: "web" } })).statusCode]).not.toEqual([tool, 401]);
+      expect([tool, (await app.inject({ method: "POST", url: `/api/lanes/shop/02/tools/${tool}`, headers: a, payload: { service: "web" } })).statusCode]).toEqual([tool, 401]);
+    }
+    for (const [method, url] of [["GET", "/api/lanes/shop/01/env"], ["POST", "/api/lanes/shop/01/env/stop"], ["POST", "/api/lanes/shop/01/env/restart"], ["GET", "/api/lanes/shop/01/url"], ["GET", "/api/lanes"], ["POST", "/api/lanes/shop/01/discard"]] as const) {
+      expect([url, (await app.inject({ method, url, headers: a, ...(method === "POST" ? { payload: {} } : {}) })).statusCode]).toEqual([url, 401]);
+    }
     for (const [method, url] of [["GET", "/api/inbox"], ["POST", "/api/answers"], ["POST", "/api/tickets"], ["POST", "/api/lanes/shop/02/prompt"], ["POST", "/api/lanes/shop/01/prompt"], ["POST", "/api/lanes/shop/01/mode"], ["POST", "/api/lanes/shop/01/approve"], ["POST", "/api/lanes/shop/01/cleanup"], ["POST", "/api/projects/shop/recipe/approve"], ["POST", "/api/setup/settings"], ["POST", "/api/setup/agents/install"]] as const) {
       expect([url, (await app.inject({ method, url, headers: a, ...(method === "POST" ? { payload: {} } : {}) })).statusCode]).toEqual([url, 401]);
     }

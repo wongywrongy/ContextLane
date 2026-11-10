@@ -120,7 +120,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
-    if (err instanceof SetupError || err instanceof ProjectError || err instanceof Refused) return reply.code(err.statusCode).send({ error: err.message });
+    if (err instanceof Refused) return reply.code(err.statusCode).send({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+    if (err instanceof SetupError || err instanceof ProjectError) return reply.code(err.statusCode).send({ error: err.message });
     if (err instanceof NotFound) return reply.code(404).send({ error: "That project or lane could not be found; return to Projects and choose it again." });
     // Fastify's own request errors (bad JSON, body too large) keep their status and message.
     const status = (err as { statusCode?: number }).statusCode;
@@ -424,10 +425,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/stop", async (req) => runtime.stop(laneParam(req.params)));
-  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/restart", async (req) => {
-    await runtime.stop(laneParam(req.params));
-    return runtime.start(laneParam(req.params));
-  });
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/restart", async (req) => runtime.restart(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
+  app.get<{ Params: { project: string; n: string }; Querystring: { service?: string } }>("/api/lanes/:project/:n/url", async (req) => runtime.previewUrl(laneParam(req.params), z.string().min(1).default("web").parse(req.query.service)));
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/logs", async (req) => {
     const { service, lines } = LogsQuery.parse(req.query);
     return runtime.logs(laneParam(req.params), service, lines);
@@ -519,6 +518,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (req.params.tool === "delegate") return helper.delegate(store.getLane(lane)!, DelegateRequest.parse(req.body));
     if (req.params.tool === "get_brief") return { brief: await briefs.forAgent(store.getLane(lane)!.project, BriefQuery.parse(req.body ?? {})) };
     if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
+    if (req.params.tool === "env_stop") return runtime.stop(lane);
+    if (req.params.tool === "env_restart") return runtime.restart(lane, StartEnvRequest.parse(req.body ?? {}).services);
+    if (req.params.tool === "recipe_status") { const l = store.getLane(lane); if (!l) throw new NotFound(`no lane ${lane}`); return laneRecipe(store, store.getProject(l.project)!, l); }
     if (req.params.tool === "preview_url") return runtime.previewUrl(lane, z.object({ service: z.string().default("web") }).parse(req.body ?? {}).service);
     if (req.params.tool === "get_logs") {
       const { service, lines } = LogsQuery.parse(req.body);

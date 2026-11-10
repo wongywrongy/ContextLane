@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { benchTable, type BenchResult, type Health, type InboxItem, type Lane, type Project, type ProjectBranches, type ProjectMap } from "@contextlanes/protocol";
 import { readFile } from "node:fs/promises";
-import { api, daemonUrl, ClientError } from "./client.js";
+import { api, daemonUrl, ClientError, UsageError } from "./client.js";
+import { laneCommand } from "./lane.js";
 import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
@@ -28,6 +29,18 @@ ${bold("Lanes")}
   contextlanes inbox                          questions and permissions waiting on you
   contextlanes answer <id> <option>           answer one, using the id and option from inbox
 
+${bold("A lane's app")} ${dim("— inside a lane the lane is implied; elsewhere name it")}
+  contextlanes env [lane]                     services, state, port and link
+  contextlanes env start [lane] [service…]    start from the approved recipe; waits until healthy or failed
+  contextlanes env restart [lane] [service…]  restart all, or only the services named
+  contextlanes env stop [lane]
+  contextlanes logs <service> [lane] [-n 100] recent log lines
+  contextlanes url [service] [lane]           the service's link and nothing else (default: web)
+  contextlanes recipe [project]               the recipe, its hash and whether it is approved
+  contextlanes recipe approve [project]       approve the recipe in the main checkout (owner only)
+  contextlanes lane rm <lane>                 stop and delete a lane  ${dim("[--force: with uncommitted changes] [--delete-branch]")}
+  contextlanes agent-notes                    what to put in AGENTS.md so agents use this
+
 ${bold("Projects")}
   contextlanes arch [project]                 areas, modules and where lanes work  ${dim("[--json] [--mermaid]")}
   contextlanes bench <tasks.json>             compare CLI tokens with and without enhancers
@@ -37,7 +50,8 @@ ${bold("This machine")}
   contextlanes update                         install the newest version and restart; lanes keep running
                                               ${dim("[--check] only list what's new   [--rollback] go back one version")}
 
-Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.`;
+Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.
+Every command takes --json. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 not reachable, 4 waiting on the owner.`;
 
 async function main(argv: string[]): Promise<number> {
   if (argv[0] === "claude" || argv[0] === "codex") {
@@ -52,9 +66,12 @@ async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" } },
+    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
+      lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" } },
   });
   const [cmd, ...rest] = positionals;
+  const handled = await laneCommand(cmd, [...rest], values, { api, env: process.env, cwd: process.cwd(), out: (t) => console.log(t), err: (t) => console.error(t) });
+  if (handled !== null) return handled;
 
   switch (cmd) {
     case undefined:
@@ -68,7 +85,8 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       const h = await api<Health>("/api/health").catch(() => null);
-      if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 1; }
+      if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 3; }
+      if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
       console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
       return 0;
@@ -83,14 +101,15 @@ async function main(argv: string[]): Promise<number> {
       if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage();
       const base = values.base ?? (await api<ProjectBranches>(`/api/projects/${rest[1]}/branches`)).defaultBranch ?? undefined;
       const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model, base } });
+      if (values.json) { console.log(JSON.stringify(lane, null, 2)); return lane.state === "failed" ? 1 : 0; }
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
       console.log(dim(`  Watch it in the browser, or open its shell: contextlanes term ${lane.id}`));
-      return 0;
+      return lane.state === "failed" ? 1 : 0;
     }
     case "send": {
       if (!rest[0] || !rest[1]) return usage();
       await api(`/api/lanes/${rest[0]}/prompt`, { method: "POST", body: { text: rest.slice(1).join(" ") } });
-      console.log("Message queued.");
+      console.log(values.json ? JSON.stringify({ queued: true, lane: rest[0] }) : "Message queued.");
       return 0;
     }
     case "term": {
@@ -102,15 +121,17 @@ async function main(argv: string[]): Promise<number> {
       // "=" makes tmux match the exact session, never cl-shop-010 for cl-shop-01.
       return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
     }
-    case "inbox":
-      console.log(formatInbox(await api<InboxItem[]>("/api/inbox")));
+    case "inbox": {
+      const items = await api<InboxItem[]>("/api/inbox");
+      console.log(values.json ? JSON.stringify(items, null, 2) : formatInbox(items));
       return 0;
+    }
     case "answer": {
       const [id, optionId] = rest;
       if (!id || !optionId) return usage();
       const [lane, requestId] = id.split("#");
       await api("/api/answers", { method: "POST", body: { lane, requestId, optionId, via: "cli" } });
-      console.log(ok("Answered. The agent continues."));
+      console.log(values.json ? JSON.stringify({ answered: true, lane, requestId, optionId }) : ok("Answered. The agent continues."));
       return 0;
     }
     case "setup":
@@ -118,6 +139,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case "add": {
       const project = await addProject(rest[0]);
+      if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
       console.log(ok(`Added ${bold(project.name)}. Start a lane from the browser, or: contextlanes lane start ${project.id} "<task>"`));
       return 0;
     }
@@ -161,10 +183,19 @@ function usage(): number {
   return 2;
 }
 
-main(process.argv.slice(2)).then(
+/** Errors go to stderr: a sentence, or with --json one JSON object, so stdout only ever holds the answer. */
+function report(err: unknown, json: boolean): number {
+  const known = err instanceof ClientError ? err
+    : err instanceof TypeError && (err as { code?: string }).code?.startsWith("ERR_PARSE_ARGS") ? new UsageError(err.message)
+    : null;
+  const message = known?.message ?? "This command could not finish. Check the daemon logs: journalctl --user -u contextlanes -n 50";
+  if (json) console.error(JSON.stringify({ error: message, code: known?.code ?? "failed" }));
+  else console.error(fail(message));
+  return known?.exit ?? 1;
+}
+
+const argv = process.argv.slice(2);
+main(argv).then(
   (code) => process.exit(code),
-  (err: unknown) => {
-    console.error(fail(err instanceof ClientError ? err.message : "This command could not finish. Check the daemon logs: journalctl --user -u contextlanes -n 50"));
-    process.exit(1);
-  },
+  (err: unknown) => process.exit(report(err, argv.includes("--json"))),
 );

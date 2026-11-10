@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Lane } from "@contextlanes/protocol";
 import { Config, Store, EventBus, HostLinks, LaneManager, buildServer, type Runner } from "@contextlanes/daemon";
-import { checkCliArgs, cliArgs, launchCli } from "../src/lanes/cli.js";
+import { checkCliArgs, cliArgs, laneCommandDir, launchCli, wireNotes } from "../src/lanes/cli.js";
+import { execFileSync } from "node:child_process";
+import { AGENT_NOTES } from "@contextlanes/protocol";
 import { signedIn } from "./signed-in.js";
 
 const roots: string[] = [];
@@ -123,5 +125,48 @@ describe("CLI lanes", () => {
     expect(cliArgs({ ...base, agent: "codex", mode: "plan" }, "hi")).toContain("read-only");
     expect(cliArgs({ ...base, agent: "codex" }, "", undefined, true).slice(0, 2)).toEqual(["resume", "--last"]);
     for (const arg of ["--dangerously-skip-permissions", "--yolo", "--approve-for-me", "--permission-mode=bypassPermissions", "-a", "-cfoo=1", "--mcp-config=x", "--strict-mcp-config", "--settings=x", "--sandbox=danger-full-access"]) expect(() => checkCliArgs("codex", [arg])).toThrow();
+  });
+});
+
+describe("the contextlanes command inside a CLI lane", () => {
+  it("puts a wrapper for this release first on the agent's PATH, inside the lane's data folder", async () => {
+    const { config, app, store } = await fixture();
+    const r = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "T", agent: "claude-code", kind: "cli", cliArgs: [] } });
+    const lane = Lane.parse(r.json());
+    const dir = join(config.paths.data, "cli", lane.id.replace("/", "-"));
+    const spec = JSON.parse(await readFile(join(dir, "launch.json"), "utf8"));
+    expect(spec.env.PATH.split(":")[0]).toBe(join(dir, "bin"));
+    // The sandbox shows the lane's data folder read-only, so the wrapper is visible to the agent.
+    expect(spec.args.join(" ")).toContain(`--ro-bind ${dir} ${dir}`);
+    const wrapper = await readFile(join(dir, "bin", "contextlanes"), "utf8");
+    expect(wrapper).toMatch(/^#!\/bin\/sh\nexec '.+' '.+\/apps\/cli\/dist\/main\.js' "\$@"\n$/);
+    expect((await stat(join(dir, "bin", "contextlanes"))).mode & 0o777).toBe(0o755);
+    expect(spec.args).toContain("--append-system-prompt");
+    expect(spec.args[spec.args.indexOf("--append-system-prompt") + 1]).toBe(AGENT_NOTES);
+    await app.close(); store.close();
+  });
+
+  it("writes a wrapper that runs the CLI with its arguments, whatever the paths contain", async () => {
+    const root = await mkdtemp("/tmp/cl-wrapper-it's-"); roots.push(root);
+    const script = join(root, "echo args.mjs");
+    await writeFile(script, "console.log(JSON.stringify(process.argv.slice(2)));\n");
+    const bin = await laneCommandDir(root, process.execPath, script);
+    const out = execFileSync(join(bin, "contextlanes"), ["env", "--json", "it's here"], { encoding: "utf8" });
+    expect(JSON.parse(out)).toEqual(["env", "--json", "it's here"]);
+  });
+
+  it("gives Codex the notes in its own AGENTS.md, or the override the owner uses, once", async () => {
+    const root = await mkdtemp("/tmp/cl-notes-"); roots.push(root);
+    await mkdir(join(root, "agent"));
+    await writeFile(join(root, "agent", "AGENTS.md"), "Owner rules.\n");
+    expect(await wireNotes("codex", root, false)).toEqual([]);
+    await wireNotes("codex", root, false);
+    const text = await readFile(join(root, "agent", "AGENTS.md"), "utf8");
+    expect(text).toBe(`Owner rules.\n\n${AGENT_NOTES}\n`);
+    await writeFile(join(root, "agent", "AGENTS.override.md"), "Override.");
+    await wireNotes("codex", root, false);
+    expect(await readFile(join(root, "agent", "AGENTS.override.md"), "utf8")).toBe(`Override.\n\n${AGENT_NOTES}\n`);
+    expect(await wireNotes("codex", root, true)).toEqual([]);
+    expect(await wireNotes("claude-code", root, true)).toEqual([]);
   });
 });

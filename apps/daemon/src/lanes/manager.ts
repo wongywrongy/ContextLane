@@ -136,6 +136,7 @@ export class LaneManager {
       await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind === "cli");
       if (config.lanes.launchHosts) {
         const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
+        // CLI lanes learn the contextlanes command from launchCli (system prompt or AGENTS.md); ACP lanes get the MCP tools.
         const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
         if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline);
         else await this.launch(lane, text);
@@ -310,5 +311,6 @@ export class NotFound extends Error {}
 
 /** The request was understood but cannot happen now; the message says why, in plain words. */
 export class Refused extends Error {
-  constructor(message: string, readonly statusCode = 409) { super(message); }
+  /** code: a stable name for callers that act on the reason (the CLI's exit codes), not only show it. */
+  constructor(message: string, readonly statusCode = 409, readonly code?: string) { super(message); }
 }
