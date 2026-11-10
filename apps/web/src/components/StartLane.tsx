@@ -4,7 +4,7 @@ import { Cmd, Dialog } from "./ui";
 export const shellQuote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
 
 export function startLaneCommand(project: string, task?: string): string {
-  return `contextlanes lane start ${project} ${task ? shellQuote(task) : '"<task>"'}`;
+  return `cl new ${project} ${task ? shellQuote(task) : '"<task>"'}`;
 }
 
 /** Lanes start from the machine. Where a page suggests one, it hands over the command with the task filled in. */

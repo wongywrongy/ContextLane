@@ -16,7 +16,7 @@ const LOCAL_ROLE_KEYS = LocalRoleSchema.options;
 function ProjectRow({ project }: { project: Project }) {
   return <div className="sec-r wrap">
     <span className="grow"><b>{project.name}</b>{project.pinned ? <span className="mono muted" style={{ fontSize: 11.5, marginLeft: 8 }}>pinned</span> : null}<span className="mono muted" style={{ display: "block", fontSize: 12, overflowWrap: "anywhere" }}>{project.id} · {project.path}</span></span>
-    <Cmd>{`contextlanes remove ${project.id}`}</Cmd>
+    <Cmd>{`cl remove ${project.id}`}</Cmd>
   </div>;
 }
 
@@ -68,19 +68,19 @@ export function SettingsPage() {
         <Section id="machine" title="This machine">
           {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
             <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os}{machine.linger === null ? "" : machine.linger ? " · keeps running after you log out" : " · stops when you log out"}</span></div>
-            <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div className="e"><Cmd>contextlanes update --check</Cmd></div></div>
+            <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div className="e"><Cmd>cl update --check</Cmd></div></div>
             <div className="sec-r"><span className="kl">Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user}{machine.service === null ? "" : machine.service ? " · systemd user service" : " · started by hand"} · {machine.address}</span></div>
             <div className="sec-r"><span className="kl">Lanes</span>{machine.sandbox === "off" ? <Fact g="fail" detail='[sandbox] mode = "off"'>Not confined: agents run with your full access</Fact> : <Fact g="done" detail="bubblewrap">Agents confined</Fact>}<span className="mono muted" style={{ fontSize: 12 }}>{machine.supervisor === "systemd" ? "services as systemd user units" : "services as processes this daemon watches"}</span></div>
           </>}
         </Section>
         <HealthCheck />
         <Section id="access" title="Access">
-          <div className="sec-r"><span className="kl">Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <Fact g="idle" detail="contextlanes setup turns on Tailscale">This machine only</Fact>}</div>
+          <div className="sec-r"><span className="kl">Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <Fact g="idle" detail="cl setup turns on Tailscale">This machine only</Fact>}</div>
           <div className="sec-r"><span className="kl">Owner</span><span>{status?.tailnetLogin ?? "Signed in with a setup link"}</span></div>
           <div className="sec-r"><span className="kl">Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><Glyph g="idle">None</Glyph><PasskeyButton /></>}</div>
           <div className="sec-r"><span className="kl">Public internet</span><Fact g="done" detail="tailnet or SSH tunnel only">Off</Fact></div>
         </Section>
-        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<Cmd>contextlanes add [path]</Cmd>}>
+        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<Cmd>cl add [path]</Cmd>}>
           {projects?.map((p) => <ProjectRow key={p.id} project={p} />)}
           {projects && !projects.length ? <Empty icon="folder">No projects · add one from inside its folder on the machine</Empty> : null}
         </Section>
@@ -187,7 +187,7 @@ export function ModelsPage() {
   </main>;
 }
 
-/** contextlanes doctor, in the browser: what works, and one line on how to fix what does not. */
+/** cl doctor, in the browser: what works, and one line on how to fix what does not. */
 function HealthCheck() {
   const [report, setReport] = useState<DoctorReport | null>(null);
   const [error, setError] = useState("");
@@ -195,7 +195,7 @@ function HealthCheck() {
   const check = async () => { setBusy(true); setError(""); try { setReport(await getJson<DoctorReport>("/api/doctor")); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
   useEffect(() => { void check(); }, []);
   const g = { ok: "done", warn: "wait", fail: "fail" } as const;
-  return <Section id="health" title="Health check" meta={report ? `${report.checks.filter((c) => c.state === "fail").length} to fix` : undefined} help="The same checks as contextlanes doctor: tools, sandbox, preview router and, with a domain, the whole path through your reverse proxy." end={<button className="btn ghost sm" disabled={busy} onClick={() => void check()}>{busy ? "Checking…" : "Check again"}</button>}>
+  return <Section id="health" title="Health check" meta={report ? `${report.checks.filter((c) => c.state === "fail").length} to fix` : undefined} help="The same checks as cl doctor: tools, sandbox, preview router and, with a domain, the whole path through your reverse proxy." end={<button className="btn ghost sm" disabled={busy} onClick={() => void check()}>{busy ? "Checking…" : "Check again"}</button>}>
     {error ? <div className="sec-r" role="alert">{error}</div> : !report ? <div className="sec-r muted">Checking…</div> : report.checks.map((c) => <div className="sec-r" key={c.id} style={{ flexWrap: "wrap" }}>
       <span className="kl">{c.title}</span><Glyph g={g[c.state]}>{c.state === "ok" ? "OK" : c.state === "warn" ? "Look at" : "Fix"}</Glyph><span className="mono muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>{c.found}</span>
       {c.fix ? <span style={{ flexBasis: "100%", fontSize: 13 }}>{c.fix}</span> : null}

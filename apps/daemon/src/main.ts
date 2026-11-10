@@ -13,7 +13,7 @@ import { Notifier } from "./notifications/notifier.js";
 import { Runtime } from "./runtime.js";
 import { releaseVersion, layoutOf, exists } from "./layout.js";
 import { homedir } from "node:os";
-import { installBackupTimer } from "./install.js";
+import { ensureShortCommand, installBackupTimer } from "./install.js";
 import { confineGit, socketPath } from "./sandbox.js";
 import { CodeMaps } from "./codemap.js";
 import { Collisions } from "./collisions.js";
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { detectDriver } from "./supervisor/index.js";
 
 async function main(): Promise<void> {
-  // The commit this release was built from; `contextlanes update` waits for it after a restart.
+  // The commit this release was built from; `cl update` waits for it after a restart.
   const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), "0.1.0");
   const config = loadConfig();
   // Settled once: everything built below runs lane services the same way.
@@ -88,6 +88,8 @@ async function main(): Promise<void> {
   const tidyFirst = setTimeout(tidy, 5 * 60_000); tidyFirst.unref();
   const tidyDaily = setInterval(tidy, 86_400_000); tidyDaily.unref();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
+  // After an update from a version that had no `cl`, add it beside `contextlanes`.
+  void ensureShortCommand(homedir()).then((added) => { if (added) console.log("Added the short command: cl (same as contextlanes)."); }, () => {});
   if (config.previews.mode === "router") console.log(`Preview router on ${config.previews.bind}:${config.previews.localPort}${config.previews.domain ? ` for *.${config.previews.domain}` : ""}`);
 
   // Stop within seconds: open requests (a long model call, a clone) are cut rather than waited for, so

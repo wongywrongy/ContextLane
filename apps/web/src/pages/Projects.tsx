@@ -5,6 +5,7 @@ import { answerItem, errorMessage, reviewLink, useInbox, useJson } from "../api"
 import { Cmd, Glyph, LaneBadge, StateGlyph, Tile, ago, agoText, type IconName } from "../components/ui";
 
 import { BOARD_COLUMNS, boardColumn } from "../work/board";
+import { useFeatures } from "../features";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { permission: "permission", question: "question", review: "checkpoint", approval: "environment", collision: "subagent" };
 
@@ -27,25 +28,28 @@ export function ProjectsPage() {
       <NeedsYou lanes={lanes ?? []} projects={projects ?? []} />
       <section aria-labelledby="projects-h">
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
-          <div className="e"><Cmd note="add a repository">contextlanes add [path]</Cmd></div></div>
+          <div className="e"><Cmd note="add a repository">cl add [path]</Cmd></div></div>
         {projects?.length && !board ? <p role="status">Loading lanes…</p> : null}
         <div className="tiles" data-key-list>
           {(board ? projects ?? [] : []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} cards={(board ?? []).filter(c => c.lane.project === p.id)} waiting={waiting ?? []} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
-          {projects && !projects.length ? <div className="tile add">No repositories yet<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>On the machine, run this inside a repository:</span><Cmd>contextlanes add</Cmd></div> : null}
+          {projects && !projects.length ? <div className="tile add">No repositories yet<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>On the machine, run this inside a repository:</span><Cmd>cl add</Cmd></div> : null}
         </div>
-        {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec-f" style={{ flexWrap: "wrap" }}>
+        {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec machine-strip"><div className="sec-r" style={{ flexWrap: "wrap" }}><span className="lbl">{health?.host ?? "This machine"}</span>
           {reportedLimits.map((limit) => <span className="mono" style={{ fontSize: 12 }} key={`${limit.agent}/${limit.window}`}>{limit.agent === "claude-code" ? "Claude" : limit.agent} {limit.usedPct.toFixed(0)}% of {limit.window}</span>)}
           {resources?.gpus?.map((gpu, i) => <span className="mono" style={{ fontSize: 12 }} key={`${gpu.name}/${i}`}>{gpu.name}{gpu.usePct !== null ? ` · GPU ${gpu.usePct}%` : ""}{gpu.memoryUsedMiB !== null ? ` · ${gpu.memoryUsedMiB} MiB${gpu.memoryTotalMiB !== null ? ` of ${gpu.memoryTotalMiB} MiB` : ""}` : ""}</span>)}
-        </div> : null}
+        </div></div> : null}
       </section>
     </main>
   );
 }
 
 function ProjectTile({ project, lanes, cards, waiting, services }: { project: Project; lanes: Lane[]; cards: BoardLane[]; waiting: InboxItem[]; services?: ResourcesOverview["projects"][number] }) {
+  // Only review moves lanes to In review and Merged, so those counts show only with it, as on the board.
+  const features = useFeatures();
+  const columns = BOARD_COLUMNS.filter((column) => features.review || !["In review", "Merged"].includes(column));
   const open = lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const latest = lanes.map((l) => l.createdAt).sort().at(-1);
-  const line = cards.length ? BOARD_COLUMNS.map(column => <span key={column}>{column} {cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === column).length}</span>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
+  const line = cards.length ? columns.map(column => <span key={column}>{column} {cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === column).length}</span>) : <span>{latest ? `last lane ${agoText(latest)}` : "no lanes yet"}</span>;
   const needs = cards.filter(c => boardColumn(c, waiting.some(i => i.lane === c.lane.id)) === "Needs you");
   return <section className="project-compact"><Link className="tile" data-list-item to={`/p/${project.id}/work`}>
     <div className="tb">

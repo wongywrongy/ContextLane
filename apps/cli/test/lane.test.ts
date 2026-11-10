@@ -66,7 +66,7 @@ describe("env, logs and url as the owner", () => {
   it("says how to start when there is no environment yet", async () => {
     const h = harness({ "GET /api/lanes/shop/01/env": () => null });
     expect(await h.run(["env", "shop/01"])).toBe(0);
-    expect(h.out[0]).toBe("No environment yet. Start it: contextlanes env start");
+    expect(h.out[0]).toBe("No environment yet. Start it: cl up");
   });
 
   it("starts the named services and exits 1 with the detail and last log lines when one fails", async () => {
@@ -128,6 +128,23 @@ describe("what the owner does from the command line instead of the web app", () 
     expect(h.calls[3]!.body).toEqual({ on: false });
     await expect(h.run(["lane", "auto", "shop/01", "maybe"])).rejects.toMatchObject({ exit: 2 });
     await expect(h.run(["lane", "rename", "shop/01"])).rejects.toMatchObject({ exit: 2 });
+  });
+});
+
+describe("a recipe written or changed inside a lane", () => {
+  it("is read and approved by naming the lane", async () => {
+    const recipe = { file: ".contextlanes.json", hash: "de4c737aa", approved: false, error: null, text: '{ "services": [] }\n', recipe: { services: [{ name: "web", command: ["node", "server.js"] }] } };
+    const h = harness({
+      "GET /api/projects/shop/environments": () => ({ lanes: [{ lane: "shop/01", recipe: null }, { lane: "shop/04", recipe }] }),
+      "POST /api/projects/shop/recipe/approve": () => ({ approved: true, hash: recipe.hash }),
+    });
+    expect(await h.run(["recipe", "shop/04"])).toBe(0);
+    expect(h.out[0]).toContain("waiting for the owner's approval");
+    expect(h.out[0]).toContain("The whole file, to read before approving:");
+    expect(await h.run(["recipe", "approve", "shop/04"])).toBe(0);
+    expect(h.calls.at(-1)).toMatchObject({ method: "POST", body: { hash: "de4c737aa" } });
+    expect(h.out[1]).toBe("Approved recipe de4c737 for shop/04.");
+    await expect(h.run(["recipe", "approve", "shop/01"])).rejects.toMatchObject({ code: "no_recipe" });
   });
 });
 

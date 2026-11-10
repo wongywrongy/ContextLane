@@ -17,6 +17,8 @@ ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why,
 | 9 Libraries | http-proxy-3 in the router; cmdk, base-ui, shiki, zustand, clsx in the web app; square high-contrast look | Real Vite hot reload through the router; contrast check; screenshots both themes |
 | 10 CLI JSON | `--json` on setup, help, update and usage errors | `apps/cli/test/json.test.ts` runs the real command |
 | 11 Viewer | The web app only views and decides; the daemon refuses other writes from a browser (`http/viewer.ts`); watch-only lane terminal; `lane rename`, `lane restart`, `lane auto`, `remove` in the CLI; Settings read from config.toml | `viewer.test.ts`; real daemon: browser POSTs refused, CLI does the same things |
+| 13 Interactive CLI | Projects first: `cl` alone goes Projects → a project's lanes → one lane, with a way back at every level; `cl projects`; `cl new` outside a project says to add it first; `new`, `rm`, `say`, `sh`, `rename`, `auto`, `inbox` and `ok` ask for what is missing; never without a terminal | `interactive.test.ts` with scripted answers; the real command driven in tmux; piped runs still exit 2 at once |
+| 12 Short CLI | `cl` beside `contextlanes`; short verbs (`new`, `ls`, `up`, `down`, `ps`, `say`, `sh`, `rm`, `ok`) and bare lane numbers (`apps/cli/src/short.ts`); `cl` on PATH in every lane shell; `cl recipe [approve] <lane>` for a recipe written inside a lane | Real daemon: add, new, up, link through the router, daemon restart with the app still up, in-lane `cl ps`, changed recipe refused (exit 4) then approved, rm |
 
 ### Needs Kyle
 

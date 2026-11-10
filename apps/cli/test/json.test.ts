@@ -15,7 +15,7 @@ describe("--json on every command", () => {
     const { exit, out } = cli("help", "--json");
     expect(exit).toBe(0);
     const { help } = JSON.parse(out) as { help: string };
-    expect(help).toContain("contextlanes lane start");
+    expect(help).toContain("cl new");
     expect(help).not.toContain("\u001b[");
   }, 30_000);
 
@@ -34,6 +34,19 @@ describe("--json on every command", () => {
       expect(exit, args.join(" ")).toBe(3);
       expect(out).toBe("");
       expect(JSON.parse(err)).toMatchObject({ code: "unreachable" });
+    }
+  }, 60_000);
+});
+
+describe("no terminal, no questions", () => {
+  it("prints help or a usage error at once instead of asking, as an agent or a script needs", () => {
+    const bare = cli();
+    expect(bare.exit).toBe(0);
+    expect(bare.out).toContain("cl new");
+    for (const args of [["new"], ["rm"], ["say"], ["sh"]]) {
+      const { exit, out } = cli(...args);
+      expect(exit, args.join(" ")).toBe(2);
+      expect(out).toBe("");
     }
   }, 60_000);
 });

@@ -110,7 +110,7 @@ function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]
     <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact>
     <Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help>
     {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit" : "commits"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} not checked` : ""}</Glyph> : null}
-    {safe[0] ? <div className="e"><Cmd note={safe.length > 1 ? `and ${safe.length - 1} more` : undefined}>{`contextlanes lane rm ${safe[0].lane}`}</Cmd></div> : null}
+    {safe[0] ? <div className="e"><Cmd note={safe.length > 1 ? `and ${safe.length - 1} more` : undefined}>{`cl rm ${safe[0].lane}`}</Cmd></div> : null}
   </div>;
 }
 
@@ -147,9 +147,9 @@ function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: L
       <Glyph g={state.g}>{state.word}</Glyph>
       <div className="e">
         {isRunning && web?.url && state.g !== "fail" ? <a className="btn sm" href={web.url} target="_blank" rel="noreferrer">Open app ↗</a> : null}
-        {isRunning ? <>{lane.state === "merged" ? <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span> : null}<Cmd>{`contextlanes env stop ${lane.id}`}</Cmd></>
+        {isRunning ? <>{lane.state === "merged" ? <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span> : null}<Cmd>{`cl down ${lane.id}`}</Cmd></>
           : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Approve the recipe first</button>
-            : recipe ? <Cmd>{`contextlanes env start ${lane.id}`}</Cmd> : null}
+            : recipe ? <Cmd>{`cl up ${lane.id}`}</Cmd> : null}
       </div>
     </div>
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}

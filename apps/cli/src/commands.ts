@@ -8,62 +8,85 @@ import { benchTable, type DoctorReport, type BenchResult, type Health, type Inbo
 import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError, UsageError } from "./client.js";
 import { laneCommand } from "./lane.js";
-import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid } from "./format.js";
+import { expandShort } from "./short.js";
+import { canAsk, fillIn, session } from "./interactive.js";
+import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid, table } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
 
-const HELP = () => `${bold("contextlanes")} ${dim("— run coding agents in parallel lanes on an always-on machine")}
+const HELP = () => `${bold("cl")} ${dim("— run coding agents in parallel lanes on an always-on machine (long name: contextlanes)")}
 
-${bold("Get started")}
-  contextlanes setup                          sign in from a browser: prints a one-time link and QR code
-  contextlanes add [path]                     add a repository (default: this folder)
-  contextlanes remove <project>               stop tracking a repository (the folder is untouched)
-
-${bold("Lanes")}
-  contextlanes lanes [project] [--json]       every lane, its state and what it waits on
-  contextlanes status <lane> [--json]         lane state, plan and judge verdict
-  contextlanes send <lane> "<text>"           queue a message for its agent
-  contextlanes claude [args…]                 start Claude Code in a lane and attach [--here: current checkout]
-  contextlanes codex [args…]                  start Codex in a lane and attach [--here: current checkout]
-  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id] [--model m] [--base branch]")}
-                                              ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout (project .)")}
-  contextlanes lane rename <lane> "<task>"    change what a lane is called
-  contextlanes lane restart <lane>            start the lane's agent again where it left off
-  contextlanes lane auto <lane> on|off        let ContextLanes allow safe requests once for you; dire ones still wait
-  contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
-  contextlanes inbox                          questions and permissions waiting on you
-  contextlanes answer <id> <option>           answer one, using the id and option from inbox
-
-${bold("A lane's app")} ${dim("— inside a lane the lane is implied; elsewhere name it")}
-  contextlanes env [lane]                     services, state, port and link
-  contextlanes env start [lane] [service…]    start from the approved recipe; waits until healthy or failed
-  contextlanes env restart [lane] [service…]  restart all, or only the services named
-  contextlanes env stop [lane]
-  contextlanes logs <service> [lane] [-n 100] recent log lines
-  contextlanes url [service] [lane]           the service's link and nothing else (default: web)
-  contextlanes recipe [project]               the recipe, its hash and whether it is approved
-  contextlanes recipe approve [project]       approve the recipe in the main checkout (owner only)
-  contextlanes lane rm <lane>                 stop and delete a lane  ${dim("[--force: with uncommitted changes] [--delete-branch]")}
-  contextlanes agent-notes                    what to put in AGENTS.md so agents use this
+${dim("A project is a repository folder. A lane is one task inside a project: its own branch, checkout, terminal and app.")}
+${dim("In a terminal, cl on its own opens the menus: Projects → a project's lanes → one lane. Esc goes back a step.")}
 
 ${bold("Projects")}
-  contextlanes arch [project]                 areas, modules and where lanes work  ${dim("[--json] [--mermaid]")}
-  contextlanes bench <tasks.json>             compare CLI tokens with and without enhancers
+  cl add [path]                   make a folder a project (default: this folder)
+  cl projects                     every project and how many lanes it has
+  cl remove <project>             stop tracking one (the folder is untouched)
+
+${bold("Lanes")} ${dim("— inside a project folder the project is implied, and a lane is just its number")}
+  cl new "<task>"                 start a lane in this project  ${dim("[--agent id] [--model m] [--base branch]")}
+                                  ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout")}
+  cl new <project> "<task>"       start a lane in another project
+  cl claude [args…]               start Claude Code in a new lane and attach  ${dim("(or: cl codex)")}
+  cl ls [project] [--all]         open lanes, their state and what they wait on (--all: deleted ones too)
+  cl status <lane>                one lane: state, plan and verdict
+  cl say <lane> "<text>"          queue a message for its agent
+  cl sh <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
+  cl rename <lane> "<task>"       change what a lane is called
+  cl auto <lane> on|off           let ContextLanes allow safe requests once for you; dire ones still wait
+  cl lane restart <lane>          start the lane's agent again where it left off
+  cl rm <lane>                    stop and delete a lane  ${dim("[--force: with uncommitted changes] [--delete-branch]")}
+
+${bold("A lane's app")} ${dim("— inside a lane the lane is implied; elsewhere add its number")}
+  cl up [lane] [service…]         start from the approved recipe; waits until healthy or failed
+  cl down [lane]                  stop it
+  cl restart [lane] [service…]    restart all, or only the services named
+  cl ps [lane]                    services, state, port and link
+  cl logs <service> [lane] [-n 100]
+  cl url [service] [lane]         the service's link and nothing else (default: web)
+  cl recipe [lane]                the recipe, its commands, its hash and whether it is approved
+  cl recipe approve [lane]        approve it after reading it (owner only); without a lane, the project's own
+
+${bold("Waiting on you")}
+  cl inbox                        questions and permissions from every lane
+  cl ok <id> <option>             answer one, using the id and option from inbox
 
 ${bold("This machine")}
-  contextlanes status                         is ContextLanes running, and where to open it
-  contextlanes daemon                         run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
-  contextlanes doctor [--json]                check tools, sandbox, router and your proxy, and say how to fix what fails
-  contextlanes update                         install the newest version and restart; lanes keep running
-                                              ${dim("[--check] only list what's new   [--rollback] go back one version")}
+  cl setup                        sign in from a browser: prints a one-time link and QR code
+  cl status                       is ContextLanes running, and where to open it
+  cl daemon                       run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
+  cl doctor                       check tools, sandbox, router and your proxy, and say how to fix what fails
+  cl update                       install the newest version and restart; lanes keep running  ${dim("[--check] [--rollback]")}
+  cl agent-notes                  what to put in AGENTS.md so agents use this
+  cl arch [project]               areas, modules and where lanes work  ${dim("[--mermaid]")}
 
-Lanes are written project/NN, e.g. shuttleworks/01. Talks to ${daemonUrl()}.
+A lane is its number here (2) or project/number anywhere (shop/02). The long forms still work:
+lane start, lanes, send, term, lane rm, env start|stop|restart, answer. Talks to ${daemonUrl()}.
 Every command takes --json. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 not reachable, 4 waiting on the owner.`;
 
 async function main(argv: string[]): Promise<number> {
+  const io = { api, env: process.env, cwd: process.cwd(), out: () => {}, err: () => {} };
+  // Short verbs and bare lane numbers become the long commands run() understands.
+  argv = await expandShort(argv, io);
+  // A person at a terminal gets the menus: cl alone opens them, and a command with something left out
+  // asks for it. Agents, scripts and --json never get a question.
+  if (canAsk(argv, process.env, { in: !!process.stdin.isTTY, out: !!process.stdout.isTTY }) && !["claude", "codex", "daemon", "update"].includes(argv[0] ?? "")) {
+    const { terminal } = await import("./prompts.js");
+    // Inside the menus a failed command says why and the menu comes back; it does not end the session.
+    const exec = (command: string[]) => run(command).catch((err: unknown) => report(err, false));
+    if (!argv.length) return session(io, terminal, exec);
+    const asked = await fillIn(argv, io, terminal, exec);
+    if (asked !== null) return asked;
+  }
+  return run(argv);
+}
+
+/** One complete command in its long form. */
+async function run(argv: string[]): Promise<number> {
   if (argv[0] === "claude" || argv[0] === "codex") {
     const lane = await startCliLane(argv[0], argv.slice(1));
-    return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+    return openTerminal(lane);
   }
   // In the foreground, for any init system or none; logs go to this terminal. Ctrl-C stops it.
   if (argv[0] === "daemon") {
@@ -87,7 +110,7 @@ async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
+    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, all: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
       lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" }, "no-agent": { type: "boolean" }, here: { type: "boolean" } },
   });
   const [cmd, ...rest] = positionals;
@@ -111,13 +134,15 @@ async function main(argv: string[]): Promise<number> {
       if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
       if (h.sandbox === "off") console.log(fail("The sandbox is off: agents run with your full access. Set [sandbox] mode = \"bwrap\" where bubblewrap works."));
-      console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
+      console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address cl setup printed.`);
       return 0;
     }
     case "lanes": {
       const projects = rest[0] ? [rest[0]] : (await api<Project[]>("/api/projects")).map((p) => p.id);
       const lanes = (await Promise.all(projects.map((p) => api<Lane[]>(`/api/projects/${p}/lanes`)))).flat();
-      console.log(values.json ? JSON.stringify(lanes, null, 2) : formatLanes(lanes));
+      // Deleted lanes stay in the history; --all lists them too.
+      const shown = values.all ? lanes : lanes.filter((l) => !["cleaned", "archived"].includes(l.state));
+      console.log(values.json ? JSON.stringify(shown, null, 2) : shown.length ? formatLanes(shown) : `No open lanes. Start one: cl new "<task>"`);
       return 0;
     }
     case "lane": {
@@ -129,7 +154,7 @@ async function main(argv: string[]): Promise<number> {
       const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project, task: rest[2], ...(kind ? { kind } : { agent: values.agent, model: values.model }), direct: !!values.here, ...(base ? { base } : {}) } });
       if (values.json) { console.log(JSON.stringify(lane, null, 2)); return lane.state === "failed" ? 1 : 0; }
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
-      console.log(dim(`  Watch it in the browser. Open its shell: contextlanes term ${lane.id}`));
+      console.log(dim(`  Watch it in the browser. Open its shell: cl sh ${lane.id}`));
       return lane.state === "failed" ? 1 : 0;
     }
     case "send": {
@@ -144,8 +169,7 @@ async function main(argv: string[]): Promise<number> {
       const lanes = await api<Lane[]>(`/api/projects/${project}/lanes`);
       const lane = lanes.find((l) => l.id === `${project}/${n}`);
       if (!lane) throw new Error(`no lane ${rest[0]}`);
-      // "=" makes tmux match the exact session, never cl-shop-010 for cl-shop-01.
-      return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+      return openTerminal(lane);
     }
     case "doctor": {
       const report = await api<DoctorReport>("/api/doctor");
@@ -171,7 +195,14 @@ async function main(argv: string[]): Promise<number> {
     case "add": {
       const project = await addProject(rest[0]);
       if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
-      console.log(ok(`Added ${bold(project.name)}. Start a lane: contextlanes lane start ${project.id} "<task>"`));
+      console.log(ok(`${bold(project.name)} is a project now (${project.path}). Start a lane in it: cl new "<task>"`));
+      return 0;
+    }
+    case "projects": {
+      const [projects, lanes] = await Promise.all([api<Project[]>("/api/projects"), api<Lane[]>("/api/lanes")]);
+      const open = (id: string) => lanes.filter((l) => l.project === id && !["cleaned", "archived"].includes(l.state)).length;
+      if (values.json) { console.log(JSON.stringify(projects.map((p) => ({ ...p, lanes: open(p.id) })), null, 2)); return 0; }
+      console.log(projects.length ? table(["PROJECT", "LANES", "FOLDER"], projects.map((p) => [p.id, String(open(p.id)), p.path])) : "No projects yet. Inside a repository: cl add");
       return 0;
     }
     case "remove": {
@@ -206,23 +237,35 @@ async function main(argv: string[]): Promise<number> {
     }
     case "arch": {
       const project = rest[0] ?? (await api<Project[]>("/api/projects")).find((p) => process.cwd() === p.path || process.cwd().startsWith(`${p.path}/`))?.id;
-      if (!project) throw new UsageError("Name a project, or run this inside one: contextlanes arch <project>");
+      if (!project) throw new UsageError("Name a project, or run this inside one: cl arch <project>");
       const view = await api<ProjectMap>(`/api/projects/${project}/map`);
       console.log(values.json ? JSON.stringify(view, null, 2) : values.mermaid ? formatMermaid(view) : formatArch(view));
       return view.map ? 0 : 1;
     }
     default:
-      if (values.json) throw new UsageError(`Unknown command: ${cmd}. Run contextlanes help.`);
+      if (values.json) throw new UsageError(`Unknown command: ${cmd}. Run cl help.`);
       console.error(fail(`Unknown command: ${cmd}\n`));
       return usage();
   }
+}
+
+/**
+ * Puts this terminal in the lane's tmux session. "=" makes tmux match the exact name, never cl-shop-010
+ * for cl-shop-01. Already inside tmux, attaching would nest, so this client switches over instead.
+ */
+function openTerminal(lane: Pick<Lane, "id" | "terminal">): number {
+  if (!process.env.TMUX) return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  const switched = spawnSync("tmux", ["switch-client", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  if (switched === 0) { console.log(dim("  Switched this tmux client to the lane. Ctrl-b L switches back.")); return 0; }
+  console.error(fail(`Could not switch to ${lane.terminal} from inside tmux. From a plain shell: cl sh ${lane.id}`));
+  return 1;
 }
 
 /** Colour codes off, for output a program reads. */
 const plain = (text: string) => text.replace(/\u001b\[[0-9;]*m/g, "");
 
 function usage(json = false): number {
-  if (json) throw new UsageError("That command needs more arguments. Run contextlanes help.");
+  if (json) throw new UsageError("That command needs more arguments. Run cl help.");
   console.error(HELP());
   return 2;
 }

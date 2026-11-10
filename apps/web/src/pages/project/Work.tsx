@@ -153,8 +153,8 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
     {lane.state === "failed" ? <FailedNote lane={lane} events={events} /> : null}
 
     {lane.kind === "shell" ? <section className="sec" aria-label="Lane"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
-      <Glyph g="idle">No agent</Glyph><span className="muted" style={{ fontSize: 13 }}>Work in the lane's shell, or run your own agent there.</span>
-      <div className="e"><Cmd>{`contextlanes term ${lane.id}`}</Cmd></div>
+      <Glyph g="idle">No agent</Glyph><span className="muted" style={{ fontSize: 13 }}>This is your own shell, not confined: an agent you start in it runs with your access.</span>
+      <div className="e"><Cmd>{`cl sh ${lane.id}`}</Cmd></div>
     </div></section>
     : <section className="sec" aria-label="Agent"><div className="sec-r" style={{ gap: 14, flexWrap: "wrap" }}>
       <span className="mono" style={{ fontSize: 13 }}>{current?.models.find((m) => m.id === current.currentModel)?.label ?? lane.model ?? `${agent} default`}</span>
@@ -165,15 +165,15 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
         : !session && link ? <Glyph g="think">Waiting for the agent to report in</Glyph> : null}
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         <Glyph g={lane.auto ? "work" : "idle"}>{lane.auto ? "Auto on" : "Auto off"}</Glyph>
-        <Help label="What does Auto approve?">With Auto on, ContextLanes, not the agent, approves each request once. These still wait for you: {DIRE_ACTIONS.join("; ")}. The lane sandbox still hides your tokens. Only you can change it, from the machine: <code>contextlanes lane auto {lane.id} {lane.auto ? "off" : "on"}</code></Help></span>
-      {offline && !link?.starting ? <div className="e"><Cmd note="start it again">{`contextlanes lane restart ${lane.id}`}</Cmd></div> : null}
+        <Help label="What does Auto approve?">With Auto on, ContextLanes, not the agent, approves each request once. These still wait for you: {DIRE_ACTIONS.join("; ")}. The lane sandbox still hides your tokens. Only you can change it, from the machine: <code>cl auto {lane.id} {lane.auto ? "off" : "on"}</code></Help></span>
+      {offline && !link?.starting ? <div className="e"><Cmd note="start it again">{`cl lane restart ${lane.id}`}</Cmd></div> : null}
     </div>{notice ? <div className="sec-f" role="status" style={{ minHeight: 40, fontSize: 13 }}>{notice}</div> : null}</section>}
 
     {error ? <p role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
     <LanePanes lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} />
     {lane.kind !== "shell" && live ? <section className="sec" aria-label="Message the agent"><div className="sec-r" style={{ gap: 10, flexWrap: "wrap" }}>
       <span className="muted" style={{ fontSize: 13 }}>Messages go in from the machine, or type in the lane's own terminal.</span>
-      <div className="e"><Cmd>{`contextlanes send ${lane.id} "<message>"`}</Cmd></div>
+      <div className="e"><Cmd>{`cl say ${lane.id} "<message>"`}</Cmd></div>
     </div></section> : null}
   </>;
 }
@@ -189,6 +189,6 @@ function FailedNote({ lane, events }: { lane: Lane; events: LaneEvent[] }) {
   return <section className="sec" style={{ borderColor: "var(--bad)" }} aria-label="Why this lane failed">
     <div className="sec-h"><Glyph g="fail">Stopped</Glyph><span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", minWidth: 0 }}>{headline}</span></div>
     {text.length > headline.length + 1 ? <details className="sec-b more"><summary>Details</summary><div className="out">{text}</div></details> : null}
-    {lane.kind !== "shell" ? <div className="sec-f"><Cmd note="same branch and checkout">{`contextlanes lane restart ${lane.id}`}</Cmd></div> : null}
+    {lane.kind !== "shell" ? <div className="sec-f"><Cmd note="same branch and checkout">{`cl lane restart ${lane.id}`}</Cmd></div> : null}
   </section>;
 }
