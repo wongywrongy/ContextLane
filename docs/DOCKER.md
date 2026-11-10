@@ -29,6 +29,8 @@ Stack managers that read `/opt/stacks/<name>/compose.yaml` (Dockge and the like)
 | `CONTEXTLANES_PUBLISH` | Where the one port is published. Default `127.0.0.1:4601`. |
 | `CONTEXTLANES_SANDBOX` | `bwrap` (default) or `off`. |
 
+Only what is under those two folders exists inside the container. Run `cl` from anywhere else and it says so and names the folders it can see; widen `CONTEXTLANES_CODE` (for example to your home's `code` folder) and `docker compose up -d` to include more.
+
 The two folders are mounted **at the same path inside the container as outside**. Git worktrees store absolute paths, so this is what keeps a lane's checkout usable from both sides, and every path ContextLanes prints is a real path on the host.
 
 `.env` is read on the first start, which writes `data/config.toml`. After that, change settings in that file and `docker compose restart`.

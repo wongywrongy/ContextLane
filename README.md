@@ -63,6 +63,7 @@ cl projects                      # every project and how many lanes it has
 
 cl claude                        # Claude Code in a new lane of this project (or: cl codex)
 cl new "Add a health check"      # a lane for this project; from anywhere: cl new shop "…"
+cl new "Finish it" --branch feature/x   # work on a branch that already exists, instead of a new one
 cl new "Try the app" --no-agent  # no agent: the checkout, your own shell and the app
 cl ls                            # this machine's open lanes and what they wait on
 
@@ -75,6 +76,8 @@ cl rm 1                          # stop and delete it
 cl inbox                         # what waits on you, and answer it
 cl agent-notes                   # what to put in AGENTS.md so any agent uses this
 ```
+
+**Branches.** By default a lane gets a new branch of its own (`lane/01-add-a-health-check`) from the project's default branch, so several lanes never share one. To have a lane work on a branch you already have, pass `--branch <name>` (or choose it in the menu); it is checked out in the lane's own folder, so it cannot also be open in your main checkout. `--here` skips all of that and works in the current checkout on whatever branch it is on.
 
 A lane started with `cl claude` or `cl codex` runs its agent in the sandbox. A `--no-agent` lane is your own shell: its services are still confined, but anything you start in that shell yourself, another agent included, runs with your access.
 

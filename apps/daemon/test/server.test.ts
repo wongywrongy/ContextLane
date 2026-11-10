@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { buildServer, Config, EventBus, HostLinks, LaneManager, Store, type Runner } from "@contextlanes/daemon";
 
-function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[]; units?: string[]; hold?: Promise<void>; inactive?: boolean } = {}) {
+function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; sessions?: string[]; units?: string[]; hold?: Promise<void>; inactive?: boolean; missing?: string[]; worktrees?: string } = {}) {
   const calls: string[] = [];
   const run: Runner = async (cmd, args) => {
     calls.push([cmd, ...args].join(" "));
@@ -13,6 +13,8 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
     if (cmd === "git" && args[0] === "branch" && opts.taken?.includes(args[2]!)) return { stdout: `  ${args[2]}\n` };
     if (cmd === "tmux" && args[0] === "list-sessions") return { stdout: (opts.sessions ?? []).join("\n") };
     if (cmd === "systemctl" && args[1] === "list-units") return { stdout: (opts.units ?? []).map((u) => `${u}.service loaded failed failed lane host\n`).join("") };
+    if (cmd === "git" && args[0] === "rev-parse" && opts.missing?.some((ref) => args.at(-1) === ref)) throw new Error("unknown ref");
+    if (cmd === "git" && args[0] === "worktree" && args[1] === "list") return { stdout: opts.worktrees ?? "" };
     if (opts.fail && cmd === "git") throw new Error("not a git repository");
     return { stdout: "" };
   };
@@ -30,6 +32,40 @@ describe("http api", () => {
     const { app } = setup();
     const res = await app.inject({ url: "/api/health" });
     expect(res.json()).toMatchObject({ ok: true, version: "test" });
+  });
+
+  it("works on an existing branch when asked, instead of making a lane branch", async () => {
+    const { app, calls } = setup();
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop", name: "Shop" } });
+    const res = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "shell", project: "shop", task: "Finish the flow", branch: "feature/flow" } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ branch: "feature/flow", state: "working" });
+    const add = calls.find((c) => c.startsWith("git worktree add"))!;
+    expect(add).toMatch(/^git worktree add \S+ feature\/flow$/);
+    expect(add).not.toContain(" -b ");
+    // Deleting the lane never deletes a branch it did not make.
+    const refused = await app.inject({ method: "POST", url: "/api/lanes/shop/01/discard", payload: { deleteBranch: true } });
+    expect(refused.json()).toMatchObject({ code: "own_branch" });
+    expect(calls.some((c) => c.startsWith("git branch -D"))).toBe(false);
+  });
+
+  it("tracks a branch that exists only on origin", async () => {
+    const { app, calls } = setup({ missing: ["refs/heads/pr-12"] });
+    await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop", name: "Shop" } });
+    expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "shell", project: "shop", task: "Review it", branch: "pr-12" } })).statusCode).toBe(201);
+    expect(calls.find((c) => c.startsWith("git worktree add"))).toMatch(/^git worktree add --track -b pr-12 \S+ origin\/pr-12$/);
+  });
+
+  it("refuses a branch that does not exist or is open somewhere else, before creating anything", async () => {
+    const none = setup({ missing: ["refs/heads/nope", "refs/remotes/origin/nope"] });
+    await none.app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop", name: "Shop" } });
+    expect((await none.app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "shell", project: "shop", task: "x", branch: "nope" } })).json()).toMatchObject({ code: "no_branch" });
+    const busy = setup({ worktrees: "worktree /code/shop\nHEAD abc\nbranch refs/heads/main\n\nworktree /lanes/shop/01\nHEAD def\nbranch refs/heads/feature/flow\n" });
+    await busy.app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/shop", name: "Shop" } });
+    const reply = await busy.app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "shell", project: "shop", task: "x", branch: "feature/flow" } });
+    expect(reply.statusCode).toBe(409);
+    expect(reply.json()).toMatchObject({ code: "branch_in_use", error: expect.stringContaining("/lanes/shop/01") });
+    for (const f of [none, busy]) { expect(f.store.listLanes("shop")).toEqual([]); expect(f.calls.some((c) => c.startsWith("git worktree add"))).toBe(false); }
   });
 
   it("starts a lane: worktree, terminal, then working", async () => {

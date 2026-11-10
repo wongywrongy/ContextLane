@@ -236,6 +236,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (review.working(lane.id)) throw new Refused("This lane is being merged right now. Wait for approve to finish or fail, then delete it.", 409);
     if (lane.state === "archived" && !(await discardPreview(lane.id)).present) throw new Refused("This lane is already deleted.", 409);
     const { deleteBranch } = DiscardLane.parse(req.body ?? {});
+    // Only a branch the lane made is ever deleted with it. One the owner pointed the lane at is theirs.
+    if (deleteBranch && !lane.direct && !lane.branch.startsWith("lane/")) throw new Refused(`${lane.branch} is your own branch, not one this lane made, so it is kept. Delete the lane without deleting the branch.`, 400, "own_branch");
     const repo = store.getProject(lane.project)!.path;
     await runtime.stop(lane.id).catch(() => {});
     if (await access(lane.worktree).then(() => true, () => false)) await runtime.teardown(lane.id);

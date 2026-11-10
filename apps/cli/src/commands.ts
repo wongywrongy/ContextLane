@@ -8,7 +8,7 @@ import { benchTable, type DoctorReport, type BenchResult, type Health, type Inbo
 import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError, UsageError } from "./client.js";
 import { laneCommand } from "./lane.js";
-import { expandShort } from "./short.js";
+import { expandShort, unmounted } from "./short.js";
 import { canAsk, fillIn, session } from "./interactive.js";
 import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid, table } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
@@ -25,8 +25,9 @@ ${bold("Projects")}
   cl remove <project>             stop tracking one (the folder is untouched)
 
 ${bold("Lanes")} ${dim("— inside a project folder the project is implied, and a lane is just its number")}
-  cl new "<task>"                 start a lane in this project  ${dim("[--agent id] [--model m] [--base branch]")}
-                                  ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout")}
+  cl new "<task>"                 start a lane in this project, on a new branch  ${dim("[--agent id] [--model m]")}
+                                  ${dim("--branch <name>: work on an existing branch instead   --base <name>: start the new branch from it")}
+                                  ${dim("--here: in the current checkout, on its branch   --no-agent: just the checkout, terminal and app")}
   cl new <project> "<task>"       start a lane in another project
   cl claude [args…]               start Claude Code in a new lane and attach  ${dim("(or: cl codex)")}
   cl ls [project] [--all]         open lanes, their state and what they wait on (--all: deleted ones too)
@@ -116,7 +117,7 @@ async function run(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, all: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
+    options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, branch: { type: "string" }, json: { type: "boolean" }, all: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
       lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" }, "no-agent": { type: "boolean" }, here: { type: "boolean" } },
   });
   const [cmd, ...rest] = positionals;
@@ -155,9 +156,10 @@ async function run(argv: string[]): Promise<number> {
       if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage(values.json);
       if (values["no-agent"] && (values.agent || values.model)) throw new UsageError("--no-agent starts a lane without an agent; leave out --agent and --model.");
       const project = rest[1] === "." ? (await addProject()).id : rest[1];
+      if (values.branch && values.here) throw new UsageError("--here works in the current checkout on its branch; leave out --branch.");
       const base = values.here ? undefined : values.base ?? (await api<ProjectBranches>(`/api/projects/${project}/branches`)).defaultBranch ?? undefined;
       const kind = values["no-agent"] ? "shell" : undefined;
-      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project, task: rest[2], ...(kind ? { kind } : { agent: values.agent, model: values.model }), direct: !!values.here, ...(base ? { base } : {}) } });
+      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project, task: rest[2], ...(kind ? { kind } : { agent: values.agent, model: values.model }), direct: !!values.here, ...(base ? { base } : {}), ...(values.branch ? { branch: values.branch } : {}) } });
       if (values.json) { console.log(JSON.stringify(lane, null, 2)); return lane.state === "failed" ? 1 : 0; }
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
       console.log(dim(`  Watch it in the browser. Open its shell: cl sh ${lane.id}`));
@@ -199,6 +201,7 @@ async function run(argv: string[]): Promise<number> {
       console.log(values.json ? JSON.stringify(await setupLink(), null, 2) : await setupOutput());
       return 0;
     case "add": {
+      if (!rest[0] && unmounted(process.env)) throw new UsageError(unmounted(process.env)!);
       const project = await addProject(rest[0]);
       if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
       console.log(ok(`${bold(project.name)} is a project now (${project.path}). Start a lane in it: cl new "<task>"`));
