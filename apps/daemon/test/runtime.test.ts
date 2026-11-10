@@ -297,3 +297,29 @@ describe("lane URLs in the environment", () => {
     expect(vars.VITE_API).toBe("$LANE_URL_API");
   });
 });
+
+describe("what the CLI asks of an environment", () => {
+  it("restarts only the services named, and says why a link is not ready", async () => {
+    const { runtime, calls, approve, app } = await setup({ previews: {} });
+    await approve();
+    await runtime.start("shop/01");
+    const before = started(calls).length;
+    const env = await runtime.restart("shop/01", ["web"]);
+    const again = started(calls).slice(before);
+    expect(again).toHaveLength(1);
+    expect(again[0]!.join(" ")).toContain("vite");
+    expect(env.services.find((s) => s.name === "api")!.state).toBe("healthy");
+    const url = await app.inject({ url: "/api/lanes/shop/01/url?service=web" });
+    expect(url.json()).toEqual({ service: "web", url: "http://web-01-shop.localhost:4601" });
+    await runtime.stop("shop/01");
+    const stopped = await app.inject({ url: "/api/lanes/shop/01/url?service=web" });
+    expect(stopped.statusCode).toBe(409);
+    expect(stopped.json().error).toMatch(/no working link yet \(it is stopped\)/);
+  });
+
+  it("names the reason when only the owner can help", async () => {
+    const { app } = await setup();
+    const res = await app.inject({ method: "POST", url: "/api/lanes/shop/01/env/start", payload: {} });
+    expect(res.json()).toMatchObject({ code: "recipe_unapproved" });
+  });
+});

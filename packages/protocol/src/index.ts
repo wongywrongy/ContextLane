@@ -16,3 +16,4 @@ export * from "./agents.js";
 export * from "./guard.js";
 export * from "./hooks.js";
 export * from "./testcmd.js";
+export * from "./agent-notes.js";

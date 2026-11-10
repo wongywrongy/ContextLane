@@ -2,7 +2,24 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
-export class ClientError extends Error {}
+/**
+ * A failure the CLI reports and exits on. exit follows the contract every command keeps: 1 the action
+ * failed, 2 wrong usage, 3 ContextLanes not reachable, 4 waiting on the owner.
+ */
+export class ClientError extends Error {
+  readonly exit: number;
+  readonly code: string;
+  constructor(message: string, opts: { exit?: number; code?: string } = {}) {
+    super(message);
+    this.exit = opts.exit ?? 1;
+    this.code = opts.code ?? "failed";
+  }
+}
+export class UsageError extends ClientError {
+  constructor(message: string) { super(message, { exit: 2, code: "usage" }); }
+}
+/** Reasons the daemon gives that only the owner can resolve. */
+const OWNER_CODES = new Set(["recipe_unapproved"]);
 
 /** Thin client for the daemon API. On the machine it talks to loopback; elsewhere set CONTEXTLANES_URL. */
 export function daemonUrl(): string {
@@ -30,7 +47,7 @@ export function shellToken(): Promise<string | undefined> {
     const { proof } = await api<{ proof?: string }>("/api/setup/prove", { method: "POST", body: { nonce } }).catch(() => ({ proof: undefined }));
     const expected = createHmac("sha256", token).update(`contextlanes-cli:${nonce}`).digest("base64url");
     if (!proof || proof.length !== expected.length || !timingSafeEqual(Buffer.from(proof), Buffer.from(expected)))
-      throw new ClientError(`Something other than ContextLanes is answering on ${daemonUrl()}, or ContextLanes is older than this command. Restart it (systemctl --user restart contextlanes); if this repeats, stop whatever else uses that port.`);
+      throw new ClientError(`Something other than ContextLanes is answering on ${daemonUrl()}, or ContextLanes is older than this command. Restart it (systemctl --user restart contextlanes); if this repeats, stop whatever else uses that port.`, { exit: 3, code: "unreachable" });
     return token;
   })();
 }
@@ -41,8 +58,13 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
     method: init?.method ?? "GET",
     headers: { ...(init?.body ? { "content-type": "application/json" } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: init?.body ? JSON.stringify(init.body) : null,
-  }).catch(() => { throw new ClientError("The daemon could not be reached; start ContextLanes and try again."); });
-  const data = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new ClientError(data.error ?? `${res.status} ${res.statusText}`);
-  return data;
+  }).catch(() => { throw new ClientError(`ContextLanes is not answering at ${daemonUrl()}; start it and try again.`, { exit: 3, code: "unreachable" }); });
+  const text = await res.text();
+  let data: (T & { error?: string; code?: string }) | null = null;
+  try { data = JSON.parse(text) as T & { error?: string; code?: string }; } catch { /* not JSON */ }
+  if (!res.ok) {
+    const code = data?.code ?? (res.status === 401 ? "unauthorized" : res.status === 404 ? "not_found" : "failed");
+    throw new ClientError(data?.error ?? `${res.status} ${res.statusText}`, { exit: OWNER_CODES.has(code) ? 4 : 1, code });
+  }
+  return data as T;
 }

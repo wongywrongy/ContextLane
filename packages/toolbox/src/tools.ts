@@ -16,6 +16,21 @@ export const TOOLS = {
     description: "Start this lane's services from the approved recipe.",
     input: z.object({ services: z.array(z.string()).optional() }),
   },
+  env_stop: {
+    phase: 2,
+    description: "Stop this lane's services.",
+    input: z.object({}),
+  },
+  env_restart: {
+    phase: 2,
+    description: "Restart this lane's services, or only the ones named, and wait until they are healthy.",
+    input: z.object({ services: z.array(z.string()).optional() }),
+  },
+  recipe_status: {
+    phase: 2,
+    description: "This lane's recipe (.contextlanes.json): its services, its hash and whether the owner has approved it. Services start only from an approved recipe.",
+    input: z.object({}),
+  },
   get_logs: {
     phase: 2,
     description: "Recent log lines for one of this lane's services.",
@@ -78,4 +93,4 @@ export const TOOL_NAMES = Object.keys(TOOLS) as ToolName[];
  * Tools agents are given today. A tool joins this list only when its daemon route works; until
  * then agents never see it, so they do not spend tokens on a tool that answers "not available yet".
  */
-export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status", "lanes_list", "lane_status", "lane_start", "lane_send"];
+export const LIVE_TOOLS: ToolName[] = ["ask_owner", "env_status", "env_start", "env_stop", "env_restart", "recipe_status", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status", "lanes_list", "lane_status", "lane_start", "lane_send"];

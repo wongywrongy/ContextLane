@@ -1,11 +1,11 @@
 import { copyFile, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "smol-toml";
 import { z } from "zod";
-import { SafeMode, type Lane } from "@contextlanes/protocol";
+import { AGENT_NOTES, SafeMode, type Lane } from "@contextlanes/protocol";
 import type { Config } from "../config.js";
 import type { Runner } from "../run.js";
 import { sandbox } from "../sandbox.js";
@@ -91,6 +91,40 @@ export function cliArgs(lane: Lane, prompt: string, extra?: string[], resume = f
     ...(lane.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(lane.effort)}`] : []), ...(extra ?? (resume ? [] : ["--", prompt]))];
 }
 
+/**
+ * The sandbox hides ContextLanes' data folder, and the installed `contextlanes` in ~/.local/bin runs from
+ * there (through `current`). So each lane gets its own wrapper, in the lane's data directory (which the
+ * sandbox shows read-only), pointing at this release's CLI by its real path, first on the agent's PATH.
+ */
+export async function laneCommandDir(dir: string, node = process.execPath, cli = releaseCli()): Promise<string> {
+  const bin = join(dir, "bin");
+  await mkdir(bin, { recursive: true, mode: 0o700 });
+  const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+  await writeFile(join(bin, "contextlanes"), `#!/bin/sh\nexec ${quote(node)} ${quote(cli)} "$@"\n`, { mode: 0o755 });
+  return bin;
+}
+
+function releaseCli(): string {
+  const path = fileURLToPath(new URL("../../../cli/dist/main.js", import.meta.url));
+  try { return realpathSync(path); } catch { return path; }
+}
+
+/**
+ * Tells the agent about the contextlanes command, whether the lane starts with a prompt or interactively.
+ * Claude Code: appended to its system prompt. Codex: its global instructions file in the lane's own
+ * CODEX_HOME (AGENTS.override.md when the owner has one, since Codex then ignores AGENTS.md).
+ */
+export async function wireNotes(agent: string, dir: string, baseline: boolean): Promise<string[]> {
+  if (baseline) return [];
+  if (agent === "claude-code") return ["--append-system-prompt", AGENT_NOTES];
+  const home = join(dir, "agent");
+  const override = join(home, "AGENTS.override.md");
+  const file = await readFile(override, "utf8").then(() => override, () => join(home, "AGENTS.md"));
+  const current = await readFile(file, "utf8").catch(() => "");
+  if (!current.includes(AGENT_NOTES)) await writeFile(file, `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${AGENT_NOTES}\n`, { mode: 0o600 });
+  return [];
+}
+
 /** tmux executes multiple arguments directly. The private descriptor keeps the token out of ps. */
 export async function launchCli(lane: Lane, config: Config, run: Runner, token: string, prompt: string, extra?: string[], resume = false, baseline = false): Promise<void> {
   const dir = join(config.paths.data, "cli", lane.id.replace("/", "-"));
@@ -108,9 +142,11 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
   await writeFile(task, prompt, { mode: 0o600 });
   const first = Buffer.byteLength(prompt) > 64_000 ? `Read ${task} for your task, then carry it out.` : prompt;
   const prefix = sandbox(config, { laneData: dir, agentHome: join(dir, "agent") });
-  const env = { ...home, PATH: `${process.env.PATH ?? "/usr/bin:/bin"}:${join(homedir(), ".local/bin")}`, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}`, CONTEXTLANES_LANE_TOKEN: token };
+  const bin = await laneCommandDir(dir);
+  const env = { ...home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}:${join(homedir(), ".local/bin")}`, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}`, CONTEXTLANES_LANE_TOKEN: token };
   const mcp = await wireToolbox(lane, config, dir, baseline, run, prefix, env);
-  await writeFile(file, JSON.stringify({ command: prefix[0], args: [...prefix.slice(1), lane.agent === "claude-code" ? "claude" : "codex", ...hooks, ...mcp, ...cliArgs(lane, first, extra, resume)],
+  const notes = await wireNotes(lane.agent, dir, baseline);
+  await writeFile(file, JSON.stringify({ command: prefix[0], args: [...prefix.slice(1), lane.agent === "claude-code" ? "claude" : "codex", ...hooks, ...mcp, ...notes, ...cliArgs(lane, first, extra, resume)],
     env }), { mode: 0o600 });
   await run("tmux", ["set-option", "-w", "-t", `=${lane.terminal}:`, "remain-on-exit", "on"]);
   await run("tmux", ["respawn-pane", "-k", "-t", `=${lane.terminal}:`, "-c", lane.worktree, process.execPath, fileURLToPath(new URL("../../bin/cli-agent.mjs", import.meta.url)), file]);
