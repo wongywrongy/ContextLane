@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { signedIn } from "./signed-in.js";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +16,7 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
     if (opts.fail && cmd === "git") throw new Error("not a git repository");
     return { stdout: "" };
   };
-  const config = Config.parse({ paths: { data: "/tmp/cl-test", lanes: "/tmp/cl-test/lanes" }, access: { owner: opts.owner ?? null } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: "/tmp/cl-test", lanes: "/tmp/cl-test/lanes" }, access: { owner: opts.owner ?? null } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });

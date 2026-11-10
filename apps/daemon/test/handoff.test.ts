@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ async function fixture(connected = true) {
   store.addProject({ id: "shop", name: "Shop", path: repo });
   const calls: string[][] = [];
   const run: Runner = async (cmd, args, opts) => { if (cmd === "git") return runCommand(cmd, args, opts); calls.push([cmd, ...args]); return { stdout: "" }; };
-  const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const lanes = new LaneManager({ store, bus, config, run });
   const lane = await lanes.start({ kind: "acp", project: "shop", task: "Billing", agent: "claude-code", base: "main" });
   const hosts = { command: (id: string, c: { kind: string }) => {

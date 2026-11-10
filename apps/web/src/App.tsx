@@ -1,4 +1,4 @@
-import { READY } from "./features";
+import { Gate } from "./features";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { SetupPage, ClaimGuard } from "./pages/Setup";
 import { SettingsPage, ModelsPage } from "./pages/Settings";
@@ -27,10 +27,10 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="work" replace /> },
           { path: "work", element: <WorkPage /> },
-          { path: "review", element: <ReviewPage /> },
+          { path: "review", element: <Gate feature="review"><ReviewPage /></Gate> },
           { path: "run", element: <RunPage /> },
-          { path: "architecture", element: READY.architecture ? <ArchitecturePage /> : <Navigate to="../work" replace /> },
-          { path: "insights", element: READY.insights ? <InsightsPage /> : <Navigate to="../work" replace /> },
+          { path: "architecture", element: <Gate feature="architecture"><ArchitecturePage /></Gate> },
+          { path: "insights", element: <Gate feature="insights"><InsightsPage /></Gate> },
         ],
       },
     ],

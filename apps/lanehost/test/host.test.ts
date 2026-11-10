@@ -67,7 +67,7 @@ it("retains an ACP permission and replays commands after the daemon socket resta
   let hosts = new HostLinks({ store, bus });
   let app: ReturnType<typeof buildServer>;
   const run: Runner = async () => ({ stdout: "" });
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: { acp: true }, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const lanes = new LaneManager({ store, bus, config, run });
   const session = `Bearer ${store.ownerSession()}`;
   const makeServer = () => buildServer({ store, bus, lanes, config, hosts, run, version: "test" });

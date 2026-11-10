@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AgentSpec, NotificationConfig, Passkey, LocalModel, AddProjectRequest, RoutingRule, Schedule } from "@contextlanes/protocol";
+import { AgentSpec, FEATURE_NAMES, NotificationConfig, Passkey, LocalModel, AddProjectRequest, RoutingRule, Schedule, type Feature } from "@contextlanes/protocol";
 import { parse, stringify } from "smol-toml";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -64,6 +64,8 @@ export const Config = z.object({
    * the daemon; `app` is a non-admin login that owns each copy and is what lane services get.
    */
   databases: z.object({ postgres: z.object({ admin: z.string().regex(/^postgres(ql)?:\/\//), app: z.string().regex(/^postgres(ql)?:\/\//) }).optional() }).prefault({}),
+  /** Everything outside the core is off until turned on here (see FEATURES in @contextlanes/protocol). */
+  features: z.object(Object.fromEntries(FEATURE_NAMES.map((f) => [f, z.boolean().default(false)])) as Record<Feature, z.ZodDefault<z.ZodBoolean>>).prefault({}),
   lanes: z.object({
     maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),

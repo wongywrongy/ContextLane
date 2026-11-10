@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { signedIn } from "./signed-in.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,7 +25,7 @@ async function setup(git: Git = {}, recipe: unknown = { checks: [{ name: "Tests"
     if (cmd === "systemd-run" && args.includes("--wait") && state.checkFails) throw Object.assign(new Error("exit 1"), { stdout: "2 failed\n" });
     return { stdout: "" };
   };
-  const config = Config.parse({ paths: { data: root, lanes: root } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: root } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const runtime = new Runtime({ store, bus, config, run });

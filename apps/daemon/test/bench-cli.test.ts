@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -13,7 +14,7 @@ it("runs contextlanes bench end to end through fake native CLI launches, hooks, 
   const root = await mkdtemp("/tmp/cl-bench-cli-");
   const source = join(root, "source"); await mkdir(source);
   vi.stubEnv("CLAUDE_CONFIG_DIR", source); vi.stubEnv("CODEX_HOME", source); vi.stubEnv("CONTEXTLANES_CONFIG", join(root, "config", "config.toml"));
-  const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, access: { shellOwner: "fixture" } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, access: { shellOwner: "fixture" } });
   const store = Store.open(":memory:"), bus = new EventBus();
   store.addProject({ id: "demo", name: "Demo", path: root });
   const launches: { agent: string; baseline: boolean; base: string | null; model: string | null }[] = [];

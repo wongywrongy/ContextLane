@@ -40,7 +40,9 @@ async function main(): Promise<void> {
   // shortcut: releases before migration 8 kept the socket in the data folder; drop this once none remain.
   rmSync(join(config.paths.data, "lanes.sock"), { force: true });
   mkdirSync(dirname(socketPath(config)), { recursive: true, mode: 0o700 });
-  await hosts.listen(socketPath(config));
+  // Lane hosts are ACP; the socket also stays up while ACP lanes from before the feature was turned off are open.
+  const acpLanes = store.listLanes().some((l) => l.kind === "acp" && !["cleaned", "archived", "merged", "failed"].includes(l.state));
+  if (config.features.acp || acpLanes) await hosts.listen(socketPath(config));
   // Every git and gh the daemon runs goes through the lane sandbox (see confineGit).
   const run = confineGit(runCommand, config);
   const lanes = new LaneManager({ store, bus, config, run });
@@ -54,7 +56,7 @@ async function main(): Promise<void> {
   const collisions = new Collisions({ store, bus, codemaps, hosts });
   // Timers call the CLI of the running install, through `current` when this is a managed install.
   const cli = join(layout.managed && await exists(layout.current) ? layout.current : root, "apps/cli/dist/main.js");
-  const schedules = new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli });
+  const schedules = config.features.schedules ? new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli }) : undefined;
   for (const line of await recover({ store, bus, config, run }).catch((err) => { console.error("Startup recovery failed:", err); return []; })) console.log(`Recovered: ${line}`);
   const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
@@ -66,8 +68,8 @@ async function main(): Promise<void> {
   await app.listen({ host: config.listen.host, port: config.listen.port });
   notifier.start();
   runtime.watch();
-  collisions.start();
-  insights.start();
+  if (config.features.architecture) collisions.start();
+  if (config.features.insights) insights.start();
   // Hosts that died quietly (out of memory, a reboot) fail their lane; the first pass waits for reconnects.
   let sweeping = false;
   const sweep = setInterval(() => {

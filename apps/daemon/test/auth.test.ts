@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { describe, expect, it } from "vitest";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,7 +11,7 @@ const FORGED = { "tailscale-user-login": "kyle@example.com", host: "neo.test.ts.
 async function fixture() {
   const data = await mkdtemp(join(tmpdir(), "cl-auth-"));
   await writeFile(join(data, "setup-token"), "shell-secret");
-  const config = Config.parse({ paths: { data, lanes: join(data, "lanes") }, access: { owner: "kyle@example.com" } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data, lanes: join(data, "lanes") }, access: { owner: "kyle@example.com" } });
   const run: Runner = async () => ({ stdout: "" });
   const store = Store.open(":memory:"); const bus = new EventBus();
   const lanes = new LaneManager({ store, bus, config, run });
@@ -105,7 +106,7 @@ describe("who a request is from", () => {
 });
 
 describe("what a lane process gets", () => {
-  const config = Config.parse({ paths: { data: "/home/k/.local/share/contextlanes", lanes: "/home/k/lanes" } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: "/home/k/.local/share/contextlanes", lanes: "/home/k/lanes" } });
   const lane = { id: "shop/01", worktree: "/home/k/lanes/x", task: "t", agent: "claude-code", mode: "ask", model: null, hostUnit: "u" } as never;
 
   it("hides the data folder but keeps the release the lane host runs from", () => {

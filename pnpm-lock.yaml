@@ -45,6 +45,9 @@ importers:
       '@contextlanes/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@contextlanes/toolbox':
+        specifier: workspace:*
+        version: link:../../packages/toolbox
       '@fastify/websocket':
         specifier: 11.3.4
         version: 11.3.4
