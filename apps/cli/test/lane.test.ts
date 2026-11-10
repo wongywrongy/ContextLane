@@ -186,3 +186,10 @@ describe("exit codes from the daemon's answers", () => {
     await expect(api("/x", { token: "t" })).rejects.toMatchObject({ exit: 3, code: "unreachable" });
   });
 });
+
+describe("the README", () => {
+  it("carries the same agent notes the CLI prints", async () => {
+    const { readFile } = await import("node:fs/promises");
+    expect(await readFile(new URL("../../../README.md", import.meta.url), "utf8")).toContain(AGENT_NOTES);
+  });
+});

@@ -1,6 +1,35 @@
 # ContextLanes — implementation plan
 
-## Needs Kyle
+## v3 (2026-11-10)
+
+ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why, and the plan in the Rootlane project (`claude/contextlanes-v3-plan.md`). Built in eight stacked pull requests:
+
+| Phase | What | Evidence |
+|---|---|---|
+| 1 Preview router | One router port for previews and the web app; `[previews] domain`, `bind`; Caddy and Services modes removed; labels keep the lane number; routes rebuilt at start | Router tests (HTTP, 10 MB body, streaming, WebSocket, forged Host); the web app through a TLS proxy standing in for NPM |
+| 2 Service URLs | `LANE_URL`, `LANE_HOSTNAME`, per-service variables, expanded in env values; Vite's allowed-hosts variable | A real Vite 7 dev server through the router on a domain: page and HMR work, and are blocked without the variable |
+| 3 Agent CLI | `env`, `logs`, `url`, `recipe`, `lane rm`, `agent-notes`; `--json` and exit codes; lane-token scope; in-lane wrapper; notes by system prompt or `AGENTS.md` | CLI under real bubblewrap reaches a daemon with only the lane token |
+| 4 Shell lanes | `--no-agent`, `--here --no-agent` | Real daemon: lane start, unapproved recipe (exit 4), approve, start, link, logs |
+| 5 Features | Ten `[features]` flags, off by default; web hides what is off | Every gated route refused; core tool list; judge and nudges do not start |
+| 6 Drivers | systemd and process supervisors; `[sandbox] mode = "off"`; `contextlanes daemon`; install without systemd; macOS in CI | Contract tests on real processes; real daemon re-adopts a service across a restart and restarts it when it dies |
+| 7 Doctor | `contextlanes doctor`, `/api/doctor`, Settings → Health check; the chain through the proxy | Each failing hop classified; live run names missing DNS |
+| 8 Docs | README, PROXY.md, V3.md, ARCHITECTURE.md, this section, AGENTS.md | |
+
+### Needs Kyle
+
+1. Create the wildcard DNS record `*.root.avlis.dev` pointing at neo.
+2. Add one wildcard proxy host in Nginx Proxy Manager: `*.root.avlis.dev` → the router port (4601), WebSockets on, a DNS-challenge certificate ([PROXY.md](PROXY.md)). If NPM runs in Docker, set `[previews] bind` to the Docker bridge address.
+3. Set `[previews] domain = "root.avlis.dev"`, restart, run `contextlanes doctor`.
+4. Open `https://lanes.root.avlis.dev`, sign in with a fresh `contextlanes setup` link, start a lane on a real project, open its link from a phone and a laptop, edit a file and see hot reload.
+5. Start `contextlanes claude` and ask the agent to start the environment and load its own link.
+6. Lanes started before v3 with ACP keep their host socket while they are open; turn on `[features] acp = true` to start new ones.
+7. CI: the last runs on `main` failed in `codemap.test.ts` under Node 24 ("The code map could not be built"), which this work did not touch and which passes on Node 22 here. The v3 pull requests did not start CI runs at all; check Actions settings.
+
+Everything below is the v1 and v2 history, kept as it was. Where it describes previews (Serve ports, Caddy, Services) or a mandatory systemd and bubblewrap, v3 replaces it.
+
+## History: v1 and v2 notes
+
+
 
 - **Board for Scheduled lanes:** they live in Settings with existing classes because no board shows them. Design one if they should look different.
 - **The phase 3 gate (30% fewer cloud tokens):** with a local model serving, write 3 to 5 tasks typical of your week for one of your repositories into a `tasks.json` and run `contextlanes bench tasks.json`, answering the lanes' questions as they come. Paste the table it prints under 3.9. Each task runs twice, so it costs about twice its usual tokens.
