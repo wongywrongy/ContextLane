@@ -24,25 +24,29 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const [settings] = useJson<SetupSettings>("/api/setup/settings");
   const rule = !chosenAgent ? routeTask(settings?.routing ?? [], task) : null;
   const routed = rule && ready.some((a) => a.id === rule.agent) ? rule : null;
-  const agent = ready.find((a) => a.id === (chosenAgent || routed?.agent)) ?? ready[0];
+  // "none": a shell lane, with the checkout, a terminal and the app but no agent of ours.
+  const noAgent = chosenAgent === "none";
+  const agent = noAgent ? undefined : ready.find((a) => a.id === (chosenAgent || routed?.agent)) ?? ready[0];
   const [branches, branchError] = useJson<ProjectBranches>(project ? `/api/projects/${project.id}/branches` : null);
   const base = chosenBase && chosenBase.project === project?.id && branches?.branches.includes(chosenBase.branch) ? chosenBase.branch : branches?.defaultBranch ?? "";
   const [lanes] = useJson<Lane[]>(project ? `/api/projects/${project.id}/lanes` : null);
   const goals = [...new Set((lanes ?? []).flatMap((l) => l.goal ? [l.goal] : []))];
   const navigate = useNavigate();
   const blocked = !agents ? "Checking agents…"
-    : !ready.length ? "No agent is ready. Install or sign in to one under Models."
+    : !ready.length && !noAgent ? "No agent is ready. Install or sign in to one under Models, or choose No agent."
     : branchError ? "Branches could not be read for this repository."
     : branches && !branches.branches.length ? "This repository has no commits. Make a first commit, then start a lane." : "";
   // A whole plan is fine as the task: lists, the branch and the header use a short title, editable here.
   const long = task.trim().length > 80 || task.trim().includes("\n");
   const [title, setTitle] = useState<string | null>(null);
   const shownTitle = title ?? laneTitle(task);
-  const canStart = !!project && !!agent && !!base && !!task.trim() && (!long || !!shownTitle.trim()) && !blocked && !busy;
+  const canStart = !!project && (!!agent || noAgent) && !!base && !!task.trim() && (!long || !!shownTitle.trim()) && !blocked && !busy;
   const start = async () => {
     setBusy(true); setError("");
     try {
-      const lane = await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? kind : "acp", remoteControl: agent!.id === "claude-code" && kind === "cli" && remoteControl, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+      const lane = noAgent
+        ? await postJson<Lane>("/api/lanes", { project: project!.id, kind: "shell", base, task: task.trim(), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}) })
+        : await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? kind : "acp", remoteControl: agent!.id === "claude-code" && kind === "cli" && remoteControl, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -50,7 +54,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const fields = <div className="form">
     <div className="two">
       <label className="field">Project<select className="in" aria-label="Project" value={project?.id ?? ""} disabled={!!adoption} onChange={(e) => setProject(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <label className="field">Agent<select className="in" aria-label="Agent" value={agent?.id ?? ""} disabled={!ready.length} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}</select>{routed && agent?.id === routed.agent ? <span className="hint">picked by your routing rule{routed.model ? ` · ${routed.model}` : ""}</span> : null}</label>
+      <label className="field">Agent<select className="in" aria-label="Agent" value={noAgent ? "none" : agent?.id ?? ""} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}<option value="none">No agent · checkout, terminal and app</option></select>{routed && agent?.id === routed.agent ? <span className="hint">picked by your routing rule{routed.model ? ` · ${routed.model}` : ""}</span> : null}</label>
     </div>
     {["claude-code", "codex"].includes(agent?.id ?? "") ? <label className="field">Session<select className="in" aria-label="Session" value={kind} onChange={(e) => setKind(e.target.value as "cli" | "acp")}><option value="cli">Terminal</option><option value="acp">ACP</option></select></label> : null}
     {agent?.id === "claude-code" && kind === "cli" ? <label className="field"><span><input type="checkbox" checked={remoteControl} onChange={(e) => setRemoteControl(e.target.checked)} /> Claude Remote Control</span><span className="hint">Also connect the official Claude app</span></label> : null}
@@ -58,13 +62,13 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>
       <label className="field">Goal <span className="hint">optional · groups lanes</span><input className="in" list="lane-goals" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="For example: Billing v1" /><datalist id="lane-goals">{goals.map((g) => <option key={g} value={g} />)}</datalist></label>
     </div>
-    <div className="two">
+    {noAgent ? null : <div className="two">
       <div className="field">Permissions <span className="hint">{mode === "auto" ? "approves everything except dire actions, which wait for you" : "what the agent may do without asking"}</span>
         <div className="seg" role="group" aria-label="Permissions">{([["ask", "Ask first"], ["edits", "Edit the checkout"], ["plan", "Plan only"], ["auto", "Auto"]] as const).map(([id, label]) =>
           <button type="button" key={id} className={mode === id ? "on" : ""} aria-pressed={mode === id} onClick={() => setMode(id)}>{label}</button>)}</div></div>
       <label className="field">Effort <span className="hint">how hard it thinks, where the agent offers it</span><select className="in" aria-label="Effort" value={effort} onChange={(e) => setEffort(e.target.value as typeof effort)}>
         <option value="">Agent default</option><option value="low">Low · faster, cheaper</option><option value="medium">Medium</option><option value="high">High · slower, deeper</option></select></label>
-    </div>
+    </div>}
     <label className="field">Task <span className="hint">one line, or a whole plan in markdown; the agent gets all of it</span><textarea className="in" rows={long ? 10 : 4} value={task} onChange={(e) => setTask(e.target.value)} placeholder="For example: add a /health endpoint with a test" /></label>
     {long ? <label className="field">Title <span className="hint">what lists, the branch name and the lane header show</span><input className="in" value={shownTitle} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></label> : null}
     {adoption ? <div><p>The outside copy keeps running. This lane proposes its own recipe for you to approve.</p><pre className="out">{JSON.stringify({ command: adoption.command, port: adoption.port, folder: adoption.cwd }, null, 2)}</pre></div> : null}

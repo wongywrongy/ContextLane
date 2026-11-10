@@ -24,7 +24,8 @@ ${bold("Lanes")}
   contextlanes send <lane> "<text>"           queue a message for its agent
   contextlanes claude [args…]                 start Claude Code in a lane and attach [--here: current checkout]
   contextlanes codex [args…]                  start Codex in a lane and attach [--here: current checkout]
-  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id, see Models] [--model m] [--base branch]")}
+  contextlanes lane start <project> "<task>"  start a lane  ${dim("[--agent id] [--model m] [--base branch]")}
+                                              ${dim("--no-agent: just the checkout, terminal and app; --here: in the current checkout (project .)")}
   contextlanes term <lane>                    your shell in the lane's checkout (tmux; detach with Ctrl-b d)
   contextlanes inbox                          questions and permissions waiting on you
   contextlanes answer <id> <option>           answer one, using the id and option from inbox
@@ -67,7 +68,7 @@ async function main(argv: string[]): Promise<number> {
     args: argv,
     allowPositionals: true,
     options: { agent: { type: "string" }, model: { type: "string" }, base: { type: "string" }, json: { type: "boolean" }, mermaid: { type: "boolean" }, help: { type: "boolean", short: "h" },
-      lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" } },
+      lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" }, "no-agent": { type: "boolean" }, here: { type: "boolean" } },
   });
   const [cmd, ...rest] = positionals;
   const handled = await laneCommand(cmd, [...rest], values, { api, env: process.env, cwd: process.cwd(), out: (t) => console.log(t), err: (t) => console.error(t) });
@@ -99,8 +100,11 @@ async function main(argv: string[]): Promise<number> {
     }
     case "lane": {
       if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage();
-      const base = values.base ?? (await api<ProjectBranches>(`/api/projects/${rest[1]}/branches`)).defaultBranch ?? undefined;
-      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project: rest[1], task: rest[2], agent: values.agent, model: values.model, base } });
+      if (values["no-agent"] && (values.agent || values.model)) throw new UsageError("--no-agent starts a lane without an agent; leave out --agent and --model.");
+      const project = rest[1] === "." ? (await addProject()).id : rest[1];
+      const base = values.here ? undefined : values.base ?? (await api<ProjectBranches>(`/api/projects/${project}/branches`)).defaultBranch ?? undefined;
+      const kind = values["no-agent"] ? "shell" : undefined;
+      const lane = await api<Lane>("/api/lanes", { method: "POST", body: { project, task: rest[2], ...(kind ? { kind } : { agent: values.agent, model: values.model }), direct: !!values.here, ...(base ? { base } : {}) } });
       if (values.json) { console.log(JSON.stringify(lane, null, 2)); return lane.state === "failed" ? 1 : 0; }
       console.log(ok(`Started ${bold(lane.id)} on ${lane.branch}`));
       console.log(dim(`  Watch it in the browser, or open its shell: contextlanes term ${lane.id}`));

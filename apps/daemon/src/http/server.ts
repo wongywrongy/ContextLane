@@ -232,7 +232,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/agent", async (req): Promise<AgentLink> => {
     const id = laneParam(req.params);
     if (!store.getLane(id)) throw new NotFound("no such lane");
-    const connected = store.getLane(id)!.kind === "cli" ? await deps.lanes.cliConnected(id) : deps.hosts.connected(id);
+    const kind = store.getLane(id)!.kind;
+    if (kind === "shell") return { connected: false, starting: false };
+    const connected = kind === "cli" ? await deps.lanes.cliConnected(id) : deps.hosts.connected(id);
     return { connected, starting: !connected && deps.lanes.starting(id) };
   });
   /**
@@ -308,6 +310,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = laneParam(req.params);
     if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
     const body = PromptRequest.parse(req.body);
+    if (store.getLane(lane)!.kind === "shell") throw new Refused("This lane has no agent to message. Open its terminal instead.", 400);
     if (store.getLane(lane)!.kind === "cli" && body.images.length) throw new Refused("Attach images through the agent's own terminal.", 400);
     const prompt = await attach(config, store.getLane(lane)!, body);
     bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } }));
@@ -406,6 +409,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     app.post<{ Params: { project: string; n: string } }>(`/api/lanes/:project/:n/${action}`, async (req, reply) => {
       const lane = laneParam(req.params);
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
+      if (store.getLane(lane)!.kind === "shell") throw new Refused("This lane has no agent.", 400);
       const command = action === "cancel" ? { kind: "cancel" as const } : action === "mode" ? { kind: "mode" as const, ...ModeRequest.parse(req.body) }
         : action === "effort" ? { kind: "effort" as const, ...EffortRequest.parse(req.body) } : { kind: "model" as const, ...ModelRequest.parse(req.body) };
       return reply.code(202).send(deps.hosts.command(lane, command));

@@ -170,3 +170,41 @@ describe("the contextlanes command inside a CLI lane", () => {
     expect(await wireNotes("claude-code", root, true)).toEqual([]);
   });
 });
+
+describe("lanes without an agent", () => {
+  it("gets a checkout, a terminal and an environment, and starts no agent and no sandbox check", async () => {
+    const { app, calls, store, lanes } = await fixture();
+    const r = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Try the billing page", kind: "shell" } });
+    expect(r.statusCode).toBe(201);
+    const lane = Lane.parse(r.json());
+    expect(lane).toMatchObject({ kind: "shell", agent: "none", state: "working", direct: false });
+    expect(store.getLane(lane.id)!.kind).toBe("shell");
+    expect(calls.some((c) => c.cmd === "git" && c.args[0] === "worktree" && c.args[1] === "add")).toBe(true);
+    expect(calls.some((c) => c.cmd === "systemd-run" && c.args.includes("--scope") && c.args.includes("new-session"))).toBe(true);
+    expect(calls.filter((c) => c.args.includes("respawn-pane") || c.args.includes("--wait") || c.args.some((a) => a.startsWith("--unit=contextlanes-host")))).toEqual([]);
+    expect(await lanes.sweep(() => false)).toEqual([]);
+    expect(store.getLane(lane.id)!.state).toBe("working");
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/prompt`, payload: { text: "hi" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/restart`, payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/api/lanes/${lane.id}/cancel`, payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ url: `/api/lanes/${lane.id}/agent` })).json()).toEqual({ connected: false, starting: false });
+    await app.close(); store.close();
+  });
+
+  it("attaches to the current checkout with --here, without a worktree", async () => {
+    const { app, calls, store, root } = await fixture();
+    const r = await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "x", kind: "shell", direct: true } });
+    const lane = Lane.parse(r.json());
+    expect(lane).toMatchObject({ kind: "shell", direct: true, worktree: root, branch: "main" });
+    expect(calls.some((c) => c.cmd === "git" && c.args[0] === "worktree")).toBe(false);
+    await app.close(); store.close();
+  });
+
+  it("refuses agent options, and direct mode for ACP lanes", async () => {
+    const { app, store } = await fixture();
+    for (const payload of [{ kind: "shell", cliArgs: ["--x"] }, { kind: "shell", remoteControl: true }, { kind: "shell", auto: true }, { kind: "acp", agent: "opencode", direct: true }]) {
+      expect((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "x", ...payload } })).statusCode).toBe(400);
+    }
+    await app.close(); store.close();
+  });
+});
