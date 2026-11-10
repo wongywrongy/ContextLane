@@ -1,7 +1,7 @@
 import { ThemeControl } from "../components/ThemeControl";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LOCAL_ROLES, LocalRole as LocalRoleSchema, type LocalRole } from "@contextlanes/protocol";
-import type { ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { DoctorReport, ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
 import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
@@ -80,7 +80,7 @@ export function SettingsPage() {
   return <main className="pg narrow">
     <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
     <div className="setw">
-      <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ...(features.schedules ? [["schedules", "Scheduled lanes"] as const] : []), ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
+      <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["health", "Health check"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ...(features.schedules ? [["schedules", "Scheduled lanes"] as const] : []), ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
       <div className="col">
         <Section title="Appearance"><ThemeControl /></Section>
         <Section id="machine" title="This machine">
@@ -92,6 +92,7 @@ export function SettingsPage() {
           </>}
           {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
         </Section>
+        <HealthCheck />
         <Section id="access" title="Access">
           <div className="sec-r"><span className="kl">Address</span>{status?.publicUrl ? <a className="mono" href={status.publicUrl} style={{ fontSize: 13 }}>{status.publicUrl}</a> : <Fact g="idle" detail="contextlanes setup turns on Tailscale">This machine only</Fact>}</div>
           <div className="sec-r"><span className="kl">Owner</span><span>{status?.tailnetLogin ?? "Signed in with a setup link"}</span></div>
@@ -231,6 +232,22 @@ export function ModelsPage() {
     <RoutingSection settings={settings} agents={agents} reload={reloadSettings} />
     {registry ? <RegistryDialog onClose={() => { setRegistry(false); reload(); }} /> : null}
   </main>;
+}
+
+/** contextlanes doctor, in the browser: what works, and one line on how to fix what does not. */
+function HealthCheck() {
+  const [report, setReport] = useState<DoctorReport | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const check = async () => { setBusy(true); setError(""); try { setReport(await getJson<DoctorReport>("/api/doctor")); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } };
+  useEffect(() => { void check(); }, []);
+  const g = { ok: "done", warn: "wait", fail: "fail" } as const;
+  return <Section id="health" title="Health check" meta={report ? `${report.checks.filter((c) => c.state === "fail").length} to fix` : undefined} help="The same checks as contextlanes doctor: tools, sandbox, preview router and, with a domain, the whole path through your reverse proxy." end={<button className="btn ghost sm" disabled={busy} onClick={() => void check()}>{busy ? "Checking…" : "Check again"}</button>}>
+    {error ? <div className="sec-r" role="alert">{error}</div> : !report ? <div className="sec-r muted">Checking…</div> : report.checks.map((c) => <div className="sec-r" key={c.id} style={{ flexWrap: "wrap" }}>
+      <span className="kl">{c.title}</span><Glyph g={g[c.state]}>{c.state === "ok" ? "OK" : c.state === "warn" ? "Look at" : "Fix"}</Glyph><span className="mono muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>{c.found}</span>
+      {c.fix ? <span style={{ flexBasis: "100%", fontSize: 13 }}>{c.fix}</span> : null}
+    </div>)}
+  </Section>;
 }
 
 /** Scheduled lanes (no board yet): a lane that starts on a schedule, through a systemd user timer. */

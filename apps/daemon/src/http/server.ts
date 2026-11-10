@@ -2,6 +2,7 @@ import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { appHostnames } from "../previews.js";
 import { laneTools, requireFeature, routeFeature, toolFeature } from "../features.js";
+import { doctor } from "../doctor.js";
 import { serveWeb } from "./static.js";
 import { ProjectError } from "../projects.js";
 import { SetupError, type SetupManager } from "../setup.js";
@@ -119,6 +120,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   // Runs after the credential check, so a route of a feature that is off still answers 401 to strangers.
   app.addHook("preHandler", async (req) => { requireFeature(config, routeFeature(req.routeOptions.url)); });
   app.get("/api/features", async () => config.features);
+  app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links }));
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });

@@ -109,6 +109,10 @@ export class Previews {
     await this.serial(() => this.options.run("tailscale", ["serve", `--https=${port}`, "off"], { timeout: 30_000 }));
   }
 
+  /** A raw label, for the doctor's temporary route. Router mode only. */
+  publishLabel(label: string, port: number): void { if (this.settings.mode === "router") this.routes.set(label, port); }
+  unpublishLabel(label: string): void { if (this.settings.mode === "router" && label !== this.settings.appLabel) this.routes.delete(label); }
+
   /** True when the router currently sends this lane service somewhere. */
   routed(lane: Pick<Lane, "id">, service: string): boolean {
     return this.settings.mode === "router" && !!this.router?.has(previewLabel(lane, service));

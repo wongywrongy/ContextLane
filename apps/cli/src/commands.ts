@@ -4,11 +4,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { benchTable, type BenchResult, type Health, type InboxItem, type Lane, type Project, type ProjectBranches, type ProjectMap } from "@contextlanes/protocol";
+import { benchTable, type DoctorReport, type BenchResult, type Health, type InboxItem, type Lane, type Project, type ProjectBranches, type ProjectMap } from "@contextlanes/protocol";
 import { readFile } from "node:fs/promises";
 import { api, daemonUrl, ClientError, UsageError } from "./client.js";
 import { laneCommand } from "./lane.js";
-import { formatArch, formatInbox, formatLanes, formatMermaid } from "./format.js";
+import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
 
@@ -49,6 +49,7 @@ ${bold("Projects")}
 ${bold("This machine")}
   contextlanes status                         is ContextLanes running, and where to open it
   contextlanes daemon                         run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
+  contextlanes doctor [--json]                check tools, sandbox, router and your proxy, and say how to fix what fails
   contextlanes update                         install the newest version and restart; lanes keep running
                                               ${dim("[--check] only list what's new   [--rollback] go back one version")}
 
@@ -133,6 +134,11 @@ async function main(argv: string[]): Promise<number> {
       if (!lane) throw new Error(`no lane ${rest[0]}`);
       // "=" makes tmux match the exact session, never cl-shop-010 for cl-shop-01.
       return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+    }
+    case "doctor": {
+      const report = await api<DoctorReport>("/api/doctor");
+      console.log(values.json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+      return report.checks.some((c) => c.state === "fail") ? 1 : 0;
     }
     case "inbox": {
       const items = await api<InboxItem[]>("/api/inbox");

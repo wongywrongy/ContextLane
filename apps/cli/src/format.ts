@@ -1,4 +1,18 @@
-import type { InboxItem, Lane, LaneState , ProjectMap } from "@contextlanes/protocol";
+import type { DoctorReport, InboxItem, Lane, LaneState , ProjectMap } from "@contextlanes/protocol";
+
+const MARK = { ok: "✓", warn: "!", fail: "✗" } as const;
+/** `contextlanes doctor`: one line per check, its fix indented under it. */
+export function formatDoctor(r: DoctorReport): string {
+  const lines = [`ContextLanes ${r.version} · Node ${r.node} · ${r.platform} · ${r.supervisor} · sandbox ${r.sandbox} · previews ${r.previews.mode}${r.previews.domain ? ` *.${r.previews.domain}` : ""} on ${r.previews.bind}:${r.previews.port}`, ""];
+  const width = Math.max(...r.checks.map((c) => c.title.length));
+  for (const c of r.checks) {
+    lines.push(`${MARK[c.state]} ${c.title.padEnd(width)}  ${c.found}`);
+    if (c.fix) lines.push(`  ${" ".repeat(width)}  → ${c.fix}`);
+  }
+  const failed = r.checks.filter((c) => c.state === "fail").length, warned = r.checks.filter((c) => c.state === "warn").length;
+  lines.push("", failed ? `${failed} to fix${warned ? `, ${warned} to look at` : ""}.` : warned ? `Working, with ${warned} to look at.` : "Everything checks out.");
+  return lines.join("\n");
+}
 
 /** Text versions of the state glyphs, so the CLI keeps "meaning is never colour alone". */
 const GLYPH: Record<LaneState, string> = {
