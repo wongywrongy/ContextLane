@@ -9,7 +9,7 @@ import { runCommand } from "./run.js";
 import { Updater, UpdateError } from "./update.js";
 import { bold, dim, red, Steps } from "./term.js";
 
-/** Run by `contextlanes update` and by install.sh on an existing copy. */
+/** Run by `cl update` and by install.sh on an existing copy. */
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: { check: { type: "boolean" }, rollback: { type: "boolean" }, yes: { type: "boolean" }, branch: { type: "string" }, adopt: { type: "string" } },

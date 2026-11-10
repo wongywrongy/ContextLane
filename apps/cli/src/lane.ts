@@ -37,7 +37,7 @@ function print(io: Io, flags: Flags, value: unknown, text: () => string): void {
 }
 
 export function formatEnv(env: EnvironmentView | null): string {
-  if (!env || !env.services.length) return "No environment yet. Start it: contextlanes env start";
+  if (!env || !env.services.length) return "No environment yet. Start it: cl up";
   const rows = env.services.map((s) => [s.name, `${STATE[s.state]} ${s.state}`, String(s.port), s.url ?? "-"]);
   const details = env.services.filter((s) => s.detail).map((s) => `${s.name}: ${s.detail}`);
   return [table(["SERVICE", "STATE", "PORT", "LINK"], rows), ...(env.error ? [env.error] : []), ...details].join("\n");
@@ -107,7 +107,7 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
 
     case "logs": {
       const service = args.find((a) => !isLane(a));
-      if (!service) throw new UsageError("Name a service: contextlanes logs <service> [lane] [-n 100]");
+      if (!service) throw new UsageError("Name a service: cl logs <service> [lane] [-n 100]");
       const lines = Number(flags.lines ?? 100);
       if (!Number.isInteger(lines) || lines < 1 || lines > 500) throw new UsageError("-n takes a number from 1 to 500.");
       const lane = await resolveLane(args.find(isLane), io);

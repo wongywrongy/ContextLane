@@ -56,5 +56,5 @@ it("explains that an older daemon must restart instead of hiding its incompatibl
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ claimed: true, authorized: true, hasPasskey: false, tailnetLogin: null, publicUrl: "https://neo.test.ts.net" })));
   vi.stubEnv("CONTEXTLANES_URL", "http://127.0.0.1:4600");
   await expect(setupOutput()).rejects.toBeInstanceOf(ClientError);
-  await expect(setupOutput()).rejects.toThrow("Restart the ContextLanes daemon, then run contextlanes setup again.");
+  await expect(setupOutput()).rejects.toThrow("Restart the ContextLanes daemon, then run cl setup again.");
 });

@@ -9,7 +9,7 @@ const MARKER = "# Installed by ContextLanes";
 
 /**
  * The commands in ~/.local/bin, and where systemd runs (systemd: true, the default) the user service and
- * nightly backups. Without systemd, `contextlanes daemon` runs it in the foreground under any supervisor.
+ * nightly backups. Without systemd, `cl daemon` runs it in the foreground under any supervisor.
  */
 export async function installService(options: { root: string; home: string; node: string; run: Runner; config?: string; systemd?: boolean }): Promise<void> {
   const { root, home, node, run } = options;

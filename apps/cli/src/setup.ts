@@ -5,9 +5,9 @@ import { bold, cyan, dim, yellow } from "./term.js";
 
 /** A one-time owner sign-in link. Needs the local credential, which the sandbox hides from lanes. */
 export async function setupLink(sshHost = process.env.SSH_CONNECTION?.trim().split(/\s+/)[2]): Promise<SetupLink> {
-  if (!["127.0.0.1", "localhost"].includes(new URL(daemonUrl()).hostname)) throw new ClientError("Run contextlanes setup in the machine’s SSH session.");
+  if (!["127.0.0.1", "localhost"].includes(new URL(daemonUrl()).hostname)) throw new ClientError("Run cl setup in the machine’s SSH session.");
   const parsed = SetupStatus.safeParse(await api("/api/setup/status"));
-  if (!parsed.success || !parsed.data.controlFile) throw new ClientError("Restart the ContextLanes daemon, then run contextlanes setup again.");
+  if (!parsed.success || !parsed.data.controlFile) throw new ClientError("Restart the ContextLanes daemon, then run cl setup again.");
   const token = await shellToken();
   if (!token) throw new ClientError("The local setup credential could not be read; run this command as the daemon’s user.");
   return SetupLink.parse(await api("/api/setup/local", { method: "POST", body: sshHost ? { sshHost } : {}, token }));
@@ -19,8 +19,8 @@ export async function setupOutput(sshHost?: string): Promise<string> {
   qr.generate(link.url, { small: true }, (result) => { code = result; });
   return ["", `  ${bold("ContextLanes setup")}`, "", ...(link.messages.length ? [`  ${bold("Do this first")} on this machine:`, ...link.messages.map((m) => `     ${yellow(m)}`)] : []),
     ...(link.tunnel ? ["", `  ${bold("1.")} On your computer, open the SSH tunnel:`, `     ${cyan(link.tunnel)}`, "", `  ${bold("2.")} Then open this link, or scan the code with your phone:`] : ["", `  ${bold("Open this link")}, or scan the code with your phone:`]),
-    `     ${cyan(link.url)}`, `     ${dim("Works once and expires in 10 minutes. Run contextlanes setup again for a new one.")}`, "", code,
-    `  ${bold("Next")} in the browser: connect an agent, add a project, then start a lane.`, ""].join("\n");
+    `     ${cyan(link.url)}`, `     ${dim("Works once and expires in 10 minutes. Run cl setup again for a new one.")}`, "", code,
+    `  ${bold("Next")}, here on the machine: cd into a repository, then ${cyan("cl add")} and ${cyan("cl claude")} (or ${cyan('cl new "<task>"')}).`, ""].join("\n");
 }
 
 export async function addProject(path = process.cwd()): Promise<Project> {

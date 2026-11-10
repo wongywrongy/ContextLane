@@ -123,7 +123,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
     const ticket = (req.query as { ticket?: unknown }).ticket;
     if (req.method === "GET" && typeof ticket === "string" && auth.spendTicket(ticket, req.url.split("?")[0]!)) return;
-    return reply.code(401).send({ error: "Run contextlanes setup in this machine’s SSH session, then open its sign-in link." });
+    return reply.code(401).send({ error: "Run cl setup in this machine’s SSH session, then open its sign-in link." });
   });
 
   // Runs after the credential check, so a route of a feature that is off still answers 401 to strangers.

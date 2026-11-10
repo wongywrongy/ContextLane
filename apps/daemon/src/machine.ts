@@ -31,8 +31,8 @@ export async function machineInfo(config: Config, version: string, run: Runner):
 export async function checkForUpdates(run: Runner): Promise<UpdateCheck> {
   try {
     const { stdout } = await run(process.execPath, [fileURLToPath(new URL("./update-main.js", import.meta.url)), "--check"], { timeout: 330_000, env: { CONTEXTLANES_CONFIG: configPath() } });
-    return { lines: stdout.trim().split("\n").filter(Boolean), command: "contextlanes update" };
-  } catch { throw new SetupError("The update check could not finish. Run contextlanes update --check in your SSH session for the details.", 503); }
+    return { lines: stdout.trim().split("\n").filter(Boolean), command: "cl update" };
+  } catch { throw new SetupError("The update check could not finish. Run cl update --check in your SSH session for the details.", 503); }
 }
 
 export function exportData(store: Store, setup: SetupManager, config: Config, version: string): DataExport {

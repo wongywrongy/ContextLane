@@ -66,7 +66,7 @@ describe("env, logs and url as the owner", () => {
   it("says how to start when there is no environment yet", async () => {
     const h = harness({ "GET /api/lanes/shop/01/env": () => null });
     expect(await h.run(["env", "shop/01"])).toBe(0);
-    expect(h.out[0]).toBe("No environment yet. Start it: contextlanes env start");
+    expect(h.out[0]).toBe("No environment yet. Start it: cl up");
   });
 
   it("starts the named services and exits 1 with the detail and last log lines when one fails", async () => {

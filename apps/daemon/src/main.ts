@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { detectDriver } from "./supervisor/index.js";
 
 async function main(): Promise<void> {
-  // The commit this release was built from; `contextlanes update` waits for it after a restart.
+  // The commit this release was built from; `cl update` waits for it after a restart.
   const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), "0.1.0");
   const config = loadConfig();
   // Settled once: everything built below runs lane services the same way.
