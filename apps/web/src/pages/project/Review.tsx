@@ -22,7 +22,7 @@ function CheckRow({ check }: { check: Checkpoint["checks"][number] }) {
     : check.passed ? `${check.name} clean` : `${c.failed} ${c.failed === 1 ? "error" : "errors"}`;
   const right = !c ? (check.ms < 1000 ? `${check.ms} ms` : `${Math.round(check.ms / 100) / 10} s`)
     : c.total !== null ? `${c.passed} / ${c.total}` : c.tool;
-  return <div className="rvr" title={check.detail || undefined}><i className={`g ${warned ? "wait" : check.passed ? "done" : "fail"}`} role="img" aria-label={warned ? "Look closer" : check.passed ? "Passed" : "Failed"} /><span>{words}</span><span className="r">{right}{c && c.total !== null ? <span className="muted"> · {c.tool}</span> : null}</span></div>;
+  return <div className="rvr" title={check.detail || undefined}><i className={clsx("g", warned ? "wait" : check.passed ? "done" : "fail")} role="img" aria-label={warned ? "Look closer" : check.passed ? "Passed" : "Failed"} /><span>{words}</span><span className="r">{right}{c && c.total !== null ? <span className="muted"> · {c.tool}</span> : null}</span></div>;
 }
 
 /** Collisions this lane is still in, from its own events. */
@@ -61,13 +61,13 @@ export function ReviewPage() {
       <div>
         <span className="lbl">Ready <span>{ready.length}</span></span>
         {ready.map((l) => { const c = latest(l.id)!; const t = totals(c.files); return <button data-list-item data-lane={l.id} key={l.id} className={clsx("rvi", l.id === lane?.id && "on")} aria-current={l.id === lane?.id ? "true" : undefined} onClick={() => setParams({ lane: l.id })}>
-          <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b>{(() => { const [g, word] = mark(c); return <i className={`g ${g}`} role="img" aria-label={word} title={word} />; })()}<small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
+          <LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b>{(() => { const [g, word] = mark(c); return <i className={clsx("g", g)} role="img" aria-label={word} title={word} />; })()}<small>+{t.added} -{t.removed} · {c.files.length} {c.files.length === 1 ? "file" : "files"}</small>
         </button>; })}
         {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}
       </div>
       {waiting.length ? <div>
         <span className="lbl">Not ready <span>{waiting.length}</span></span>
-        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={`g ${l.state === "needs_you" ? "wait" : "work"}`} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs you" : "working"}</small></Link>)}
+        {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={clsx("g", l.state === "needs_you" ? "wait" : "work")} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs you" : "working"}</small></Link>)}
       </div> : null}
     </aside>
     <main className="rvm" aria-label="Checkpoint">
@@ -117,7 +117,7 @@ function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; che
     {shots.map((shot) => <Section key={shot.path} title="Before and after" meta={`${shot.path} · ${clock(checkpoint.createdAt)}`} end={shot.url ? <a className="lnk mono" href={shot.url} target="_blank" rel="noreferrer">{new URL(shot.url).host} ↗</a> : undefined}>
       <div className="ba">
         <Shot checkpoint={checkpoint} file={shot.before} tag={<span className="fchip">{base}</span>} label={`Before this lane`} />
-        <Shot checkpoint={checkpoint} file={shot.after} tag={<span className={`lb ${lane.colour}`}>lane {lane.id.slice(lane.id.lastIndexOf("/") + 1)}</span>} label={`${checkpoint.files.length} changed ${checkpoint.files.length === 1 ? "file" : "files"}`} changes={shot.changes} />
+        <Shot checkpoint={checkpoint} file={shot.after} tag={<span className={clsx("lb", lane.colour)}>lane {lane.id.slice(lane.id.lastIndexOf("/") + 1)}</span>} label={`${checkpoint.files.length} changed ${checkpoint.files.length === 1 ? "file" : "files"}`} changes={shot.changes} />
       </div>
       {shot.note ? <div className="sec-f" style={{ fontSize: 13 }}>{shot.note}</div> : null}
     </Section>)}
@@ -170,11 +170,11 @@ function Evidence({ lane, checkpoint, history }: { lane: Lane; checkpoint: Check
   return <Section title="Evidence" meta={`${checkpoint.checks.length} ${checkpoint.checks.length === 1 ? "check" : "checks"}${checkpoint.plan.length ? ` · plan ${done} of ${checkpoint.plan.length}` : ""}`}>
     {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
     {!checkpoint.checks.length ? <div className="rvr"><Fact g="idle" detail="add them to the recipe on Run">No checks</Fact></div> : null}
-    {tested ? <div className="rvr"><i className={`g ${tested.ok ? "done" : "wait"}`} role="img" aria-label={tested.ok ? "Yes" : "No"} /><span>{tested.ok ? "Tests ran after the last change" : "No tests after the last change"}</span></div> : null}
-    {shots.length ? <div className="rvr"><i className={`g ${previewed ? "done" : "wait"}`} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
-    {checkpoint.plan.length ? <button className="frow" style={{ fontFamily: "inherit", fontSize: 14 }} aria-expanded={plan} onClick={() => setPlan(!plan)}><i className={`g ${done === checkpoint.plan.length ? "done" : "wait"}`} aria-hidden="true" /><span>Plan {done} of {checkpoint.plan.length} done</span><span className="n muted" style={{ marginLeft: "auto" }}>{plan ? "hide" : "show"}</span></button>
+    {tested ? <div className="rvr"><i className={clsx("g", tested.ok ? "done" : "wait")} role="img" aria-label={tested.ok ? "Yes" : "No"} /><span>{tested.ok ? "Tests ran after the last change" : "No tests after the last change"}</span></div> : null}
+    {shots.length ? <div className="rvr"><i className={clsx("g", previewed ? "done" : "wait")} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
+    {checkpoint.plan.length ? <button className="frow" style={{ fontFamily: "inherit", fontSize: 14 }} aria-expanded={plan} onClick={() => setPlan(!plan)}><i className={clsx("g", done === checkpoint.plan.length ? "done" : "wait")} aria-hidden="true" /><span>Plan {done} of {checkpoint.plan.length} done</span><span className="n muted" style={{ marginLeft: "auto" }}>{plan ? "hide" : "show"}</span></button>
       : <div className="rvr"><Fact g="idle">No plan written</Fact></div>}
-    {plan ? checkpoint.plan.map((p, i) => <div className="rvr" key={i} style={{ paddingLeft: 38 }}><i className={`g ${p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle"}`} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>) : null}
+    {plan ? checkpoint.plan.map((p, i) => <div className="rvr" key={i} style={{ paddingLeft: 38 }}><i className={clsx("g", p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle")} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>) : null}
     {checkpoint.unplanned.length ? <div className="rvr you"><i className="g wait" role="img" aria-label="Look closer" /><span>Not in the plan: {checkpoint.unplanned.slice(0, 3).join(", ")}{checkpoint.unplanned.length > 3 ? ` and ${checkpoint.unplanned.length - 3} more` : ""}</span></div> : null}
     {shared.map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
   </Section>;

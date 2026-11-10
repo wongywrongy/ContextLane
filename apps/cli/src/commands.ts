@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { setupOutput, addProject } from "./setup.js";
+import { setupLink, setupOutput, addProject } from "./setup.js";
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,7 +71,14 @@ async function main(argv: string[]): Promise<number> {
   // The updater ships with the daemon; run the copy from the release this command belongs to.
   if (argv[0] === "update") {
     const release = fileURLToPath(new URL("../../../", import.meta.url));
-    return spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1)], { stdio: "inherit" }).status ?? 1;
+    const args = ["--disable-warning=ExperimentalWarning", join(release, "apps/daemon/dist/update-main.js"), ...argv.slice(1).filter((a) => a !== "--json")];
+    if (!argv.includes("--json")) return spawnSync(process.execPath, args, { stdio: "inherit" }).status ?? 1;
+    // The updater writes for people; with --json its lines are returned in one document.
+    const done = spawnSync(process.execPath, args, { encoding: "utf8" });
+    const code = done.status ?? 1, lines = (text: string) => plain(text).split("\n").map((l) => l.trim()).filter(Boolean);
+    if (code === 0) console.log(JSON.stringify({ ok: true, output: lines(done.stdout) }, null, 2));
+    else console.error(JSON.stringify({ error: lines(done.stderr || done.stdout).join(" ") || "The update did not finish.", code: "failed" }));
+    return code;
   }
   const { values, positionals } = parseArgs({
     args: argv,
@@ -86,7 +93,7 @@ async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case undefined:
     case "help":
-      console.log(HELP());
+      console.log(values.json ? JSON.stringify({ help: plain(HELP()) }, null, 2) : HELP());
       return 0;
     case "status": {
       if (rest[0]) {
@@ -94,7 +101,8 @@ async function main(argv: string[]): Promise<number> {
         console.log(values.json ? JSON.stringify(view, null, 2) : `${formatLanes([view.lane])}\n${view.plan.filter(p => p.status === "completed").length}/${view.plan.length} plan steps complete${view.verdict ? ` · judge: ${view.verdict}` : ""}`);
         return 0;
       }
-      const h = await api<Health>("/api/health").catch(() => null);
+      // With --json an unreachable daemon is reported like every other error: one JSON object on stderr, exit 3.
+      const h = values.json ? await api<Health>("/api/health") : await api<Health>("/api/health").catch(() => null);
       if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 3; }
       if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
@@ -109,7 +117,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "lane": {
-      if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage();
+      if (rest[0] !== "start" || !rest[1] || !rest[2]) return usage(values.json);
       if (values["no-agent"] && (values.agent || values.model)) throw new UsageError("--no-agent starts a lane without an agent; leave out --agent and --model.");
       const project = rest[1] === "." ? (await addProject()).id : rest[1];
       const base = values.here ? undefined : values.base ?? (await api<ProjectBranches>(`/api/projects/${project}/branches`)).defaultBranch ?? undefined;
@@ -121,13 +129,13 @@ async function main(argv: string[]): Promise<number> {
       return lane.state === "failed" ? 1 : 0;
     }
     case "send": {
-      if (!rest[0] || !rest[1]) return usage();
+      if (!rest[0] || !rest[1]) return usage(values.json);
       await api(`/api/lanes/${rest[0]}/prompt`, { method: "POST", body: { text: rest.slice(1).join(" ") } });
       console.log(values.json ? JSON.stringify({ queued: true, lane: rest[0] }) : "Message queued.");
       return 0;
     }
     case "term": {
-      if (!rest[0]) return usage();
+      if (!rest[0]) return usage(values.json);
       const [project, n] = rest[0].split("/");
       const lanes = await api<Lane[]>(`/api/projects/${project}/lanes`);
       const lane = lanes.find((l) => l.id === `${project}/${n}`);
@@ -147,14 +155,14 @@ async function main(argv: string[]): Promise<number> {
     }
     case "answer": {
       const [id, optionId] = rest;
-      if (!id || !optionId) return usage();
+      if (!id || !optionId) return usage(values.json);
       const [lane, requestId] = id.split("#");
       await api("/api/answers", { method: "POST", body: { lane, requestId, optionId, via: "cli" } });
       console.log(values.json ? JSON.stringify({ answered: true, lane, requestId, optionId }) : ok("Answered. The agent continues."));
       return 0;
     }
     case "setup":
-      console.log(await setupOutput());
+      console.log(values.json ? JSON.stringify(await setupLink(), null, 2) : await setupOutput());
       return 0;
     case "add": {
       const project = await addProject(rest[0]);
@@ -164,40 +172,46 @@ async function main(argv: string[]): Promise<number> {
     }
     case "schedule": {
       // Run by the systemd timers that Settings → Scheduled lanes writes.
-      if (rest[0] !== "run" || !rest[1]) return usage();
+      if (rest[0] !== "run" || !rest[1]) return usage(values.json);
       const lane = await api<Lane>(`/api/schedules/${rest[1]}/run`, { method: "POST", body: {} });
-      console.log(`Started ${lane.id} for schedule ${rest[1]}.`);
+      console.log(values.json ? JSON.stringify(lane, null, 2) : `Started ${lane.id} for schedule ${rest[1]}.`);
       return 0;
     }
     case "bench": {
-      if (!rest[0]) return usage();
+      if (!rest[0]) return usage(values.json);
       const tasks = JSON.parse(await readFile(rest[0], "utf8")) as unknown;
       let run = await api<BenchResult>("/api/bench", { method: "POST", body: { tasks } });
-      console.log(`Bench ${run.id} started: ${run.tasks.length} ${run.tasks.length === 1 ? "task" : "tasks"}, two lanes each. Answer their questions in the Inbox as usual.`);
+      const say = (text: string) => { if (!values.json) console.log(text); };
+      say(`Bench ${run.id} started: ${run.tasks.length} ${run.tasks.length === 1 ? "task" : "tasks"}, two lanes each. Answer their questions in the Inbox as usual.`);
       let last = "";
       while (!run.finishedAt) {
         await new Promise((r) => setTimeout(r, 15_000));
         run = await api<BenchResult>(`/api/bench/${run.id}`);
         const line = run.tasks.flatMap((t) => t.runs.map((r) => `${r.lane ?? "not started"} ${r.state}`)).join(" · ");
-        if (line !== last) { console.log(line); last = line; }
+        if (line !== last) { say(line); last = line; }
       }
-      console.log(`\n${benchTable(run)}`);
+      console.log(values.json ? JSON.stringify(run, null, 2) : `\n${benchTable(run)}`);
       return 0;
     }
     case "arch": {
       const project = rest[0] ?? (await api<Project[]>("/api/projects")).find((p) => process.cwd() === p.path || process.cwd().startsWith(`${p.path}/`))?.id;
-      if (!project) { console.error("Name a project, or run this inside one: contextlanes arch <project>"); return 2; }
+      if (!project) throw new UsageError("Name a project, or run this inside one: contextlanes arch <project>");
       const view = await api<ProjectMap>(`/api/projects/${project}/map`);
       console.log(values.json ? JSON.stringify(view, null, 2) : values.mermaid ? formatMermaid(view) : formatArch(view));
       return view.map ? 0 : 1;
     }
     default:
+      if (values.json) throw new UsageError(`Unknown command: ${cmd}. Run contextlanes help.`);
       console.error(fail(`Unknown command: ${cmd}\n`));
       return usage();
   }
 }
 
-function usage(): number {
+/** Colour codes off, for output a program reads. */
+const plain = (text: string) => text.replace(/\u001b\[[0-9;]*m/g, "");
+
+function usage(json = false): number {
+  if (json) throw new UsageError("That command needs more arguments. Run contextlanes help.");
   console.error(HELP());
   return 2;
 }
