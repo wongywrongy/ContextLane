@@ -1,6 +1,7 @@
 import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { appHostnames } from "../previews.js";
+import { laneTools, requireFeature, routeFeature, toolFeature } from "../features.js";
 import { serveWeb } from "./static.js";
 import { ProjectError } from "../projects.js";
 import { SetupError, type SetupManager } from "../setup.js";
@@ -34,9 +35,6 @@ import { hostUnit } from "../lanes/naming.js";
 import { Terminals } from "../terminal/tmux.js";
 import { Tidy } from "../tidy.js";
 
-/** Toolbox tools every lane gets; delegate joins them while the local helper has a kind on. */
-const ORCHESTRATION_TOOLS = ["lanes_list", "lane_status", "lane_start", "lane_send"];
-const LANE_TOOLS = ["ask_owner", "env_status", "env_start", "get_logs", "preview_url", "checkpoint", "get_brief", "split_lanes", "sublane_status", ...ORCHESTRATION_TOOLS];
 import { TicketRequest, PushSubscription, AskOwnerRequest, LaneEventsQuery, ActivityQuery, ApproveRecipeRequest, CheckpointRequest, LogsQuery, RequestChanges, StartEnvRequest, LaneTarget, LaneSendRequest } from "@contextlanes/protocol";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -117,6 +115,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (req.method === "GET" && typeof ticket === "string" && auth.spendTicket(ticket, req.url.split("?")[0]!)) return;
     return reply.code(401).send({ error: "Run contextlanes setup in this machine’s SSH session, then open its sign-in link." });
   });
+
+  // Runs after the credential check, so a route of a feature that is off still answers 401 to strangers.
+  app.addHook("preHandler", async (req) => { requireFeature(config, routeFeature(req.routeOptions.url)); });
+  app.get("/api/features", async () => config.features);
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
@@ -290,7 +292,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   });
 
   // ── lanes ──
-  const hooks = new Hooks({ store, bus, config, context: (lane, task) => briefs.matching(lane.project, task) });
+  const hooks = new Hooks({ store, bus, config, context: (lane, task) => config.features.insights ? briefs.matching(lane.project, task) : Promise.resolve("") });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks", { bodyLimit: 2_000_000 }, async (req) => hooks.receive(laneParam(req.params), req.body));
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/hooks/answer", async (req) => hooks.answer(laneParam(req.params), HookAnswerQuery.parse(req.query).request));
   app.post("/api/lanes", async (req, reply) => {
@@ -357,8 +359,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     // A baseline has no ContextLanes tools, even if called by hand.
     if (isBaseline(lane.id)) return { tools: [] };
     // A sub-lane cannot split again, so it does not see the tools for it.
-    const tools = sublanes.parentOf(lane) ? LANE_TOOLS.filter((t) => t !== "split_lanes" && t !== "sublane_status" && t !== "lane_start") : LANE_TOOLS;
-    return { tools: await helper.available() ? [...tools, "delegate"] : tools };
+    const enabled = laneTools(config);
+    const tools = sublanes.parentOf(lane) ? enabled.filter((t) => t !== "split_lanes" && t !== "sublane_status" && t !== "lane_start") : enabled;
+    return { tools: config.features.helper && await helper.available() ? [...tools, "delegate"] : tools };
   });
   const insights = deps.insights ?? new Insights({ config, store, bus, models: localModels, codemaps, briefs });
   app.get<{ Params: { project: string } }>("/api/projects/:project/insights", async (req) => insights.view(ProjectId.parse(req.params.project)));
@@ -374,8 +377,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/fork", async (req) => handoffs.fork(laneParam(req.params), HandoffRequest.parse(req.body ?? {})));
   const secondReviews = new SecondReviews({ store, bus, lanes: deps.lanes, run });
   const judge = deps.judge ?? new Judge({ store, bus, models: localModels, diff: (c) => checker.diff(c) });
-  if (!deps.judge) judge.start();
-  new Nudges({ store, bus, hosts: deps.hosts }).start();
+  if (!deps.judge && config.features.review) judge.start();
+  if (config.features.insights) new Nudges({ store, bus, hosts: deps.hosts }).start();
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/judge", async (req, reply) => reply.code(202).send(judge.again(req.params.id)));
   app.get<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.estimate(z.uuid().parse(req.params.id)));
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.start(z.uuid().parse(req.params.id), SecondReviewRequest.parse(req.body).agent));
@@ -424,7 +427,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lanes = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state) && (l.state !== "merged" || store.environment(l.id)?.services.some((s) => s.state !== "stopped")));
     const [cleanup, recipe, entries, facts] = await Promise.all([review.cleanable(project.id), readRecipe(store, project, project.path),
       Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))), resources.project(project.id)]);
-    return { cleanup, previews: config.previews.mode, domain: config.previews.mode === "router" ? config.previews.domain ?? null : null, recipe, lanes: entries, facts };
+    // Outside listeners are found only for adoption.
+    const shown = config.features.adoption || !facts ? facts : { ...facts, outside: null };
+    return { cleanup, previews: config.previews.mode, domain: config.previews.mode === "router" ? config.previews.domain ?? null : null, recipe, lanes: entries, facts: shown };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
@@ -499,6 +504,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; n: string; tool: string } }>(TOOL_ROUTE, async (req, reply) => {
     const lane = laneParam(req.params);
     if (isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without ContextLanes tools.");
+    requireFeature(config, toolFeature(req.params.tool));
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);

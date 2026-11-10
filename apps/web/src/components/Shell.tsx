@@ -4,7 +4,7 @@ import type { AskAnswer, Health, Lane, Project, ProjectBranches, ProjectEnvironm
 import { errorMessage, postJson, useJson, useLiveInbox, InboxContext, useInbox } from "../api";
 import { keyAction, typingTarget } from "../keys";
 import { useWork } from "../work/useWork";
-import { READY } from "../features";
+import { READY, useFeatures } from "../features";
 import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph } from "./ui";
 
 export function Shell() {
@@ -135,13 +135,14 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
 export type WorkContext = ReturnType<typeof useWork> & { environments: ProjectEnvironments | null; reloadEnvironments: () => void };
 export function useProjectWork(): WorkContext { return useOutletContext<WorkContext>(); }
 
-const TABS = [
+/** Work and Run are the core; the other tabs show only while their feature is on. */
+const projectTabs = (f: ReturnType<typeof useFeatures>) => ([
   ["work", "Work", true],
-  ["review", "Review", READY.review],
+  ["review", "Review", f.review],
   ["run", "Run", READY.run],
-  ["architecture", "Architecture", READY.architecture],
-  ["insights", "Insights", READY.insights],
-] as const;
+  ["architecture", "Architecture", f.architecture],
+  ["insights", "Insights", f.insights],
+] as const).filter(([, , ready]) => ready);
 
 /** The project band (cover, name, live facts) and the tabs that have something to show. */
 export function ProjectShell() {
@@ -158,7 +159,8 @@ export function ProjectShell() {
   const repoName = info?.remote?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1] ?? info?.path.split("/").at(-1) ?? project;
   const active = work.lanes.filter((l) => !["merged", "cleaned", "archived"].includes(l.state));
   const waiting = inbox?.filter((i) => i.lane.startsWith(`${project}/`)).length ?? 0;
-  const tabs = TABS.filter(([, , ready]) => ready);
+  const features = useFeatures();
+  const tabs = projectTabs(features);
   const reviews = work.lanes.filter((l) => l.state === "in_review").length;
   const up = [...new Set(environments?.lanes.flatMap((l) => l.environment?.services.filter((s) => s.state === "healthy").map((s) => s.name) ?? []) ?? [])];
   return (

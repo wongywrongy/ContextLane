@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { signedIn } from "./signed-in.js";
 import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -43,7 +44,7 @@ async function fixture(opts: { ghFails?: boolean } = {}) {
   };
   const store = Store.open(":memory:");
   const bus = new EventBus();
-  const config = Config.parse({ paths: { data: root, lanes: root } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: root } });
   const hosts = new HostLinks({ store, bus });
   const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts, config, version: "test", run }), store);
   store.addProject({ id: "shop", name: "Shop", path: repo });

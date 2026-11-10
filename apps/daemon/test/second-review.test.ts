@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +19,7 @@ describe("second-agent review", () => {
     store.addProject({ id: "shop", name: "Shop", path: repo });
     const calls: string[][] = [];
     const run: Runner = async (cmd, args, opts) => { if (cmd === "git") return runCommand(cmd, args, opts); calls.push([cmd, ...args]); return { stdout: "" }; };
-    const lanes = new LaneManager({ store, bus, config: Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } }), run });
+    const lanes = new LaneManager({ store, bus, config: Config.parse({ features: ALL_FEATURES, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } }), run });
     const lane = await lanes.start({ kind: "acp", project: "shop", task: "Billing", agent: "claude-code", base: "main" });
     await writeFile(join(lane.worktree, "a.txt"), "one\ntwo\n"); await git(lane.worktree, "commit", "-qam", "two");
     const head = (await git(lane.worktree, "rev-parse", "HEAD")).stdout.trim();

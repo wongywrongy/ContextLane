@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ afterEach(async () => { for (const store of stores.splice(0)) store.close(); for
 it("sums all turns by lane and UTC day, validates filters and preserves missing cost/cache data", async () => {
   const store = Store.open(":memory:"); stores.push(store);
   const root = await mkdtemp(join(tmpdir(), "cl-usage-api-")); roots.push(root);
-  const bus = new EventBus(), config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const bus = new EventBus(), config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });

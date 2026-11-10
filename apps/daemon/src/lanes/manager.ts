@@ -3,7 +3,7 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Runtime } from "../runtime.js";
 import { Skills } from "../skills.js";
-import { agentProfile, laneColour, laneId, laneTitle, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
+import { agentProfile, featureOff, laneColour, laneId, laneTitle, StartLaneRequest, type Lane, type ServiceProposal } from "@contextlanes/protocol";
 import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
 import type { Store } from "../db/store.js";
@@ -72,6 +72,7 @@ export class LaneManager {
     if (kind === "cli") checkCliArgs(req.agent, req.cliArgs ?? []);
     if (kind === "shell" && (req.cliArgs?.length || req.remoteControl || req.auto)) throw new Refused("A lane without an agent takes no agent options.", 400);
     if (req.direct && kind === "acp") throw new Refused("Direct mode requires a CLI or shell lane.", 400);
+    if (kind === "acp" && !config.features.acp) throw new Refused(featureOff("acp"), 400, "feature_off");
     if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
@@ -282,9 +283,17 @@ export class LaneManager {
  * description alone (none was called in the first lanes on neo), so the first message names when each pays off.
  */
 export function toolsHint(config: Config): string {
-  const helper = config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
+  const f = config.features;
+  const helper = f.helper && config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
+  const uses = [
+    f.insights ? "get_brief before reading the files of each module you change, for its current facts and constraints" : "",
+    "ask_owner when only the owner can decide",
+    "env_start, env_status, get_logs and preview_url to run this lane's copy of the app and check it",
+    f.review ? "checkpoint when the work is committed and ready for review" : "",
+    f.sublanes ? "split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours" : "",
+  ].filter(Boolean);
   return [
-    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading the files of each module you change, for its current facts and constraints; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review; split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours.",
+    `ContextLanes tools (MCP server "contextlanes"): ${uses.join("; ")}.`,
     helper ? "delegate sends bounded work to a local model on this machine and keeps it out of your context: use kind read to answer a narrow question about several files, and check to run the project's checks and get the failures sorted." : "",
   ].filter(Boolean).join(" ");
 }

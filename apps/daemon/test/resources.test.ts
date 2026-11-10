@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +23,7 @@ it("parses IPv4/IPv6 listeners and measured GPU fields without inventing missing
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "cl-resources-")); cleanups.push(() => rm(root, { recursive: true, force: true }));
   const store = Store.open(":memory:"); cleanups.push(() => store.close());
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const bus = new EventBus(), hosts = new HostLinks({ store, bus }); cleanups.push(() => hosts.close());
   store.addProject({ id: "demo", name: "Demo", path: join(root, "demo") });
   const calls: { command: string; args: string[] }[] = [];

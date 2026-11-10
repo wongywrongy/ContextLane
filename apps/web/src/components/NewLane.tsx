@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { laneTitle, routeTask, type DetectedAgent, type Lane, type Project, type ProjectBranches, type ServiceProposal, type SetupSettings } from "@contextlanes/protocol";
 import { errorMessage, postJson, useJson } from "../api";
 import { AGENT_NAMES, Dialog } from "./ui";
+import { useFeatures } from "../features";
 
 /** Start a lane: project, agent, base branch, optional goal, task. Used by setup and the New lane dialog. */
 export function useLaneForm(projects: Project[], preset?: string, adoption?: ServiceProposal, initialTask?: string) {
@@ -19,7 +20,9 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const project = projects.find((p) => p.id === chosenProject) ?? projects[0];
-  const ready = (agents ?? []).filter((a) => a.status === "Ready");
+  const features = useFeatures();
+  // Without ACP only Claude Code and Codex can run a lane, as their own CLIs.
+  const ready = (agents ?? []).filter((a) => a.status === "Ready" && (features.acp || ["claude-code", "codex"].includes(a.id)));
   // Routing (Models): until the owner picks an agent, the first rule whose words are in the task picks it.
   const [settings] = useJson<SetupSettings>("/api/setup/settings");
   const rule = !chosenAgent ? routeTask(settings?.routing ?? [], task) : null;
@@ -46,7 +49,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
     try {
       const lane = noAgent
         ? await postJson<Lane>("/api/lanes", { project: project!.id, kind: "shell", base, task: task.trim(), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}) })
-        : await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? kind : "acp", remoteControl: agent!.id === "claude-code" && kind === "cli" && remoteControl, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
+        : await postJson<Lane>("/api/lanes", { project: project!.id, agent: agent!.id, kind: ["claude-code", "codex"].includes(agent!.id) ? (features.acp ? kind : "cli") : "acp", remoteControl: agent!.id === "claude-code" && kind === "cli" && remoteControl, ...(routed?.model && agent!.id === routed.agent ? { model: routed.model } : {}), base, task: task.trim(), mode: mode === "auto" ? "ask" : mode, auto: mode === "auto", ...(effort ? { effort } : {}), ...(long ? { title: shownTitle.trim().slice(0, 120) } : {}), ...(goal.trim() ? { goal: goal.trim() } : {}), ...(adoption ? { adoption } : {}) });
       navigate(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`);
       return lane;
     } catch (e) { setError(errorMessage(e)); return null; } finally { setBusy(false); }
@@ -56,7 +59,7 @@ export function useLaneForm(projects: Project[], preset?: string, adoption?: Ser
       <label className="field">Project<select className="in" aria-label="Project" value={project?.id ?? ""} disabled={!!adoption} onChange={(e) => setProject(e.target.value)}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label className="field">Agent<select className="in" aria-label="Agent" value={noAgent ? "none" : agent?.id ?? ""} onChange={(e) => setAgent(e.target.value)}>{ready.map((a) => <option key={a.id} value={a.id}>{AGENT_NAMES[a.id] ?? a.id}</option>)}<option value="none">No agent · checkout, terminal and app</option></select>{routed && agent?.id === routed.agent ? <span className="hint">picked by your routing rule{routed.model ? ` · ${routed.model}` : ""}</span> : null}</label>
     </div>
-    {["claude-code", "codex"].includes(agent?.id ?? "") ? <label className="field">Session<select className="in" aria-label="Session" value={kind} onChange={(e) => setKind(e.target.value as "cli" | "acp")}><option value="cli">Terminal</option><option value="acp">ACP</option></select></label> : null}
+    {features.acp && ["claude-code", "codex"].includes(agent?.id ?? "") ? <label className="field">Session<select className="in" aria-label="Session" value={kind} onChange={(e) => setKind(e.target.value as "cli" | "acp")}><option value="cli">Terminal</option><option value="acp">ACP</option></select></label> : null}
     {agent?.id === "claude-code" && kind === "cli" ? <label className="field"><span><input type="checkbox" checked={remoteControl} onChange={(e) => setRemoteControl(e.target.checked)} /> Claude Remote Control</span><span className="hint">Also connect the official Claude app</span></label> : null}
     <div className="two">
       <label className="field">Start from branch<select className="in" aria-label="Start from branch" value={base} disabled={!branches?.branches.length} onChange={(e) => setBase({ project: project!.id, branch: e.target.value })}>{branches?.branches.map((b) => <option key={b}>{b}</option>)}</select></label>

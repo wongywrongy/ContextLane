@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { afterEach, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -14,7 +15,7 @@ it("a lane failed by one agent error is working again when the agent takes a new
   const store = Store.open(":memory:"); cleanups.push(() => store.close());
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus });
   await hosts.listen(join(root, "lanes.sock")); cleanups.push(() => hosts.close());
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   store.addProject({ id: "shop", name: "shop", path: "/code/shop" });
   const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ kind: "acp", project: "shop", task: "Cart" });
   const sock = createConnection(join(root, "lanes.sock")); cleanups.push(() => sock.destroy());
@@ -50,7 +51,7 @@ it("in Auto, approves what the guard passes (once, by ContextLanes) and leaves d
   const store = Store.open(":memory:"); cleanups.push(() => store.close());
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus });
   await hosts.listen(join(root, "lanes.sock")); cleanups.push(() => hosts.close());
-  const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   store.addProject({ id: "shop", name: "shop", path: "/code/shop" });
   const lane = await new LaneManager({ store, bus, config, run: async () => ({ stdout: "" }) }).start({ kind: "acp", project: "shop", task: "Cart", auto: true, base: "main" });
   expect(lane.auto).toBe(true);

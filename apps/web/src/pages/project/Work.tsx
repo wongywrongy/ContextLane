@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { sharing } from "./Review";
 import type { AgentLink, InboxItem, Lane, LaneEvent, OutsideAgent, Project } from "@contextlanes/protocol";
 import { errorMessage, postJson, useInbox, useJson } from "../../api";
-import { READY } from "../../features";
+import { useFeatures } from "../../features";
 import { useProjectWork } from "../../components/Shell";
 import { NewLaneDialog } from "../../components/NewLane";
 import { AGENT_NAMES, AgentMark, GLYPH, Glyph, Help, LaneBadge, StateGlyph, Tile, ago, agoText } from "../../components/ui";
@@ -128,6 +128,7 @@ function Watching({ project: fromLanes, choose }: { project: string | null; choo
 }
 
 function LaneView({ projectName, lane, events, error, reload }: { projectName: string; lane: Lane; events: LaneEvent[]; error: string; reload: () => void }) {
+  const features = useFeatures();
   const [waiting, , reloadInbox] = useInbox();
   const [notice, setNotice] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -162,7 +163,7 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
         : <><h2>{lane.task}</h2><button className="lnk" style={{ fontSize: 13 }} onClick={() => setRenaming(true)}>Rename</button></>}
       <StateGlyph state={lane.state} idle={isIdle(lane, events)} label />
       {sharing(events, lane.id).map((c) => <Link key={c.module} className="lnk" style={{ fontSize: 13 }} to={`/p/${lane.project}/architecture`}><Glyph g="wait">Also changed by {c.others.map((o) => o.slice(o.lastIndexOf("/") + 1)).join(" and ")}: {c.module}</Glyph></Link>)}
-      <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · started {ago(lane.createdAt) === "now" ? "just now" : `${ago(lane.createdAt)} ago`}</span>{READY.review && lane.state === "working" ? <button className="btn sm" title="Runs the checks, takes screenshots and puts the work on Review for you to merge" onClick={() => {
+      <div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{lane.branch} · started {ago(lane.createdAt) === "now" ? "just now" : `${ago(lane.createdAt)} ago`}</span>{features.review && lane.state === "working" ? <button className="btn sm" title="Runs the checks, takes screenshots and puts the work on Review for you to merge" onClick={() => {
         const said = events.findLast((e) => e.type === "agent.message" && e.payload.role === "agent");
         const summary = (said?.type === "agent.message" ? said.payload.text.trim().slice(0, 2000) : "") || lane.task;
         void postJson<{ asked: boolean }>(`/api/lanes/${lane.id}/checkpoint`, { summary }).then((r) => setNotice(r.asked ? "Not committed yet · the agent was asked to commit and send it for review." : "Checks running · the lane moves to Review when they finish."), (err) => setNotice(errorMessage(err)));

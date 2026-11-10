@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -70,7 +71,7 @@ describe.skipIf(!tools)("a lane end to end", () => {
     await runCommand("git", ["init", "-q", "--bare", join(root, "origin.git")]);
     await runCommand("git", ["remote", "add", "origin", join(root, "origin.git")], { cwd: repo });
     await runCommand("git", ["push", "-q", "origin", "main"], { cwd: repo });
-    const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, agents: { fake: viaTsx("apps/lanehost/test/fixtures/fake-stdio.ts") },
+    const config = Config.parse({ features: ALL_FEATURES, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, agents: { fake: viaTsx("apps/lanehost/test/fixtures/fake-stdio.ts") },
       lanes: { launchHosts: true, host: viaTsx("apps/lanehost/src/main.ts") } });
     const store = Store.open(":memory:"); const bus = new EventBus();
     const hosts = new HostLinks({ store, bus });

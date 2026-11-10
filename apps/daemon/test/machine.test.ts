@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ async function root() { const path = await mkdtemp(join(tmpdir(), "cl-machine-")
 
 it("does not invent machine/backup facts when user services cannot be queried, and reports failed update checks", async () => {
   const unavailable: Runner = async () => { throw new Error("unavailable"); };
-  const info = await machineInfo(Config.parse({}), "test", unavailable);
+  const info = await machineInfo(Config.parse({ features: ALL_FEATURES }), "test", unavailable);
   expect(info).toMatchObject({ linger: null, service: null, backups: { scheduled: null, result: null, lastRun: null } });
   await expect(checkForUpdates(unavailable)).rejects.toThrow("SSH session");
 });
@@ -69,7 +70,7 @@ it("serves measured machine/backup facts, reuses the CLI check, and exports work
     if (command === process.execPath) return { stdout: "1 new change on main:\n  abc123 New version\nRun contextlanes update to install them.\n" };
     return { stdout: "" };
   };
-  const config = Config.parse({ paths: { data: path, lanes: join(path, "lanes") }, access: { shellOwner: "fixture" }, lanes: { launchHosts: false },
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: path, lanes: join(path, "lanes") }, access: { shellOwner: "fixture" }, lanes: { launchHosts: false },
     agents: { codex: { command: "codex-acp", args: [], env: { API_TOKEN: "agent-secret-123" } } }, notifications: { telegram: { botToken: "bot-secret-456", chatId: "123", ownerId: "456" } },
     databases: { postgres: { admin: "postgres://admin:pg-secret-111@127.0.0.1:5432/postgres", app: "postgresql://app:pg-secret-222@127.0.0.1:5432/postgres" } } });
   const store = Store.open(":memory:"), bus = new EventBus(), hosts = new HostLinks({ store, bus });

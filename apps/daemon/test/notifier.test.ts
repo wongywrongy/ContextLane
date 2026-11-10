@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { signedIn } from "./signed-in.js";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
@@ -9,7 +10,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 async function setup() {
   const store = Store.open(":memory:");
   const bus = new EventBus();
-  const config = Config.parse({ lanes: { launchHosts: false }, access: { owner: "kyle@example.com" }, paths: { lanes: "/tmp/cl-notify-test" } });
+  const config = Config.parse({ features: ALL_FEATURES, lanes: { launchHosts: false }, access: { owner: "kyle@example.com" }, paths: { lanes: "/tmp/cl-notify-test" } });
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
@@ -30,7 +31,7 @@ it("defers quiet-hour notifications, retries after quiet hours, and never answer
   const calls: { url: string; body: any }[] = [];
   let now = new Date("2026-01-01T23:00:00Z");
   const notifier = new Notifier({ ...fixture, now: () => now,
-    config: NotificationConfig.parse({ publicUrl: "https://lanes.example", ntfy: { topic: "secret-topic" }, quiet: { start: "22:00", end: "08:00", timeZone: "UTC" } }),
+    config: NotificationConfig.parse({ features: ALL_FEATURES, publicUrl: "https://lanes.example", ntfy: { topic: "secret-topic" }, quiet: { start: "22:00", end: "08:00", timeZone: "UTC" } }),
     fetch: vi.fn(async (url, init) => { calls.push({ url: String(url), body: JSON.parse(String(init?.body)) }); return Response.json({}); }) });
   cleanup.push(() => notifier.close());
   await notifier.flush();
@@ -64,7 +65,7 @@ it("checks Telegram sender and chat before sending an action through /api/answer
   const fixture = await setup();
   const token = fixture.store.action("demo/01", "request", "yes", "telegram");
   const requests: { url: string; body: any }[] = [];
-  const notifier = new Notifier({ ...fixture, config: NotificationConfig.parse({ telegram: { botToken: "not-a-real-token", ownerId: "7", chatId: "9" } }),
+  const notifier = new Notifier({ ...fixture, config: NotificationConfig.parse({ features: ALL_FEATURES, telegram: { botToken: "not-a-real-token", ownerId: "7", chatId: "9" } }),
     fetch: vi.fn(async (url, init) => {
       requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
       if (String(url).endsWith("getUpdates")) return Response.json({ ok: true, result: [
@@ -86,7 +87,7 @@ it("retries provider failures without answering and removes expired push subscri
   const fixture = await setup();
   fixture.store.saveSubscription({ endpoint: "https://push.example/subscription", keys: { p256dh: "P".repeat(87), auth: "A".repeat(22) } });
   let fail = true;
-  const notifier = new Notifier({ ...fixture, config: NotificationConfig.parse({ publicUrl: "https://lanes.example", ntfy: { topic: "topic" }, webPush: { subject: "mailto:kyle@example.com", publicKey: "key", privateKey: "private" } }),
+  const notifier = new Notifier({ ...fixture, config: NotificationConfig.parse({ features: ALL_FEATURES, publicUrl: "https://lanes.example", ntfy: { topic: "topic" }, webPush: { subject: "mailto:kyle@example.com", publicKey: "key", privateKey: "private" } }),
     fetch: vi.fn(async () => fail ? new Response("unavailable", { status: 503 }) : Response.json({})),
     push: vi.fn(async () => { throw Object.assign(new Error("gone"), { statusCode: 410 }); }) });
   cleanup.push(() => notifier.close());

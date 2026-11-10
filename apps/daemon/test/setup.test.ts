@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
@@ -26,7 +27,7 @@ async function fixture() {
     if (cmd === "git") return { stdout: args[1] === "--list" ? "" : args[0] === "rev-parse" ? opts!.cwd! : args[0] === "symbolic-ref" ? "origin/trunk\n" : args[0] === "for-each-ref" ? "feature\ntrunk\n" : "feature\n" };
     return { stdout: cmd.endsWith("claude") ? '{"loggedIn":true,"token":"never-return-this"}' : cmd.endsWith("opencode") ? "2 credentials" : "" };
   });
-  const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
   const store = Store.open(":memory:"); cleanups.push(() => store.close());
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus }); const lanes = new LaneManager({ store, bus, config, run });
   const path = join(root, "config.toml");

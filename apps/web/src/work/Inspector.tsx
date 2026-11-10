@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import type { DetectedAgent, DiscardPreview, Lane, LaneEvent } from "@contextlanes/protocol";
-import { READY } from "../features";
+import { READY, useFeatures } from "../features";
 import { AGENT_NAMES, Dialog, Glyph, Tile, laneNumber } from "../components/ui";
 import { errorMessage, postJson, useJson } from "../api";
 import { editorLink, useEditor } from "../components/editor";
@@ -9,6 +9,7 @@ import { environmentFrom, SERVICE_GLYPH } from "./model";
 
 /** The lane inspector: context, environment, then your access and lane actions. The plan lives in Progress. */
 export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: LaneEvent[]; openTerminal: () => void }) {
+  const features = useFeatures();
   const usage = events.findLast((e) => e.type === "usage");
   const compactions = new Set(events.filter((e) => e.type === "usage.compaction").map((e) => `${e.payload.sessionId}/${e.payload.compactionId}`)).size;
   const [copied, setCopied] = useState("");
@@ -23,14 +24,14 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   const ringColour = share > .85 ? "var(--bad)" : share > .6 ? "var(--you)" : "var(--ok)";
   return <aside className="pane r" aria-label="Lane details">
     {/* Shown once the agent reports it (or when Restart with a summary is offered): unknown stays silent. */}
-    {used || ((READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
+    {used || ((features.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
       <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
       {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="var(--line)" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
         <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
       </div> : null}
       {used && share > .8 ? <div style={{ marginTop: 10 }}><Glyph g="idle">Nearly full · the agent compacts it on its own</Glyph></div> : null}
-      {(READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
+      {(features.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
     </section> : null}
     {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
@@ -40,7 +41,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
-      {(READY.handoff && lane.kind !== "cli") ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
+      {(features.handoff && lane.kind !== "cli") ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
         <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>
         <button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Copy into a new lane</button></> : null}
       {["working", "needs_you", "failed"].includes(lane.state) ? <button className="act" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setCopied("Agent restarted. It reports in within a minute."), (e) => setCopied(errorMessage(e))); }}><Tile family="run" icon="execute" small />Restart the agent</button> : null}

@@ -8,6 +8,7 @@ import { PushSettings } from "../components/PushSettings";
 import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, agoText, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
+import { useFeatures } from "../features";
 
 /** Offered only at the HTTPS address the passkey will belong to. */
 /** One project in Settings: rename, pin, move, remove. Nothing here touches the repository on disk. */
@@ -64,6 +65,7 @@ function Form({ title, meta, on, children, save }: { title: string; meta?: strin
 }
 
 export function SettingsPage() {
+  const features = useFeatures();
   const [status] = useJson<SetupStatus>("/api/setup/status");
   const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
   const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
@@ -78,7 +80,7 @@ export function SettingsPage() {
   return <main className="pg narrow">
     <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
     <div className="setw">
-      <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ["schedules", "Scheduled lanes"], ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
+      <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ...(features.schedules ? [["schedules", "Scheduled lanes"] as const] : []), ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
       <div className="col">
         <Section title="Appearance"><ThemeControl /></Section>
         <Section id="machine" title="This machine">
@@ -129,7 +131,7 @@ export function SettingsPage() {
           </div>
         </Section>
         <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
-        <ScheduledLanes />
+        {features.schedules ? <ScheduledLanes /> : null}
         <Section id="data" title="Data">
           <div className="sec-r"><span className="kl">Backups</span>{machine && machine.backups.scheduled === null ? <span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{machine.backups.directory}</span> : machine ? <Fact g={machine.backups.scheduled ? "done" : "idle"} detail={`${machine.backups.directory}${machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : ""}`}>{machine.backups.scheduled ? "Nightly" : "Not scheduled"}</Fact> : null}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
           <div className="sec-r"><span className="kl">Export</span><span>Everything as JSON · known secrets masked</span><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => {
@@ -186,11 +188,12 @@ function LocalRow({ m, save, remove }: { m: (LocalModelStatus | (Omit<LocalModel
 }
 
 export function ModelsPage() {
+  const features = useFeatures();
   const [agents, error, reload] = useJson<DetectedAgent[]>("/api/setup/agents");
   const [settings, , reloadSettings] = useJson<SetupSettings>("/api/setup/settings");
   const [usage, usageError, reloadUsage] = useJson<UsageSummary>("/api/usage");
   const models = settings?.localModels ?? [];
-  const [local, , reloadLocal] = useJson<LocalModelStatus[]>(models.length ? "/api/models/local" : null);
+  const [local, , reloadLocal] = useJson<LocalModelStatus[]>(features.helper && models.length ? "/api/models/local" : null);
   // While a job runs or waits, look again every few seconds so the row shows it finish.
   const busy = local?.some((m) => m.running || m.waiting > 0) ?? false;
   useEffect(() => { if (!busy) return; const t = setTimeout(reloadLocal, 5000); return () => clearTimeout(t); }, [busy, local, reloadLocal]);
@@ -198,10 +201,10 @@ export function ModelsPage() {
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg">
     <PageHeader title="Models" meta="who does the work" />
-    <Section title="Agents" help="Claude Code and Codex run their own terminal interface in each lane. Other agents use ACP. Every lane keeps approval controls on; agents that cannot ask first are listed as not supported. Limited agents work with the gap their row names." end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><Action small ghost run={() => postJson("/api/setup/agents/check", {})} done={() => { reload(); reloadUsage(); }}>Check again</Action></>}>
+    <Section title="Agents" help="Claude Code and Codex run their own terminal interface in each lane. Other agents use ACP. Every lane keeps approval controls on; agents that cannot ask first are listed as not supported. Limited agents work with the gap their row names." end={<>{features.acp ? <button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button> : null}<Action small ghost run={() => postJson("/api/setup/agents/check", {})} done={() => { reload(); reloadUsage(); }}>Check again</Action></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    <Section title="Local models" meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+    {features.helper ? <Section title="Local models" meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
       {(local ?? models.map((m) => ({ ...m, label: m.label ?? null, roles: m.roles ?? [], state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m}
         save={async (change) => { await postJson("/api/setup/settings", { localModels: models.map((x) => x.name === m.name && x.url === m.url ? { ...x, ...change } : x) }); reloadSettings(); reloadLocal(); }}
         remove={async () => { await postJson("/api/setup/settings", { localModels: models.filter((x) => !(x.name === m.name && x.url === m.url)) }); reloadSettings(); }} />)}
@@ -222,8 +225,8 @@ export function ModelsPage() {
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>{LOCAL_ROLE_KEYS.map((r) => <label key={r} style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 14 }}><input type="checkbox" name={`role-${r}`} />{LOCAL_ROLES[r]}</label>)}</div></fieldset>
         </Form>
       </div>
-    </Section>
-    {models.length ? <HelperSection /> : null}
+    </Section> : null}
+    {features.helper && models.length ? <HelperSection /> : null}
     <RoutingSection settings={settings} agents={agents} reload={reloadSettings} />
     {registry ? <RegistryDialog onClose={() => { setRegistry(false); reload(); }} /> : null}
   </main>;

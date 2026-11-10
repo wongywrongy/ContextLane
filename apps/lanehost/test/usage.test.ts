@@ -17,7 +17,7 @@ it("delivers fake-agent usage through the authenticated host socket into the dat
   const dir = await root(), store = Store.open(":memory:"), bus = new EventBus();
   const hosts = new HostLinks({ store, bus }), socketPath = join(dir, "lanes.sock");
   await hosts.listen(socketPath);
-  const config = Config.parse({ paths: { data: dir, lanes: join(dir, "lanes") }, lanes: { launchHosts: false } });
+  const config = Config.parse({ features: { acp: true }, paths: { data: dir, lanes: join(dir, "lanes") }, lanes: { launchHosts: false } });
   const run = async () => ({ stdout: "" });
   const lanes = new LaneManager({ store, bus, config, run });
   store.addProject({ id: "demo", name: "Demo", path: dir });

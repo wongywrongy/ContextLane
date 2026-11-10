@@ -1,3 +1,4 @@
+import { ALL_FEATURES } from "./features.js";
 import { signedIn } from "./signed-in.js";
 import { EventEmitter, once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +15,7 @@ async function setup() {
     onExit: (fn) => { events.on("exit", fn); return { dispose: () => events.off("exit", fn) }; },
   };
   const run: Runner = Object.assign(vi.fn(async () => ({ stdout: "" })), { terminal: vi.fn(() => pty) });
-  const config = Config.parse({ paths: { data: "/tmp/cl-terminal-test", lanes: "/tmp/cl-terminal-test/lanes" }, access: { owner: "kyle@example.com" } });
+  const config = Config.parse({ features: ALL_FEATURES, paths: { data: "/tmp/cl-terminal-test", lanes: "/tmp/cl-terminal-test/lanes" }, access: { owner: "kyle@example.com" } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
@@ -129,6 +130,6 @@ describe("lane terminal", () => {
 
   it("only accepts a loopback bind address", () => {
     expect(Config.safeParse({ listen: { host: "0.0.0.0" } }).success).toBe(false);
-    expect(Config.parse({}).listen.host).toBe("127.0.0.1");
+    expect(Config.parse({ features: ALL_FEATURES }).listen.host).toBe("127.0.0.1");
   });
 });
