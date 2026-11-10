@@ -18,7 +18,7 @@ async function fixture() {
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
   const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus }); const lanes = new LaneManager({ store, bus, run, config });
-  const app = signedIn(buildServer({ store, bus, hosts, lanes, run, config, version: "test" }), store);
+  const app = signedIn(buildServer({ store, bus, hosts, lanes, run, config, version: "test" }), store, config);
   return { root, config, calls, store, app, lanes };
 }
 describe("CLI lanes", () => {
@@ -223,7 +223,7 @@ describe("with the sandbox turned off", () => {
 
     const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
     const bus = new EventBus(); const lanes = new LaneManager({ store, bus, run, config });
-    const app = signedIn(buildServer({ store, bus, hosts: new HostLinks({ store, bus }), lanes, run, config, version: "test" }), store);
+    const app = signedIn(buildServer({ store, bus, hosts: new HostLinks({ store, bus }), lanes, run, config, version: "test" }), store, config);
     const lane = Lane.parse((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "T", agent: "codex", kind: "cli", cliArgs: [] } })).json());
     expect(store.events(lane.id).find((e) => e.type === "lane.created")!.payload).toMatchObject({ sandbox: "off" });
     const spec = JSON.parse(await readFile(join(config.paths.data, "cli", "demo-01", "launch.json"), "utf8"));

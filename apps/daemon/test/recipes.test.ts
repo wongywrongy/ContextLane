@@ -17,7 +17,7 @@ async function setup() {
   const config = Config.parse({ paths: { data: root, lanes: join(root, "lanes") }, access: { owner: "kyle@example.com" } });
   const store = Store.open(":memory:");
   const bus = new EventBus();
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run }), store, config);
   store.addProject({ id: "shop", name: "Shop", path: root });
   const approve = (hash: string, headers: Record<string, string> = {}) => app.inject({ method: "POST", url: "/api/projects/shop/recipe/approve", headers, payload: { hash } });
   const view = async () => (await app.inject({ url: "/api/projects/shop/recipe" })).json();

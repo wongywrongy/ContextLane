@@ -4,7 +4,7 @@ import { useParams, useSearchParams } from "react-router";
 import { AREA_THRESHOLD, areaOf, assign, codeAreas, type CodeArea, type CodeMap, type Lane, type Project, type ProjectMap } from "@contextlanes/protocol";
 import { useJson } from "../../api";
 import { useProjectWork } from "../../components/Shell";
-import { NewLaneDialog } from "../../components/NewLane";
+import { StartLaneDialog } from "../../components/StartLane";
 import { editorLink, useEditor } from "../../components/editor";
 import { Empty, Glyph, Help, Icon, LaneBadge, PageHeader, Section, agoText } from "../../components/ui";
 import { BriefBlock, CollisionBox, TidyBlock } from "./ArchitectureParts";
@@ -92,7 +92,7 @@ export function ArchitecturePage() {
           : <AtAGlance map={map} modules={modules} touched={touched} lanes={lanes} openArea={big ? openArea : null} select={(id) => { if (big) setParams({ area: areaOf(id, map) }); setSelected(id); }} />}
       </aside>
     </div>
-    {starting && projects ? <NewLaneDialog projects={projects} project={project} task={`In ${starting}: `} onClose={() => setStarting(null)} /> : null}
+    {starting ? <StartLaneDialog project={project} task={`In ${starting}: <task>`} onClose={() => setStarting(null)} /> : null}
   </main>;
 }
 

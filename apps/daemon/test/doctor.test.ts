@@ -92,7 +92,7 @@ describe("contextlanes doctor", () => {
     const { buildServer, EventBus, HostLinks, LaneManager, Store } = await import("@contextlanes/daemon");
     const { config, done } = await setup({}, "off");
     const store = Store.open(":memory:"); const bus = new EventBus();
-    const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run }), store);
+    const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run }), store, config);
     const res = await app.inject("/api/doctor");
     expect(res.statusCode).toBe(200);
     expect(res.json().checks.map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining(["node", "git", "tmux", "python3", "agents", "supervisor", "sandbox", "router"]));

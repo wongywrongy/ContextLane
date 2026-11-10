@@ -76,7 +76,7 @@ it("caches worktree/GPU/TLS probes, refreshes after three minutes, and excludes 
 it("records an owner's adoption proposal in a fresh lane without stopping the outside process or approving a recipe", async () => {
   const f = await fixture();
   const outside = (await f.resources.project("demo")).outside![0]!;
-  const app = signedIn(buildServer({ ...f, version: "test" }), f.store); cleanups.push(() => app.close());
+  const app = signedIn(buildServer({ ...f, version: "test" }), f.store, f.config); cleanups.push(() => app.close());
   const result = await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Propose a service recipe", adoption: outside } });
   expect(result.statusCode).toBe(201);
   const lane = result.json();

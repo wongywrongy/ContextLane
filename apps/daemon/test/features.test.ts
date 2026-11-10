@@ -20,7 +20,7 @@ async function fixture(features: Record<string, boolean> = {}) {
   const run: Runner = async (_cmd, args) => ({ stdout: args[0] === "symbolic-ref" ? "main\n" : "" });
   const store = Store.open(":memory:"); const bus = new EventBus();
   const routes: string[] = [];
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, onRoute: (r) => routes.push(r.url) }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts: new HostLinks({ store, bus }), config, version: "test", run, onRoute: (r) => routes.push(r.url) }), store, config);
   await app.ready();
   store.addProject({ id: "shop", name: "Shop", path: root });
   return { app, store, config, routes };

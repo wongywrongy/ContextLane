@@ -14,6 +14,9 @@ ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why,
 | 6 Drivers | systemd and process supervisors; `[sandbox] mode = "off"`; `contextlanes daemon`; install without systemd; macOS in CI | Contract tests on real processes; real daemon re-adopts a service across a restart and restarts it when it dies |
 | 7 Doctor | `contextlanes doctor`, `/api/doctor`, Settings → Health check; the chain through the proxy | Each failing hop classified; live run names missing DNS |
 | 8 Docs | README, PROXY.md, V3.md, ARCHITECTURE.md, this section, AGENTS.md | |
+| 9 Libraries | http-proxy-3 in the router; cmdk, base-ui, shiki, zustand, clsx in the web app; square high-contrast look | Real Vite hot reload through the router; contrast check; screenshots both themes |
+| 10 CLI JSON | `--json` on setup, help, update and usage errors | `apps/cli/test/json.test.ts` runs the real command |
+| 11 Viewer | The web app only views and decides; the daemon refuses other writes from a browser (`http/viewer.ts`); watch-only lane terminal; `lane rename`, `lane restart`, `lane auto`, `remove` in the CLI; Settings read from config.toml | `viewer.test.ts`; real daemon: browser POSTs refused, CLI does the same things |
 
 ### Needs Kyle
 
@@ -23,7 +26,8 @@ ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why,
 4. Open `https://lanes.root.avlis.dev`, sign in with a fresh `contextlanes setup` link, start a lane on a real project, open its link from a phone and a laptop, edit a file and see hot reload.
 5. Start `contextlanes claude` and ask the agent to start the environment and load its own link.
 6. Lanes started before v3 with ACP keep their host socket while they are open; turn on `[features] acp = true` to start new ones.
-7. CI: the last runs on `main` failed in `codemap.test.ts` under Node 24 ("The code map could not be built"), which this work did not touch and which passes on Node 22 here. The v3 pull requests did not start CI runs at all; check Actions settings.
+7. Notification channels (ntfy, Telegram, quiet hours) and the lane limit are now set in `config.toml`; Settings shows the lines. Agents are installed and signed in from the machine's shell, not the browser.
+8. CI: the last runs on `main` failed in `codemap.test.ts` under Node 24 ("The code map could not be built"), which this work did not touch and which passes on Node 22 here. The v3 pull requests did not start CI runs at all; check Actions settings.
 
 Everything below is the v1 and v2 history, kept as it was. Where it describes previews (Serve ports, Caddy, Services) or a mandatory systemd and bubblewrap, v3 replaces it.
 

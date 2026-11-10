@@ -79,7 +79,7 @@ describe.skipIf(!tools)("a lane end to end", () => {
     await (await import("node:fs/promises")).mkdir(resolve(socketPath(config), ".."), { recursive: true });
     await hosts.listen(socketPath(config));
     const lanes = new LaneManager({ store, bus, config, run: shim });
-    const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "e2e", run: shim }), store);
+    const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "e2e", run: shim }), store, config);
     const events = (id: string) => store.events(id, 0, 5000) as LaneEvent[];
     try {
       await app.inject({ method: "POST", url: "/api/projects", payload: { path: repo } });

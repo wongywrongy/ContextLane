@@ -38,19 +38,22 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
       const open = socket = new WebSocket(url);
       open.onopen = () => {
         setConnected(true);
-        setStatus(login ? "Connected · Follow the login instructions below" : "Connected · Keeps running when you close this tab");
+        setStatus(login ? "Connected · Follow the login instructions below" : "Watching · type in it with the command below");
         send({ type: "resize", cols: term.cols, rows: term.rows });
         if (autoFocus.current && (document.activeElement === document.body || container.current?.contains(document.activeElement))) term.focus();
       };
       open.onmessage = (event: MessageEvent<string>) => term.write(event.data);
       open.onclose = (event) => {
         setConnected(false);
-        setStatus(login && event.code === 1000 ? "Login command finished. Choose Check again to confirm sign-in." : event.reason || "Connection closed. Reconnect to return to your shell.");
+        setStatus(login && event.code === 1000 ? "Login command finished. Choose Check again to confirm sign-in." : event.reason || "Connection closed. Reconnect to keep watching.");
         if (login) onExit.current?.();
       };
       open.onerror = () => setStatus("Could not connect. Check the daemon, then reconnect.");
     }, () => setStatus("Could not connect. Check the daemon, then reconnect."));
+    // A lane's terminal is watched here, not driven: the daemon drops keystrokes too.
+    if (!login) term.options.disableStdin = true;
     const input = term.onData((data) => {
+      if (!login) return;
       // Keep large pastes inside the wire limit, including escaped and Unicode text.
       for (const chunk of data.match(/[\s\S]{1,4096}/gu) ?? []) send({ type: "input", data: chunk });
     });
@@ -77,8 +80,8 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
         <span>{status}</span>
         {!connected ? <button className="btn ghost" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button> : null}
       </div> : null}
-      <div className="tty" ref={container} aria-label={login ? `Login terminal for ${login}` : `Shell for lane ${lane}`} />
-      {!login && !props.compact && <div className="sec-f terminal-help">Same shell: <code>contextlanes term {lane}</code>. Older history: Ctrl+B, then [.</div>}
+      <div className="tty" ref={container} aria-label={login ? `Login terminal for ${login}` : `Terminal of lane ${lane}, watching only`} />
+      {!login && <div className="sec-f terminal-help">Watching only. To type in it: <code>contextlanes term {lane}</code></div>}
     </>
   );
 }

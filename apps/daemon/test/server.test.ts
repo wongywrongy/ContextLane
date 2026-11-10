@@ -21,7 +21,7 @@ function setup(opts: { fail?: boolean; owner?: string; taken?: string[]; session
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test", run }), store);
+  const app = signedIn(buildServer({ store, bus, lanes, hosts, config, version: "test", run }), store, config);
   return { app, store, calls, lanes };
 }
 

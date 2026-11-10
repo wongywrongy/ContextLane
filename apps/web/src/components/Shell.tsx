@@ -108,12 +108,8 @@ function JumpDialog({ onClose }: { onClose: () => void }) {
         {(lanes ?? []).map((lane) => <Command.Item key={lane.id} value={lane.id} keywords={[lane.task, lane.project]} onSelect={() => go(`/p/${lane.project}/work?lane=${encodeURIComponent(lane.id)}`)}>
           <LaneBadge id={lane.id} colour={lane.colour} /><span>{lane.task}</span><span className="m">{lane.id}</span>
         </Command.Item>)}
-        {(projects ?? []).flatMap((project) => [
-          <Command.Item key={`p:${project.id}`} value={`p:${project.id}`} keywords={[project.name, project.id]} onSelect={() => go(`/p/${project.id}/work`)}><span><b>{project.name}</b></span><span className="m">project</span></Command.Item>,
-          <Command.Item key={`n:${project.id}`} value={`n:${project.id}`} keywords={["start", "new lane", project.name]} onSelect={() => go(`/p/${project.id}/work?new=1`)}><span>Start a lane in {project.name}</span><span className="m">new lane</span></Command.Item>,
-        ])}
-        <Command.Item value="add" keywords={["add repository", "project"]} onSelect={() => go("/?add=1")}><span>Add a repository</span><span className="m">projects</span></Command.Item>
-        {targets.map((p) => <Command.Item key={`start:${p.id}`} value={`start:${p.id}`} forceMount onSelect={() => go(`/p/${p.id}/work?new=1&task=${encodeURIComponent(sentence)}`)}><span>Start a lane in {p.name}: {sentence}</span><span className="m">new lane</span></Command.Item>)}
+        {(projects ?? []).map((project) =>
+          <Command.Item key={`p:${project.id}`} value={`p:${project.id}`} keywords={[project.name, project.id]} onSelect={() => go(`/p/${project.id}/work`)}><span><b>{project.name}</b></span><span className="m">project</span></Command.Item>)}
       </Command.List>
     </Command>
     {answer ? <div className="sec-b" role="status" aria-live="polite" style={{ borderTop: "1px solid var(--line-soft)", fontSize: 14, lineHeight: 1.55 }}>

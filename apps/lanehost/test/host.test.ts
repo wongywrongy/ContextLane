@@ -1,3 +1,4 @@
+import { cliToken } from "../../daemon/test/signed-in.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -69,11 +70,12 @@ it("retains an ACP permission and replays commands after the daemon socket resta
   const run: Runner = async () => ({ stdout: "" });
   const config = Config.parse({ features: { acp: true }, paths: { data: root, lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
   const lanes = new LaneManager({ store, bus, config, run });
-  const session = `Bearer ${store.ownerSession()}`;
+  // The browser session answers; lanes and projects are made with the command line's credential.
+  const session = `Bearer ${store.ownerSession()}`, cli = `Bearer ${cliToken(config)}`;
   const makeServer = () => buildServer({ store, bus, lanes, config, hosts, run, version: "test" });
   app = makeServer();
-  await app.inject({ method: "POST", url: "/api/projects", headers: { authorization: session }, payload: { path: "/code/demo" } });
-  await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization: session }, payload: { kind: "acp", project: "demo", task: "permission" } });
+  await app.inject({ method: "POST", url: "/api/projects", headers: { authorization: cli }, payload: { path: "/code/demo" } });
+  await app.inject({ method: "POST", url: "/api/lanes", headers: { authorization: cli }, payload: { kind: "acp", project: "demo", task: "permission" } });
   const fake = fakeAgent();
   const stop = new AbortController();
   const host = runLaneHost({ lane: "demo/01", cwd: root, task: "permission", agent: { command: "unused", args: [] }, socketPath: join(root, "lanes.sock"), token: store.mintLaneToken("demo/01"), signal: stop.signal, connect: (client) => client.connect(fake.app) });
@@ -96,7 +98,7 @@ it("retains an ACP permission and replays commands after the daemon socket resta
   await vi.waitFor(() => expect(store.pendingCommands("demo/01")).toHaveLength(0));
   expect(store.getLane("demo/01")?.state).toBe("working");
   expect(fake.sessions).toHaveLength(1);
-  const result = await app.inject({ method: "POST", url: "/api/lanes/demo/01/prompt", headers: { authorization: session }, payload: { text: "after restart" } });
+  const result = await app.inject({ method: "POST", url: "/api/lanes/demo/01/prompt", headers: { authorization: cli }, payload: { text: "after restart" } });
   expect(result.statusCode).toBe(202);
   await vi.waitFor(() => expect(fake.turns).toContain("after restart"));
   const events = store.events("demo/01");

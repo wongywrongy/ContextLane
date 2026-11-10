@@ -112,7 +112,6 @@ export function Steps({ lane, events, waiting, reload, agent, filter }: { lane: 
 /** What the lane is doing now and how far its plan has got, above the progress rows. */
 function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiting: InboxItem[] }) {
   const [open, setOpen] = useState(false);
-  const [asked, setAsked] = useState("");
   const plan = events.findLast((e) => e.type === "agent.plan");
   const entries = plan?.type === "agent.plan" ? plan.payload.entries : [];
   const done = entries.filter((e) => e.status === "completed").length;
@@ -124,14 +123,13 @@ function Now({ lane, events, waiting }: { lane: Lane; events: LaneEvent[]; waiti
   const share = usage?.type === "usage" && usage.payload.contextSize ? usage.payload.contextUsed / usage.payload.contextSize : 0;
   const [restarted, setRestarted] = useState("");
   const restart = () => { if (window.confirm("The agent writes a summary of the work so far, then a fresh session continues from it in the same checkout. Takes a minute or two.")) void postJson(`/api/lanes/${lane.id}/handoff`, {}).then(() => setRestarted("Writing the summary · the fresh session starts after"), (e) => setRestarted(errorMessage(e))); };
-  const askForPlan = () => void postJson(`/api/lanes/${lane.id}/prompt`, { text: PLAN_PROMPT, immediate: false }).then(() => setAsked("Asked · it writes one after its current step"), (e) => setAsked(errorMessage(e)));
   return <div className="now">
     <div className="now-r"><span className="lbl">Now</span><Glyph g={g}>{laneNow(lane, events, waiting)}</Glyph></div>
     <div className="now-r"><span className="lbl">Plan</span>
       {entries.length ? <button className="planbar" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? "Hide the plan" : "Show the plan"}>
         <span className="segs" aria-hidden="true">{entries.map((e, i) => <i key={i} className={e.status === "completed" ? "d" : e.status === "in_progress" ? "p" : ""} />)}</span>
         <span>{done} of {entries.length}{current ? <span className="muted"> · {current.status === "in_progress" ? "on" : "next"}: {current.text}</span> : null}</span></button>
-        : <><Glyph g="idle">No plan yet</Glyph>{asked ? <span className="muted" style={{ fontSize: 13 }}>{asked}</span> : lane.kind !== "shell" && (lane.state === "working" || lane.state === "needs_you") ? <button className="btn ghost sm" onClick={askForPlan}>Ask for a plan</button> : null}</>}
+        : <><Glyph g="idle">No plan yet</Glyph></>}
     </div>
     {share >= 0.7 && (lane.state === "working" || lane.state === "needs_you") ? <div className="now-r"><span className="lbl">Context</span>
       <Glyph g={share >= 0.85 ? "fail" : "wait"}>{`${Math.round(share * 100)}% full`}</Glyph>

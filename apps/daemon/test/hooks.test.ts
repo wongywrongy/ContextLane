@@ -1,3 +1,4 @@
+import { cliToken } from "./signed-in.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ async function fixture(auto = false, agent = "claude-code") {
   store.addProject({ id: "demo", name: "Demo", path: root });
   for (const n of [1, 2]) store.insertLane({ id: `demo/0${n}`, project: "demo", n, task: "Write hi", agent, kind: "cli", goal: null, model: null, mode: "ask", auto, branch: `lane/${n}`, base: "main", worktree: "/workspace", terminal: `t${n}`, hostUnit: null, state: "working", colour: "lc1" });
   const headers = { authorization: `Bearer ${store.mintLaneToken("demo/01")}` };
-  const owner = { authorization: `Bearer ${store.ownerSession()}` };
+  const owner = { authorization: `Bearer ${cliToken(config)}` };
   const hosts = new HostLinks({ store, bus }); const lanes = new LaneManager({ store, bus, config, run });
   const app = buildServer({ store, bus, config, run, lanes, hosts, version: "test" }); cleanup.push(() => app.close()); cleanup.push(async () => store.close());
   const envelope = (event: HookPayload["hook_event_name"], more: Partial<HookPayload> = {}) => ({ eventId: randomUUID(), payload: { hook_event_name: event, session_id: "session-one", cwd: "/workspace", ...more } });

@@ -3,10 +3,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { EnvironmentView, Lane, LaneEnvironment, LogLine, ProjectEnvironments, RecipeView, ServiceStatus, Project, OutsideService, RunFacts } from "@contextlanes/protocol";
 import { useParams } from "react-router";
 import { errorMessage, getJson, postJson, useJson } from "../../api";
-import { NewLaneDialog } from "../../components/NewLane";
+import { StartLaneDialog, startLaneCommand } from "../../components/StartLane";
 import { useProjectWork } from "../../components/Shell";
 import { Link } from "react-router";
-import { Dialog, Empty, Fact, Glyph, Help, LaneBadge, PageHeader, Section } from "../../components/ui";
+import { Cmd, Dialog, Empty, Fact, Glyph, Help, LaneBadge, PageHeader, Section } from "../../components/ui";
 import { SERVICE_GLYPH } from "../../work/model";
 
 const clock = (iso: string, seconds = false) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...(seconds ? { second: "2-digit" } : {}), hourCycle: "h23" });
@@ -59,7 +59,7 @@ export function RunPage() {
     {environments ? <RecipeNeed recipe={recipe} review={setViewing} write={() => setWriting(true)} /> : null}
     <Section title="Apps" meta={environments ? [`${up} up`, down ? `${down} down` : "", `${open.length - up - down} not running`].filter(Boolean).join(" · ") : ""}>
       {open.map((entry) => { const lane = lanes.find((l) => l.id === entry.lane); return lane ? <EnvironmentRow key={lane.id} lane={lane} entry={entry} changed={reloadEnvironments} review={setViewing} /> : null; })}
-      {environments && !open.length ? <Empty icon="environment" family="run" action={<Link className="btn ghost sm" to={`/p/${project}/work?new=1`}>New lane</Link>}>No open lanes</Empty> : null}
+      {environments && !open.length ? <Empty icon="environment" family="run" action={<Cmd>{startLaneCommand(project ?? "")}</Cmd>}>No open lanes</Empty> : null}
     </Section>
     {outside.length ? <Section title="Started outside ContextLanes" help="Servers from this project that you started yourself, found by their listening ports. ContextLanes only watches them; adopt one to run it as a lane's preview instead.">
       {outside.map((service) => <div className="sec-r" style={{ flexWrap: "wrap" }} key={`${service.pid}/${service.port}/${service.address}`}>
@@ -80,8 +80,8 @@ export function RunPage() {
       </div>
     </Section>
     {viewing ? <RecipeDialog view={viewing} onClose={() => setViewing(null)} changed={reloadEnvironments} /> : null}
-    {adopting && projects ? <NewLaneDialog projects={projects} project={project} adoption={adopting} onClose={() => setAdopting(null)} /> : null}
-    {writing && projects ? <NewLaneDialog projects={projects} project={project} task={WRITE_RECIPE} onClose={() => setWriting(false)} /> : null}
+    {adopting ? <StartLaneDialog project={project ?? ""} task={`Take over the app already running on port ${adopting.port} and run it from this lane`} onClose={() => setAdopting(null)} /> : null}
+    {writing ? <StartLaneDialog project={project ?? ""} task={WRITE_RECIPE} onClose={() => setWriting(false)} /> : null}
   </main>;
 }
 
@@ -101,27 +101,16 @@ function RecipeNeed({ recipe, review, write }: { recipe: RecipeView | null; revi
 }
 
 function CleanUp({ entries, changed }: { entries: ProjectEnvironments["cleanup"]; changed: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   if (!entries.length) return null;
   const safe = entries.filter((e) => e.unpushed === 0);
   const unpushed = entries.reduce((sum, e) => sum + (e.unpushed ?? 0), 0);
   const unknown = entries.filter((e) => e.unpushed === null).length;
   const disk = entries.reduce((sum, e) => sum + (e.disk ?? 0), 0);
-  const clean = async () => {
-    setBusy(true); setMessage("");
-    const refused: string[] = [];
-    for (const { lane } of safe) await postJson(`/api/lanes/${lane}/cleanup`, {}).catch((err) => refused.push(errorMessage(err)));
-    setMessage(refused.join(" "));
-    setBusy(false);
-    changed();
-  };
   return <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Clean up</span>
     <Fact g="wait" detail={disk ? size(disk) : undefined}>{`${entries.length} merged ${entries.length === 1 ? "lane" : "lanes"}`}</Fact>
     <Help>For merged lanes: stops their services and agent, drops their databases and removes their checkouts, including ignored files such as .env. Branches are kept, and a lane with unpushed commits is left alone.</Help>
     {unpushed || unknown ? <Glyph g="wait">{unpushed ? `${unpushed} unpushed ${unpushed === 1 ? "commit" : "commits"} kept` : ""}{unpushed && unknown ? "; " : ""}{unknown ? `${unknown} not checked` : ""}</Glyph> : null}
-    {safe.length ? <button className="btn ghost sm" style={{ marginLeft: "auto" }} disabled={busy} aria-busy={busy || undefined} onClick={() => void clean()}>{busy ? "Cleaning up…" : `Clean up ${safe.length} ${safe.length === 1 ? "lane" : "lanes"}`}</button> : null}
-    {message ? <p role="alert" style={{ margin: 0, fontSize: 13.5, flexBasis: "100%" }}>{message}</p> : null}
+    {safe[0] ? <div className="e"><Cmd note={safe.length > 1 ? `and ${safe.length - 1} more` : undefined}>{`contextlanes lane rm ${safe[0].lane}`}</Cmd></div> : null}
   </div>;
 }
 
@@ -144,16 +133,8 @@ function RecipeDialog({ view, onClose, changed }: { view: RecipeView; onClose: (
 function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: LaneEnvironment; changed: () => void; review: (view: RecipeView) => void }) {
   const env = entry.environment;
   const recipe = entry.recipe;
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
   const [chosen, setLogs] = useState<string | null>(null);
   const [setup, setSetup] = useState(false);
-  const act = async (action: "start" | "stop" | "restart") => {
-    setBusy(action); setError("");
-    try { await postJson(`/api/lanes/${lane.id}/env/${action}`, {}); }
-    catch (err) { setError(errorMessage(err)); }
-    finally { setBusy(""); changed(); }
-  };
   const isRunning = running(env);
   const state = appState(env);
   // A service that is down shows its logs without a click; that is the first thing you need.
@@ -166,12 +147,11 @@ function EnvironmentRow({ lane, entry, changed, review }: { lane: Lane; entry: L
       <Glyph g={state.g}>{state.word}</Glyph>
       <div className="e">
         {isRunning && web?.url && state.g !== "fail" ? <a className="btn sm" href={web.url} target="_blank" rel="noreferrer">Open app ↗</a> : null}
-        {isRunning ? <>{lane.state !== "merged" ? <button className="btn ghost sm" disabled={!!busy} aria-busy={busy === "restart" || undefined} onClick={() => void act("restart")}>{busy === "restart" ? "Restarting…" : "Restart"}</button> : <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span>}<button className="btn ghost sm" disabled={!!busy} aria-busy={busy === "stop" || undefined} onClick={() => void act("stop")}>{busy === "stop" ? "Stopping…" : "Stop"}</button></>
-          : blocked ? <button className="btn ghost sm" onClick={() => review(recipe)}>Approve the recipe first</button>
-            : recipe ? <button className="btn sm" disabled={!!busy} aria-busy={busy === "start" || undefined} onClick={() => void act("start")}>{busy === "start" ? "Starting…" : "Start the app"}</button> : null}
+        {isRunning ? <>{lane.state === "merged" ? <span className="muted" style={{ fontSize: 13 }}>Merged · still running</span> : null}<Cmd>{`contextlanes env stop ${lane.id}`}</Cmd></>
+          : blocked ? <button className="btn sm" onClick={() => review(recipe)}>Approve the recipe first</button>
+            : recipe ? <Cmd>{`contextlanes env start ${lane.id}`}</Cmd> : null}
       </div>
     </div>
-    {error ? <p role="alert" style={{ margin: 0, fontSize: 13.5 }}>{error}</p> : null}
     {env?.error ? <div className="out" style={{ margin: 0 }}>{env.error}</div> : null}
     {isRunning ? env!.services.map((service) => <Service key={service.name} service={service} open={logs === service.name} toggle={() => setLogs(logs === service.name ? "" : service.name)} />) : null}
     {isRunning && logs ? <Logs lane={lane.id} service={logs} /> : null}

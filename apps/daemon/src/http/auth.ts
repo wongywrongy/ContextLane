@@ -12,11 +12,17 @@ export class Auth {
   private readonly tickets = new Map<string, { path: string; expires: number }>();
   constructor(private readonly store: Store, private readonly config: Config) {}
 
-  async owner(bearer: string): Promise<boolean> {
-    if (this.store.validOwnerSession(bearer)) return true;
+  /**
+   * Who an owner credential belongs to. The web app holds a session and only views and decides
+   * (viewer.ts); the command line holds the setup-token and may do everything.
+   */
+  async caller(bearer: string): Promise<"browser" | "cli" | null> {
+    if (this.store.validOwnerSession(bearer)) return "browser";
     const actual = await readFile(join(this.config.paths.data, "setup-token"), "utf8").catch(() => "");
-    return !!actual && timingSafeEqual(Buffer.from(hash(bearer)), Buffer.from(hash(actual.trim())));
+    return actual && timingSafeEqual(Buffer.from(hash(bearer)), Buffer.from(hash(actual.trim()))) ? "cli" : null;
   }
+
+  async owner(bearer: string): Promise<boolean> { return (await this.caller(bearer)) !== null; }
 
   /** EventSource and WebSocket cannot send headers, and a URL can leak, so this opens one path, once, briefly. */
   ticket(path: string): string {

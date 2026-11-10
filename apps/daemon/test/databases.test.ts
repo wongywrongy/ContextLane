@@ -51,7 +51,7 @@ async function setup(database: unknown, config: Record<string, unknown> = { data
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const runtime = new Runtime({ store, bus, config: cfg, run, freePort: async () => 20200, fetch: (async () => new Response("ok")) as typeof fetch });
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config: cfg, run }), hosts: new HostLinks({ store, bus }), config: cfg, version: "test", run, runtime, resources: new Resources(store, run, async () => null) }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config: cfg, run }), hosts: new HostLinks({ store, bus }), config: cfg, version: "test", run, runtime, resources: new Resources(store, run, async () => null) }), store, cfg);
   store.addProject({ id: "shop", name: "Shop", path: repo });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "cl-shop-01", hostUnit: null, base: null, state: "working", colour: "lc1" });
   await writeFile(join(worktree, RECIPE_FILE), JSON.stringify({ database, setup: [{ name: "Migrate", command: ["pnpm", "migrate"] }], services: [{ name: "api", command: ["node", "api.js"] }] }));

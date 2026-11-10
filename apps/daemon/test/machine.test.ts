@@ -82,7 +82,8 @@ it("serves measured machine/backup facts, reuses the CLI check, and exports work
   store.appendEvent(lane.id, { type: "agent.message", payload: { role: "agent", text: '{"password":"not-for-export"}' } });
   store.appendEvent(lane.id, { type: "usage", payload: { contextUsed: 10, contextSize: 100, source: "acp" } });
   store.appendEvent(lane.id, { type: "usage.turn", payload: { turnId: randomUUID(), sessionId: "test", source: "acp", inputTokens: 42, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 } });
-  const app = signedIn(buildServer({ store, bus, hosts, lanes, config, setup, run, version: "abc123" }), store);
+  const app = signedIn(buildServer({ store, bus, hosts, lanes, config, setup, run, version: "abc123" }), store, config);
+  store.ownerSession();
   try {
     const info = MachineInfo.parse((await app.inject({ url: "/api/machine" })).json());
     expect(info).toMatchObject({ version: "abc123", service: true, linger: true, address: "127.0.0.1:4600", backups: { scheduled: true, result: "success", lastRun: "2026-10-30T03:10:00.000Z" } });

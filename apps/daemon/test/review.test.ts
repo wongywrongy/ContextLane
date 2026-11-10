@@ -46,7 +46,7 @@ async function fixture(opts: { ghFails?: boolean } = {}) {
   const bus = new EventBus();
   const config = Config.parse({ features: ALL_FEATURES, paths: { data: root, lanes: root } });
   const hosts = new HostLinks({ store, bus });
-  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts, config, version: "test", run }), store);
+  const app = signedIn(buildServer({ store, bus, lanes: new LaneManager({ store, bus, config, run }), hosts, config, version: "test", run }), store, config);
   store.addProject({ id: "shop", name: "Shop", path: repo });
   store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "Billing", agent: "codex", model: null, mode: "ask", branch: "lane/01-billing", worktree, terminal: "t", hostUnit: null, base: "main", state: "working", colour: "lc1" });
   const head = (await git(worktree, "rev-parse", "HEAD")).stdout.trim();

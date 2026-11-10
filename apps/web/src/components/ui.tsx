@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { type ReactNode } from "react";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { Popover } from "@base-ui/react/popover";
@@ -160,4 +161,13 @@ export function Dialog({ title, meta, onClose, children, footer, wide = false }:
       </BaseDialog.Popup>
     </BaseDialog.Portal>
   </BaseDialog.Root>;
+}
+
+/** A command the owner runs on the machine. The web app only shows it; a click copies it. */
+export function Cmd({ children, note }: { children: string; note?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => void navigator.clipboard.writeText(children).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {});
+  return <button type="button" className="cmd" title="Copy this command" onClick={copy}>
+    <span className="cmd-p" aria-hidden="true">$</span><code>{children}</code>{note ? <span className="cmd-n">{note}</span> : null}<span className="cmd-c" role="status">{copied ? "copied" : "copy"}</span>
+  </button>;
 }

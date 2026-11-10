@@ -14,7 +14,7 @@ async function setup() {
   const run: Runner = async () => ({ stdout: "" });
   const hosts = new HostLinks({ store, bus });
   const lanes = new LaneManager({ store, bus, config, run });
-  const app = signedIn(buildServer({ store, bus, config, hosts, lanes, run, version: "test" }), store);
+  const app = signedIn(buildServer({ store, bus, config, hosts, lanes, run, version: "test" }), store, config);
   cleanup.push(async () => { await app.close(); store.close(); });
   await app.inject({ method: "POST", url: "/api/projects", payload: { path: "/code/demo" } });
   await app.inject({ method: "POST", url: "/api/lanes", payload: { kind: "acp", project: "demo", task: "Notify" } });

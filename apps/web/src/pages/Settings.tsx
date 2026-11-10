@@ -1,11 +1,10 @@
 import { ThemeControl } from "../components/ThemeControl";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LOCAL_ROLES, LocalRole as LocalRoleSchema, type LocalRole } from "@contextlanes/protocol";
-import type { DoctorReport, ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, UpdateCheck, DataExport } from "@contextlanes/protocol";
+import type { DoctorReport, ScheduleView, RoutingRule, RegistryAgent, HelperStatus, LocalModel, LocalModelStatus, DetectedAgent, Project, SetupSettings, SetupStatus, UsageSummary, MachineInfo, DataExport } from "@contextlanes/protocol";
 import { errorMessage, getJson, postJson, RequestError, useJson, saveSession } from "../api";
-import { AddRepoDialog } from "../components/AddRepo";
 import { PushSettings } from "../components/PushSettings";
-import { AGENT_NAMES, AgentMark, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, agoText, type IconName } from "../components/ui";
+import { AGENT_NAMES, AgentMark, Cmd, Dialog, Empty, Fact, Glyph, PageHeader, Section, Tile, agoText, type IconName } from "../components/ui";
 import { AgentRows } from "../setup/Agents";
 import { Action } from "../setup/ui";
 import { useFeatures } from "../features";
@@ -14,30 +13,18 @@ import { useFeatures } from "../features";
 /** One project in Settings: rename, pin, move, remove. Nothing here touches the repository on disk. */
 const LOCAL_ROLE_KEYS = LocalRoleSchema.options;
 
-function ProjectRow({ project, first, last, move, changed }: { project: Project; first: boolean; last: boolean; move: (by: -1 | 1) => void; changed: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const [error, setError] = useState("");
-  const patch = (body: object) => postJson(`/api/projects/${project.id}`, body, "PATCH").then(() => { setError(""); changed(); }, (e) => setError(errorMessage(e)));
-  return <>
-    <div className="sec-r wrap">
-      <span className="grow">{editing
-        ? <form style={{ display: "flex", gap: 8 }} onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get("name") ?? "").trim(); void patch({ name }).then(() => setEditing(false)); }}>
-            <input className="in" name="name" defaultValue={project.name} maxLength={80} required autoFocus aria-label="Project name" style={{ minHeight: 34 }} /><button className="btn sm">Save</button><button type="button" className="btn ghost sm" onClick={() => setEditing(false)}>Cancel</button></form>
-        : <><b>{project.name}</b>{project.pinned ? <span className="mono muted" style={{ fontSize: 11.5, marginLeft: 8 }}>pinned</span> : null}<span className="mono muted" style={{ display: "block", fontSize: 12, overflowWrap: "anywhere" }}>{project.id} · {project.path}</span></>}</span>
-      {editing ? null : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button className="btn ghost sm" onClick={() => setEditing(true)}>Rename</button>
-        <button className="btn ghost sm" aria-pressed={project.pinned} onClick={() => void patch({ pinned: !project.pinned })}>{project.pinned ? "Unpin" : "Pin"}</button>
-        <button className="btn ghost sm" disabled={first} aria-label={`Move ${project.name} up`} onClick={() => move(-1)}>↑</button>
-        <button className="btn ghost sm" disabled={last} aria-label={`Move ${project.name} down`} onClick={() => move(1)}>↓</button>
-        <button className="btn ghost sm" onClick={() => setRemoving(true)}>Remove</button>
-      </span>}
-    </div>
-    {error ? <div className="sec-f" role="alert" style={{ fontSize: 13 }}>{error}</div> : null}
-    {removing ? <Dialog title={`Remove ${project.name}?`} onClose={() => setRemoving(false)} footer={<><Action run={() => postJson(`/api/projects/${project.id}`, {}, "DELETE")} done={() => { setRemoving(false); changed(); }}>Remove</Action><button className="btn ghost" onClick={() => setRemoving(false)}>Cancel</button></>}>
-      <p style={{ margin: 0 }}>It leaves ContextLanes. The repository at <code>{project.path}</code>, its branches and its lane history stay. Add the folder again to bring it back.</p>
-    </Dialog> : null}
-  </>;
+function ProjectRow({ project }: { project: Project }) {
+  return <div className="sec-r wrap">
+    <span className="grow"><b>{project.name}</b>{project.pinned ? <span className="mono muted" style={{ fontSize: 11.5, marginLeft: 8 }}>pinned</span> : null}<span className="mono muted" style={{ display: "block", fontSize: 12, overflowWrap: "anywhere" }}>{project.id} · {project.path}</span></span>
+    <Cmd>{`contextlanes remove ${project.id}`}</Cmd>
+  </div>;
+}
+
+/** A setting kept in config.toml: what it is now, and the lines that change it. The web app never writes it. */
+function Setting({ title, meta, on, toml }: { title: string; meta?: string; on?: boolean; toml: string }) {
+  return <details><summary>{title}{meta ? <span className="m">{meta}</span> : null}{on === undefined ? null : <span style={{ marginLeft: meta ? 0 : "auto" }}><Glyph g={on ? "done" : "idle"}>{on ? "On" : "Off"}</Glyph></span>}</summary>
+    <div className="form"><span className="muted" style={{ fontSize: 13 }}>Set in <code>~/.config/contextlanes/config.toml</code> on the machine, then restart ContextLanes:</span><pre className="out" style={{ margin: 0 }}>{toml}</pre></div>
+  </details>;
 }
 
 export function PasskeyButton() {
@@ -67,18 +54,13 @@ function Form({ title, meta, on, children, save }: { title: string; meta?: strin
 export function SettingsPage() {
   const features = useFeatures();
   const [status] = useJson<SetupStatus>("/api/setup/status");
-  const [settings, , reload] = useJson<SetupSettings>("/api/setup/settings");
-  const [projects, , reloadProjects] = useJson<Project[]>("/api/projects");
-  const [orderError, setOrderError] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [settings] = useJson<SetupSettings>("/api/setup/settings");
+  const [projects] = useJson<Project[]>("/api/projects");
   const [machine, machineError, reloadMachine] = useJson<MachineInfo>("/api/machine");
-  const [updates, setUpdates] = useState<UpdateCheck | null>(null);
   const [at, setAt] = useState(() => location.hash.slice(1) || "machine");
   const n = settings?.notifications ?? {};
-  const saveNotifications = async (patch: Partial<NonNullable<SetupSettings["notifications"]>>) => { await postJson("/api/setup/settings", { notifications: { ...n, ...patch } }); reload(); };
-  const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
-    <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
+    <PageHeader title="Settings" meta="read from ~/.config/contextlanes/config.toml" />
     <div className="setw">
       <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["health", "Health check"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ...(features.schedules ? [["schedules", "Scheduled lanes"] as const] : []), ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
       <div className="col">
@@ -86,11 +68,10 @@ export function SettingsPage() {
         <Section id="machine" title="This machine">
           {machineError ? <div className="sec-r" role="alert">Machine details could not be checked. <button className="lnk" onClick={reloadMachine}>Try again</button></div> : !machine ? <div className="sec-r muted">Checking this machine…</div> : <>
             <div className="sec-r"><span className="kl">Host</span><b>{machine.host}</b><span className="mono muted" style={{ fontSize: 12 }}>{machine.os}{machine.linger === null ? "" : machine.linger ? " · keeps running after you log out" : " · stops when you log out"}</span></div>
-            <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div style={{ marginLeft: "auto" }}><Action small ghost run={async () => setUpdates(await postJson<UpdateCheck>("/api/machine/updates", {}))}>Check for updates</Action></div></div>
+            <div className="sec-r"><span className="kl">Version</span><code>{machine.version}</code><div className="e"><Cmd>contextlanes update --check</Cmd></div></div>
             <div className="sec-r"><span className="kl">Runs as</span><span className="mono" style={{ fontSize: 12 }}>{machine.user}{machine.service === null ? "" : machine.service ? " · systemd user service" : " · started by hand"} · {machine.address}</span></div>
             <div className="sec-r"><span className="kl">Lanes</span>{machine.sandbox === "off" ? <Fact g="fail" detail='[sandbox] mode = "off"'>Not confined: agents run with your full access</Fact> : <Fact g="done" detail="bubblewrap">Agents confined</Fact>}<span className="mono muted" style={{ fontSize: 12 }}>{machine.supervisor === "systemd" ? "services as systemd user units" : "services as processes this daemon watches"}</span></div>
           </>}
-          {updates ? <div className="sec-b"><pre className="out" style={{ marginTop: 0 }}>{updates.lines.join("\n")}</pre><p>Install from your SSH session: <code>{updates.command}</code></p></div> : null}
         </Section>
         <HealthCheck />
         <Section id="access" title="Access">
@@ -99,40 +80,20 @@ export function SettingsPage() {
           <div className="sec-r"><span className="kl">Passkey</span>{status?.hasPasskey ? <Glyph g="done">Added</Glyph> : <><Glyph g="idle">None</Glyph><PasskeyButton /></>}</div>
           <div className="sec-r"><span className="kl">Public internet</span><Fact g="done" detail="tailnet or SSH tunnel only">Off</Fact></div>
         </Section>
-        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>
-          {projects?.map((p, i) => <ProjectRow key={p.id} project={p} first={i === 0} last={i === projects.length - 1} move={(by) => {
-            const ids = projects.map((x) => x.id); const j = i + by; [ids[i], ids[j]] = [ids[j]!, ids[i]!];
-            void postJson("/api/projects/order", { ids }, "PUT").then(reloadProjects, (e) => { setOrderError(errorMessage(e)); reloadProjects(); });
-          }} changed={reloadProjects} />)}
-          {projects && !projects.length ? <Empty icon="folder" action={<button className="btn ghost sm" onClick={() => setAdding(true)}>Add project</button>}>No projects</Empty> : null}
-          {orderError ? <div className="sec-f" role="alert" style={{ fontSize: 13 }}>{orderError}</div> : null}
+        <Section id="projects" title="Projects" meta={projects ? `${projects.length}` : undefined} end={<Cmd>contextlanes add [path]</Cmd>}>
+          {projects?.map((p) => <ProjectRow key={p.id} project={p} />)}
+          {projects && !projects.length ? <Empty icon="folder">No projects · add one from inside its folder on the machine</Empty> : null}
         </Section>
         <Section id="notifications" title="Notifications" help="Questions and permission requests reach you on the channels turned on here. The agent waits for your answer; nothing is approved for you.">
           <PushSettings />
           <div className="opts in-sec">
-            <Form title="Phone push contact" on={!!n.webPush} save={async (f) => { if (!n.webPush) throw new RequestError("Enable push on a device first; that creates the keys."); await saveNotifications({ webPush: { ...n.webPush, subject: v(f, "subject") } }); }}>
-              <label className="field">Contact for the push service <span className="hint">a mailto: address push services can reach</span><input className="in" name="subject" defaultValue={n.webPush?.subject} placeholder="mailto:you@example.com" /></label>
-            </Form>
-            <Form title="ntfy" meta={n.ntfy?.topic} on={!!n.ntfy} save={(f) => saveNotifications({ ntfy: { topic: v(f, "topic"), url: v(f, "url") || "https://ntfy.sh", ...(v(f, "token") ? { token: v(f, "token") } : {}) } })}>
-              <div className="two"><label className="field">Private topic<input className="in" name="topic" required defaultValue={n.ntfy?.topic} /></label><label className="field">Server<input className="in" name="url" type="url" defaultValue={n.ntfy?.url ?? "https://ntfy.sh"} /></label></div>
-              <label className="field">Publishing token <span className="hint">optional</span><input className="in" name="token" type="password" autoComplete="off" defaultValue={n.ntfy?.token} /></label>
-              <Fact g="idle">Subscribe to this topic in the ntfy app</Fact>
-            </Form>
-            <Form title="Telegram" on={!!n.telegram} save={(f) => saveNotifications({ telegram: { botToken: v(f, "botToken"), chatId: v(f, "chatId"), ownerId: v(f, "ownerId") } })}>
-              <label className="field">Bot token<input className="in" name="botToken" type="password" required autoComplete="off" defaultValue={n.telegram?.botToken} /></label>
-              <div className="two"><label className="field">Chat ID<input className="in" name="chatId" required defaultValue={n.telegram?.chatId} /></label><label className="field">Your user ID<input className="in" name="ownerId" required defaultValue={n.telegram?.ownerId} /></label></div>
-              <Fact g="idle">Message the bot once first · only you can answer</Fact>
-            </Form>
-            <Form title="Quiet hours" meta={n.quiet ? `${n.quiet.start}–${n.quiet.end}` : undefined} on={!!n.quiet} save={(f) => saveNotifications({ quiet: { start: v(f, "start"), end: v(f, "end"), timeZone: v(f, "timeZone") || "UTC" } })}>
-              <div className="two"><label className="field">From<input className="in" name="start" type="time" required defaultValue={n.quiet?.start} /></label><label className="field">Until<input className="in" name="end" type="time" required defaultValue={n.quiet?.end} /></label></div>
-              <label className="field">Time zone<input className="in" name="timeZone" defaultValue={n.quiet?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} /></label>
-            </Form>
-            <Form title="Address in notification links" meta={n.publicUrl ?? status?.publicUrl ?? undefined} on={!!(n.publicUrl ?? status?.publicUrl)} save={(f) => saveNotifications({ publicUrl: v(f, "publicUrl") })}>
-              <label className="field">HTTPS address <span className="hint">filled in by contextlanes setup when Tailscale is on</span><input className="in mono" name="publicUrl" type="url" required defaultValue={n.publicUrl ?? status?.publicUrl ?? ""} /></label>
-            </Form>
+            <Setting title="ntfy" meta={n.ntfy?.topic} on={!!n.ntfy} toml={`[notifications.ntfy]\ntopic = "${n.ntfy?.topic ?? "a-private-topic"}"\nurl = "${n.ntfy?.url ?? "https://ntfy.sh"}"\n# token = "…"   optional publishing token`} />
+            <Setting title="Telegram" on={!!n.telegram} toml={`[notifications.telegram]\nbotToken = "…"\nchatId = "${n.telegram?.chatId ?? "…"}"\nownerId = "${n.telegram?.ownerId ?? "…"}"   # only this user can answer`} />
+            <Setting title="Quiet hours" meta={n.quiet ? `${n.quiet.start}–${n.quiet.end}` : undefined} on={!!n.quiet} toml={`[notifications.quiet]\nstart = "${n.quiet?.start ?? "22:00"}"\nend = "${n.quiet?.end ?? "07:00"}"\ntimeZone = "${n.quiet?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}"`} />
+            <Setting title="Address in notification links" meta={n.publicUrl ?? status?.publicUrl ?? undefined} on={!!(n.publicUrl ?? status?.publicUrl)} toml={`[notifications]\npublicUrl = "${n.publicUrl ?? status?.publicUrl ?? "https://lanes.example.dev"}"`} />
           </div>
         </Section>
-        <Section id="lanes" title="Lanes"><LaneLimit settings={settings} reload={reload} /></Section>
+        <Section id="lanes" title="Lanes"><div className="opts in-sec"><Setting title="Lanes running at once" meta={String(settings?.lanes?.maxConcurrent ?? 6)} toml={`[lanes]\nmaxConcurrent = ${settings?.lanes?.maxConcurrent ?? 6}`} /></div></Section>
         {features.schedules ? <ScheduledLanes /> : null}
         <Section id="data" title="Data">
           <div className="sec-r"><span className="kl">Backups</span>{machine && machine.backups.scheduled === null ? <span className="mono muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{machine.backups.directory}</span> : machine ? <Fact g={machine.backups.scheduled ? "done" : "idle"} detail={`${machine.backups.directory}${machine.backups.lastRun ? ` · last ${new Date(machine.backups.lastRun).toLocaleString()}` : ""}`}>{machine.backups.scheduled ? "Nightly" : "Not scheduled"}</Fact> : null}{machine?.backups.result ? <Glyph g={machine.backups.result === "success" ? "done" : "fail"}>{machine.backups.result === "success" ? "OK" : machine.backups.result}</Glyph> : null}</div>
@@ -144,15 +105,7 @@ export function SettingsPage() {
         </Section>
       </div>
     </div>
-    {adding ? <AddRepoDialog onClose={() => setAdding(false)} onAdded={reloadProjects} /> : null}
   </main>;
-}
-
-function LaneLimit({ settings, reload }: { settings: SetupSettings | null; reload: () => void }) {
-  const [max, setMax] = useState<number | null>(null);
-  const current = settings?.lanes?.maxConcurrent;
-  return <div className="sec-r" style={{ flexWrap: "wrap" }}><label className="field" style={{ fontWeight: 500 }}>At most this many lanes run at once<input className="in" style={{ width: 120 }} type="number" min={1} max={100} value={max ?? current ?? 6} onChange={(e) => setMax(Number(e.target.value))} /></label>
-    <div style={{ marginLeft: "auto" }}><Action small disabled={max === null || max === current} done={() => { setMax(null); reload(); }} run={() => postJson("/api/setup/settings", { lanes: { maxConcurrent: max, launchHosts: settings?.lanes?.launchHosts ?? true } })}>Save</Action></div></div>;
 }
 
 /** One local endpoint, as on models.webp: server and host, model, this machine's GPU memory, state. */
