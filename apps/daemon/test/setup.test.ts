@@ -93,7 +93,7 @@ describe("headless setup", () => {
     f.find.mockResolvedValue(null);
     f.run.mockResolvedValue({ stdout: "no\n" });
     const result = (await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}` }, payload: { sshHost: "192.0.2.42" } })).json();
-    expect(result.messages).toEqual(["Keep ContextLanes running after logout: sudo loginctl enable-linger kyle", "Tailscale is not installed: https://tailscale.com/download"]);
+    expect(result.messages).toEqual(["Keep ContextLanes running after logout: sudo loginctl enable-linger kyle", "Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy."]);
     expect(result.tunnel).toBe("ssh -N -L 4600:127.0.0.1:4600 kyle@192.0.2.42");
     expect(result.url).toMatch(/^http:\/\/localhost:4600\/setup#signin=/);
     expect(f.config.access.shellOwner).toBe("kyle");
@@ -363,4 +363,49 @@ it("refuses to unlink another daemon socket or a file at its path", async () => 
   const f = await fixture(); const path = join(f.root, "lanes.sock"); const hosts = new HostLinks({ store: f.store, bus: f.bus }); cleanups.push(() => hosts.close());
   await writeFile(path, "user file"); await expect(hosts.listen(path)).rejects.toThrow("not a socket"); expect(await readFile(path, "utf8")).toBe("user file"); await rm(path); await hosts.listen(path);
   await expect(new HostLinks({ store: f.store, bus: f.bus }).listen(path)).rejects.toThrow("already using"); expect((await stat(path)).isSocket()).toBe(true);
+});
+
+describe("the web app through the preview router", () => {
+  async function routed() {
+    const f = await fixture();
+    expect((await f.claim()).statusCode).toBe(200);
+    await f.app.listen({ host: "127.0.0.1", port: 0 });
+    const api = (f.app.server.address() as { port: number }).port;
+    const { PreviewRouter } = await import("../src/preview-router.js");
+    const router = new PreviewRouter(0, "127.0.0.1", () => ["root.example.dev", "localhost"]);
+    cleanups.push(() => router.close());
+    router.set("lanes", api);
+    const port = await router.listen();
+    const call = (host: string, path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+      import("node:http").then(({ request }) => {
+        const req = request({ host: "127.0.0.1", port, path, method: init.method ?? "GET", headers: { host, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers } }, (res) => {
+          let body = ""; res.on("data", (d) => body += d); res.on("end", () => resolve({ status: res.statusCode!, body }));
+        });
+        req.on("error", reject); req.end(init.body);
+      }, reject);
+    });
+    return { f, call };
+  }
+
+  it("never opens local setup or reveals the setup token through the router, even with a forged Host", async () => {
+    const { f, call } = await routed();
+    expect((await call("lanes.root.example.dev", "/api/setup/local", { method: "POST", headers: f.owner, body: "{}" })).status).toBe(403);
+    expect((await call("lanes.localhost", "/api/setup/local", { method: "POST", headers: f.owner, body: "{}" })).status).toBe(403);
+    expect(JSON.parse((await call("lanes.root.example.dev", "/api/setup/status")).body)).not.toHaveProperty("controlFile");
+    for (const host of ["127.0.0.1", "localhost", `127.0.0.1:${f.config.listen.port}`]) {
+      const reply = await call(host, "/api/setup/local", { method: "POST", headers: f.owner, body: "{}" });
+      expect(reply.status, host).toBe(404);
+      expect(reply.body).toMatch(/^ContextLanes: no running preview/);
+    }
+  });
+
+  it("accepts the app's own origin and refuses a preview's origin", async () => {
+    const { f, call } = await routed();
+    f.config.previews.domain = "root.example.dev";
+    const own = await call("lanes.root.example.dev", "/api/projects/order", { method: "PUT", headers: { ...f.owner, origin: "https://lanes.root.example.dev" }, body: JSON.stringify({ ids: [] }) });
+    // Past the origin check: refused only for its empty body.
+    expect(own.status).toBe(400);
+    const preview = await call("lanes.root.example.dev", "/api/projects/order", { method: "PUT", headers: { ...f.owner, origin: "https://web-01-shop.root.example.dev" }, body: JSON.stringify({ ids: [] }) });
+    expect(preview.status).toBe(403);
+  });
 });

@@ -1,33 +1,87 @@
+import { createHash } from "node:crypto";
 import type { Lane } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
-import { slugify } from "./lanes/naming.js";
+import { PreviewRouter } from "./preview-router.js";
 import type { Runner } from "./run.js";
-import { LocalProxy } from "./local-proxy.js";
 
-type Options = { config: Config; run: Runner; fetch?: typeof fetch };
+type Options = { config: Config; run: Runner };
 type Serving = { TCP?: Record<string, unknown>; Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }> };
 
-/** One DNS label per lane service, unique because project and lane number are. */
+const LABEL_MAX = 63;
+
+/**
+ * One DNS label per lane service: `<service>-<n>-<project>`. A wildcard certificate covers exactly one
+ * label, so this never nests. The lane number comes before the project, so a long project name is what
+ * gets cut, and a cut name ends in a hash of the whole, so two lanes never share a label.
+ */
 export function previewLabel(lane: Pick<Lane, "id">, service: string): string {
-  return slugify(`${service}-${lane.id.replace("/", "-")}`).slice(0, 63).replace(/-+$/, "");
+  const [project = "", n = ""] = lane.id.split("/");
+  const clean = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const full = [clean(service), clean(n), clean(project)].filter(Boolean).join("-") || "preview";
+  if (full.length <= LABEL_MAX) return full;
+  const hash = createHash("sha256").update(full).digest("hex").slice(0, 6);
+  return `${full.slice(0, LABEL_MAX - 7).replace(/-+$/, "")}-${hash}`;
+}
+
+/** Host suffixes the router answers: the configured domain, and always `localhost` for this machine. */
+export function routerSuffixes(config: Config): string[] {
+  const { domain } = config.previews;
+  return domain ? [domain, "localhost"] : ["localhost"];
+}
+
+/** Where a label is reached from a browser. */
+export function routerUrl(config: Config, label: string): string {
+  const p = config.previews;
+  if (p.domain) return `${p.scheme ?? "https"}://${label}.${p.domain}`;
+  return `http://${label}.localhost:${p.localPort}`;
+}
+
+/** The web app's own address through the router, when a domain is set. */
+export function appOrigin(config: Config): string | null {
+  return config.previews.mode === "router" && config.previews.domain ? routerUrl(config, config.previews.appLabel) : null;
 }
 
 /**
- * One private link per lane service, always on its own origin so single-page apps and hot reload
- * work; never a path. serve: a device HTTPS port, works on any signed-in tailnet machine.
- * services: a named Tailscale Service, needs a tagged host and an admin definition per name.
- * caddy: a subdomain of a wildcard certificate, through Caddy's loopback admin API.
- * This class only adds and removes its own routes; other Serve routes are left alone.
+ * Hostnames the web app may be opened on besides localhost. Origin checks accept only these, so a page
+ * on another name (a preview, or DNS rebinding) can never act as the owner's browser.
+ */
+export function appHostnames(config: Config): string[] {
+  if (config.previews.mode !== "router") return [];
+  return routerSuffixes(config).map((suffix) => `${config.previews.appLabel}.${suffix}`);
+}
+
+/**
+ * Private links for lane services, each on its own origin so single-page apps and hot reload work;
+ * never a path. router: one port answers every `<label>.<domain>` (behind the owner's own reverse
+ * proxy and wildcard entry) and `<label>.localhost`. serve: a Tailscale Serve HTTPS port per service.
  */
 export class Previews {
-  private local?: LocalProxy;
+  private router?: PreviewRouter;
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly fetch: typeof fetch;
 
-  constructor(private readonly options: Options) { this.fetch = options.fetch ?? fetch; }
+  constructor(private readonly options: Options) {}
 
   private get settings() { return this.options.config.previews; }
+
+  /** The router, created on first use. The web app is always routed under its reserved label. */
+  private get routes(): PreviewRouter {
+    if (!this.router) {
+      this.router = new PreviewRouter(this.settings.localPort, this.settings.bind, () => routerSuffixes(this.options.config));
+      this.router.set(this.settings.appLabel, this.options.config.listen.port);
+    }
+    return this.router;
+  }
+
+  /** Opens the router port. Called at daemon start so the web app is reachable before any lane runs. */
+  async start(): Promise<number | null> {
+    return this.settings.mode === "router" ? this.routes.listen() : null;
+  }
+
+  /** A service's address, known before it starts. Null in serve mode, where the port is chosen on publish. */
+  urlFor(lane: Pick<Lane, "id">, service: string): string | null {
+    return this.settings.mode === "router" ? routerUrl(this.options.config, previewLabel(lane, service)) : null;
+  }
 
   /** Tailscale keeps one serve configuration, so changes to it run one at a time. */
   private serial<T>(work: () => Promise<T>): Promise<T> {
@@ -36,37 +90,37 @@ export class Previews {
     return next;
   }
 
-  publish(lane: Pick<Lane, "id">, service: string, port: number): Promise<string> {
-    return this.serial(async () => {
-      const label = previewLabel(lane, service);
-      if (this.settings.mode === "local") {
-        this.local ??= new LocalProxy(this.settings.localPort);
-        const [project, n] = lane.id.split("/");
-        return this.local.publish(`${service}--${n}--${project}.localhost`, port);
-      }
-      if (this.settings.mode === "caddy") return this.addCaddy(label, port);
-      return this.settings.mode === "services" ? this.addService(label, port) : this.addServe(port);
-    });
+  async publish(lane: Pick<Lane, "id">, service: string, port: number): Promise<string> {
+    if (this.settings.mode === "router") {
+      // A table entry only: the port itself is opened once, at daemon start (start()).
+      this.routes.set(previewLabel(lane, service), port);
+      return this.urlFor(lane, service)!;
+    }
+    return this.serial(() => this.addServe(port));
   }
 
-  unpublish(url: string): Promise<void> {
-    return this.serial(async () => {
-      const { hostname, port } = new URL(url);
-      const label = hostname.split(".")[0]!;
-      if (this.settings.mode === "local") { this.local?.unpublish(url); return; }
-      if (this.settings.mode === "caddy") await this.fetch(`${this.settings.caddy!.admin}/id/cl-${label}`, { method: "DELETE" });
-      else if (this.settings.mode === "services") await this.options.run("tailscale", ["serve", "clear", `svc:${label}`], { timeout: 30_000 });
-      else await this.options.run("tailscale", ["serve", `--https=${port}`, "off"], { timeout: 30_000 });
-    });
+  async unpublish(url: string): Promise<void> {
+    const { hostname, port } = new URL(url);
+    if (this.settings.mode === "router") {
+      const label = this.routes.labelOf(hostname);
+      if (label && label !== this.settings.appLabel) this.routes.delete(label);
+      return;
+    }
+    await this.serial(() => this.options.run("tailscale", ["serve", `--https=${port}`, "off"], { timeout: 30_000 }));
   }
 
-  close(): void { this.local?.close(); }
+  /** True when the router currently sends this lane service somewhere. */
+  routed(lane: Pick<Lane, "id">, service: string): boolean {
+    return this.settings.mode === "router" && !!this.router?.has(previewLabel(lane, service));
+  }
 
-  private async status(): Promise<{ dns: string; suffix: string }> {
-    const status = JSON.parse((await this.options.run("tailscale", ["status", "--json"], { timeout: 5000 })).stdout) as { BackendState?: string; MagicDNSSuffix?: string; Self?: { DNSName?: string } };
+  close(): void { this.router?.close(); }
+
+  private async status(): Promise<{ dns: string }> {
+    const status = JSON.parse((await this.options.run("tailscale", ["status", "--json"], { timeout: 5000 })).stdout) as { BackendState?: string; Self?: { DNSName?: string } };
     const dns = status.Self?.DNSName?.replace(/\.$/, "");
     if (status.BackendState !== "Running" || !dns) throw new Refused("Tailscale is not signed in on this machine.");
-    return { dns, suffix: status.MagicDNSSuffix?.replace(/\.$/, "") ?? dns.slice(dns.indexOf(".") + 1) };
+    return { dns };
   }
 
   private async addServe(port: number): Promise<string> {
@@ -80,23 +134,5 @@ export class Previews {
       return `https://${dns}:${candidate}`;
     }
     throw new Refused(`Every preview port from ${this.settings.ports.from} to ${this.settings.ports.to} is in use. Stop an environment or widen [previews.ports].`);
-  }
-
-  private async addService(label: string, port: number): Promise<string> {
-    const { suffix } = await this.status();
-    await this.options.run("tailscale", ["serve", `--service=svc:${label}`, "--https=443", "--yes", `http://127.0.0.1:${port}`], { timeout: 30_000 });
-    return `https://${label}.${suffix}`;
-  }
-
-  private async addCaddy(label: string, port: number): Promise<string> {
-    const caddy = this.settings.caddy!;
-    await this.fetch(`${caddy.admin}/id/cl-${label}`, { method: "DELETE" });
-    const host = `${label}.${caddy.domain}`;
-    const response = await this.fetch(`${caddy.admin}/config/apps/http/servers/${caddy.server}/routes`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ "@id": `cl-${label}`, match: [{ host: [host] }], handle: [{ handler: "reverse_proxy", upstreams: [{ dial: `127.0.0.1:${port}` }] }], terminal: true }),
-    });
-    if (!response.ok) throw new Refused(`Caddy refused the route (${response.status}).`);
-    return `https://${host}`;
   }
 }

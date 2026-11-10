@@ -60,6 +60,9 @@ async function main(): Promise<void> {
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();
+  // Routes for services that kept running while the daemon was down, before anything can ask for them.
+  const restored = await runtime.restoreLinks().catch((err) => { console.error("Preview router could not start:", err); return 0; });
+  if (restored) console.log(`Preview links restored: ${restored}`);
   await app.listen({ host: config.listen.host, port: config.listen.port });
   notifier.start();
   runtime.watch();
@@ -78,6 +81,7 @@ async function main(): Promise<void> {
   const tidyFirst = setTimeout(tidy, 5 * 60_000); tidyFirst.unref();
   const tidyDaily = setInterval(tidy, 86_400_000); tidyDaily.unref();
   console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
+  if (config.previews.mode === "router") console.log(`Preview router on ${config.previews.bind}:${config.previews.localPort}${config.previews.domain ? ` for *.${config.previews.domain}` : ""}`);
 
   // Stop within seconds: open requests (a long model call, a clone) are cut rather than waited for, so
   // systemd's restart during an update never hits its kill timeout. A second signal is ignored.

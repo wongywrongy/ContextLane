@@ -106,10 +106,31 @@ export class Runtime {
   }
 
   previewUrl(id: string, name: string): { service: string; url: string } {
-    this.lane(id);
+    const lane = this.lane(id);
     const service = this.deps.store.environment(id)?.services.find((s) => s.name === name);
-    if (!service?.url) throw new Refused(`${name} has no link yet. Start it with env_start and wait until it is healthy.`);
+    if (!service) throw new Refused(`This lane has no service called ${name}. Start the environment first.`, 404);
+    const live = service.state === "healthy" && (this.deps.config.previews.mode === "router" ? this.previews.routed(lane, name) : !!service.url);
+    if (!service.url || !live) throw new Refused(`${name} has no working link yet (it is ${service.state}). Start it and wait until it is healthy.`);
     return { service: name, url: service.url };
+  }
+
+  /**
+   * After a daemon restart the router's table is empty while services kept running. Healthy services get
+   * their routes back before the HTTP server takes requests, instead of waiting for the next probe.
+   */
+  async restoreLinks(): Promise<number> {
+    if (this.deps.config.previews.mode !== "router") return 0;
+    await this.previews.start();
+    let restored = 0;
+    for (const env of this.deps.store.liveEnvironments()) {
+      const lane = this.deps.store.getLane(env.lane);
+      if (!lane) continue;
+      for (const service of env.services.filter((s) => s.state === "healthy")) {
+        await this.previews.publish(lane, service.name, service.port);
+        restored++;
+      }
+    }
+    return restored;
   }
 
   /**
@@ -183,6 +204,9 @@ export class Runtime {
     if (this.timer) clearInterval(this.timer);
     this.previews.close();
   }
+
+  /** The preview links this runtime publishes; shared with whatever else needs the router. */
+  get links(): Previews { return this.previews; }
 
   private lane(id: string): Lane {
     const lane = this.deps.store.getLane(id);
@@ -287,7 +311,7 @@ export class Runtime {
       const old = current.services.find((s) => s.name === service.name);
       if (old && old.state !== "stopped") await this.deps.run("systemctl", ["--user", "stop", old.unit]).catch(() => {});
       const port = ports[service.name]!;
-      const row: ServiceStatus = { name: service.name, unit, port, url: null, state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
+      const row: ServiceStatus = { name: service.name, unit, port, url: this.previews.urlFor(lane, service.name), state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
       store.saveEnvironment({ ...current, services: [...current.services.filter((s) => s.name !== service.name), row] });
       try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
       catch (err) { this.update(env, row, { state: "failed", detail: err instanceof Error ? err.message.slice(0, 300) : "The service unit could not start." }); continue; }
@@ -385,11 +409,18 @@ export class Runtime {
 
   /** A healthy service gets its link. A failed link never stops the app; it says why and retries. */
   private async link(id: string, service: ServiceStatus): Promise<void> {
-    if (service.url && this.deps.config.previews.mode !== "local" || Date.now() < (this.previewRetry.get(service.unit) ?? 0)) return;
-    const { store } = this.deps;
+    const { store, config } = this.deps;
+    const lane = this.lane(id);
+    if (config.previews.mode === "router") {
+      // A table entry, not a network call: always set, so a route lost for any reason comes back within one probe.
+      const url = await this.previews.publish(lane, service.name, service.port);
+      if (service.url !== url) this.update(store.environment(id)!, service, { url });
+      return;
+    }
+    if (service.url || Date.now() < (this.previewRetry.get(service.unit) ?? 0)) return;
     this.previewRetry.set(service.unit, Date.now() + 60_000);
     try {
-      const url = await this.previews.publish(this.lane(id), service.name, service.port);
+      const url = await this.previews.publish(lane, service.name, service.port);
       this.update(store.environment(id)!, service, { url });
       const env = store.environment(id)!;
       if (env.error?.startsWith(`Preview link for ${service.name}`)) store.saveEnvironment({ ...env, error: null });

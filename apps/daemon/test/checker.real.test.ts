@@ -18,7 +18,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("builds a checkpoint from 
   const store = Store.open(":memory:");
   const bus = new EventBus();
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: root } });
-  const previews = { publish: async () => "https://fixture.invalid:4700", unpublish: async () => {} } as unknown as Previews;
+  const previews = { publish: async () => "https://fixture.invalid:4700", unpublish: async () => {}, urlFor: () => null, routed: () => true, start: async () => null, close: () => {} } as unknown as Previews;
   const runtime = new Runtime({ store, bus, config, run: runCommand, previews });
   const checker = new Checker({ store, bus, config, run: runCommand, runtime });
   try {

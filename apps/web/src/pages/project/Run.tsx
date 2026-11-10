@@ -41,7 +41,8 @@ export function RunPage() {
   const [adopting, setAdopting] = useState<OutsideService | null>(null);
   const [viewing, setViewing] = useState<RecipeView | null>(null);
   const [writing, setWriting] = useState(false);
-  const exposure = environments?.previews === "local" ? "This machine only" : environments?.previews === "caddy" ? "Private subdomains" : "Tailnet only";
+  const domain = environments?.previews === "router" ? environments.domain : null;
+  const exposure = environments?.previews === "serve" ? "Tailnet only" : domain ? "Your proxy" : "This machine only";
   useEffect(() => {
     const timer = setInterval(reloadEnvironments, 5000);
     return () => clearInterval(timer);
@@ -72,8 +73,8 @@ export function RunPage() {
         <button className="btn ghost sm" style={{ marginLeft: "auto" }} onClick={() => setViewing(recipe)}>View</button></div> : null}
       {environments ? <CleanUp entries={environments.cleanup} changed={reloadEnvironments} /> : null}
       <div className="sec-r" style={{ flexWrap: "wrap" }}><span className="kl" style={{ minWidth: 90 }}>Exposure</span>
-        <Fact g="done" detail={environments?.previews === "caddy" ? `*.${environments.domain}` : undefined}>{exposure}</Fact>
-        <Help>Previews are reachable {environments?.previews === "local" ? "only on this machine, through named localhost URLs" : "only on your tailnet"}{environments?.previews === "caddy" ? `, at *.${environments.domain} through Caddy` : ""}. A lane service found listening beyond localhost is stopped within seconds.</Help>
+        <Fact g="done" detail={domain ? `*.${domain}` : undefined}>{exposure}</Fact>
+        <Help>Previews are reachable {environments?.previews === "serve" ? "only on your tailnet, through Tailscale Serve" : domain ? `at *.${domain}, through the wildcard entry in your reverse proxy` : "only on this machine, through named localhost URLs. Set [previews] domain to reach them from other devices"}. A lane service found listening beyond localhost is stopped within seconds.</Help>
         {environments?.facts?.lanes.filter((lane) => lane.certificateDays !== null && lane.certificateDays < 14).map((lane) => <Fact key={lane.lane} g="wait" detail={lane.lane}>{`Certificate ${lane.certificateDays} days`}</Fact>)}
       </div>
     </Section>

@@ -1,3 +1,4 @@
+import { appOrigin } from "./previews.js";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { ProjectDiscovery, expandPath, type ScanLimits } from "./projects.js";
@@ -104,8 +105,13 @@ export class SetupManager {
       if (linger !== "yes") messages.push(`Keep ContextLanes running after logout: sudo loginctl enable-linger ${quote(user)}`);
     } catch { messages.push(`Check services after logout: sudo loginctl enable-linger ${quote(user)}`); }
     let origin = `http://localhost:${this.config.listen.port}`;
-    const tailscale = await (this.options.find ?? findExecutable)("tailscale");
-    if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download");
+    const routed = appOrigin(this.config);
+    const tailscale = routed ? null : await (this.options.find ?? findExecutable)("tailscale");
+    if (routed) {
+      // The app's own name through the owner's proxy; no Tailscale needed.
+      origin = routed;
+      if (this.config.notifications.publicUrl !== routed) await this.update({ notifications: { ...this.config.notifications, publicUrl: routed } });
+    } else if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy.");
     else {
       try { origin = (await this.enableTailnet()).publicUrl; }
       catch (error) { messages.push(error instanceof SetupError ? error.message : "Tailscale could not be checked; use the SSH tunnel below."); }

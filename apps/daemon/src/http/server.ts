@@ -1,5 +1,6 @@
 import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
+import { appHostnames } from "../previews.js";
 import { serveWeb } from "./static.js";
 import { ProjectError } from "../projects.js";
 import { SetupError, type SetupManager } from "../setup.js";
@@ -105,7 +106,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       if (!store.notificationAction(bearer)) return reply.code(401).send({ error: "invalid notification action" });
       return;
     }
-    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req);
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin) requestOrigin(req, appHostnames(config));
     if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
     if ((!deps.setup || deps.setup.claimed) && bearer && await auth.owner(bearer)) return;
     if ((route === TOOL_ROUTE || route === TOOLS_ROUTE || route === "/api/lanes/:project/:n/hooks" || route === "/api/lanes/:project/:n/hooks/answer") && bearer) {
@@ -418,7 +419,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lanes = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state) && (l.state !== "merged" || store.environment(l.id)?.services.some((s) => s.state !== "stopped")));
     const [cleanup, recipe, entries, facts] = await Promise.all([review.cleanable(project.id), readRecipe(store, project, project.path),
       Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))), resources.project(project.id)]);
-    return { cleanup, previews: config.previews.mode, domain: config.previews.caddy?.domain ?? null, recipe, lanes: entries, facts };
+    return { cleanup, previews: config.previews.mode, domain: config.previews.mode === "router" ? config.previews.domain ?? null : null, recipe, lanes: entries, facts };
   });
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env", async (req) => runtime.status(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/env/start", async (req) => runtime.start(laneParam(req.params), StartEnvRequest.parse(req.body ?? {}).services));
@@ -477,7 +478,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       websocket: true,
       preValidation: async (req, reply) => {
         // A web page on another origin must never gain access to the owner's shell.
-        if (req.headers.origin) requestOrigin(req);
+        if (req.headers.origin) requestOrigin(req, appHostnames(config));
         if (!store.getLane(laneParam(req.params))) throw new NotFound("no such lane");
       },
     }, (socket, req) => {

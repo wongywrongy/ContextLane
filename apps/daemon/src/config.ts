@@ -32,17 +32,25 @@ export const Config = z.object({
   notifications: NotificationConfig.prefault({}),
   localModels: z.array(LocalModel).default([]),
   projects: z.array(AddProjectRequest).default([]),
-  previews: z.object({
-    mode: z.enum(["local", "serve", "services", "caddy"]).default("local"),
-    localPort: z.number().int().min(1).max(65535).default(4601),
+  previews: z.preprocess(migratePreviews, z.object({
+    /**
+     * router: one port answers `<label>.<domain>` and `<label>.localhost`; put one wildcard entry for the
+     * domain in your own reverse proxy. serve: a Tailscale Serve HTTPS port per service.
+     */
+    mode: z.enum(["router", "serve"]).default("router"),
+    /** The wildcard name your proxy sends here, e.g. root.example.dev for *.root.example.dev. */
+    domain: z.string().regex(/^(?=.{1,200}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/, "a lowercase DNS name such as root.example.dev").optional(),
+    /** How browsers reach the domain. Your proxy terminates TLS, so this is almost always https. */
+    scheme: z.enum(["https", "http"]).optional(),
+    /** 0 picks any free port (tests). */
+    localPort: z.number().int().min(0).max(65535).default(4601),
+    /** Where the router listens. Only this port may leave loopback; the API never does. */
+    bind: z.union([z.ipv4(), z.ipv6()]).default("127.0.0.1"),
+    /** Reserved label for the web app itself: https://lanes.<domain>. */
+    appLabel: z.string().regex(/^[a-z][a-z0-9]{0,30}$/).default("lanes"),
     /** HTTPS ports on the device for serve mode. */
     ports: z.object({ from: z.number().int().min(1).max(65535).default(4700), to: z.number().int().min(1).max(65535).default(4799) }).prefault({}),
-    caddy: z.object({
-      domain: z.string().regex(/^[a-z0-9.-]+$/),
-      admin: z.url().refine((url) => ["127.0.0.1", "localhost"].includes(new URL(url).hostname), "Caddy's admin API must stay on loopback").default("http://127.0.0.1:2019"),
-      server: z.string().regex(/^[\w-]+$/).default("srv0"),
-    }).optional(),
-  }).refine((p) => p.mode !== "caddy" || p.caddy, "caddy mode needs [previews.caddy]").prefault({}),
+  })).prefault({}),
   /** Browser for checkpoint screenshots; empty uses the one Playwright installed. */
   checker: z.object({ chromium: z.string().optional() }).prefault({}),
   routing: z.array(RoutingRule).default([]),
@@ -63,6 +71,20 @@ export const Config = z.object({
   }).prefault({}),
 });
 export type Config = z.infer<typeof Config>;
+
+/**
+ * Earlier releases had local, services and caddy modes. local is the router without a domain; services
+ * and caddy become the router, keeping a Caddy domain so links keep their names behind the owner's proxy.
+ */
+function migratePreviews(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const { mode, caddy, ...rest } = raw as { mode?: unknown; caddy?: { domain?: unknown } } & Record<string, unknown>;
+  if (mode === "local" || mode === "services" || mode === "caddy") {
+    const domain = mode === "caddy" && typeof caddy?.domain === "string" && rest.domain === undefined ? { domain: caddy.domain } : {};
+    return { ...rest, ...domain, mode: "router" };
+  }
+  return mode === undefined ? rest : { ...rest, mode };
+}
 
 export function configPath(): string {
   return process.env.CONTEXTLANES_CONFIG ?? join(homedir(), ".config/contextlanes/config.toml");

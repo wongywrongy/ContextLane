@@ -42,7 +42,7 @@ const bus = new EventBus();
 const hosts = new HostLinks({ store, bus });
 const manager = new LaneManager({ store, bus, config, run });
 // Real systemd, fake links: a fixture must never add routes to the machine's tailnet.
-const previews = { publish: async (lane, service) => `https://${service}-fixture.invalid:4700`, unpublish: async () => {} };
+const previews = { publish: async (lane, service) => `https://${service}-fixture.invalid:4700`, unpublish: async () => {}, urlFor: () => null, routed: () => true, start: async () => null, close: () => {} };
 const runtime = new Runtime({ store, bus, config, run, previews });
 const checker = new Checker({ store, bus, config, run, runtime });
 const setup = new SetupManager(config, store, run, { changed: async () => {} });

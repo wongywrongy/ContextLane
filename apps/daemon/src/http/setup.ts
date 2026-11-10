@@ -9,15 +9,22 @@ import { SetupError } from "../setup.js";
 import type { Store } from "../db/store.js";
 import type { Runner } from "../run.js";
 import { connectTerminal } from "../terminal/socket.js";
+import { appHostnames } from "../previews.js";
 import type { Auth } from "./auth.js";
 
-export function requestOrigin(req: FastifyRequest): string {
+/**
+ * The origin a browser request came from, refused unless it is this app: localhost, the Tailscale Serve
+ * address (which adds its login header), or the app's own name through the preview router. Previews
+ * live on sibling names under the same domain and are never accepted.
+ */
+export function requestOrigin(req: FastifyRequest, appHosts: string[] = []): string {
   const login = req.headers["tailscale-user-login"];
-  const origin = req.headers.origin ?? `${typeof login === "string" ? "https" : "http"}://${req.headers.host}`;
+  const forwarded = typeof req.headers["x-forwarded-proto"] === "string" ? req.headers["x-forwarded-proto"].split(",")[0]!.trim() : null;
+  const origin = req.headers.origin ?? `${typeof login === "string" ? "https" : forwarded === "https" ? "https" : "http"}://${req.headers.host}`;
   let url: URL;
   try { url = new URL(origin); } catch { throw new SetupError("Open this page from ContextLanes and try again.", 403); }
   if (url.host !== req.headers.host || !["http:", "https:"].includes(url.protocol) ||
-    (!["localhost", "127.0.0.1"].includes(url.hostname) && typeof login !== "string")) throw new SetupError("Open this page from ContextLanes and try again.", 403);
+    (!["localhost", "127.0.0.1"].includes(url.hostname) && !appHosts.includes(url.hostname) && typeof login !== "string")) throw new SetupError("Open this page from ContextLanes and try again.", 403);
   return url.origin;
 }
 
@@ -40,17 +47,17 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   });
   app.post("/api/setup/prove", async (req) => ({ proof: await setup.prove(ProveRequest.parse(req.body ?? {}).nonce) }));
   app.post("/api/setup/sign-in", async (req, reply) => {
-    const token = setup.signIn(SignInRequest.parse(req.body).token, requestOrigin(req));
+    const token = setup.signIn(SignInRequest.parse(req.body).token, requestOrigin(req, appHostnames(setup.config)));
     return reply.header("cache-control", "no-store").send({ authorized: true, token });
   });
-  app.post("/api/setup/passkey/options", async (req) => setup.registration(requestOrigin(req)));
+  app.post("/api/setup/passkey/options", async (req) => setup.registration(requestOrigin(req, appHostnames(setup.config))));
   app.post("/api/setup/passkey", async (req, reply) => {
-    const token = await setup.register(req.body, requestOrigin(req));
+    const token = await setup.register(req.body, requestOrigin(req, appHostnames(setup.config)));
     return reply.header("cache-control", "no-store").send({ saved: true, token });
   });
-  app.post("/api/setup/login/options", async (req) => setup.authentication(requestOrigin(req)));
+  app.post("/api/setup/login/options", async (req) => setup.authentication(requestOrigin(req, appHostnames(setup.config))));
   app.post("/api/setup/login", async (req, reply) => {
-    const token = await setup.login(req.body, requestOrigin(req));
+    const token = await setup.login(req.body, requestOrigin(req, appHostnames(setup.config)));
     return reply.header("cache-control", "no-store").send({ authorized: true, token });
   });
   app.get("/api/setup/settings", async () => setup.redactedSettings());
@@ -62,7 +69,7 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
   app.post("/api/setup/agents/install", async (req) => setup.installAgent(req.body, registry));
   app.register(async (terminal) => {
     terminal.get<{ Params: { agent: string } }>("/api/setup/agents/:agent/terminal", { websocket: true,
-      preValidation: async (req) => { AgentId.parse(req.params.agent); if (req.headers.origin) requestOrigin(req); },
+      preValidation: async (req) => { AgentId.parse(req.params.agent); if (req.headers.origin) requestOrigin(req, appHostnames(setup.config)); },
     }, (socket, req) => {
       // Install listeners before resolving the command, so early keystrokes are not lost.
       const messages: Parameters<typeof socket.emit>[] = [];
