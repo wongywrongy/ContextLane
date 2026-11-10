@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 import type { DetectedAgent, OutsideAgent, Project, ProjectEnvironments, ProjectMap, SetupStatus } from "@contextlanes/protocol";
@@ -48,14 +49,14 @@ export function SetupPage() {
 
 type StepState = "done" | "now" | "next";
 function Step({ n, state, title, optional, desc, children, change }: { n: number; state: StepState; title: string; optional?: boolean; desc: ReactNode; children?: ReactNode; change?: () => void }) {
-  return <div className={`sst ${state}`}>
+  return <div className={clsx("sst", state)}>
     <span className="num">{state === "done" ? "✓" : n}</span>
     <div style={{ minWidth: 0 }}>
       <h3>{title}{optional ? <span className="opt"> · optional</span> : null}</h3>
       <p className="d">{desc}</p>
       {children ? <div className="body">{children}</div> : null}
     </div>
-    <span className={`state ${state}`}>{state === "done" ? <>{change ? <button className="lnk" style={{ fontWeight: 500, color: "var(--muted)", marginRight: 10 }} onClick={change}>Change</button> : null}<i className="g done" />Done</> : state === "now" ? <><i className="g think" />Now</> : <><i className="g idle" />{optional ? "Any time" : "Next"}</>}</span>
+    <span className={clsx("state", state)}>{state === "done" ? <>{change ? <button className="lnk" style={{ fontWeight: 500, color: "var(--muted)", marginRight: 10 }} onClick={change}>Change</button> : null}<i className="g done" />Done</> : state === "now" ? <><i className="g think" />Now</> : <><i className="g idle" />{optional ? "Any time" : "Next"}</>}</span>
   </div>;
 }
 

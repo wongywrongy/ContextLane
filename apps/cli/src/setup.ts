@@ -3,13 +3,18 @@ import { SetupLink, SetupStatus, type Project } from "@contextlanes/protocol";
 import { api, daemonUrl, ClientError, shellToken } from "./client.js";
 import { bold, cyan, dim, yellow } from "./term.js";
 
-export async function setupOutput(sshHost = process.env.SSH_CONNECTION?.trim().split(/\s+/)[2]): Promise<string> {
+/** A one-time owner sign-in link. Needs the local credential, which the sandbox hides from lanes. */
+export async function setupLink(sshHost = process.env.SSH_CONNECTION?.trim().split(/\s+/)[2]): Promise<SetupLink> {
   if (!["127.0.0.1", "localhost"].includes(new URL(daemonUrl()).hostname)) throw new ClientError("Run contextlanes setup in the machine’s SSH session.");
   const parsed = SetupStatus.safeParse(await api("/api/setup/status"));
   if (!parsed.success || !parsed.data.controlFile) throw new ClientError("Restart the ContextLanes daemon, then run contextlanes setup again.");
   const token = await shellToken();
   if (!token) throw new ClientError("The local setup credential could not be read; run this command as the daemon’s user.");
-  const link = SetupLink.parse(await api("/api/setup/local", { method: "POST", body: sshHost ? { sshHost } : {}, token }));
+  return SetupLink.parse(await api("/api/setup/local", { method: "POST", body: sshHost ? { sshHost } : {}, token }));
+}
+
+export async function setupOutput(sshHost?: string): Promise<string> {
+  const link = await setupLink(sshHost);
   let code = "";
   qr.generate(link.url, { small: true }, (result) => { code = result; });
   return ["", `  ${bold("ContextLanes setup")}`, "", ...(link.messages.length ? [`  ${bold("Do this first")} on this machine:`, ...link.messages.map((m) => `     ${yellow(m)}`)] : []),

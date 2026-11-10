@@ -10,6 +10,7 @@ import { Command } from "cmdk";
 import { AgentMark, Dialog, Glyph, LaneBadge, StateGlyph } from "./ui";
 
 export function Shell() {
+  const features = useFeatures();
   const [health, down, recheck] = useJson<Health>("/api/health");
   // The machine dot follows the daemon: checked every 30 seconds, so a stopped daemon shows as offline.
   useEffect(() => { const t = setInterval(recheck, 30_000); return () => clearInterval(t); }, [recheck]);
@@ -70,7 +71,7 @@ export function Shell() {
         <nav className="gnav" aria-label="Main">
           <NavLink to="/" end className={({ isActive }) => isActive || inProject ? "active" : ""}>Projects</NavLink>
           <NavLink to="/inbox">Inbox{inbox?.length ? <span className="ib">{inbox.length}</span> : null}</NavLink>
-          <NavLink to="/models">Models</NavLink>
+          {features.acp || features.helper || features.insights ? <NavLink to="/models">Models</NavLink> : null}
           <NavLink to="/settings">Settings</NavLink>
         </nav>
         <button className="ask" onClick={() => setJump(true)}>Command<span className="kbd">⌘K</span></button>

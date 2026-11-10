@@ -69,11 +69,11 @@ export const GLYPH: Record<LaneState, [glyph: "work" | "think" | "wait" | "fail"
   paused: ["pause", "Paused"], archived: ["idle", "Archived"],
 };
 export function Glyph({ g, children }: { g: string; children?: ReactNode }) {
-  return <span className={`gl ${g}`}><i className={`g ${g}`} aria-hidden="true" />{children}</span>;
+  return <span className={clsx("gl", g)}><i className={clsx("g", g)} aria-hidden="true" />{children}</span>;
 }
 export function StateGlyph({ state, label = false, idle = false }: { state: LaneState; label?: boolean; idle?: boolean }) {
   const [g, text] = idle ? ["idle", "Idle"] : GLYPH[state];
-  return label ? <Glyph g={g}>{text}</Glyph> : <i className={`g ${g}`} role="img" aria-label={text} title={text} />;
+  return label ? <Glyph g={g}>{text}</Glyph> : <i className={clsx("g", g)} role="img" aria-label={text} title={text} />;
 }
 
 export function laneNumber(id: string): string { return id.slice(id.lastIndexOf("/") + 1); }

@@ -195,7 +195,7 @@ function Plan({ view }: { view: RecipeView }) {
 function Service({ service, open, toggle }: { service: ServiceStatus; open: boolean; toggle: () => void }) {
   const note = service.detail ?? (service.state === "stopped" ? "stopped" : service.state === "starting" ? "starting" : service.lastFailure ? `failed once ${clock(service.lastFailure)}, recovered` : `GET ${service.healthPath}${service.ms !== null ? ` ${service.ms}ms` : ""}`);
   return <div className="svc">
-    <i className={`g ${SERVICE_GLYPH[service.state]}`} role="img" aria-label={service.state} title={service.state} />
+    <i className={clsx("g", SERVICE_GLYPH[service.state])} role="img" aria-label={service.state} title={service.state} />
     <b>{service.name}</b>
     <span className="port">:{service.port}</span>
     <span className="ticks" role="img" aria-label={`${service.probes.filter(Boolean).length} of the last ${service.probes.length} health checks passed`}>{service.probes.map((ok, i) => <i key={i} className={ok ? "" : "bad"} />)}</span>
