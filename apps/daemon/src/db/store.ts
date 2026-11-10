@@ -27,6 +27,9 @@ type Row = Record<string, unknown>;
  * SQLite through Node's built-in node:sqlite, with no native database dependency.
  * WAL mode; every write goes through tx() so events and state never disagree.
  */
+/** How long a browser stays signed in after it was last used. */
+const SESSION_MS = 30 * 86_400_000;
+
 export class Store {
   private depth = 0;
 
@@ -471,7 +474,7 @@ export class Store {
   ownerSession(): string {
     const token = randomBytes(32).toString("base64url");
     this.db.prepare("DELETE FROM owner_session WHERE expires < ?").run(Date.now());
-    this.db.prepare("INSERT INTO owner_session VALUES (?, ?)").run(createHash("sha256").update(token).digest("hex"), Date.now() + 30 * 86_400_000);
+    this.db.prepare("INSERT INTO owner_session VALUES (?, ?)").run(createHash("sha256").update(token).digest("hex"), Date.now() + SESSION_MS);
     return token;
   }
 
@@ -505,9 +508,18 @@ export class Store {
     return !!this.db.prepare("SELECT 1 FROM lane WHERE id = ? AND token_hash IS NOT NULL").get(lane);
   }
 
+  /**
+   * A browser's sign-in lasts 30 days from when it was last used, not from when it was made: a browser
+   * that keeps coming back stays signed in, and one left unused for a month is signed out. The expiry
+   * is pushed forward at most once a day, so reading stays cheap.
+   */
   validOwnerSession(token: string): boolean {
     if (!/^[\w-]{43}$/.test(token)) return false;
-    return !!this.db.prepare("SELECT 1 FROM owner_session WHERE hash = ? AND expires > ?").get(createHash("sha256").update(token).digest("hex"), Date.now());
+    const hash = createHash("sha256").update(token).digest("hex"), now = Date.now();
+    const row = this.db.prepare("SELECT expires FROM owner_session WHERE hash = ? AND expires > ?").get(hash, now) as { expires: number } | undefined;
+    if (!row) return false;
+    if (Number(row.expires) - now < SESSION_MS - 86_400_000) this.db.prepare("UPDATE owner_session SET expires = ? WHERE hash = ?").run(now + SESSION_MS, hash);
+    return true;
   }
 }
 

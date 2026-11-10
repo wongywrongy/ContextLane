@@ -1,5 +1,5 @@
 import { ALL_FEATURES } from "./features.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -125,5 +125,23 @@ describe("what a lane process gets", () => {
   it("keeps the lane token out of the command line", () => {
     expect(hostCommand(lane, config)).toContain("--setenv=CONTEXTLANES_LANE_TOKEN");
     expect(hostCommand(lane, config).join(" ")).not.toContain("cl-lane-");
+  });
+});
+
+describe("how long a browser stays signed in", () => {
+  it("30 days from its last use, so a browser that keeps coming back never signs in again", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
+      const store = Store.open(":memory:");
+      const used = store.ownerSession(), idle = store.ownerSession();
+      // Used every 20 days for 100 days: still valid well past the first 30.
+      for (let day = 20; day <= 100; day += 20) { vi.setSystemTime(new Date(Date.parse("2026-11-01T00:00:00Z") + day * 86_400_000)); expect(store.validOwnerSession(used), `day ${day}`).toBe(true); }
+      // Never used since day 0: gone after 30 days.
+      expect(store.validOwnerSession(idle)).toBe(false);
+      vi.setSystemTime(new Date(Date.parse("2026-11-01T00:00:00Z") + 131 * 86_400_000));
+      expect(store.validOwnerSession(used)).toBe(false);
+      store.close();
+    } finally { vi.useRealTimers(); }
   });
 });

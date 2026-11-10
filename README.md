@@ -29,8 +29,9 @@ cd /opt/stacks/contextlanes
 cp .env.example .env        # set PUID, PGID and the folders that hold your code and lanes
 docker compose up -d --build
 sudo ln -s "$PWD/docker/cl" /usr/local/bin/cl
-cl setup
 ```
+
+`cl` works straight away. To open the web page, sign that browser in once with `cl setup`; it stays signed in as long as you keep using it.
 
 Agents then run inside the container and see only the folders you mounted. [docs/DOCKER.md](docs/DOCKER.md) covers settings, agent logins, toolchains, your reverse proxy and updating.
 

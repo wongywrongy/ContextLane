@@ -10,8 +10,9 @@ cd /opt/stacks/contextlanes
 cp .env.example .env        # set PUID, PGID and the two folders
 docker compose up -d --build
 sudo ln -s "$PWD/docker/cl" /usr/local/bin/cl
-cl setup                    # prints the sign-in link
 ```
+
+`cl` works straight away. To open the web page, sign that browser in once with `cl setup`; it stays signed in as long as you keep using it.
 
 Then, in any repository under your code folder, run `cl`.
 

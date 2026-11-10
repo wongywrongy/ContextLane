@@ -53,7 +53,7 @@ ${bold("Waiting on you")}
   cl ok <id> <option>             answer one, using the id and option from inbox
 
 ${bold("This machine")}
-  cl setup                        sign in from a browser: prints a one-time link and QR code
+  cl setup                        sign a browser in to the web page, once per browser: a one-time link and QR code
   cl status                       is ContextLanes running, and where to open it
   cl daemon                       run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
   cl doctor                       check tools, sandbox, router and your proxy, and say how to fix what fails
