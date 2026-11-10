@@ -30,13 +30,17 @@ export type AgentLink = z.infer<typeof AgentLink>;
 
 export const LaneRename = z.object({ task: z.string().trim().min(1).max(300) });
 
+export const LaneKind = z.enum(["cli", "shell", "acp"]);
+export type LaneKind = z.infer<typeof LaneKind>;
+
 export const Lane = z.object({
   id: LaneId,
   project: ProjectId,
   goal: z.string().nullable(),
   task: z.string(),
   agent: z.string(),
-  kind: z.enum(["cli", "acp"]).default("acp"),
+  /** cli: the agent's own CLI in the lane's terminal. shell: no agent; you or your own agent work in it. acp: an agent over ACP (frozen). */
+  kind: LaneKind.default("acp"),
   direct: z.boolean().default(false),
   remoteControl: z.boolean().default(false),
   model: z.string().nullable(),
@@ -70,7 +74,7 @@ export const StartLaneRequest = z.object({
   project: ProjectId,
   task: z.string().min(1),
   agent: z.string().default("claude-code"),
-  kind: z.enum(["cli", "acp"]).optional(),
+  kind: LaneKind.optional(),
   direct: z.boolean().default(false),
   remoteControl: z.boolean().default(false),
   cliArgs: z.array(z.string().max(64_000)).max(100).optional(),

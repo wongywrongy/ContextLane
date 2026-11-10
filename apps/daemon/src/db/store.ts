@@ -184,10 +184,11 @@ export class Store {
   insertLane(l: Omit<Lane, "createdAt" | "auto" | "kind" | "direct" | "remoteControl"> & { n: number; auto?: boolean; kind?: Lane["kind"]; direct?: boolean; remoteControl?: boolean }): Lane {
     this.db
       .prepare(
-        `INSERT INTO lane (id, project, n, goal, task, agent, kind, direct, remote_control, model, mode, auto, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
-         VALUES (@id, @project, @n, @goal, @task, @agent, @kind, @direct, @remoteControl, @model, @mode, @auto, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
+        `INSERT INTO lane (id, project, n, goal, task, agent, kind, agentless, direct, remote_control, model, mode, auto, effort, branch, worktree, terminal, host_unit, base, state, colour, created_at)
+         VALUES (@id, @project, @n, @goal, @task, @agent, @kind, @agentless, @direct, @remoteControl, @model, @mode, @auto, @effort, @branch, @worktree, @terminal, @hostUnit, @base, @state, @colour, @createdAt)`,
       )
-      .run({ ...l, kind: l.kind ?? "acp", direct: l.direct ? 1 : 0, remoteControl: l.remoteControl ? 1 : 0, goal: l.goal ?? null, model: l.model ?? null, auto: l.auto ? 1 : 0, effort: l.effort ?? null, createdAt: now() });
+      // The kind column's CHECK predates shell lanes (SQLite cannot widen it in place): a shell lane is stored as cli + agentless.
+      .run({ ...l, kind: l.kind === "shell" ? "cli" : l.kind ?? "acp", agentless: l.kind === "shell" ? 1 : 0, direct: l.direct ? 1 : 0, remoteControl: l.remoteControl ? 1 : 0, goal: l.goal ?? null, model: l.model ?? null, auto: l.auto ? 1 : 0, effort: l.effort ?? null, createdAt: now() });
     return this.getLane(l.id)!;
   }
 
@@ -534,7 +535,7 @@ function toLane(r: Row): Lane {
     goal: (r.goal as string) ?? null,
     task: String(r.task),
     agent: String(r.agent),
-    kind: r.kind as Lane["kind"],
+    kind: (r.agentless ? "shell" : r.kind) as Lane["kind"],
     direct: r.direct === 1,
     remoteControl: r.remote_control === 1,
     model: (r.model as string) ?? null,

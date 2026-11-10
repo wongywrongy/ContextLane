@@ -191,7 +191,7 @@ function LaneView({ projectName, lane, events, error, reload }: { projectName: s
 
     {error ? <p role="alert">{error} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
     <LanePanes lane={lane} events={events} waiting={laneWaiting} reload={reloadInbox} agent={agent} interrupt={interrupt} onView={setComposerVisible} />
-    <div hidden={lane.kind !== "cli" && !composerVisible}><Composer lane={lane} events={events} agent={agent} /></div>
+    <div hidden={lane.kind === "shell" || (lane.kind !== "cli" && !composerVisible)}><Composer lane={lane} events={events} agent={agent} /></div>
   </>;
 }
 

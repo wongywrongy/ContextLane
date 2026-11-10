@@ -67,9 +67,11 @@ export class LaneManager {
     const { store, config } = this.deps;
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
+    // Claude Code and Codex run as their own CLIs; other agents speak ACP. A shell lane runs no agent.
     const kind = req.kind ?? (["claude-code", "codex"].includes(req.agent) ? "cli" : "acp");
     if (kind === "cli") checkCliArgs(req.agent, req.cliArgs ?? []);
-    if (req.direct && kind !== "cli") throw new Refused("Direct mode requires a CLI lane.", 400);
+    if (kind === "shell" && (req.cliArgs?.length || req.remoteControl || req.auto)) throw new Refused("A lane without an agent takes no agent options.", 400);
+    if (req.direct && kind === "acp") throw new Refused("Direct mode requires a CLI or shell lane.", 400);
     if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
@@ -82,7 +84,8 @@ export class LaneManager {
       const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
       if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
 
-      if (config.lanes.launchHosts) await requireSandbox(this.deps.run, config);
+      // The sandbox protects ContextLanes from agent code; a lane with no agent of ours runs none.
+      if (config.lanes.launchHosts && kind !== "shell") await requireSandbox(this.deps.run, config);
 
       const n = store.nextLaneNumber(project.id);
       const id = laneId(project.id, n);
@@ -95,7 +98,7 @@ export class LaneManager {
         project: project.id,
         goal: req.goal ?? null,
         task: title,
-        agent: req.agent,
+        agent: kind === "shell" ? "none" : req.agent,
         kind,
         direct: req.direct,
         remoteControl: req.remoteControl,
@@ -133,8 +136,8 @@ export class LaneManager {
       // Shared skills (4.6) go in before the agent starts, so it sees them from its first turn. A baseline bench lane gets none.
       // A skill that fails to copy is reported, not fatal: the lane still works without it.
       if (!req.baseline && !lane.direct) await new Skills({ config, store, run: this.deps.run }).install(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: `Project skills were not copied: ${err.message}` } })));
-      await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind === "cli");
-      if (config.lanes.launchHosts) {
+      await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, lane.kind !== "acp");
+      if (config.lanes.launchHosts && lane.kind !== "shell") {
         const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
         // CLI lanes learn the contextlanes command from launchCli (system prompt or AGENTS.md); ACP lanes get the MCP tools.
         const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
@@ -175,7 +178,7 @@ export class LaneManager {
     const { store, run, config } = this.deps;
     if (!config.lanes.launchHosts) return [];
     const failed: string[] = [];
-    for (const lane of store.listLanes().filter((l) => (l.state === "working" || l.state === "needs_you") && !connected(l.id) && !this.starting(l.id))) {
+    for (const lane of store.listLanes().filter((l) => (l.state === "working" || l.state === "needs_you") && l.kind !== "shell" && !connected(l.id) && !this.starting(l.id))) {
       if (lane.kind === "cli") {
         if (!await this.cliConnected(lane.id)) { this.emit(store.setLaneState(lane.id, "failed", "The CLI stopped. Restart the agent to resume its session.")); failed.push(lane.id); }
         continue;
@@ -201,6 +204,7 @@ export class LaneManager {
     const { store, config, run } = this.deps;
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
+    if (lane.kind === "shell") throw new Refused("This lane has no agent to restart.", 400);
     if (!["working", "needs_you", "failed"].includes(lane.state)) throw new Refused("Only a working, waiting or failed lane's agent can be restarted.");
     if (lane.kind === "cli") {
       if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, { CONTEXTLANES_LANE: id }, true);
