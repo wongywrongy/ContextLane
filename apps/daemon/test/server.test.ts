@@ -45,6 +45,8 @@ describe("http api", () => {
     expect(setupCalls[1]).toContain("-e CONTEXTLANES_LANE=shuttleworks/01");
     expect(setupCalls[1]).toContain("-e CONTEXTLANES_URL=http://127.0.0.1:");
     expect(setupCalls[1]).toMatch(/-e PATH=\/tmp\/cl-test\/bin:/);
+    // The scroll wheel scrolls output instead of sending arrow keys to the agent.
+    expect(calls).toContain("tmux set-option -t =cl-shuttleworks-01: mouse on");
 
     const events = (await app.inject({ url: "/api/lanes/shuttleworks/01/events" })).json() as { type: string }[];
     expect(events.map((e) => e.type)).toEqual(["lane.created", "agent.message", "lane.state", "lane.state"]);

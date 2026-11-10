@@ -21,14 +21,27 @@ Give every coding task its own lane: a branch and checkout, a terminal that keep
 
 ## Install
 
-Linux or macOS with Node 22.13 or newer (24 recommended), git, tmux and python3. On Linux, bubblewrap confines agents (`sudo apt install bubblewrap`).
+**Docker (preferred).** One stack, everything it keeps in one folder:
+
+```sh
+git clone https://github.com/wongywrongy/ContextLane.git /opt/stacks/contextlanes
+cd /opt/stacks/contextlanes
+cp .env.example .env        # set PUID, PGID and the folders that hold your code and lanes
+docker compose up -d --build
+sudo ln -s "$PWD/docker/cl" /usr/local/bin/cl
+cl setup
+```
+
+Agents then run inside the container and see only the folders you mounted. [docs/DOCKER.md](docs/DOCKER.md) covers settings, agent logins, toolchains, your reverse proxy and updating.
+
+**On the host.** For a machine where agents should use the tools already installed. Linux or macOS with Node 22.13 or newer (24 recommended), git, tmux and python3. On Linux, bubblewrap confines agents (`sudo apt install bubblewrap`).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wongywrongy/ContextLane/main/install.sh | sh
 cl setup
 ```
 
-With a systemd user session the installer runs ContextLanes as a user service; elsewhere it installs the commands, and you run `contextlanes daemon` under whatever keeps processes running. `setup` prints a one-time sign-in link. Then `contextlanes doctor` checks everything, including the path through your proxy.
+With a systemd user session the installer runs ContextLanes as a user service; elsewhere it installs the commands, and you run `cl daemon` under whatever keeps processes alive on your machine.
 
 On macOS, where bubblewrap does not exist, agents start only after you choose to run them unconfined: `[sandbox] mode = "off"` in `~/.config/contextlanes/config.toml`.
 

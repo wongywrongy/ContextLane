@@ -19,7 +19,8 @@ export async function setupOutput(sshHost?: string): Promise<string> {
   qr.generate(link.url, { small: true }, (result) => { code = result; });
   return ["", `  ${bold("ContextLanes setup")}`, "", ...(link.messages.length ? [`  ${bold("Do this first")} on this machine:`, ...link.messages.map((m) => `     ${yellow(m)}`)] : []),
     ...(link.tunnel ? ["", `  ${bold("1.")} On your computer, open the SSH tunnel:`, `     ${cyan(link.tunnel)}`, "", `  ${bold("2.")} Then open this link, or scan the code with your phone:`] : ["", `  ${bold("Open this link")}, or scan the code with your phone:`]),
-    `     ${cyan(link.url)}`, `     ${dim("Works once and expires in 10 minutes. Run cl setup again for a new one.")}`, "", code,
+    `     ${cyan(link.url)}`, `     ${dim("Works once and expires in 10 minutes. Run cl setup again for a new one.")}`,
+    ...(new URL(link.url).hostname.endsWith(".localhost") ? [`     ${dim("Opens in a browser on this machine. For other devices, give ContextLanes a domain behind your reverse proxy (docs/PROXY.md).")}`] : []), "", code,
     `  ${bold("Next")}, here on the machine: cd into a repository and run ${cyan("cl")}. It makes the folder a project, then starts lanes in it.`, ""].join("\n");
 }
 

@@ -100,24 +100,31 @@ export class SetupManager {
     if (!this.claimed) await this.update({ access: { ...this.config.access, shellOwner: user } });
     const messages: string[] = [];
     const quote = (text: string) => /^[\w.@:-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`;
-    try {
-      const linger = (await this.run("loginctl", ["show-user", user, "--property=Linger", "--value"], { timeout: 5000 })).stdout.trim();
-      if (linger !== "yes") messages.push(`Keep ContextLanes running after logout: sudo loginctl enable-linger ${quote(user)}`);
-    } catch { messages.push(`Check services after logout: sudo loginctl enable-linger ${quote(user)}`); }
-    let origin = `http://localhost:${this.config.listen.port}`;
+    // In a container, and wherever the daemon watches lane processes itself, there is no login session to keep alive.
+    const docker = !!process.env.CONTEXTLANES_DOCKER;
+    if (!docker && this.config.supervisor.driver !== "process") {
+      try {
+        const linger = (await this.run("loginctl", ["show-user", user, "--property=Linger", "--value"], { timeout: 5000 })).stdout.trim();
+        if (linger !== "yes") messages.push(`Keep ContextLanes running after logout: sudo loginctl enable-linger ${quote(user)}`);
+      } catch { messages.push(`Check services after logout: sudo loginctl enable-linger ${quote(user)}`); }
+    }
+    // The API port never leaves a container; there the web app is reached on the published router port by name.
+    const port = docker ? this.config.previews.localPort : this.config.listen.port;
+    let origin = docker ? `http://${this.config.previews.appLabel}.localhost:${port}` : `http://localhost:${port}`;
     const routed = appOrigin(this.config);
-    const tailscale = routed ? null : await (this.options.find ?? findExecutable)("tailscale");
+    const tailscale = routed || docker ? null : await (this.options.find ?? findExecutable)("tailscale");
     if (routed) {
       // The app's own name through the owner's proxy; no Tailscale needed.
       origin = routed;
       if (this.config.notifications.publicUrl !== routed) await this.update({ notifications: { ...this.config.notifications, publicUrl: routed } });
-    } else if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy.");
+    } else if (docker) { /* The link is this machine's; the command line says how to reach it from elsewhere. */ }
+    else if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy.");
     else {
       try { origin = (await this.enableTailnet()).publicUrl; }
       catch (error) { messages.push(error instanceof SetupError ? error.message : "Tailscale could not be checked; use the SSH tunnel below."); }
     }
     const local = origin.startsWith("http:");
-    const tunnel = local ? `ssh -N -L ${this.config.listen.port}:127.0.0.1:${this.config.listen.port} ${quote(`${user}@${sshHost ?? this.config.host.name}`)}` : undefined;
+    const tunnel = local && !docker ? `ssh -N -L ${port}:127.0.0.1:${port} ${quote(`${user}@${sshHost ?? this.config.host.name}`)}` : undefined;
     const { token, expiresAt } = this.store.setupLink(origin);
     return { url: `${origin}/setup#signin=${token}`, expiresAt, messages, ...(tunnel ? { tunnel } : {}) };
   }

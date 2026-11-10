@@ -13,6 +13,10 @@ pnpm test             # Vitest across all packages, no build needed
 pnpm dev              # daemon on :4600 and the web app with /api proxied
 ```
 
+## Two ways to run
+
+The Docker stack is the preferred install (`Dockerfile`, `compose.yaml`, `docker/`, [docs/DOCKER.md](docs/DOCKER.md)); the host install (`install.sh`) stays supported. In the container the daemon runs as PUID:PGID with the process supervisor, code and lanes are mounted at the same path as on the host, the API stays on the container's loopback and only the router port is published, and the host's `cl` is `docker exec`. Anything that differs there keys off `CONTEXTLANES_DOCKER`. Keep `docker/entrypoint.sh` writing the config only when it does not exist.
+
 ## Layout
 
 | Path | What |

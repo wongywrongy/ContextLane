@@ -89,6 +89,19 @@ describe("headless setup", () => {
     expect((await f.app.inject({ url: "/api/setup/settings", headers: { host: "rebind.example" } })).statusCode).toBe(401);
     expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: f.home } })).statusCode).toBe(403);
   });
+  it("in Docker, links to the web app on the published router port and gives no host-only advice", async () => {
+    vi.stubEnv("CONTEXTLANES_DOCKER", "1");
+    try {
+      const f = await fixture();
+      f.find.mockResolvedValue(null);
+      f.run.mockResolvedValue({ stdout: "no\n" });
+      const result = (await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}` }, payload: {} })).json();
+      expect(result.url).toMatch(/^http:\/\/lanes\.localhost:4601\/setup#signin=/);
+      expect(result.messages).toEqual([]);
+      expect(result.tunnel).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("prints the exact linger command and gives one missing-Tailscale line plus SSH fallback", async () => {
     const f = await fixture();
     f.find.mockResolvedValue(null);
