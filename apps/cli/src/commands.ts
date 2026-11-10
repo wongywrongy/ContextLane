@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { setupOutput, addProject } from "./setup.js";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -48,6 +48,7 @@ ${bold("Projects")}
 
 ${bold("This machine")}
   contextlanes status                         is ContextLanes running, and where to open it
+  contextlanes daemon                         run ContextLanes in the foreground (no systemd needed; Ctrl-C stops it)
   contextlanes update                         install the newest version and restart; lanes keep running
                                               ${dim("[--check] only list what's new   [--rollback] go back one version")}
 
@@ -58,6 +59,13 @@ async function main(argv: string[]): Promise<number> {
   if (argv[0] === "claude" || argv[0] === "codex") {
     const lane = await startCliLane(argv[0], argv.slice(1));
     return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;
+  }
+  // In the foreground, for any init system or none; logs go to this terminal. Ctrl-C stops it.
+  if (argv[0] === "daemon") {
+    const release = fileURLToPath(new URL("../../../", import.meta.url));
+    const child = spawn(process.execPath, [join(release, "apps/daemon/dist/main.js")], { stdio: "inherit" });
+    for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => child.kill(signal));
+    return new Promise<number>((resolve) => child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0))));
   }
   // The updater ships with the daemon; run the copy from the release this command belongs to.
   if (argv[0] === "update") {
@@ -89,6 +97,7 @@ async function main(argv: string[]): Promise<number> {
       if (!h) { console.error(fail(`ContextLanes is not answering at ${daemonUrl()}.`)); console.error(dim("  Start it: systemctl --user start contextlanes   Logs: journalctl --user -u contextlanes -n 50")); return 3; }
       if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
+      if (h.sandbox === "off") console.log(fail("The sandbox is off: agents run with your full access. Set [sandbox] mode = \"bwrap\" where bubblewrap works."));
       console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
       return 0;
     }

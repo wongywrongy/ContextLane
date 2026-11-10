@@ -14,16 +14,14 @@ import { Previews } from "./previews.js";
 import { laneRecipe } from "./recipes.js";
 import type { Runner } from "./run.js";
 import { sandbox } from "./sandbox.js";
+import { supervisorFor, SystemdSupervisor, systemdServiceArgs, type Supervisor } from "./supervisor/index.js";
+export { publicBindings } from "./supervisor/index.js";
 
 const PROBES = 24;
-const LOOPBACK = /^(127\.\d+\.\d+\.\d+|\[::1\]|\[::ffff:127\.\d+\.\d+\.\d+\])$/;
 const RUNS_IN = ["working", "needs_you", "in_review", "paused", "failed"];
 
-export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Runner; fetch?: typeof fetch; freePort?: () => Promise<number>; previews?: Previews };
+export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Runner; fetch?: typeof fetch; freePort?: () => Promise<number>; previews?: Previews; supervisor?: Supervisor };
 
-/** systemd reads $ in a command; recipes mean a literal one, after our own substitution. */
-const literal = (args: string[]) => args.map((a) => a.replaceAll("$", "$$$$"));
-const setenv = (env: Record<string, string>) => Object.entries(env).map(([k, v]) => `--setenv=${k}=${v}`);
 /** Variables a recipe may use in command arguments and in a service's env values. */
 const EXPANDED = /\$((?:PORT|LANE_URL|LANE_HOSTNAME)(?:_[A-Z0-9_]+)?|HOST)\b/g;
 export const expand = (args: string[], env: Record<string, string>) => args.map((a) => a.replace(EXPANDED, (whole, name: string) => env[name] ?? whole));
@@ -51,36 +49,22 @@ export function ownUrl(env: Record<string, string>, service: string): Record<str
   return url && host ? { LANE_URL: url, LANE_HOSTNAME: host, __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: host } : {};
 }
 
-export function serviceArgs(unit: string, dir: string, service: RecipeService, env: Record<string, string>, wrap: string[]): string[] {
+/** A recipe service as the supervisor runs it: its env values and arguments expanded, inside the sandbox prefix. */
+export function serviceSpec(service: RecipeService, env: Record<string, string>, wrap: string[]): { argv: string[]; env: Record<string, string> } {
   const own = Object.fromEntries(Object.entries(service.env).map(([key, value]) => [key, expand([value], env)[0]!]));
-  return ["--user", `--unit=${unit}`, "--collect", `--working-directory=${dir}`, "--property=Restart=on-failure", "--property=RestartSec=2", "--property=TimeoutStopSec=5",
-    ...setenv({ ...own, ...env }), "--", ...literal([...wrap, ...expand(service.command, env)])];
+  return { argv: [...wrap, ...expand(service.command, env)], env: { ...own, ...env } };
 }
 
-/** Run one command to completion in its own unit, so a timeout ends everything it started. */
-export async function oneshot(run: Runner, dir: string, command: string[], env: Record<string, string>, timeoutSeconds: number, wrap: string[]): Promise<{ ok: boolean; output: string; ms: number }> {
-  const started = Date.now();
-  const args = ["--user", "--wait", "--pipe", "--collect", "--quiet", `--working-directory=${dir}`, `--property=RuntimeMaxSec=${timeoutSeconds}s`, ...setenv(env), "--", ...literal([...wrap, ...expand(command, env)])];
-  try {
-    const { stdout } = await run("systemd-run", args, { timeout: (timeoutSeconds + 15) * 1000 });
-    return { ok: true, output: stdout.slice(-4000), ms: Date.now() - started };
-  } catch (err) {
-    const { stdout = "", stderr = "", message } = err as Error & { stdout?: string; stderr?: string };
-    return { ok: false, output: (`${stdout}${stderr}` || message).slice(-4000), ms: Date.now() - started };
-  }
+/** systemd-run arguments for a recipe service. */
+export function serviceArgs(unit: string, dir: string, service: RecipeService, env: Record<string, string>, wrap: string[]): string[] {
+  return systemdServiceArgs(unit, { dir, ...serviceSpec(service, env, wrap), restart: true });
 }
 
-/** Addresses from `ss -H -ltnp` that belong to these processes and reach beyond loopback. */
-export function publicBindings(ss: string, pids: Set<string>): string[] {
-  const found = new Set<string>();
-  for (const line of ss.split("\n")) {
-    const [, , , local] = line.trim().split(/\s+/);
-    if (!local || ![...line.matchAll(/pid=(\d+)/g)].some((m) => pids.has(m[1]!))) continue;
-    const address = local.slice(0, local.lastIndexOf(":")).replace(/%.*$/, "");
-    if (!LOOPBACK.test(address)) found.add(local);
-  }
-  return [...found];
+/** Run one command to completion in its own systemd unit, so a timeout ends everything it started. */
+export function oneshot(run: Runner, dir: string, command: string[], env: Record<string, string>, timeoutSeconds: number, wrap: string[]): Promise<{ ok: boolean; output: string; ms: number }> {
+  return new SystemdSupervisor(run).oneshot({ dir, argv: [...wrap, ...expand(command, env)], env, timeoutSeconds });
 }
+
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -101,10 +85,12 @@ export class Runtime {
   private timer: NodeJS.Timeout | null = null;
   private readonly previews: Previews;
   private readonly previewRetry = new Map<string, number>();
+  readonly supervisor: Supervisor;
 
   constructor(private readonly deps: RuntimeDeps) {
     this.fetch = deps.fetch ?? fetch;
     this.previews = deps.previews ?? new Previews(deps);
+    this.supervisor = deps.supervisor ?? supervisorFor(deps.config, deps.run);
   }
 
   status(id: string): EnvironmentView | null {
@@ -125,7 +111,7 @@ export class Runtime {
     this.lane(id);
     const env = this.deps.store.environment(id);
     if (!env) return null;
-    await Promise.allSettled(env.services.filter((s) => s.state !== "stopped").map((s) => this.deps.run("systemctl", ["--user", "stop", s.unit])));
+    await Promise.allSettled(env.services.filter((s) => s.state !== "stopped").map((s) => this.supervisor.stop(s.unit)));
     await Promise.allSettled(env.services.flatMap((s) => s.url ? [this.previews.unpublish(s.url)] : []));
     for (const service of env.services) this.update(env, service, { state: "stopped", detail: null, ms: null, url: null });
     return this.deps.store.environment(id);
@@ -136,7 +122,7 @@ export class Runtime {
     if (!only?.length) { await this.stop(id); return this.start(id); }
     const env = this.deps.store.environment(id);
     for (const service of env?.services.filter((s) => only.includes(s.name) && s.state !== "stopped") ?? []) {
-      await this.deps.run("systemctl", ["--user", "stop", service.unit]).catch(() => {});
+      await this.supervisor.stop(service.unit).catch(() => {});
       this.update(this.deps.store.environment(id)!, service, { state: "stopped", detail: null, ms: null });
     }
     return this.start(id, only);
@@ -188,12 +174,7 @@ export class Runtime {
     this.lane(id);
     const service = this.deps.store.environment(id)?.services.find((s) => s.name === name);
     if (!service) throw new Refused(`This lane has no service called ${name}.`, 404);
-    const { stdout } = await this.deps.run("journalctl", ["--user", `--unit=${service.unit}`, "-n", String(lines), "--no-pager", "-o", "json", "--output-fields=MESSAGE"]);
-    return stdout.split("\n").filter(Boolean).map((line) => {
-      const entry = JSON.parse(line) as { __REALTIME_TIMESTAMP: string; MESSAGE: string | number[] | null };
-      const text = typeof entry.MESSAGE === "string" ? entry.MESSAGE : Array.isArray(entry.MESSAGE) ? Buffer.from(entry.MESSAGE).toString("utf8") : "";
-      return { at: new Date(Number(entry.__REALTIME_TIMESTAMP) / 1000).toISOString(), text };
-    });
+    return this.supervisor.logs(service.unit, lines);
   }
 
   /** An approved setup runs before the agent; unapproved recipes remain an owner decision. */
@@ -217,7 +198,8 @@ export class Runtime {
     const view = await laneRecipe(this.deps.store, this.deps.store.getProject(lane.project)!, lane);
     if (!view?.recipe?.scripts.teardown) return;
     const recipe = this.approved(lane, view);
-    const result = await oneshot(this.deps.run, lane.worktree, scriptArgs(recipe.scripts.teardown!), { PATH: process.env.PATH ?? "/usr/bin:/bin", CONTEXTLANES_LANE: id }, 600, sandbox(this.deps.config));
+    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", CONTEXTLANES_LANE: id };
+    const result = await this.supervisor.oneshot({ dir: lane.worktree, argv: [...sandbox(this.deps.config), ...expand(scriptArgs(recipe.scripts.teardown!), env)], env, timeoutSeconds: 600 });
     this.deps.bus.publish(this.deps.store.appendEvent(id, { type: "env.status", payload: { service: "teardown", up: result.ok, state: result.ok ? "stopped" : "failed", detail: result.output.slice(-600) } }));
     if (!result.ok) throw new Refused(`Teardown failed; checkout kept. ${result.output}`);
   }
@@ -276,7 +258,7 @@ export class Runtime {
       await this.prepare({ ...lane, worktree: dir }, project, recipe, shared);
       for (const each of recipe.services) {
         const unit = `contextlanes-env-before-${randomBytes(4).toString("hex")}`;
-        await run("systemd-run", serviceArgs(unit, dir, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }, sandbox(this.deps.config)));
+        await this.supervisor.start(unit, { dir, ...serviceSpec(each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }, sandbox(this.deps.config)), restart: true });
         units.push(unit);
       }
       const deadline = Date.now() + service.health.timeoutSeconds * 1000;
@@ -288,7 +270,7 @@ export class Runtime {
       }
       return await use(ports[service.name]!);
     } finally {
-      await Promise.allSettled(units.map((unit) => run("systemctl", ["--user", "stop", unit])));
+      await Promise.allSettled(units.map((unit) => this.supervisor.stop(unit)));
       await run("git", ["worktree", "remove", "--force", dir], { cwd: project.path }).catch(() => {});
     }
   }
@@ -319,7 +301,7 @@ export class Runtime {
     const changed = !!previous && previous.recipeHash !== view!.hash;
     if (changed) {
       for (const s of previous.services.filter((s) => s.state !== "stopped")) {
-        await this.deps.run("systemctl", ["--user", "stop", s.unit]).catch(() => {});
+        await this.supervisor.stop(s.unit).catch(() => {});
         this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: s.name, up: false, port: s.port, state: "stopped", detail: "Stopped because the recipe changed." } }));
       }
     }
@@ -346,11 +328,11 @@ export class Runtime {
       const unit = `contextlanes-env-${id.replace("/", "-")}-${service.name}-${randomBytes(3).toString("hex")}`;
       const current = store.environment(id)!;
       const old = current.services.find((s) => s.name === service.name);
-      if (old && old.state !== "stopped") await this.deps.run("systemctl", ["--user", "stop", old.unit]).catch(() => {});
+      if (old && old.state !== "stopped") await this.supervisor.stop(old.unit).catch(() => {});
       const port = ports[service.name]!;
       const row: ServiceStatus = { name: service.name, unit, port, url: this.previews.urlFor(lane, service.name), state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
       store.saveEnvironment({ ...current, services: [...current.services.filter((s) => s.name !== service.name), row] });
-      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, ...ownUrl(shared, service.name), [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
+      try { await this.supervisor.start(unit, { dir: lane.worktree, ...serviceSpec(service, { ...shared, ...ownUrl(shared, service.name), [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config)), restart: true }); }
       catch (err) { this.update(env, row, { state: "failed", detail: err instanceof Error ? err.message.slice(0, 300) : "The service unit could not start." }); continue; }
       this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: service.name, up: false, port, state: "starting" } }));
     }
@@ -399,7 +381,7 @@ export class Runtime {
     const seconds = Math.round((Date.now() - started) / 100) / 10;
     const steps = [...recipe.setup, ...(recipe.scripts.setup ? [{ name: "Setup script", command: scriptArgs(recipe.scripts.setup), timeoutSeconds: 600 }] : [])];
     for (const step of steps) {
-      const result = await oneshot(run, lane.worktree, step.command, stepEnv, step.timeoutSeconds, sandbox(this.deps.config));
+      const result = await this.supervisor.oneshot({ dir: lane.worktree, argv: [...sandbox(this.deps.config), ...expand(step.command, stepEnv)], env: stepEnv, timeoutSeconds: step.timeoutSeconds });
       if (!result.ok) throw new Error(`${step.name} failed: ${result.output.trim().slice(-600)}`);
     }
     const disk = await run("du", ["-sb", lane.worktree]).then((r) => Number(r.stdout.split(/\s/)[0]), () => null);
@@ -415,7 +397,7 @@ export class Runtime {
       const probes = [...service.probes, seen.ok].slice(-PROBES);
       const now = new Date().toISOString();
       if (seen.publicAddress) {
-        await this.deps.run("systemctl", ["--user", "stop", service.unit]).catch(() => {});
+        await this.supervisor.stop(service.unit).catch(() => {});
         this.update(env, service, { state: "failed", probes, lastFailure: now, detail: `Stopped: it listened on ${seen.publicAddress}. Services must bind 127.0.0.1 ($HOST).` });
       } else if (seen.ok) {
         this.update(env, service, { state: "healthy", probes, ms: seen.ms, detail: null });
@@ -429,12 +411,9 @@ export class Runtime {
   }
 
   private async observe(service: ServiceStatus): Promise<{ ok: boolean; ms: number; detail: string; publicAddress?: string }> {
-    const { run } = this.deps;
-    const shown = (await run("systemctl", ["--user", "show", "--property=ActiveState", "--property=ControlGroup", service.unit]).then((r) => r.stdout, () => ""));
-    const field = (name: string) => shown.match(new RegExp(`^${name}=(.*)$`, "m"))?.[1] ?? "";
-    if (field("ActiveState") !== "active") return { ok: false, ms: 0, detail: `The service is not running (${field("ActiveState") || "gone"}). Check its logs.` };
-    const pids = await run("cat", [`/sys/fs/cgroup${field("ControlGroup")}/cgroup.procs`]).then((r) => new Set(r.stdout.split("\n").filter(Boolean)), () => new Set<string>());
-    const publicAddress = publicBindings(await run("ss", ["-H", "-ltnp"]).then((r) => r.stdout, () => ""), pids)[0];
+    const status = await this.supervisor.status(service.unit);
+    if (!status.active) return { ok: false, ms: 0, detail: `The service is not running (${status.state}). Check its logs.` };
+    const publicAddress = (await this.supervisor.publicListeners(status.pids))[0];
     if (publicAddress) return { ok: false, ms: 0, detail: "", publicAddress };
     const started = Date.now();
     try {

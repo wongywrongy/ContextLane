@@ -208,3 +208,52 @@ describe("lanes without an agent", () => {
     await app.close(); store.close();
   });
 });
+
+describe("with the sandbox turned off", () => {
+  it("runs agents unconfined only because the owner said so, and every lane records it", async () => {
+    const { root, calls } = await fixture();
+    const { sandbox, checkSandbox, requireSandbox, confineGit } = await import("../src/sandbox.js");
+    const config = Config.parse({ sandbox: { mode: "off" }, paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
+    expect(sandbox(config)).toEqual([]);
+    const run: Runner = async (cmd, args) => { calls.push({ cmd, args }); return { stdout: args[0] === "symbolic-ref" ? "main\n" : "" }; };
+    expect(await checkSandbox(run, config)).toBe(false);
+    await expect(requireSandbox(run, config)).resolves.toBeUndefined();
+    await confineGit(run, config)("git", ["status"]);
+    expect(calls.at(-1)).toEqual({ cmd: "git", args: ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", "status"] });
+
+    const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
+    const bus = new EventBus(); const lanes = new LaneManager({ store, bus, run, config });
+    const app = signedIn(buildServer({ store, bus, hosts: new HostLinks({ store, bus }), lanes, run, config, version: "test" }), store);
+    const lane = Lane.parse((await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "T", agent: "codex", kind: "cli", cliArgs: [] } })).json());
+    expect(store.events(lane.id).find((e) => e.type === "lane.created")!.payload).toMatchObject({ sandbox: "off" });
+    const spec = JSON.parse(await readFile(join(config.paths.data, "cli", "demo-01", "launch.json"), "utf8"));
+    expect(spec.command).toBe("codex");
+    expect(spec.args).not.toContain("bwrap");
+    expect((await app.inject("/api/health")).json()).toMatchObject({ sandbox: "off" });
+    await app.close(); store.close();
+  });
+
+  it("refuses an agent where bubblewrap does not work, and says how to proceed", async () => {
+    const { root } = await fixture();
+    const { requireSandbox } = await import("../src/sandbox.js");
+    const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
+    const err = await requireSandbox(async () => { throw new Error("no bwrap"); }, config).catch((e: Error & { code?: string }) => e);
+    expect(err).toMatchObject({ code: "sandbox_unavailable" });
+    expect((err as Error).message).toContain('[sandbox] mode = "off"');
+  });
+});
+
+describe("without systemd", () => {
+  it("refuses ACP lanes and scheduled lanes, which need it", async () => {
+    const { root } = await fixture();
+    const config = Config.parse({ supervisor: { driver: "process" }, features: { acp: true, schedules: true }, paths: { data: join(root, "data"), lanes: join(root, "lanes") }, lanes: { launchHosts: false } });
+    const run: Runner = async () => ({ stdout: "" });
+    const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
+    const lanes = new LaneManager({ store, bus: new EventBus(), run, config });
+    await expect(lanes.start({ project: "demo", task: "x", agent: "opencode" })).rejects.toMatchObject({ code: "needs_systemd" });
+    const { Schedules } = await import("../src/schedules.js");
+    const schedules = new Schedules({ config, store, lanes, setup: {} as never, run, home: root, node: process.execPath, cli: "x" });
+    await expect(schedules.add({ id: "nightly", project: "demo", task: "x", agent: "codex", when: "*-*-* 03:00" })).rejects.toMatchObject({ code: "needs_systemd" });
+    store.close();
+  });
+});

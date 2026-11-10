@@ -24,11 +24,16 @@ import { Schedules } from "./schedules.js";
 import { recover } from "./recover.js";
 import { tidyFiles } from "./janitor.js";
 import { fileURLToPath } from "node:url";
+import { detectDriver } from "./supervisor/index.js";
 
 async function main(): Promise<void> {
   // The commit this release was built from; `contextlanes update` waits for it after a restart.
   const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), "0.1.0");
   const config = loadConfig();
+  // Settled once: everything built below runs lane services the same way.
+  if (config.supervisor.driver === "auto") config.supervisor.driver = await detectDriver(runCommand);
+  console.log(config.supervisor.driver === "systemd" ? "Lane services run as systemd user units." : "Lane services run as process groups watched by this daemon (no systemd user session found).");
+  if (config.sandbox.mode === "off") console.warn("The sandbox is off ([sandbox] mode = \"off\"): agents and lane services run with your full access, including ContextLanes' own data.");
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const layout = await layoutOf(root, homedir());
   mkdirSync(config.paths.data, { recursive: true, mode: 0o700 });

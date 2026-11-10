@@ -35,6 +35,7 @@ export class Schedules {
 
   async add(input: unknown): Promise<ScheduleView[]> {
     const s = Schedule.parse(input);
+    if (this.deps.config.supervisor.driver === "process") throw new Refused("Scheduled lanes use systemd user timers, and this machine runs without systemd.", 400, "needs_systemd");
     if (!this.deps.store.getProject(s.project)) throw new NotFound("no such project");
     if (this.deps.config.schedules.some((x) => x.id === s.id)) throw new Refused(`There is already a schedule called ${s.id}.`);
     if (!(await this.next(s.when))) throw new Refused(`systemd does not understand "${s.when}". Try "Mon..Fri 07:30" or "*-*-* 02:00".`);

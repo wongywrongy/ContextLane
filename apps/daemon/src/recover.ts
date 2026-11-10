@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { hostUnit } from "./lanes/naming.js";
 import type { Runner } from "./run.js";
+import { supervisorFor } from "./supervisor/index.js";
 
 /**
  * Run once at startup, before the HTTP server listens: put right what a restart (crash, update, power
@@ -31,9 +32,9 @@ export async function recover(deps: { store: Store; bus: EventBus; config: Confi
     if (e) { bus.publish(e); done.push(`${lane.id}: shortened its title`); }
   }
   // Services started for "before" screenshots, and their temporary checkouts.
-  const units = await run("systemctl", ["--user", "list-units", "--all", "--plain", "--no-legend", "--type=service", "contextlanes-env-before-*"], { timeout: 10_000 }).then((r) => r.stdout, () => "");
-  for (const unit of units.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter((u): u is string => !!u)) {
-    await run("systemctl", ["--user", "stop", unit], { timeout: 30_000 }).catch(() => {});
+  const supervisor = supervisorFor(config, run);
+  for (const unit of await supervisor.list("contextlanes-env-before-").catch(() => [])) {
+    await supervisor.stop(unit).catch(() => {});
     done.push(`stopped ${unit}`);
   }
   const before = join(config.paths.lanes, ".before");

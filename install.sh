@@ -1,11 +1,17 @@
 #!/bin/sh
 # Installs ContextLanes, or updates an existing install to the newest version.
 set -eu
-for command in node npm git bwrap tmux systemctl python3; do
+for command in node npm git tmux python3; do
   command -v "$command" >/dev/null 2>&1 || { echo "Install $command, then run this installer again." >&2; exit 1; }
 done
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error("Node >=22.13 is required; Node 24 is recommended."); process.exit(1); }'
-systemctl --user show-environment >/dev/null 2>&1 || { echo 'A running systemd user manager is required. Sign in through a normal user session and try again.' >&2; exit 1; }
+# systemd runs the service where there is one; elsewhere (macOS, containers) `contextlanes daemon` does.
+contextlanes_systemd=0
+if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then contextlanes_systemd=1; fi
+if ! command -v bwrap >/dev/null 2>&1; then
+  if [ "$(uname -s)" = Linux ]; then echo 'Note: bubblewrap is not installed. Agents will not start until it is (sudo apt install bubblewrap).' >&2
+  else echo 'Note: bubblewrap runs only on Linux. To run agents here, set [sandbox] mode = "off" in ~/.config/contextlanes/config.toml; they then run with your full access.' >&2; fi
+fi
 contextlanes_repo="${CONTEXTLANES_REPO:-https://github.com/wongywrongy/ContextLane.git}"
 contextlanes_branch="${CONTEXTLANES_BRANCH:-main}"
 contextlanes_root="${CONTEXTLANES_INSTALL_DIR:-$HOME/.local/share/contextlanes/app}"
@@ -44,7 +50,8 @@ mkdir -p "$contextlanes_base"
 git clone --branch "$contextlanes_branch" "$contextlanes_repo" "$contextlanes_root"
 cd "$contextlanes_root"
 build_here
-CONTEXTLANES_MANAGED=1 node apps/daemon/dist/install-main.js
+CONTEXTLANES_MANAGED=1 CONTEXTLANES_SYSTEMD="$contextlanes_systemd" node apps/daemon/dist/install-main.js
+[ "$contextlanes_systemd" = 1 ] || exit 0
 contextlanes_attempt=0
 until "$HOME/.local/bin/contextlanes" status >/dev/null 2>&1; do
   contextlanes_attempt=$((contextlanes_attempt + 1))

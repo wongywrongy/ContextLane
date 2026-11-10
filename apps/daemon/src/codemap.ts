@@ -5,7 +5,7 @@ import type { Store } from "./db/store.js";
 import { NotFound } from "./lanes/manager.js";
 import { readRecipe } from "./recipes.js";
 import type { Runner } from "./run.js";
-import { sandbox } from "./sandbox.js";
+import { inSandbox } from "./sandbox.js";
 import { Tidy } from "./tidy.js";
 
 export const CODEMAP_WORKER = fileURLToPath(new URL("./codemap-worker.js", import.meta.url));
@@ -50,9 +50,9 @@ export class CodeMaps {
     const { run, config, store } = this.deps;
     const view = await readRecipe(store, store.getProject(project)!, root).catch(() => null);
     const arch = view?.recipe?.architecture ? JSON.stringify(view.recipe.architecture) : "";
-    const [bin, ...wrap] = sandbox(config);
+    const [bin, args] = inSandbox(config, [process.execPath, this.deps.worker ?? CODEMAP_WORKER, root, arch]);
     try {
-      const out = await run(bin!, [...wrap, process.execPath, this.deps.worker ?? CODEMAP_WORKER, root, arch], { timeout: 600_000, env: { CODEGRAPH_TELEMETRY: "0", DO_NOT_TRACK: "1", NODE_NO_WARNINGS: "1" } });
+      const out = await run(bin, args, { timeout: 600_000, env: { CODEGRAPH_TELEMETRY: "0", DO_NOT_TRACK: "1", NODE_NO_WARNINGS: "1" } });
       this.cache.set(project, { at: Date.now(), map: CodeMap.parse(JSON.parse(out.stdout)), error: null });
     } catch (err) {
       const detail = String((err as { stderr?: string }).stderr ?? (err as Error).message ?? "").trim().split("\n").filter(Boolean).at(-1) ?? "";

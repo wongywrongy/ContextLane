@@ -7,20 +7,28 @@ const systemdExecQuote = (text: string) => systemdQuote(text.replace(/\$/g, () =
 const shellQuote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
 const MARKER = "# Installed by ContextLanes";
 
-export async function installService(options: { root: string; home: string; node: string; run: Runner; config?: string }): Promise<void> {
+/**
+ * The commands in ~/.local/bin, and where systemd runs (systemd: true, the default) the user service and
+ * nightly backups. Without systemd, `contextlanes daemon` runs it in the foreground under any supervisor.
+ */
+export async function installService(options: { root: string; home: string; node: string; run: Runner; config?: string; systemd?: boolean }): Promise<void> {
   const { root, home, node, run } = options;
+  const systemd = options.systemd ?? true;
   if (/[\0\r\n]/.test(root)) throw new Error("Use an installation path without line breaks or null characters.");
   const config = options.config ?? join(home, ".config/contextlanes/config.toml");
   const bin = join(home, ".local/bin");
   const unit = join(home, ".config/systemd/user/contextlanes.service");
   const content = `# Installed by ContextLanes\n[Unit]\nDescription=ContextLanes daemon\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=${root.replace(/%/g, "%%")}\nExecStart=${systemdExecQuote(node)} ${systemdExecQuote(join(root, "apps/daemon/dist/main.js"))}\nEnvironment=${systemdQuote(`CONTEXTLANES_CONFIG=${config}`)}\nEnvironment=${systemdQuote(`PATH=${bin}:${dirname(node)}:/usr/local/bin:/usr/bin:/bin`)}\nRestart=on-failure\nRestartSec=2\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
-  await mkdir(dirname(unit), { recursive: true, mode: 0o700 });
   await mkdir(bin, { recursive: true });
-  await writeOwned(unit, content, 0o600);
+  if (systemd) {
+    await mkdir(dirname(unit), { recursive: true, mode: 0o700 });
+    await writeOwned(unit, content, 0o600);
+  }
   for (const [name, entry] of [["contextlanes", "apps/cli"], ["contextlanes-lanehost", "apps/lanehost"], ["contextlanes-toolbox", "packages/toolbox"]]) {
     const script = `#!/bin/sh\n# Installed by ContextLanes\nexec ${shellQuote(node)} ${shellQuote(join(root, entry!, "dist/main.js"))} "$@"\n`;
     await writeOwned(join(bin, name!), script, 0o755);
   }
+  if (!systemd) return;
   await run("systemctl", ["--user", "daemon-reload"]);
   await run("systemctl", ["--user", "enable", "--now", "contextlanes.service"]);
   await installBackupTimer(options);

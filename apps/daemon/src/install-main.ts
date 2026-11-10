@@ -22,5 +22,8 @@ if (process.env.CONTEXTLANES_MANAGED === "1") {
   if (branch) await writeFile(join(layout.base, "update.json"), `${JSON.stringify({ branch, history: [] }, null, 2)}\n`, { mode: 0o600 });
   root = layout.current;
 }
-await installService({ root, home: homedir(), node: process.execPath, run: runCommand });
-console.log("Installed. Run ~/.local/bin/contextlanes setup for the single-use sign-in URL and QR code.");
+const systemd = process.env.CONTEXTLANES_SYSTEMD !== "0";
+await installService({ root, home: homedir(), node: process.execPath, run: runCommand, systemd });
+console.log(systemd
+  ? "Installed. Run ~/.local/bin/contextlanes setup for the single-use sign-in URL and QR code."
+  : "Installed the commands. There is no systemd user manager here, so start ContextLanes yourself: ~/.local/bin/contextlanes daemon (under launchd, a process manager, or a terminal you keep open), then run ~/.local/bin/contextlanes setup.");
