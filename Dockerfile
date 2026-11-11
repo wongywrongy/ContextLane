@@ -31,6 +31,7 @@ COPY . .
 RUN npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm install --frozen-lockfile --ignore-scripts \
  && npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm -r rebuild esbuild \
  && npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm build \
+ && node scripts/lane-tools/bundle.mjs /opt/lane-tools \
  && rm -rf /root/.npm /root/.cache
 
 # ---- the control image ----
@@ -55,17 +56,21 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN npm install -g "@devcontainers/cli@${DEVCONTAINERS_CLI_VERSION}" && devcontainer --version && npm cache clean --force
 
-# The tools lanes get (docs/V4.md 3.3): static tmux, a Node runtime, Claude Code and Codex. Copied into the
-# contextlanes-tools volume at start; the marker says which versions are inside.
+# The tools lanes get (docs/V4.md 3.3): static tmux, a Node runtime, Claude Code, Codex and (phase 3) the
+# contextlanes command, its hook, agent launcher and MCP toolbox as single files. Copied into the
+# contextlanes-tools volume at start; the marker says which versions are inside (cli= is a hash of the
+# bundle, so a new release refills the volume; layout=2 since the CLI went in).
 RUN mkdir -p /opt/contextlanes-tools/bin /opt/contextlanes-tools/libexec /opt/contextlanes-tools/node/bin /opt/contextlanes-tools/share \
  && cp /usr/local/bin/node /opt/contextlanes-tools/node/bin/node
 COPY --from=tmux /opt/tmux/bin/tmux /opt/contextlanes-tools/libexec/tmux
 COPY --from=tmux /opt/terminfo /opt/contextlanes-tools/share/terminfo
 RUN npm install --global --prefix /opt/contextlanes-tools/agents "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
  && npm cache clean --force
+COPY --from=app /opt/lane-tools /opt/contextlanes-tools/cli
 COPY image/mkwrappers.sh /usr/local/lib/contextlanes/mkwrappers.sh
 RUN sh /usr/local/lib/contextlanes/mkwrappers.sh /opt/contextlanes-tools \
- && printf 'tmux=%s node=%s claude-code=%s codex=%s layout=1\n' "${TMUX_VERSION}" "$(node --version)" "${CLAUDE_CODE_VERSION}" "${CODEX_VERSION}" > /opt/contextlanes-tools/.version \
+ && printf 'tmux=%s node=%s claude-code=%s codex=%s cli=%s layout=2\n' "${TMUX_VERSION}" "$(node --version)" "${CLAUDE_CODE_VERSION}" "${CODEX_VERSION}" \
+      "$(cat /opt/contextlanes-tools/cli/*.mjs | sha256sum | cut -c1-12)" > /opt/contextlanes-tools/.version \
  && cat /opt/contextlanes-tools/.version
 
 COPY --from=app /opt/contextlanes /opt/contextlanes
