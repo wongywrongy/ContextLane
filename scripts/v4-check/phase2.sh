@@ -124,8 +124,8 @@ passed() { [ "${C_RESULT[$1]:-}" = PASS ]; }
 
 label_of() { docker inspect -f "{{index .Config.Labels \"$2\"}}" "$1" 2>/dev/null; }
 container_ours() { [ "$(label_of "$CONTAINER" com.docker.compose.project)" = "$COMPOSE_PROJECT" ] && [ "$(label_of "$CONTAINER" com.docker.compose.service)" = "$SERVICE" ]; }
-# The command inside the control container, with this folder passed as the host command passes it.
-cl() { docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes "$@"; }
+# The command inside the control container is run as: docker exec -i -e CONTEXTLANES_CWD=<folder> contextlanes ...
+# (written out at each call: `timeout` cannot run a shell function).
 # Evaluates a JavaScript expression over the JSON on stdin (d), in the control container's Node.
 # The expression is fixed text in this script; extra arguments arrive as a[0], a[1]...
 # UNVERIFIED: with node -e, process.argv[1] is the first extra argument (from memory).
@@ -323,7 +323,7 @@ check6() {
   helpers_before="$(docker ps -aq --filter "label=$HELPER_LABEL" | wc -l)"
   [ "$helpers_before" -eq 0 ] || info "$helpers_before helper containers existed before the check"
 
-  if run_split 120 "$TMPD/add.json" cl add --json; then
+  if run_split 120 "$TMPD/add.json" docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes add --json; then
     local path owner
     path="$(jsq 'd.path' <"$TMPD/add.json")"; owner="$(jsq '`${d.owner?.uid}:${d.owner?.gid}`' <"$TMPD/add.json")"
     PROJECT_ID="$(jsq 'd.id' <"$TMPD/add.json")"
@@ -331,7 +331,7 @@ check6() {
     [ "$owner" = "$OWNER_UG" ] && ok "owner recorded as $owner (read by a helper stat)" || bad "owner recorded as $owner, expected $OWNER_UG"
   else bad "contextlanes add failed"; show_tail; finish; return; fi
 
-  if run_split 60 "$TMPD/projects.json" cl projects --json && [ "$(jsq 'd.some(p => p.path === a[0]) ? "yes" : "no"' "$P" <"$TMPD/projects.json")" = yes ]; then
+  if run_split 60 "$TMPD/projects.json" docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes projects --json && [ "$(jsq 'd.some(p => p.path === a[0]) ? "yes" : "no"' "$P" <"$TMPD/projects.json")" = yes ]; then
     ok "projects lists $P"
   else bad "projects does not list $P"; show_tail; fi
 
@@ -345,11 +345,11 @@ check6() {
     [ "$got" -ge "$want_n" ] && [ "$got" -gt 0 ] && ok "branches listed" || bad "branches: got $got, expected at least $want_n"
   else bad "listing branches failed"; show_tail; fi
 
-  if run_split 60 "$TMPD/new.out" cl new "phase 2 check" --json; then bad "contextlanes new succeeded; lanes should be refused until phase 3"
+  if run_split 60 "$TMPD/new.out" docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes new "phase 2 check" --json; then bad "contextlanes new succeeded; lanes should be refused until phase 3"
   elif grep -q not_yet "$OUT"; then ok "new is refused with not_yet (lanes are phase 3)"
   else bad "new failed without not_yet"; show_tail; fi
 
-  if run_split 180 "$TMPD/doctor.json" cl doctor --json || [ -s "$TMPD/doctor.json" ]; then
+  if run_split 180 "$TMPD/doctor.json" docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes doctor --json || [ -s "$TMPD/doctor.json" ]; then
     local id st
     for id in docker network tools api mounts helpers socket; do
       st="$(jsq '(d.checks.find(c => c.id === a[0]) || { state: "missing" }).state' "$id" <"$TMPD/doctor.json")"
@@ -403,9 +403,9 @@ cleanup() {
   done
   if container_running_ours; then
     local pid
-    if run_split 30 "$TMPD/projects.json" cl projects --json; then
+    if run_split 30 "$TMPD/projects.json" docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes projects --json; then
       pid="$(jsq '(d.find(p => p.path === a[0]) || {}).id || ""' "$P" <"$TMPD/projects.json")"
-      if [ -n "$pid" ] && run 30 cl remove "$pid"; then line "removed: project $pid from ContextLanes (the folder is untouched)"; fi
+      if [ -n "$pid" ] && run 30 docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes remove "$pid"; then line "removed: project $pid from ContextLanes (the folder is untouched)"; fi
     fi
   fi
   if docker inspect --type container "$CONTAINER" >/dev/null 2>&1; then
