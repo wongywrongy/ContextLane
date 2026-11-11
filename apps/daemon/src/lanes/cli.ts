@@ -89,6 +89,7 @@ export function cliArgs(lane: Lane, prompt: string, extra?: string[], resume = f
     return [...(lane.remoteControl ? ["--remote-control"] : []), "--permission-mode", mode, ...(lane.model ? ["--model", lane.model] : []),
       ...(lane.effort ? ["--effort", lane.effort] : []), ...(resume ? ["--continue"] : extra ?? ["--", prompt])];
   }
+  // UNVERIFIED in a lane container: Codex's own workspace-write sandbox (Landlock and seccomp) inside Docker's default seccomp profile.
   return [...(resume ? ["resume", "--last"] : []), "--no-daemon", "--sandbox", lane.mode === "plan" ? "read-only" : "workspace-write", "--ask-for-approval", "on-request",
     "-c", 'approval_reviewer="user"', ...(lane.model ? ["--model", lane.model] : []),
     ...(lane.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(lane.effort)}`] : []), ...(extra ?? (resume ? [] : ["--", prompt]))];

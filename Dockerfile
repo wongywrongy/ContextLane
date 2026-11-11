@@ -28,6 +28,7 @@ FROM ${NODE_IMAGE} AS app
 ARG PNPM_VERSION=10.28.0
 WORKDIR /opt/contextlanes
 COPY . .
+# UNVERIFIED: the lane-tools bundle step (esbuild, phase 3) has not run in this image; it ran on the development machine.
 RUN npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm install --frozen-lockfile --ignore-scripts \
  && npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm -r rebuild esbuild \
  && npm exec --yes --package=pnpm@${PNPM_VERSION} -- pnpm build \

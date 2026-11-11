@@ -69,7 +69,10 @@ describe("lane create in the Docker runtime", () => {
       "inspect --type", "ids", "prepare",
       "network connect",
       "tmux new-session", "tmux set-option",
+      // A lane without an agent still gets its token, for `contextlanes` in the owner's shell there.
+      "write /var/lib/contextlanes-lane/token",
     ]);
+    expect(store.laneForToken(calls.at(-1)!.input!)).toBe(lane.id);
     expect(store.eventsOfType(["lane.container"], { lanes: [lane.id] }).map((e) => e.payload)).toEqual([
       { state: "creating", name: "cl-shop-01" },
       { state: "running", name: "cl-shop-01", id: "f00dfeed1234", user: "vscode", uid: 1000, gid: 1000, path: "/opt/contextlanes/bin:/usr/local/bin:/usr/bin:/bin", image: "vsc-01-fix-login-0123abcd-uid" },
@@ -112,9 +115,11 @@ describe("lane create in the Docker runtime", () => {
       "-e", "CONTEXTLANES_LANE=shop/01", "-e", "CONTEXTLANES_URL=http://contextlanes:4600"];
     for (const c of execs(calls)) {
       expect(c.args).toEqual(expect.arrayContaining(env));
-      if (kind(c) === "prepare") expect(c.args.slice(1, 5)).toEqual(["-u", "0", "-w", "/"]);
-      else expect(c.args.slice(1, 5)).toEqual(["-u", "vscode", "-w", WT]);
+      const flags = c.args.slice(1).filter((a) => a !== "-i");
+      if (kind(c) === "prepare") expect(flags.slice(0, 4)).toEqual(["-u", "0", "-w", "/"]);
+      else expect(flags.slice(0, 4)).toEqual(["-u", "vscode", "-w", WT]);
     }
+    expect(execs(calls).at(-1)!.args).toContain("-i");
     const tmux = calls.find((c) => kind(c) === "tmux new-session")!.args;
     expect(tmux.slice(tmux.indexOf("cl-shop-01"))).toEqual(["cl-shop-01", "tmux", "-L", "contextlanes", "new-session", "-d", "-s", "cl-shop-01", "-x", "200", "-y", "50", "-c", WT]);
     const prepare = calls.find((c) => kind(c) === "prepare")!.args;

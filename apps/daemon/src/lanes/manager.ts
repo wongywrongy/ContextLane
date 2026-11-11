@@ -14,6 +14,7 @@ import { supervisorFor } from "../supervisor/index.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
 import { checkCliArgs, launchCli, launchCliDocker, laneCommandDir } from "./cli.js";
 import type { DockerLanes } from "../docker/lanes.js";
+import { LANE_DIR } from "../docker/names.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -223,7 +224,8 @@ export class LaneManager {
       await this.deps.docker!.create(lane, project, {
         ownBranch, base: req.base,
         launch: async (target) => {
-          if (!config.lanes.launchHosts || lane.kind !== "cli") return;
+          // Every lane gets its token, so `contextlanes` in the owner's own shell there works too.
+          if (!config.lanes.launchHosts || lane.kind !== "cli") { await this.deps.docker!.write(target, `${LANE_DIR}/token`, store.mintLaneToken(id)); return; }
           const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined));
           await launchCliDocker(lane, config, this.deps.docker!, target, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline);
         },

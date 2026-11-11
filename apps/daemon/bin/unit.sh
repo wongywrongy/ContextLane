@@ -2,6 +2,7 @@
 # The docker driver's unit helper (apps/daemon/src/supervisor/docker.ts). Run inside a lane container as
 #   sh -c "$(cat unit.sh)" contextlanes-unit <action> ...
 # so nothing has to be installed in the image. POSIX sh only.
+# UNVERIFIED: setsid (util-linux) and GNU date -r are in every glibc image a project uses; Debian and Ubuntu images have both.
 # shellcheck disable=SC2086  # set -- $r splits /proc/<pid>/stat into fields on purpose
 set -u
 U="$CL_UNITS"

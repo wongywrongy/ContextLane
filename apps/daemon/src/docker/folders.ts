@@ -168,6 +168,7 @@ export class DockerFolders {
       if (inside(project.path)) return this.helper(gitArgv(this.control().image, this.checkPath(project.path), cwd, owner, args, opts.env), timeout);
       // In a lane checkout: start in <project>.lanes and let git change folder (-C). Docker would create a
       // missing working folder, and on a bind mount that is a folder on the host.
+      // UNVERIFIED: that docker run -w creates a missing folder through a bind mount (from memory); -C is safe either way.
       const lanes = this.checkPath(lanesFolder(project.path));
       return this.helper(gitArgv(this.control().image, this.checkPath(project.path), lanes, owner, cwd === lanes ? args : ["-C", cwd, ...args], opts.env, helperName(), [lanes]), timeout);
     };

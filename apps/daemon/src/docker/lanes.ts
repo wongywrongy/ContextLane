@@ -308,6 +308,7 @@ export class DockerLanes {
     const control = this.control();
     const gid = await (this.deps.socketGid ?? (async () => (await stat(SOCKET)).gid))();
     const passwd = await this.passwdMount(owner);
+    // UNVERIFIED: the spike ran this helper without --cap-drop ALL and no-new-privileges; a non-root CLI should need neither.
     return ["run", "--rm", "--name", name, "--label", `${HELPER_LABEL}=1`, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
       "--user", `${owner.uid}:${owner.gid}`, "--group-add", String(gid), "-e", "HOME=/tmp", ...Object.entries(extraEnv).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
       ...passwd,
@@ -326,6 +327,7 @@ export class DockerLanes {
   private async passwdMount(owner: ProjectOwner): Promise<string[]> {
     const passwd = await (this.deps.passwd ?? (() => readFile("/etc/passwd", "utf8")))();
     if (passwd.split("\n").some((l) => l.split(":")[2] === String(owner.uid))) return [];
+    // UNVERIFIED: the spike's retry with a passwd file mounted read-only; on neo the run as uid 1000 worked without it.
     const content = `${passwd.trimEnd()}\ncontextlanes:x:${owner.uid}:${owner.gid}:ContextLanes project owner:/tmp:/bin/sh\n`;
     const host = await (this.deps.dataFile ?? (async () => null))(`helpers/passwd-${owner.uid}`, content);
     if (!host) throw new Refused(`The project folder belongs to uid ${owner.uid}, and the control service could not find where its ./data folder is on this machine to give the Dev Container CLI a user for it. Run contextlanes doctor.`, 503, "no_data_path");
@@ -340,6 +342,7 @@ export class DockerLanes {
     let projectConfig: { configuration: Record<string, unknown>; file: string } | undefined;
     if (found) {
       const file = `${lane.worktree}/${found}`;
+      // UNVERIFIED: read-configuration prints {"configuration": {...}} on stdout; the spike wrote this path but its repository had no devcontainer.json.
       const read = await this.deps.folders.helper(await this.devcontainerArgv(lane, project, owner, ["read-configuration", "--workspace-folder", lane.worktree]), { timeout: 120_000 });
       const parsed = (() => { try { return JSON.parse(read.stdout.split("\n").filter((l) => l.trim().startsWith("{")).at(-1) ?? "") as { configuration?: unknown }; } catch { return {}; } })();
       if (!parsed.configuration || typeof parsed.configuration !== "object") throw new Error(`The Dev Container CLI could not read ${found}.`);
@@ -355,6 +358,7 @@ export class DockerLanes {
     let stdout: string;
     try { stdout = (await this.deps.folders.helper(await this.devcontainerArgv(lane, project, owner, args, { CL_CONFIG: JSON.stringify(config) }), { timeout: UP_MS })).stdout; }
     catch (err) {
+      // UNVERIFIED: that a failed `up` still prints {"outcome":"error","message":…,"description":…} on stdout.
       const said = parseUp(String((err as { stdout?: string }).stdout ?? ""));
       throw new Error(said?.message ? `devcontainer up failed: ${said.message}${said.description ? ` (${said.description.slice(0, 600)})` : ""}` : (err as Error).message);
     }
@@ -451,6 +455,7 @@ export class DockerLanes {
   async reconcile(opts: { record?: boolean } = {}): Promise<{ lines: string[]; strays: string[]; missing: string[] }> {
     const write = opts.record !== false;
     const { store, bus } = this.deps;
+    // UNVERIFIED: the {{.State}} field of `docker ps --format` ("running", "exited", "created"), from memory.
     const out = (await this.deps.docker("docker", ["ps", "-a", "--filter", `label=${LANE_LABEL}`, "--format", "{{.ID}}\t{{.Names}}\t{{.State}}"], { timeout: 30_000 })).stdout;
     const found = new Map(out.split("\n").map((l) => l.trim().split("\t")).filter((c) => c.length >= 3).map(([id, name, state]) => [name!, { id: id!, state: state! }]));
     const lines: string[] = [], missing: string[] = [];
