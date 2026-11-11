@@ -35,7 +35,7 @@ On macOS, where bubblewrap does not exist, agents start only after you choose to
 
 ### Docker (v4, in progress)
 
-The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json` ([docs/V4.md](docs/V4.md)). **Only phase 2 of 5 is written: projects, branches and `doctor` work in Docker; lanes do not yet** (`contextlanes new` answers `not_yet`). For lanes, use the host install above for now. Phase 2 has not yet been run on a real Docker host.
+The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json` ([docs/V4.md](docs/V4.md)). **Phases 2 and 3 of 5 are written: projects, lanes (each its own container), their terminals and Claude Code or Codex in them work in Docker; a lane's app, links and review do not yet** (they answer `not_yet`). Phase 3 has not yet been run on a real Docker host.
 
 ```sh
 git clone https://github.com/wongywrongy/ContextLane.git /opt/stacks/contextlanes
@@ -44,16 +44,20 @@ docker compose up -d --build   # nothing to fill in; data/config.toml is written
 ./install-command              # puts contextlanes in ~/.local/bin (as root: /usr/local/bin)
 cd ~/code/your-repository
 contextlanes add
-contextlanes projects
+contextlanes new "Fix the login form"     # or: contextlanes claude, contextlanes codex
+contextlanes open 1
 contextlanes doctor
 ```
 
 - The control container mounts `./data` and the Docker socket, and none of your folders. Git on a project runs in a short-lived helper container that mounts only that project, as the folder's owner, with no network.
-- It holds the Docker socket, which is root-equivalent on the host. Only it has the socket; helpers and lanes never do.
+- It holds the Docker socket, which is root-equivalent on the host. Only it and the one helper that runs the Dev Container CLI to build a lane have the socket; other helpers and lanes never do.
+- A lane is a container named `cl-<project>-<NN>` on the `contextlanes` network, made from the checkout's `.devcontainer/devcontainer.json` or, without one, from `[lanes] image` in `data/config.toml` (default `mcr.microsoft.com/devcontainers/base:bookworm`). Compose-based configs are refused for now. Its checkout is a git worktree beside the project, in `<project>.lanes/`, visible on the host; files written in the lane belong to the folder's owner.
+- Agents sign in inside a lane (`contextlanes open`, then `/login` in Claude Code or `codex login`). Logins live in a volume per user id (`contextlanes-agent-home-<uid>`), shared by that user's lanes.
+- Lanes keep running while the control container is restarted or replaced (`docker compose up -d`); it finds them again by their labels. Do not use `docker compose down` while lanes run: the network is still in use by them.
 - Only the preview router (port 4601, on 127.0.0.1) is published. The API (4600) answers only on the private `contextlanes` network.
 - `contextlanes` on the host is a small script that runs the command in the container with `docker exec` and passes the folder you are in as text. Run `contextlanes add` in the repository's top folder (the one with `.git`).
 - A container already called `contextlanes` from an older stack stops `docker compose up`; compose never takes it over. Look at it with `docker inspect contextlanes` and remove or rename it yourself.
-- `scripts/v4-check/phase2.sh <repository>` brings the stack up and checks all of the above.
+- `scripts/v4-check/phase2.sh <repository>` checks the control service, and `scripts/v4-check/phase3.sh <repository>` lanes.
 
 ## Use
 
