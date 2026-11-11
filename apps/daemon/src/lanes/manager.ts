@@ -96,6 +96,7 @@ export class LaneManager {
   async start(input: unknown, extra: { prepare?: (lane: Lane) => Promise<void>; firstPrompt?: string } = {}): Promise<Lane> {
     const req = StartLaneRequest.parse(input);
     const { store, config } = this.deps;
+    if (config.runtime.mode === "docker") throw new Refused("Lanes do not run in the Docker setup yet (v4 phase 3). Projects, branches and doctor work; for lanes use the v3 host install for now.", 501, "not_yet");
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
     // Claude Code and Codex run as their own CLIs; other agents speak ACP. A shell lane runs no agent.

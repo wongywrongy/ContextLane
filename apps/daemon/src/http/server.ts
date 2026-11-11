@@ -2,7 +2,9 @@ import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { appHostnames } from "../previews.js";
 import { laneTools, requireFeature, routeFeature, toolFeature } from "../features.js";
+import { refuseInDocker } from "../docker/refusals.js";
 import { doctor } from "../doctor.js";
+import type { DockerDoctorDeps } from "../docker/doctor.js";
 import { serveWeb } from "./static.js";
 import { ProjectError } from "../projects.js";
 import { SetupError, type SetupManager } from "../setup.js";
@@ -61,7 +63,9 @@ import { machineInfo, checkForUpdates, exportData } from "../machine.js";
 import { Resources } from "../resources.js";
 import { answerPermission, sweepPending } from "../permissions.js";
 
-export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; judge?: Judge; onRoute?: (route: { method: string | string[]; url: string }) => void };
+export type ServerDeps = { store: Store; bus: EventBus; lanes: LaneManager; hosts: HostLinks; config: Config; version: string; run?: Runner; setup?: SetupManager; runtime?: Runtime; checker?: Checker; resources?: Resources; outside?: OutsideAgents; codemaps?: CodeMaps; collisions?: Collisions; localModels?: LocalModels; briefs?: Briefs; helper?: Helper; insights?: Insights; schedules?: Schedules; judge?: Judge; onRoute?: (route: { method: string | string[]; url: string }) => void;
+  /** The Docker runtime: what doctor needs to check the control service. */
+  docker?: DockerDoctorDeps };
 
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/setup/status", "/api/setup/local", "/api/setup/prove", "/api/setup/sign-in", "/api/setup/login/options", "/api/setup/login"]);
 const TOOL_ROUTE = "/api/lanes/:project/:n/tools/:tool";
@@ -131,11 +135,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   // Runs after the credential check, so a route of a feature that is off still answers 401 to strangers.
   app.addHook("preHandler", async (req) => { requireFeature(config, routeFeature(req.routeOptions.url)); });
+  app.addHook("preHandler", async (req) => { refuseInDocker(config, req.method, req.routeOptions.url); });
   app.addHook("preHandler", async (req, reply) => {
     if (browsers.has(req) && req.method === "POST" && req.routeOptions.url === "/api/setup/settings" && !browserSettings(config, req.body)) return reply.code(403).send(VIEWER_REFUSAL);
   });
   app.get("/api/features", async () => config.features);
-  app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links }));
+  app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links, ...(deps.docker ? { docker: deps.docker } : {}) }));
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
@@ -158,7 +163,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (browsers.has(req) && !browserTicket(path)) return reply.code(403).send(VIEWER_REFUSAL);
     return { ticket: auth.ticket(path) };
   });
-  app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name, ...(config.sandbox.mode === "off" ? { sandbox: "off" as const } : {}) }));
+  app.get("/api/health", async () => ({ ok: true, version: deps.version, host: config.host.name,
+    ...(config.runtime.mode === "docker" ? { runtime: "docker" as const } : config.sandbox.mode === "off" ? { sandbox: "off" as const } : {}) }));
   app.get("/api/machine", async () => machineInfo(config, deps.version, run));
   app.post("/api/machine/updates", async () => checkForUpdates(run));
   app.get("/api/data/export", async (_req, reply) => {

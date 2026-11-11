@@ -3,6 +3,8 @@ export type DoctorCheck = { id: string; title: string; state: "ok" | "warn" | "f
 /** Also the bug-report format: versions and choices, never a token or a secret. */
 export type DoctorReport = {
   version: string; node: string; platform: string; supervisor: string; sandbox: string;
+  /** host: the v3 runtime on this machine; docker: the v4 control service in its container. */
+  runtime?: "host" | "docker";
   previews: { mode: string; domain: string | null; bind: string; port: number };
   checks: DoctorCheck[];
 };

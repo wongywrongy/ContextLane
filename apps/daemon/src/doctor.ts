@@ -11,6 +11,7 @@ import { routerUrl } from "./previews.js";
 import type { Runner } from "./run.js";
 import { checkSandbox } from "./sandbox.js";
 import { findExecutable } from "./setup.js";
+import { dockerChecks, type DockerDoctorDeps } from "./docker/doctor.js";
 
 type Check = DoctorCheck;
 
@@ -21,7 +22,7 @@ export type Net = {
   upgrade: (url: string) => Promise<{ status: number; echoed: boolean }>;
 };
 
-export type DoctorDeps = { config: Config; run: Runner; version: string; previews: Previews; find?: (name: string) => Promise<string | null>; net?: Partial<Net> };
+export type DoctorDeps = { config: Config; run: Runner; version: string; previews: Previews; find?: (name: string) => Promise<string | null>; net?: Partial<Net>; docker?: DockerDoctorDeps };
 
 const MIN_NODE = [22, 13];
 export const WS_HANDSHAKE = { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": randomBytes(16).toString("base64") };
@@ -36,6 +37,32 @@ export async function doctor(deps: DoctorDeps): Promise<DoctorReport> {
   const nodeOk = major > MIN_NODE[0]! || (major === MIN_NODE[0] && minor >= MIN_NODE[1]!);
   add({ id: "node", title: "Node.js", state: nodeOk ? "ok" : "fail", found: process.versions.node, ...(nodeOk ? {} : { fix: "Install Node.js 22.13 or newer (24 recommended)." }) });
 
+  const docker = config.runtime.mode === "docker";
+  // The Docker runtime has no host tools, systemd or bubblewrap to check: lanes get their tools from the
+  // tools volume and their isolation from their container. Its own checks replace those.
+  if (docker) checks.push(...await dockerChecks(run, deps.docker ?? { control: () => null }));
+  else await hostChecks(deps, find, add);
+
+  const p = config.previews;
+  if (p.mode === "serve") {
+    const tailscale = await run("tailscale", ["status", "--json"], { timeout: 5000 }).then((r) => (JSON.parse(r.stdout) as { BackendState?: string }).BackendState === "Running", () => false);
+    add({ id: "router", title: "Preview links", state: tailscale ? "ok" : "fail", found: tailscale ? "Tailscale Serve" : "Tailscale is not running", ...(tailscale ? {} : { fix: "Sign in to Tailscale, or use mode = \"router\" with your own reverse proxy." }) });
+  } else {
+    add(await routerCheck(config, deps.net?.get ?? get));
+    if (p.domain) checks.push(...await chainChecks(deps, { ...defaultNet(), ...deps.net }));
+    else add({ id: "domain", title: "Links from other devices", state: "warn", found: "no domain: links work only on this machine", fix: "Set [previews] domain and add one wildcard entry in your reverse proxy (docs/PROXY.md)." });
+  }
+
+  const driver = docker ? "none yet (lanes arrive in v4 phase 3)" : config.supervisor.driver === "process" ? "process" : "systemd";
+  return {
+    version: deps.version, node: process.versions.node, platform: `${process.platform}-${process.arch}`, supervisor: driver, sandbox: docker ? "containers" : config.sandbox.mode, runtime: config.runtime.mode,
+    previews: { mode: p.mode, domain: p.domain ?? null, bind: p.bind, port: p.localPort }, checks,
+  };
+}
+
+/** Tools, agent CLIs, the supervisor and the sandbox: the host runtime only. */
+async function hostChecks(deps: DoctorDeps, find: (name: string) => Promise<string | null>, add: (check: Check) => void): Promise<void> {
+  const { config, run } = deps;
   for (const [name, why] of [["git", "lanes are git worktrees"], ["tmux", "lane terminals"], ["python3", "the browser terminal"]] as const) {
     const path = await find(name);
     add({ id: name, title: name, state: path ? "ok" : "fail", found: path ?? "not found", ...(path ? {} : { fix: `Install ${name} (${why}).` }) });
@@ -62,20 +89,6 @@ export async function doctor(deps: DoctorDeps): Promise<DoctorReport> {
       ...(works ? {} : { fix: `Install bubblewrap (sudo apt install bubblewrap). Where it cannot run, [sandbox] mode = "off" lets agents start unconfined.` }) });
   }
 
-  const p = config.previews;
-  if (p.mode === "serve") {
-    const tailscale = await run("tailscale", ["status", "--json"], { timeout: 5000 }).then((r) => (JSON.parse(r.stdout) as { BackendState?: string }).BackendState === "Running", () => false);
-    add({ id: "router", title: "Preview links", state: tailscale ? "ok" : "fail", found: tailscale ? "Tailscale Serve" : "Tailscale is not running", ...(tailscale ? {} : { fix: "Sign in to Tailscale, or use mode = \"router\" with your own reverse proxy." }) });
-  } else {
-    add(await routerCheck(config, deps.net?.get ?? get));
-    if (p.domain) checks.push(...await chainChecks(deps, { ...defaultNet(), ...deps.net }));
-    else add({ id: "domain", title: "Links from other devices", state: "warn", found: "no domain: links work only on this machine", fix: "Set [previews] domain and add one wildcard entry in your reverse proxy (docs/PROXY.md)." });
-  }
-
-  return {
-    version: deps.version, node: process.versions.node, platform: `${process.platform}-${process.arch}`, supervisor: driver, sandbox: config.sandbox.mode,
-    previews: { mode: p.mode, domain: p.domain ?? null, bind: p.bind, port: p.localPort }, checks,
-  };
 }
 
 /** The router answers on its own port with its own 404 for a name it does not know. */

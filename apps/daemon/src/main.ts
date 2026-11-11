@@ -2,7 +2,9 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EventBus } from "./bus.js";
-import { loadConfig, configPath } from "./config.js";
+import { loadConfig, configPath, defaultRuntime, ensureConfigFile, listenHost } from "./config.js";
+import { inspectSelf, type ControlInfo } from "./docker/control.js";
+import { DockerFolders } from "./docker/folders.js";
 import { Store } from "./db/store.js";
 import { HostLinks } from "./hosts.js";
 import { buildServer } from "./http/server.js";
@@ -29,16 +31,25 @@ import { detectDriver } from "./supervisor/index.js";
 async function main(): Promise<void> {
   // The commit this release was built from; `contextlanes update` waits for it after a restart.
   const VERSION = await releaseVersion(runCommand, fileURLToPath(new URL("../../../", import.meta.url)), process.env.CONTEXTLANES_VERSION || "0.1.0");
+  // The control image starts with no settings file: write one with the defaults, once.
+  if (defaultRuntime() === "docker" && await ensureConfigFile()) console.log(`Wrote ${configPath()} with the default settings.`);
   const config = loadConfig();
-  // Settled once: everything built below runs lane services the same way.
-  if (config.supervisor.driver === "auto") config.supervisor.driver = await detectDriver(runCommand);
-  console.log(config.supervisor.driver === "systemd" ? "Lane services run as systemd user units." : "Lane services run as process groups watched by this daemon (no systemd user session found).");
-  if (config.sandbox.mode === "off") console.warn("The sandbox is off ([sandbox] mode = \"off\"): agents and lane services run with your full access, including ContextLanes' own data.");
+  const docker = config.runtime.mode === "docker";
+  if (docker) {
+    // Lanes are not started in the Docker runtime yet (v4 phase 3); nothing here supervises anything.
+    config.supervisor.driver = "process";
+    console.log("Docker runtime: the control service mounts none of your folders; git on a project runs in a helper container.");
+  } else {
+    // Settled once: everything built below runs lane services the same way.
+    if (config.supervisor.driver === "auto") config.supervisor.driver = await detectDriver(runCommand);
+    console.log(config.supervisor.driver === "systemd" ? "Lane services run as systemd user units." : "Lane services run as process groups watched by this daemon (no systemd user session found).");
+    if (config.sandbox.mode === "off") console.warn("The sandbox is off ([sandbox] mode = \"off\"): agents and lane services run with your full access, including ContextLanes' own data.");
+  }
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const layout = await layoutOf(root, homedir());
   mkdirSync(config.paths.data, { recursive: true, mode: 0o700 });
   const store = Store.open(join(config.paths.data, "contextlanes.sqlite"));
-  if (layout.managed) await installBackupTimer({ root: await exists(layout.current) ? layout.current : layout.repo, home: homedir(), node: process.execPath, run: runCommand, config: configPath() })
+  if (layout.managed && !docker) await installBackupTimer({ root: await exists(layout.current) ? layout.current : layout.repo, home: homedir(), node: process.execPath, run: runCommand, config: configPath() })
     .catch((err) => console.error("Nightly backups could not be scheduled:", err));
   const bus = new EventBus();
   const hosts = new HostLinks({ store, bus });
@@ -48,10 +59,19 @@ async function main(): Promise<void> {
   // Lane hosts are ACP; the socket also stays up while ACP lanes from before the feature was turned off are open.
   const acpLanes = store.listLanes().some((l) => l.kind === "acp" && !["cleaned", "archived", "merged", "failed"].includes(l.state));
   if (config.features.acp || acpLanes) await hosts.listen(socketPath(config));
-  // Every git and gh the daemon runs goes through the lane sandbox (see confineGit).
-  const run = confineGit(runCommand, config);
+  // The Docker runtime: the control service's own container, found once (and again while it is not found).
+  let control: ControlInfo | null = null;
+  const findControl = async () => { control = await inspectSelf(runCommand).catch((err: Error) => { console.error(err.message); return null; }); };
+  if (docker) {
+    await findControl();
+    if (!control) { const again = setInterval(() => void findControl().then(() => { if (control) clearInterval(again); }), 30_000); again.unref(); }
+  }
+  const folders = docker ? new DockerFolders({ run: runCommand, control: () => control, store }) : undefined;
+  // Every git and gh the daemon runs goes through confineGit: the lane sandbox on the host, a helper
+  // container per call in the Docker runtime.
+  const run = confineGit(folders ? folders.runner() : runCommand, config);
   const lanes = new LaneManager({ store, bus, config, run });
-  const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
+  const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); }, ...(folders ? { folders } : {}) });
   await setup.initialize();
   const runtime = new Runtime({ store, bus, config, run });
   const codemaps = new CodeMaps({ run, store, config });
@@ -63,14 +83,14 @@ async function main(): Promise<void> {
   const cli = join(layout.managed && await exists(layout.current) ? layout.current : root, "apps/cli/dist/main.js");
   const schedules = config.features.schedules ? new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli }) : undefined;
   for (const line of await recover({ store, bus, config, run }).catch((err) => { console.error("Startup recovery failed:", err); return []; })) console.log(`Recovered: ${line}`);
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules });
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules, ...(docker ? { docker: { control: () => control } } : {}) });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();
   // Routes for services that kept running while the daemon was down, before anything can ask for them.
   const restored = await runtime.restoreLinks().catch((err) => { console.error("Preview router could not start:", err); return 0; });
   if (restored) console.log(`Preview links restored: ${restored}`);
-  await app.listen({ host: config.listen.host, port: config.listen.port });
+  await app.listen({ host: listenHost(config), port: config.listen.port });
   notifier.start();
   runtime.watch();
   if (config.features.architecture) collisions.start();
@@ -87,7 +107,7 @@ async function main(): Promise<void> {
   const tidy = () => void tidyFiles({ store, config }).then((lines) => { for (const line of lines) console.log(`Tidied: ${line}`); }, (err) => console.error("Tidying files failed:", err));
   const tidyFirst = setTimeout(tidy, 5 * 60_000); tidyFirst.unref();
   const tidyDaily = setInterval(tidy, 86_400_000); tidyDaily.unref();
-  console.log(`ContextLanes ${VERSION} on http://${config.listen.host}:${config.listen.port}`);
+  console.log(`ContextLanes ${VERSION} on http://${listenHost(config)}:${config.listen.port}${docker ? " (inside the container; not published)" : ""}`);
   if (config.previews.mode === "router") console.log(`Preview router on ${config.previews.bind}:${config.previews.localPort}${config.previews.domain ? ` for *.${config.previews.domain}` : ""}`);
 
   // Stop within seconds: open requests (a long model call, a clone) are cut rather than waited for, so

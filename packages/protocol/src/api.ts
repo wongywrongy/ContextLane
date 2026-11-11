@@ -4,6 +4,10 @@ import { LANE_COLOURS, LaneId, ProjectId } from "./ids.js";
 import { LaneState } from "./states.js";
 import { ServiceProposal } from "./resources.js";
 
+/** Who owns a project's folder on the host. Read once when it is added (v4, Docker); git on it runs as this user. */
+export const ProjectOwner = z.object({ uid: z.number().int().min(0).max(4_294_967_294), gid: z.number().int().min(0).max(4_294_967_294) });
+export type ProjectOwner = z.infer<typeof ProjectOwner>;
+
 export const Project = z.object({
   id: ProjectId,
   name: z.string(),
@@ -12,6 +16,8 @@ export const Project = z.object({
   recipeHash: z.string().nullable(),
   /** Pinned projects come first on Projects; then the owner's order, then name. */
   pinned: z.boolean(),
+  /** Set in the Docker runtime; null for projects added by the host runtime, which runs git as itself. */
+  owner: ProjectOwner.nullable().optional(),
 });
 export type Project = z.infer<typeof Project>;
 /** Rename or pin a project. The id, path and checkouts never change. */
@@ -194,7 +200,7 @@ export const Checkpoint = z.object({
 });
 export type Checkpoint = z.infer<typeof Checkpoint>;
 
-export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string(), sandbox: z.enum(["bwrap", "off"]).optional() });
+export const Health = z.object({ ok: z.literal(true), version: z.string(), host: z.string(), sandbox: z.enum(["bwrap", "off"]).optional(), runtime: z.literal("docker").optional() });
 export type Health = z.infer<typeof Health>;
 
 /** A Claude Code or Codex session in a project's folder that no lane started (Work, "Watching only"). */

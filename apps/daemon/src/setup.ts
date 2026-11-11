@@ -16,6 +16,7 @@ import type { Store } from "./db/store.js";
 import type { Runner } from "./run.js";
 import { hostUnit, slugify } from "./lanes/naming.js";
 import { inSandbox } from "./sandbox.js";
+import type { DockerFolders } from "./docker/folders.js";
 
 export class SetupError extends Error { constructor(message: string, readonly statusCode = 400) { super(message); } }
 /**
@@ -60,7 +61,9 @@ export class SetupManager {
   private starting?: Promise<SetupLink>;
   private get home(): string { return this.options.home ?? homedir(); }
   constructor(readonly config: Config, private store: Store, private run: Runner,
-    private options: { path?: string; find?: typeof findExecutable; fetch?: typeof fetch; changed?: () => Promise<void>; home?: string; user?: string; portFree?: (port: number) => Promise<boolean>; scanLimits?: Partial<ScanLimits> } = {}) {
+    private options: { path?: string; find?: typeof findExecutable; fetch?: typeof fetch; changed?: () => Promise<void>; home?: string; user?: string; portFree?: (port: number) => Promise<boolean>; scanLimits?: Partial<ScanLimits>;
+      /** The Docker runtime: project folders are read through helper containers. */
+      folders?: DockerFolders } = {}) {
     this.controlFile = join(config.paths.data, "setup-token");
     this.projects = new ProjectDiscovery(this.home, run, { exclude: [config.paths.lanes], ...(options.scanLimits ? { limits: options.scanLimits } : {}) });
   }
@@ -204,23 +207,36 @@ export class SetupManager {
   }
   async addProject(body: unknown) {
     const p = AddProjectRequest.parse(body);
-    const path = expandPath(p.path, this.home);
-    const root = (await this.run("git", ["rev-parse", "--show-toplevel"], { cwd: path, timeout: 5000 }).catch(() => { throw new SetupError("This folder is not a Git repository; choose another folder."); })).stdout.trim();
-    if (!isAbsolute(root)) throw new SetupError("This folder could not be registered; choose its Git repository root.");
+    const folders = this.options.folders;
+    // The Docker runtime cannot see the folder: helpers read its owner and check it is a repository's top.
+    const facts = folders ? await folders.inspect(p.path) : null;
+    const root = facts ? facts.root : await this.repositoryRoot(expandPath(p.path, this.home));
     const registered = this.store.projectRecord({ path: root });
-    if (registered && !registered.removed) return this.store.getProject(registered.id)!;
+    const settle = (project: Project) => {
+      if (facts && (project.owner?.uid !== facts.owner.uid || project.owner?.gid !== facts.owner.gid)) this.store.setProjectOwner(project.id, facts.owner);
+      folders?.settled(root);
+      return this.store.getProject(project.id)!;
+    };
+    if (registered && !registered.removed) return settle(this.store.getProject(registered.id)!);
     const project = { path: root, name: p.name ?? registered?.name ?? basename(root) };
     if (registered) {
       // Added again after removal: the same id, so its old lanes and history line up.
       await this.update({ projects: [...this.config.projects.filter((x) => x.path !== root), project] });
-      return this.store.restoreProject(registered.id, project.name);
+      return settle(this.store.restoreProject(registered.id, project.name));
     }
     const base = slugify(project.name);
     if (!p.name && (!base || this.store.projectRecord({ id: base }))) project.name = `${base || "project"}-${createHash("sha256").update(root).digest("hex").slice(0, 10)}`;
     const id = ProjectId.parse(slugify(project.name));
     if (this.store.projectRecord({ id })) throw new SetupError("That project name is already in use; choose a different name.", 409);
     await this.update({ projects: [...this.config.projects.filter((x) => x.path !== root), project] });
-    return this.store.addProject({ ...project, id });
+    const added = this.store.addProject({ ...project, id, ...(facts ? { owner: facts.owner } : {}) });
+    folders?.settled(root);
+    return added;
+  }
+  private async repositoryRoot(path: string): Promise<string> {
+    const root = (await this.run("git", ["rev-parse", "--show-toplevel"], { cwd: path, timeout: 5000 }).catch(() => { throw new SetupError("This folder is not a Git repository; choose another folder."); })).stdout.trim();
+    if (!isAbsolute(root)) throw new SetupError("This folder could not be registered; choose its Git repository root.");
+    return root;
   }
   /** Rename, pin or remove: the database for the app, config.toml for the next start. */
   async changeProject(id: ProjectId, change: { name?: string; pinned?: boolean }): Promise<Project> {

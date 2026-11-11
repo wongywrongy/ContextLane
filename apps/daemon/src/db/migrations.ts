@@ -98,4 +98,14 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE lane ADD COLUMN direct INTEGER NOT NULL DEFAULT 0;`,
   /* 14 */ `ALTER TABLE lane ADD COLUMN remote_control INTEGER NOT NULL DEFAULT 0;`,
   /* 15 */ `ALTER TABLE lane ADD COLUMN agentless INTEGER NOT NULL DEFAULT 0;`,
+  /* 16 */ `ALTER TABLE project ADD COLUMN owner_uid INTEGER;
+  ALTER TABLE project ADD COLUMN owner_gid INTEGER;
+  CREATE TABLE project_event (
+    project  TEXT NOT NULL REFERENCES project(id),
+    seq      INTEGER NOT NULL,
+    at       TEXT NOT NULL,
+    type     TEXT NOT NULL,
+    payload  TEXT NOT NULL,
+    PRIMARY KEY (project, seq)
+  );`,
 ];

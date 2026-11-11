@@ -2,6 +2,7 @@ import qr from "qrcode-terminal";
 import { SetupLink, SetupStatus, type Project } from "@contextlanes/protocol";
 import { api, daemonUrl, ClientError, shellToken } from "./client.js";
 import { bold, cyan, dim, yellow } from "./term.js";
+import { folderArg, hereFolder } from "./here.js";
 
 /** A one-time owner sign-in link. Needs the local credential, which the sandbox hides from lanes. */
 export async function setupLink(sshHost = process.env.SSH_CONNECTION?.trim().split(/\s+/)[2]): Promise<SetupLink> {
@@ -24,6 +25,7 @@ export async function setupOutput(sshHost?: string): Promise<string> {
     `  ${bold("Next")}, here on the machine: cd into a repository and run ${cyan("contextlanes")}. It makes the folder a project, then starts lanes in it.`, ""].join("\n");
 }
 
-export async function addProject(path = process.cwd()): Promise<Project> {
-  return api<Project>("/api/projects", { method: "POST", body: { path } });
+/** Makes a folder a project: the one named (relative to where the command runs), or that folder itself. */
+export async function addProject(folder?: string, here = hereFolder()): Promise<Project> {
+  return api<Project>("/api/projects", { method: "POST", body: { path: folderArg(folder, here) } });
 }
