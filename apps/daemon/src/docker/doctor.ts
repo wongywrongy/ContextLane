@@ -6,6 +6,9 @@ import type { ControlInfo } from "./control.js";
 import { helperBase, helperName } from "./folders.js";
 import type { DockerLanes } from "./lanes.js";
 import type { Config } from "../config.js";
+import type { Store } from "../db/store.js";
+import type { Runtime } from "../runtime.js";
+import { appChecks, proxyCheck, type HostGet } from "./app-doctor.js";
 import { API_PORT, DATA_MOUNT, LANE_LABEL, NETWORK, SOCKET, TOOLS_IN_IMAGE, TOOLS_MARKER, TOOLS_MOUNT, TOOLS_VOLUME } from "./names.js";
 
 export type DockerDoctorDeps = {
@@ -17,6 +20,10 @@ export type DockerDoctorDeps = {
   /** Lane containers (phase 3): the lane image, the agent logins, containers with no lane and lanes with no container. */
   lanes?: DockerLanes;
   config?: Config;
+  /** Lane apps (phase 4): services reached by name and through the router, loopback-only services, recipes waiting. */
+  runtime?: Runtime;
+  store?: Store;
+  get?: HostGet;
 };
 
 const readMarker = (dir: string) => readFile(join(dir, TOOLS_MARKER), "utf8").then((t) => t.trim(), () => null);
@@ -91,6 +98,9 @@ export async function dockerChecks(run: Runner, deps: DockerDoctorDeps): Promise
         : { id: "lanes", title: "Lane containers", state: "ok", found: "every open lane has its container, and every lane container has its lane" });
     }
   }
+
+  if (deps.lanes && deps.runtime && deps.store && deps.config) checks.push(...await appChecks({ config: deps.config, store: deps.store, runtime: deps.runtime, lanes: deps.lanes, ...(deps.get ? { get: deps.get } : {}) }));
+  if (control && deps.config) add(await proxyCheck(run, control, deps.config));
 
   add({ id: "socket", title: "Docker socket", state: "ok",
     found: "The control service holds the Docker socket, which is root-equivalent on this host. Only it and the one Dev Container CLI helper that builds a lane have the socket; other helpers and lanes never get it." });

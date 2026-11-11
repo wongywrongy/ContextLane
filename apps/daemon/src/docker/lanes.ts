@@ -13,6 +13,8 @@ import { DockerSupervisor } from "../supervisor/docker.js";
 import type { ControlInfo } from "./control.js";
 import { execArgv, lanePath, laneVars, type ExecOptions, type LaneTarget } from "./exec.js";
 import { helperName, lanesFolder, lanesFolderArgv, type DockerFolders } from "./folders.js";
+import { Copied, copyIgnoredArgv, parseFound, READ_SH, readProjectArgv } from "./app.js";
+import type { AppFiles, FoundFile } from "../recipes.js";
 import { agentHomeVolume, HELPER_LABEL, INSTANCE_LABEL, LANE_AGENT_HOME, LANE_DIR, LANE_LABEL, LANE_TMUX_SOCKET, LANE_TOOLS, NETWORK, PROJECT_LABEL, SOCKET, TOOLS_VOLUME } from "./names.js";
 
 /** The step a lane's creation failed in, recorded in a lane.container event and in the lane's failure. */
@@ -128,7 +130,7 @@ type Names = { branch: string; worktree: string; container: string };
  * joined to the contextlanes network, with tmux inside. Every Docker object a lane has is named and
  * labelled so the control service finds it again after it restarts.
  */
-export class DockerLanes {
+export class DockerLanes implements AppFiles {
   constructor(private readonly deps: DockerLanesDeps) {}
 
   private control(): ControlInfo {
@@ -182,9 +184,48 @@ export class DockerLanes {
     return this.exec(target, ["sh", "-c", 'cat "$1" 2>/dev/null || true', "sh", path]).then((r) => r.stdout, () => "");
   }
 
-  /** The supervisor for processes inside this lane (the app's services arrive in v4 phase 4). */
+  /** The supervisor for processes inside this lane: the app's services and the recipe's one-shot steps. */
   supervisor(lane: Pick<Lane, "id" | "worktree">): DockerSupervisor {
     return new DockerSupervisor(this.deps.docker, this.need(lane));
+  }
+
+  /** The container's state as last recorded (lane.container events): running, stopped, missing, failed… */
+  state(lane: Pick<Lane, "id">): string | null {
+    return this.deps.store.eventsOfType(["lane.container"], { lanes: [lane.id] }).at(-1)?.payload.state ?? null;
+  }
+
+  // ── the app's files (docs/V4.md 3.4, phase 4) ──
+
+  /** The first of these files in the lane's checkout, read inside the lane as its user (READ_SH). */
+  async readInLane(lane: Lane, files: readonly string[]): Promise<FoundFile | null> {
+    const target = this.need(lane);
+    let stdout: string;
+    try { stdout = (await this.exec(target, ["sh", "-c", READ_SH, "sh", ...files], { timeout: 15_000 })).stdout; }
+    catch (err) { throw new Refused(`The recipe could not be read inside the lane's container ${lane.terminal} (${(err as Error).message.slice(0, 300)}). Is it running? contextlanes status ${lane.id}`, 502, "lane_unreachable"); }
+    return parseFound(stdout, files);
+  }
+
+  /** The same in the project's main checkout, by a helper that mounts only it, read-only, as its owner. */
+  async readInProject(project: Project, files: readonly string[]): Promise<FoundFile | null> {
+    const owner = await this.deps.folders.ownerOf(project);
+    const argv = readProjectArgv(this.control().image, this.deps.folders.checkPath(project.path), owner, files);
+    let stdout: string;
+    try { stdout = (await this.deps.folders.helper(argv, { timeout: 15_000 })).stdout; }
+    catch (err) { throw new Refused(`A helper container could not read the recipe in ${project.path}: ${(err as Error).message.slice(0, 300)}`, 502, "helper_failed"); }
+    return parseFound(stdout, files);
+  }
+
+  /**
+   * The recipe's `copy`: ignored files of the main checkout (.env and the like) into the lane's checkout,
+   * by a helper that mounts the project read-only and the checkout, as the owner. Returns the files copied.
+   */
+  async copyIgnored(lane: Lane, project: Project, patterns: readonly string[]): Promise<string[]> {
+    if (!patterns.length || lane.direct) return [];
+    const owner = await this.deps.folders.ownerOf(project);
+    const argv = copyIgnoredArgv(this.control().image, this.deps.folders.checkPath(project.path), this.deps.folders.checkPath(lane.worktree), owner, patterns);
+    const { stdout } = await this.deps.folders.helper(argv, { timeout: 300_000 });
+    try { return Copied.parse(JSON.parse(stdout || "[]")); }
+    catch { throw new Error(`Copying ignored files gave an answer that is not a list of files: ${stdout.slice(0, 200)}`); }
   }
 
   /** `docker exec -it` argv that puts a person's terminal in the lane's tmux session. */

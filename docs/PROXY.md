@@ -12,7 +12,7 @@ So reaching lanes from your laptop or phone takes three things, done once:
 
 1. **A wildcard DNS record**: `*.root.example.dev` pointing at this machine (its LAN or tailnet address).
 2. **One wildcard entry in your proxy**: `*.root.example.dev` → the router port, with WebSockets on (hot reload needs them) and a wildcard certificate by DNS challenge. Your proxy must pass the original `Host` header through, which all of the proxies below do by default.
-3. **The domain in ContextLanes**: in `~/.config/contextlanes/config.toml`
+3. **The domain in ContextLanes**: in `~/.config/contextlanes/config.toml` (Docker: `data/config.toml` in the stack folder, then `docker compose restart`)
 
    ```toml
    [previews]
@@ -23,7 +23,51 @@ So reaching lanes from your laptop or phone takes three things, done once:
 
 New lanes need nothing more: their names already match the wildcard.
 
-## Where the router listens
+## Where the router listens in Docker
+
+The router runs inside the control container and listens on port 4601 there. `compose.yaml` publishes it on `127.0.0.1:4601` only, so a proxy that runs on this machine outside Docker (or in a container with host networking) forwards to `127.0.0.1:4601` with nothing more to do. A proxy that runs in its own container, such as Nginx Proxy Manager, cannot reach the host's `127.0.0.1`. Use one of these two; `contextlanes doctor` says which one this machine allows now (its "Reverse proxy to the router" line).
+
+**(a) Put the proxy's container on the `contextlanes` network.** Nothing more is published.
+
+```sh
+docker ps --format '{{.Names}}'                                 # find your proxy's container name
+docker network connect contextlanes nginx-proxy-manager-app-1   # your name here
+```
+
+Then point the wildcard entry at **`contextlanes`**, port **`4601`**, scheme `http`. `docker network connect` lasts until that container is recreated; to keep it, add the network to the proxy's own `compose.yaml`:
+
+```yaml
+services:
+  app:                      # your proxy's service name
+    networks: [default, contextlanes]
+networks:
+  contextlanes:
+    external: true
+```
+
+On that network the proxy can also reach the API (`contextlanes:4600`, which still answers only with a token) and each lane's services by container name (`cl-<project>-<NN>:<port>`), as the router does. Lane services are dev servers without sign-in.
+
+**(b) Publish the router on every address.** In `compose.yaml` change
+
+```yaml
+    ports:
+      - "127.0.0.1:4601:4601"
+```
+
+to
+
+```yaml
+    ports:
+      - "4601:4601"
+```
+
+then run `docker compose up -d` in the stack folder. The proxy then forwards to this machine's LAN or tailnet address, port `4601`. So does anything else that can reach this machine on 4601, and it reaches every running lane preview; keep 4601 closed to networks you do not trust.
+
+In Docker `[previews] bind` is not used for this: the router listens on every address inside its container, and `compose.yaml` decides what reaches it from outside.
+
+A lane's service must listen on `0.0.0.0` inside its lane (ContextLanes sets `HOST=0.0.0.0` and `PORT`): the router reaches it as `cl-<project>-<NN>:<port>` over the `contextlanes` network. A dev server that listens only on `127.0.0.1` (Vite and Next.js do by default) cannot be reached; `contextlanes app status` and `doctor` say so. Pass `--host $HOST` to Vite, `-H $HOST` to `next dev`.
+
+## Where the router listens on the host
 
 By default the router binds `127.0.0.1`, which is right when the proxy runs on the same machine outside Docker. When the proxy runs in a container it cannot reach the host's loopback; bind the router to an address the container can reach:
 
@@ -39,7 +83,7 @@ Only the router can leave loopback; the API on port 4600 never does. Anything th
 **Hosts → Proxy Hosts → Add Proxy Host**
 
 - **Domain Names:** `*.root.example.dev`
-- **Scheme:** `http` · **Forward Hostname / IP:** `172.17.0.1` (or the host's address; `127.0.0.1` only if NPM runs with host networking) · **Forward Port:** `4601`
+- **Scheme:** `http` · **Forward Hostname / IP:** in Docker, `contextlanes` with (a) above, or this machine's address with (b); on the host runtime, `172.17.0.1` (or the host's address; `127.0.0.1` only if NPM runs with host networking) · **Forward Port:** `4601`
 - **Websockets Support:** on
 - **SSL:** request a new certificate for `*.root.example.dev` with **Use a DNS Challenge** (wildcard certificates require it), choose your DNS provider and give it an API token; turn on **Force SSL**.
 
@@ -87,7 +131,7 @@ http:
 
 ## Tailscale Serve, without a domain
 
-If you only use ContextLanes over your tailnet and do not want a domain, `[previews] mode = "serve"` gives each running service its own HTTPS port on this machine's Tailscale name (`https://neo.<tailnet>.ts.net:4701`). Links are only known once a service is healthy, so the `LANE_URL` variables are not set in this mode.
+Host runtime only (the Docker runtime has no Tailscale in its container). If you only use ContextLanes over your tailnet and do not want a domain, `[previews] mode = "serve"` gives each running service its own HTTPS port on this machine's Tailscale name (`https://neo.<tailnet>.ts.net:4701`). Links are only known once a service is healthy, so the `LANE_URL` variables are not set in this mode.
 
 ## When it does not work
 
@@ -101,5 +145,7 @@ Run `contextlanes doctor` (or Settings → Health check). The chain check names 
 | something other than the router answered | the wildcard entry points somewhere else, or at the wrong port |
 | the router answered, but not for this name | the proxy rewrites `Host`; pass the original through |
 | WebSockets: upgrade did not get through | turn on WebSocket support for the entry |
+| Reverse proxy to the router: neither (a) nor (b) | a proxy in a container cannot reach `127.0.0.1:4601`; see [Where the router listens in Docker](#where-the-router-listens-in-docker) |
+| Services on loopback only | the lane's dev server listens on `127.0.0.1`; make it listen on `$HOST` (`0.0.0.0` in a lane) |
 
 A dev server that refuses the name (Vite's "Blocked request", Next.js cross-origin warnings) is covered in [RECIPES.md](RECIPES.md#where-services-are-reached).

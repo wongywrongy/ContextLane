@@ -35,7 +35,7 @@ On macOS, where bubblewrap does not exist, agents start only after you choose to
 
 ### Docker (v4, in progress)
 
-The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json` ([docs/V4.md](docs/V4.md)). **Phases 2 and 3 of 5 are written: projects, lanes (each its own container), their terminals and Claude Code or Codex in them work in Docker; a lane's app, links and review do not yet** (they answer `not_yet`). Phase 3 has not yet been run on a real Docker host.
+The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json` ([docs/V4.md](docs/V4.md)). **Phases 2 to 4 of 5 are written: projects, lanes (each its own container), their terminals, Claude Code or Codex in them, and a lane's app and its links work in Docker; review does not yet** (it answers `not_yet`). Phases 2 and 3 have passed on a real Docker host; phase 4 has not yet been run on one.
 
 ```sh
 git clone https://github.com/wongywrongy/ContextLane.git /opt/stacks/contextlanes
@@ -55,9 +55,17 @@ contextlanes doctor
 - Agents sign in inside a lane (`contextlanes open`, then `/login` in Claude Code or `codex login`). Logins live in a volume per user id (`contextlanes-agent-home-<uid>`), shared by that user's lanes.
 - Lanes keep running while the control container is restarted or replaced (`docker compose up -d`); it finds them again by their labels. Do not use `docker compose down` while lanes run: the network is still in use by them.
 - Only the preview router (port 4601, on 127.0.0.1) is published. The API (4600) answers only on the private `contextlanes` network.
+- A lane's app runs inside its container, from the approved recipe (`.contextlanes.json`, read inside the lane). Every lane has its own network, so a service has the same port in every lane: `port.number` in the recipe, or 3000, 3001… in the order of the services. ContextLanes sets `HOST=0.0.0.0` and `PORT`; a dev server must listen on `$HOST` (Vite: `--host $HOST`), since one on `127.0.0.1` is unreachable from outside the lane, and `contextlanes app status` says so. The router reaches it as `cl-<project>-<NN>:<port>`. The recipe's `cache` and `database` are refused in a lane: install dependencies in a setup step, and run a database inside the lane as another service until Compose-based dev containers are supported.
+- A reverse proxy in a container (Nginx Proxy Manager) cannot reach `127.0.0.1:4601`. Either put it on the network and point the wildcard entry at `contextlanes:4601`:
+
+  ```sh
+  docker network connect contextlanes <proxy container>
+  ```
+
+  or publish the router on every address by changing `"127.0.0.1:4601:4601"` to `"4601:4601"` under `ports` in `compose.yaml`, then `docker compose up -d`. `contextlanes doctor` says which of the two this machine allows; [docs/PROXY.md](docs/PROXY.md) has both in full.
 - `contextlanes` on the host is a small script that runs the command in the container with `docker exec` and passes the folder you are in as text. Run `contextlanes add` in the repository's top folder (the one with `.git`).
 - A container already called `contextlanes` from an older stack stops `docker compose up`; compose never takes it over. Look at it with `docker inspect contextlanes` and remove or rename it yourself.
-- `scripts/v4-check/phase2.sh <repository>` checks the control service, and `scripts/v4-check/phase3.sh <repository>` lanes.
+- `scripts/v4-check/phase2.sh <repository>` checks the control service, `scripts/v4-check/phase3.sh <repository>` lanes, and `scripts/v4-check/phase4.sh <repository>` a lane's app and links (it needs no recipe in the repository; it brings its own and removes it).
 
 ## Use
 
@@ -118,7 +126,7 @@ This checkout is a ContextLanes lane: its own branch, its own copy of the app on
 - `contextlanes url [service]` — the service's link, and nothing else (default service: web)
 - `contextlanes recipe` — the recipe, its hash and whether it is approved
 
-Services get `$PORT` and must listen on 127.0.0.1 (`$HOST`). They also get `$LANE_URL` and `$LANE_HOSTNAME` (their own link), and `$LANE_URL_<NAME>` for every service, usable in the recipe's commands and env values.
+Services get `$PORT` and must listen on `$HOST`: 127.0.0.1 on a host install, 0.0.0.0 in a lane's own container (Vite: `--host $HOST`). They also get `$LANE_URL` and `$LANE_HOSTNAME` (their own link), and `$LANE_URL_<NAME>` for every service, usable in the recipe's commands and env values.
 
 Exit codes: 0 done, 1 failed, 2 wrong usage, 3 ContextLanes not reachable, 4 waiting on the owner. Exit 4 means the recipe is new or changed and only the owner can approve it: say so, and continue with work that does not need the app. Never try to approve it yourself.
 ```

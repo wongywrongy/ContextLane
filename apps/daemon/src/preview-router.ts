@@ -21,14 +21,15 @@ export function hostnameOf(host: string | undefined): string {
  * in front already set.
  */
 export class PreviewRouter {
-  private readonly routes = new Map<string, number>();
+  /** label → where it goes: 127.0.0.1 and a port on the host, a lane container's name and its port in Docker. */
+  private readonly routes = new Map<string, { host: string; port: number }>();
   private readonly connections = new Set<Socket>();
   private ready?: Promise<number>;
   private readonly proxy = createProxyServer({ xfwd: true, changeOrigin: false, ws: true });
   private readonly server = createServer((req, res) => {
-    const port = this.target(req);
-    if (!port) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end(ROUTER_NOT_FOUND); return; }
-    this.proxy.web(req, res, { target: `http://127.0.0.1:${port}` });
+    const to = this.target(req);
+    if (!to) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end(ROUTER_NOT_FOUND); return; }
+    this.proxy.web(req, res, { target: `http://${to.host}:${to.port}` });
   });
 
   constructor(private port: number, private readonly bind: string, private readonly suffixes: () => string[]) {
@@ -41,9 +42,9 @@ export class PreviewRouter {
     this.server.on("connection", (socket) => { this.connections.add(socket); socket.on("close", () => this.connections.delete(socket)); });
     this.server.on("upgrade", (req, socket: Socket, head) => {
       socket.on("error", () => socket.destroy());
-      const port = this.target(req);
-      if (!port) { socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"); return; }
-      this.proxy.ws(req, socket, head, { target: `http://127.0.0.1:${port}` });
+      const to = this.target(req);
+      if (!to) { socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"); return; }
+      this.proxy.ws(req, socket, head, { target: `http://${to.host}:${to.port}` });
     });
     this.server.unref();
   }
@@ -63,7 +64,13 @@ export class PreviewRouter {
 
   get boundPort(): number { return this.port; }
 
-  set(label: string, port: number): void { this.routes.set(label.toLowerCase(), port); }
+  /** host: 127.0.0.1 by default; in the Docker runtime a lane container's name on the contextlanes network. */
+  set(label: string, port: number, host = "127.0.0.1"): void {
+    if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(host)) throw new Error(`Not a route target: ${host}`);
+    this.routes.set(label.toLowerCase(), { host, port });
+  }
+  /** Where a label goes, as host:port. */
+  targetOf(label: string): string | null { const t = this.routes.get(label.toLowerCase()); return t ? `${t.host}:${t.port}` : null; }
   delete(label: string): void { this.routes.delete(label.toLowerCase()); }
   has(label: string): boolean { return this.routes.has(label.toLowerCase()); }
   labels(): string[] { return [...this.routes.keys()]; }
@@ -79,7 +86,7 @@ export class PreviewRouter {
     return null;
   }
 
-  private target(req: IncomingMessage): number | undefined {
+  private target(req: IncomingMessage): { host: string; port: number } | undefined {
     const label = this.labelOf(req.headers.host);
     return label ? this.routes.get(label) : undefined;
   }

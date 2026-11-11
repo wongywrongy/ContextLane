@@ -52,7 +52,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Checker } from "../checker.js";
 import { Review } from "../review.js";
-import { laneRecipe, readRecipe } from "../recipes.js";
 import { Runtime } from "../runtime.js";
 import { Auth } from "./auth.js";
 import { browserMay, browserSettings, browserTicket, VIEWER_REFUSAL } from "./viewer.js";
@@ -140,7 +139,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (browsers.has(req) && req.method === "POST" && req.routeOptions.url === "/api/setup/settings" && !browserSettings(config, req.body)) return reply.code(403).send(VIEWER_REFUSAL);
   });
   app.get("/api/features", async () => config.features);
-  app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links, ...(deps.docker ? { docker: deps.docker } : {}) }));
+  app.get("/api/doctor", async () => doctor({ config, run, version: deps.version, previews: runtime.links, ...(deps.docker ? { docker: { ...deps.docker, runtime, store } } : {}) }));
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "Check the values you entered and try again.", code: "invalid_request" });
@@ -250,6 +249,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const repo = store.getProject(lane.project)!.path;
     const docker = deps.lanes.inContainer(lane) ? deps.lanes.docker : undefined;
     if (docker) {
+      // The app's links go first, then the recipe's teardown inside the lane while it still runs. A teardown
+      // that ran and failed keeps the lane, as on the host; one that could not be read or run does not.
+      await runtime.stop(lane.id).catch(() => {});
+      if (docker.state(lane) === "running") await runtime.teardown(lane.id).catch((err: unknown) => { if (err instanceof Refused && err.message.startsWith("Teardown failed")) throw err; });
       // The container (and with it the agent, its terminal and anything else it ran), its image, the checkout.
       await docker.remove(lane, store.getProject(lane.project)!, { deleteBranch });
       if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", `Deleted by you: container and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
@@ -288,7 +291,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!lane) throw new NotFound("no such lane");
     if (!["cleaned", "failed", "paused"].includes(lane.state)) throw new Refused(lane.state === "merged" ? "Clean up a merged lane first, then archive it." : "Only a cleaned-up, failed or paused lane can be archived.", 409);
     if (lane.state !== "cleaned" && deps.lanes.inContainer(lane)) {
-      // Its container stops; the checkout stays, and delete removes both.
+      // Its services' links go, then its container stops; the checkout stays, and delete removes both.
+      await runtime.stop(lane.id).catch(() => {});
       await run("docker", ["stop", "--time", "5", lane.terminal], { timeout: 60_000 }).catch(() => {});
     } else if (lane.state !== "cleaned") {
       await runtime.stop(lane.id).catch(() => {});
@@ -330,14 +334,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.get<{ Params: { project: string } }>("/api/projects/:project/recipe", async (req) => {
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
-    return await readRecipe(store, project, project.path);
+    return await runtime.recipes.project(project);
   });
   app.post<{ Params: { project: string } }>("/api/projects/:project/recipe/approve", async (req, reply) => {
     const project = store.getProject(ProjectId.parse(req.params.project));
     if (!project) throw new NotFound("no such project");
     const { hash } = ApproveRecipeRequest.parse(req.body);
-    // Only bytes that exist right now can be approved, and only if they parse.
-    const views = await Promise.all([project.path, ...store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state)).map((l) => l.worktree)].map((dir) => readRecipe(store, project, dir)));
+    // Only bytes that exist right now can be approved, and only if they parse. A lane whose container
+    // cannot be read (stopped, gone) offers nothing to approve; the others still can.
+    const open = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state));
+    const views = await Promise.all([runtime.recipes.project(project).catch(() => null), ...open.map((l) => runtime.recipes.lane(project, l).catch(() => null))]);
     const view = views.find((v) => v?.hash === hash);
     if (!view?.recipe) return reply.code(409).send({ error: view?.error ?? "That recipe has changed; review the current file and approve again." });
     const events = store.tx(() => {
@@ -482,8 +488,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!project) throw new NotFound("no such project");
     // A merged lane still shows while its services run, so they can be stopped before cleanup.
     const lanes = store.listLanes(project.id).filter((l) => !["cleaned", "archived"].includes(l.state) && (l.state !== "merged" || store.environment(l.id)?.services.some((s) => s.state !== "stopped")));
-    const [cleanup, recipe, entries, facts] = await Promise.all([review.cleanable(project.id), readRecipe(store, project, project.path),
-      Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await laneRecipe(store, project, l), environment: store.environment(l.id) }))), resources.project(project.id)]);
+    // In Docker a lane's recipe is read in its container; one that cannot be read shows as none.
+    const soft = <T>(read: Promise<T>) => config.runtime.mode === "docker" ? read.catch(() => null) : read;
+    const [cleanup, recipe, entries, facts] = await Promise.all([review.cleanable(project.id), soft(runtime.recipes.project(project)),
+      Promise.all(lanes.map(async (l) => ({ lane: l.id, recipe: await soft(runtime.recipes.lane(project, l)), environment: store.environment(l.id) }))), resources.project(project.id)]);
     // Outside listeners are found only for adoption.
     const shown = config.features.adoption || !facts ? facts : { ...facts, outside: null };
     return { cleanup, previews: config.previews.mode, domain: config.previews.mode === "router" ? config.previews.domain ?? null : null, recipe, lanes: entries, facts: shown };
@@ -591,7 +599,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (req.params.tool === "env_start") return runtime.start(lane, StartEnvRequest.parse(req.body ?? {}).services);
     if (req.params.tool === "env_stop") return runtime.stop(lane);
     if (req.params.tool === "env_restart") return runtime.restart(lane, StartEnvRequest.parse(req.body ?? {}).services);
-    if (req.params.tool === "recipe_status") { const l = store.getLane(lane); if (!l) throw new NotFound(`no lane ${lane}`); return laneRecipe(store, store.getProject(l.project)!, l); }
+    if (req.params.tool === "recipe_status") { const l = store.getLane(lane); if (!l) throw new NotFound(`no lane ${lane}`); return runtime.recipes.lane(store.getProject(l.project)!, l); }
     if (req.params.tool === "preview_url") return runtime.previewUrl(lane, z.object({ service: z.string().default("web") }).parse(req.body ?? {}).service);
     if (req.params.tool === "get_logs") {
       const { service, lines } = LogsQuery.parse(req.body);

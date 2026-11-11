@@ -90,10 +90,11 @@ export class Previews {
     return next;
   }
 
-  async publish(lane: Pick<Lane, "id">, service: string, port: number): Promise<string> {
+  /** host: where the service listens; a lane container's name in the Docker runtime (router mode only). */
+  async publish(lane: Pick<Lane, "id">, service: string, port: number, host?: string): Promise<string> {
     if (this.settings.mode === "router") {
       // A table entry only: the port itself is opened once, at daemon start (start()).
-      this.routes.set(previewLabel(lane, service), port);
+      this.routes.set(previewLabel(lane, service), port, host);
       return this.urlFor(lane, service)!;
     }
     return this.serial(() => this.addServe(port));
@@ -112,6 +113,11 @@ export class Previews {
   /** A raw label, for the doctor's temporary route. Router mode only. */
   publishLabel(label: string, port: number): void { if (this.settings.mode === "router") this.routes.set(label, port); }
   unpublishLabel(label: string): void { if (this.settings.mode === "router" && label !== this.settings.appLabel) this.routes.delete(label); }
+
+  /** Where the router sends this lane service now, as host:port; null when it has no route. */
+  targetOf(lane: Pick<Lane, "id">, service: string): string | null {
+    return this.settings.mode === "router" ? this.router?.targetOf(previewLabel(lane, service)) ?? null : null;
+  }
 
   /** True when the router currently sends this lane service somewhere. */
   routed(lane: Pick<Lane, "id">, service: string): boolean {

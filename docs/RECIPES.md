@@ -30,6 +30,16 @@ A lane runs your app from `.contextlanes.json` at the repository root. Nothing i
 - **Checks** run for every checkpoint; **screenshots** are taken before and after on those paths.
 - Lane commands run in a sandbox that cannot see ContextLanes' data, its settings, Docker or the systemd user bus.
 
+### In the Docker runtime
+
+Lanes there are containers ([V4.md](V4.md) 3.4), and the recipe runs inside the lane's own container as the lane's user, in its checkout. What differs from the host:
+
+- **Ports.** Every lane has its own network, so a service keeps one port in every lane: `"port": { "number": 5173 }`, or, left out, 3000 for the first service, 3001 for the next and so on (skipping numbers other services name). It still arrives in `$PORT` and `$PORT_<NAME>`. Two services cannot name the same number. On the host `number` is ignored and each lane gets free ports.
+- **Address.** `$HOST` is `0.0.0.0`, and a service must listen on it: the router and health checks reach it as `cl-<project>-<NN>:<port>` over the private `contextlanes` network, never published. One that listens only on `127.0.0.1` cannot be reached, and `contextlanes app status` and `doctor` say so. Vite: `["npx", "vite", "--host", "$HOST", "--port", "$PORT"]`; Next.js: `["npx", "next", "dev", "-H", "$HOST", "-p", "$PORT"]`.
+- **`copy`** works: a short-lived helper container that mounts your main checkout read-only and the lane's checkout copies the ignored files across, never over a file already there.
+- **`cache`** and **`database`** are refused: the lane's image may not match the host's, and the lane cannot reach this machine's own database. Install dependencies in a setup step (`["npm", "ci"]`). A database belongs to the project's dev container (V4.md 3.4), but Compose-based `devcontainer.json` files are not supported in lanes yet; until they are, run the database inside the lane as another service, or point the app at one it can reach.
+- There is no sandbox prefix: the container is the boundary. The recipe file must be a regular file (a symbolic link is not followed).
+
 ## Where services are reached
 
 Every service's link is known before it starts, so it can be passed in:
