@@ -234,7 +234,7 @@ export class DockerLanes {
     // 1. Checkout.
     this.record(lane.id, { state: "creating", name: lane.terminal });
     try { await this.checkout(lane, project, owner, opts.ownBranch, opts.base); }
-    catch (err) { await this.forgetWorktree(project); return fail("checkout", err); }
+    catch (err) { await this.forgetWorktree(lane, project); return fail("checkout", err); }
     undo.push(() => this.removeCheckout(lane, project, !opts.ownBranch));
 
     // 2. Environment: the container, from the checkout's devcontainer.json or the default image.
@@ -291,15 +291,20 @@ export class DockerLanes {
     }
   }
 
-  private forgetWorktree(project: Project): Promise<unknown> {
-    return this.deps.git("git", ["worktree", "prune"], { cwd: project.path, timeout: 30_000 }).catch(() => {});
+  /**
+   * Drops this lane's worktree record and nothing else. Never `git worktree prune`: a helper sees only the
+   * project and `<project>.lanes`, so every worktree the owner keeps anywhere else looks missing to it and
+   * prune would delete their records. `worktree remove` on a path whose folder is gone removes just its record.
+   */
+  private forgetWorktree(lane: Pick<Lane, "worktree">, project: Project): Promise<unknown> {
+    return this.deps.git("git", ["-C", project.path, "worktree", "remove", "--force", lane.worktree], { cwd: lanesFolder(project.path), timeout: 30_000 }).catch(() => {});
   }
 
   /** The checkout, and the branch only when it is a lane/ branch this lane made and the caller asks. */
   private async removeCheckout(lane: Lane, project: Project, deleteBranch: boolean): Promise<void> {
     const folder = lanesFolder(project.path);
+    // Removes the folder and its record; when the folder is already gone, only the record. Never prune (see forgetWorktree).
     await this.deps.git("git", ["-C", project.path, "worktree", "remove", "--force", lane.worktree], { cwd: folder, timeout: 120_000 }).catch(() => {});
-    await this.forgetWorktree(project);
     if (deleteBranch && lane.branch.startsWith("lane/")) await this.deps.git("git", ["branch", "-D", lane.branch], { cwd: project.path, timeout: 30_000 }).catch(() => {});
   }
 

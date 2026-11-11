@@ -189,12 +189,12 @@ describe("lane create in the Docker runtime", () => {
 
   describe("a failed step removes what the earlier ones made and says which step failed", () => {
     const cases: [string, Parameters<typeof laneDocker>[0], string[]][] = [
-      ["checkout", { fail: /worktree add/ }, ["git worktree prune"]],
-      ["environment", { fail: /devcontainer up/ }, ["rm --force", "git worktree remove", "git worktree prune", "git branch -D"]],
-      ["mounts", { extraMounts: [{ Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock" }] }, ["image rm", "rm --force", "git worktree remove", "git worktree prune", "git branch -D"]],
-      ["mounts", { uid: "1005:1005" }, ["image rm", "rm --force", "git worktree remove", "git worktree prune", "git branch -D"]],
-      ["network", { fail: /^network connect/ }, ["image rm", "rm --force", "git worktree remove", "git worktree prune", "git branch -D"]],
-      ["terminal", { fail: /new-session/ }, ["image rm", "rm --force", "git worktree remove", "git worktree prune", "git branch -D"]],
+      ["checkout", { fail: /worktree add/ }, ["git worktree remove"]],
+      ["environment", { fail: /devcontainer up/ }, ["rm --force", "git worktree remove", "git branch -D"]],
+      ["mounts", { extraMounts: [{ Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock" }] }, ["image rm", "rm --force", "git worktree remove", "git branch -D"]],
+      ["mounts", { uid: "1005:1005" }, ["image rm", "rm --force", "git worktree remove", "git branch -D"]],
+      ["network", { fail: /^network connect/ }, ["image rm", "rm --force", "git worktree remove", "git branch -D"]],
+      ["terminal", { fail: /new-session/ }, ["image rm", "rm --force", "git worktree remove", "git branch -D"]],
     ];
     for (const [step, opts, cleanup] of cases) {
       it(`${step}${opts.uid ? " (lane user is not the owner)" : opts.extraMounts ? " (socket mounted)" : ""}`, async () => {
@@ -284,7 +284,7 @@ describe("lane delete, attach, send and reconcile", () => {
     const res = await as("POST", "/api/lanes/shop/01/discard", { deleteBranch: true });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ state: "archived" });
-    expect(s.calls.map(kind)).toEqual(["rm --force", "image rm", "git worktree remove", "git worktree prune", "git branch -D"]);
+    expect(s.calls.map(kind)).toEqual(["rm --force", "image rm", "git worktree remove", "git branch -D"]);
     expect(s.calls[0]!.args).toEqual(["rm", "--force", "cl-shop-01"]);
     expect(s.calls[1]!.args).toEqual(["image", "rm", "vsc-01-fix-login-0123abcd-uid"]);
     expect(s.store.eventsOfType(["lane.container"], { lanes: ["shop/01"] }).at(-1)!.payload).toEqual({ state: "removed", name: "cl-shop-01" });

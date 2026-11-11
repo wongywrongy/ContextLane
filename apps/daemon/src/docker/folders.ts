@@ -156,6 +156,10 @@ export class DockerFolders {
   runner(): Runner {
     const wrapped: Runner = async (cmd, args, opts = {}) => {
       if (!opts.cwd) return this.deps.run(cmd, args, opts);
+      // A helper mounts one project (and its lanes folder). Worktrees the owner keeps anywhere else look
+      // missing from inside it, and prune would delete their records from the owner's repository.
+      if (cmd === "git" && args.includes("worktree") && args[args.indexOf("worktree") + 1] === "prune")
+        throw new Refused("git worktree prune is never run from a helper container: it would drop the records of worktrees the helper cannot see.", 400, "no_prune");
       if (cmd !== "git") throw new Refused(`${cmd} would run in ${opts.cwd}, which the control service cannot see. In the Docker setup it runs in the lane's container; this one arrives in a later v4 phase.`, 501, "not_yet");
       const cwd = posix.normalize(opts.cwd);
       const known = [...this.deps.store.listProjects(), ...[...this.pending.keys()].map((path) => ({ id: "", path, owner: this.pending.get(path)! }))];
