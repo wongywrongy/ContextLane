@@ -46,14 +46,15 @@ export function readProjectArgv(image: string, project: string, owner: ProjectOw
  * Copies the main checkout's ignored files that match the recipe's `copy` patterns into the lane's
  * checkout, never over a file there (as v3 did on the host). Paths with a symbolic link anywhere in the
  * main checkout are skipped. Run in a helper whose only writable mount is the lane's checkout, so a link
- * the lane's agent placed there can lead nowhere else. Prints the files copied as JSON.
+ * the lane's agent placed there can lead nowhere else. The lane can write the project's .git/config, so git
+ * runs with the daemon's guards (GIT_GUARDS in sandbox.ts: no hooks, no fsmonitor). Prints the files copied as JSON.
  * process.argv: [node, project, checkout, ...patterns].
  */
 export const COPY_JS = `const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const [project, checkout, ...patterns] = process.argv.slice(1);
-const listed = execFileSync("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...patterns.map((p) => ":(glob)" + p)], { cwd: project, maxBuffer: 16 * 1024 * 1024 });
+const listed = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...patterns.map((p) => ":(glob)" + p)], { cwd: project, maxBuffer: 16 * 1024 * 1024 });
 const copied = [];
 for (const file of listed.toString("utf8").split("\\0").filter(Boolean)) {
   if (file.startsWith("/") || file.split("/").includes("..")) continue;
@@ -68,7 +69,7 @@ for (const file of listed.toString("utf8").split("\\0").filter(Boolean)) {
 process.stdout.write(JSON.stringify(copied));`;
 
 export function copyIgnoredArgv(image: string, project: string, checkout: string, owner: ProjectOwner, patterns: readonly string[], name = helperName()): string[] {
-  // UNVERIFIED: that `node -e <script> a b` gives the script process.argv [node, a, b] (from memory; true for Node 18 to 24).
+  // `node -e <script> a b` gives the script process.argv [node, a, b]; phase 3's check script relies on it too (jsq).
   return [...helperBase(name), "--read-only", "--tmpfs", "/tmp", "--user", `${owner.uid}:${owner.gid}`,
     "-e", "HOME=/tmp", "-e", "GIT_CONFIG_NOSYSTEM=1", "-e", "GIT_OPTIONAL_LOCKS=0", "-e", "GIT_TERMINAL_PROMPT=0",
     ...folderMount(project, true), ...folderMount(checkout), "-w", project, "--entrypoint", "node", image, "-e", COPY_JS, project, checkout, ...patterns];

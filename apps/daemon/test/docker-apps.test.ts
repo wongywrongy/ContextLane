@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { buildServer, Config, EventBus, HostLinks, LaneManager, Previews, Runtime, Store, confineGit, type Runner } from "@contextlanes/daemon";
+import { buildServer, Config, EventBus, GIT_GUARDS, HostLinks, LaneManager, Previews, Runtime, Store, confineGit, type Runner } from "@contextlanes/daemon";
 import { api, laneCommand, type Io } from "@contextlanes/cli";
 import { DockerFolders } from "../src/docker/folders.js";
 import { DockerLanes } from "../src/docker/lanes.js";
@@ -177,6 +177,48 @@ describe("the recipe in the Docker runtime", () => {
   });
 });
 
+describe("the scripts that run inside a lane or a helper, run here for real", () => {
+  it("READ_SH prints the first file in base64, bounded, reports a link without following it, and prints nothing for none", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { mkdir, symlink, writeFile } = await import("node:fs/promises");
+    const dir = await temp();
+    const read = (cwd: string) => parseFound(execFileSync("sh", ["-c", READ_SH, "sh", ...RECIPE_FILES], { cwd, encoding: "utf8" }), RECIPE_FILES);
+    expect(read(dir)).toBeNull();
+    await mkdir(join(dir, ".superset"));
+    await writeFile(join(dir, ".superset/config.json"), "{}");
+    expect(read(dir)).toEqual({ file: ".superset/config.json", kind: "file", data: Buffer.from("{}") });
+    await writeFile(join(dir, ".contextlanes.json"), Buffer.alloc(MAX_BYTES + 500, 0x41));
+    expect(read(dir)!.data.length).toBe(MAX_BYTES + 1);
+    await rm(join(dir, ".contextlanes.json"));
+    await writeFile(join(dir, "elsewhere"), "secret");
+    await symlink(join(dir, "elsewhere"), join(dir, ".contextlanes.json"));
+    expect(read(dir)).toEqual({ file: ".contextlanes.json", kind: "link", data: Buffer.alloc(0) });
+  });
+
+  it("COPY_JS copies ignored files that match, skips links and tracked files, and never overwrites", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { mkdir, symlink, writeFile } = await import("node:fs/promises");
+    const project = await temp(), checkout = await temp();
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: project });
+    git("init", "-q");
+    await writeFile(join(project, ".gitignore"), ".env*\n");
+    await writeFile(join(project, ".env"), "A=1\n");
+    await mkdir(join(project, "api"));
+    await writeFile(join(project, "api/.env.local"), "B=2\n");
+    await writeFile(join(project, "elsewhere"), "secret\n");
+    await symlink(join(project, "elsewhere"), join(project, ".env.link"));
+    await writeFile(join(project, "README.md"), "tracked\n");
+    git("add", ".gitignore", "README.md"); git("commit", "-q", "-m", "init");
+    await writeFile(join(checkout, ".env"), "mine\n");
+    const out = execFileSync("node", ["-e", COPY_JS, project, checkout, "**/.env*", "README.md"], { cwd: project, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } });
+    expect(JSON.parse(out).sort()).toEqual([".env", "api/.env.local"]);
+    expect(await readFile(join(checkout, ".env"), "utf8")).toBe("mine\n");
+    expect(await readFile(join(checkout, "api/.env.local"), "utf8")).toBe("B=2\n");
+    await expect(readFile(join(checkout, ".env.link"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(checkout, "README.md"), "utf8")).rejects.toThrow();
+  });
+});
+
 describe("a lane's services in the Docker runtime", () => {
   async function approved(state: Partial<Parameters<typeof appDocker>[0]> = {}, recipe = RECIPE) {
     const s = await setup({ lane: { ".contextlanes.json": recipe }, project: {}, ...state });
@@ -246,6 +288,8 @@ describe("a lane's services in the Docker runtime", () => {
     expect(copy.args).toEqual(copyIgnoredArgv("sha256:image", P, WT, { uid: 1000, gid: 1000 }, ["**/.env*"], copy.args[copy.args.indexOf("--name") + 1]));
     expect(copy.args).toEqual(expect.arrayContaining(["--network", "none", "--read-only", "--user", "1000:1000", "--mount", `type=bind,source=${P},target=${P},readonly`, "--mount", `type=bind,source=${WT},target=${WT}`]));
     expect(copy.args.filter((a) => a.startsWith("type=bind"))).toHaveLength(2);
+    // The lane can write the project's .git/config: the copy's git runs with the daemon's guards.
+    for (const guard of GIT_GUARDS.filter((g) => g !== "-c")) expect(COPY_JS).toContain(`"-c", "${guard}"`);
     const step = s.units.find((u) => u.action === "oneshot")!;
     expect(step.args).toEqual(["600", "npm", "ci"]);
     expect(step.argv).toEqual(expect.arrayContaining(["-w", WT, "-e", "HOST=0.0.0.0"]));
