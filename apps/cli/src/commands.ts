@@ -148,7 +148,9 @@ async function run(argv: string[]): Promise<number> {
     case "new": {
       if (!rest[0] || !rest[1]) return usage(values.json);
       if (values["no-agent"] && (values.agent || values.model)) throw new UsageError("--no-agent starts a lane without an agent; leave out --agent and --model.");
-      const project = rest[0] === "." ? (await addProject()).id : rest[0];
+      // Projects come first: "." used to add the folder in passing. It is made a project on purpose now.
+      if (rest[0] === ".") throw new UsageError('Make this folder a project first: contextlanes add   (then: contextlanes new "<task>")');
+      const project = rest[0];
       if (values.branch && values.here) throw new UsageError("--here works in the current checkout on its branch; leave out --branch.");
       const base = values.here ? undefined : values.base ?? (await api<ProjectBranches>(`/api/projects/${project}/branches`)).defaultBranch ?? undefined;
       const kind = values["no-agent"] ? "shell" : undefined;

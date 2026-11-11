@@ -22,7 +22,8 @@ describe("--json on every command", () => {
   }, 30_000);
 
   it("reports wrong usage as JSON on stderr with exit 2 and nothing on stdout", () => {
-    for (const args of [["bogus"], ["send"], ["answer"], ["new"], ["app"], ["open"], ["delete"]]) {
+    // `new . "<task>"` no longer makes the folder a project in passing.
+    for (const args of [["bogus"], ["send"], ["answer"], ["new"], ["new", ".", "Task"], ["app"], ["open"], ["delete"]]) {
       const { exit, out, err } = cli(...args, "--json");
       expect(exit, args.join(" ")).toBe(2);
       expect(out).toBe("");
