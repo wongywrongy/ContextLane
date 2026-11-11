@@ -1,0 +1,96 @@
+#!/bin/sh
+# Puts the `contextlanes` command on this machine's PATH (ContextLanes v4, Docker setup).
+#
+#   ./install-command              into ~/.local/bin (as root: /usr/local/bin)
+#   ./install-command --system     into /usr/local/bin (needs write access there, e.g. with sudo)
+#   ./install-command --to DIR     into DIR (scripts/v4-check uses a temporary folder)
+#
+# The command it installs is a small script: it runs `contextlanes` inside the control container with
+# `docker exec` and passes the folder you are in as text. Nothing else is installed.
+set -eu
+
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
+
+dir=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --system) dir=/usr/local/bin ;;
+    --to) [ $# -ge 2 ] || { usage >&2; exit 2; }; dir="$2"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'install-command: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+stack=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+if [ -z "$dir" ]; then
+  if [ "$(id -u)" -eq 0 ]; then dir=/usr/local/bin; else dir="${HOME:?HOME is not set}/.local/bin"; fi
+fi
+mkdir -p -- "$dir"
+dir=$(CDPATH='' cd -- "$dir" && pwd -P)
+target="$dir/contextlanes"
+marker="# contextlanes host command, written by install-command"
+
+if [ -e "$target" ] && ! grep -qF "$marker" "$target" 2>/dev/null; then
+  printf '%s exists and was not written by install-command; it was left as it is.\n' "$target" >&2
+  printf 'Move it away (it may be a v3 install: see README), then run ./install-command again.\n' >&2
+  exit 1
+fi
+
+# The stack folder, quoted for sh, so the not-running message can say where to start it.
+quoted=$(printf '%s' "$stack" | sed "s/'/'\\\\''/g")
+tmp="$target.tmp.$$"
+trap 'rm -f -- "$tmp"' EXIT INT TERM
+{
+  printf '#!/bin/sh\n%s from %s\n' "$marker" "$stack"
+  printf "STACK='%s'\n" "$quoted"
+  cat <<'EOF'
+# Runs `contextlanes` inside the ContextLanes control container. The folder you are in is passed as text
+# (CONTEXTLANES_CWD); the container never mounts it. Exit codes are the command's own; 3 when ContextLanes
+# is not running.
+CONTAINER=contextlanes
+# UNVERIFIED: a missing label prints "<no value>" with this template (from memory); any other answer is refused below.
+if ! command -v docker >/dev/null 2>&1; then
+  echo "contextlanes: the docker command is not installed on this machine." >&2
+  exit 3
+fi
+state=$(docker inspect --type container --format '{{.State.Running}} {{index .Config.Labels "contextlanes.control"}}' "$CONTAINER" 2>/dev/null) || state=""
+case "$state" in
+  "true 1") ;;
+  "false 1")
+    printf 'ContextLanes is not running. Start it:\n  cd %s && docker compose up -d\n' "$STACK" >&2
+    exit 3 ;;
+  "")
+    printf 'ContextLanes is not running: there is no container named %s, or this user cannot reach Docker.\nStart it:\n  cd %s && docker compose up -d --build\n' "$CONTAINER" "$STACK" >&2
+    exit 3 ;;
+  *)
+    printf 'The container named %s is not the ContextLanes v4 control service (an older stack?).\nCheck it with: docker inspect %s\nThen remove or rename it yourself, and: cd %s && docker compose up -d --build\n' "$CONTAINER" "$CONTAINER" "$STACK" >&2
+    exit 3 ;;
+esac
+here=$(pwd -P 2>/dev/null) || here=""
+# A terminal on both ends gets one inside too (menus, colours). Anything else (a pipe, --json, a script)
+# gets plain streams, so stdout holds only the command's output.
+if [ -t 0 ] && [ -t 1 ]; then
+  exec docker exec -i -t -e "CONTEXTLANES_CWD=$here" -e "TERM=${TERM:-xterm-256color}" "$CONTAINER" contextlanes "$@"
+fi
+exec docker exec -i -e "CONTEXTLANES_CWD=$here" "$CONTAINER" contextlanes "$@"
+EOF
+} >"$tmp"
+chmod 0755 "$tmp"
+mv -f -- "$tmp" "$target"
+trap - EXIT INT TERM
+printf 'Installed %s\n' "$target"
+
+# shellcheck disable=SC2016  # $PATH in the message is meant literally: it is a line for ~/.profile
+case ":${PATH:-}:" in
+  *":$dir:"*) ;;
+  *) printf 'Warning: %s is not on your PATH. Add it, e.g. in ~/.profile:\n  export PATH="%s:$PATH"\n' "$dir" "$dir" >&2 ;;
+esac
+found=$(command -v contextlanes 2>/dev/null || true)
+if [ -n "$found" ] && [ "$found" != "$target" ]; then
+  printf 'Warning: another contextlanes comes first on your PATH: %s\nIt is probably the v3 host install. Remove it, or put %s earlier on PATH.\n' "$found" "$dir" >&2
+fi
+old=$(command -v cl 2>/dev/null || true)
+if [ -n "$old" ] && grep -qi contextlanes "$old" 2>/dev/null; then
+  printf 'Warning: an old ContextLanes "cl" command is at %s. v4 has no cl; remove it.\n' "$old" >&2
+fi

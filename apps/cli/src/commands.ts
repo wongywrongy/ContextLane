@@ -13,6 +13,7 @@ import { canAsk, fillIn, session } from "./interactive.js";
 import { formatArch, formatDoctor, formatInbox, formatLanes, formatMermaid, table } from "./format.js";
 import { bold, cyan, dim, fail, ok } from "./term.js";
 import { startCliLane } from "./wrapper.js";
+import { hereFolder } from "./here.js";
 
 const HELP = () => `${bold("contextlanes")} ${dim("— run coding agents in parallel lanes on an always-on machine")}
 
@@ -66,7 +67,7 @@ A lane is its number here (2) or project/number anywhere (shop/02). Talks to ${d
 Every command takes --json. Exit codes: 0 done, 1 failed, 2 wrong usage, 3 not reachable, 4 waiting on the owner.`;
 
 async function main(argv: string[]): Promise<number> {
-  const io = { api, env: process.env, cwd: process.cwd(), out: () => {}, err: () => {} };
+  const io = { api, env: process.env, cwd: hereFolder(), out: () => {}, err: () => {} };
   // A bare lane number becomes that lane of this project, and `new "<task>"` gets this project.
   argv = await resolveLaneRefs(argv, io);
   // A person at a terminal gets the menus: contextlanes alone opens them, and a command with something left out
@@ -114,7 +115,8 @@ async function run(argv: string[]): Promise<number> {
       lines: { type: "string", short: "n" }, wait: { type: "boolean" }, force: { type: "boolean" }, "delete-branch": { type: "boolean" }, "no-agent": { type: "boolean" }, here: { type: "boolean" } },
   });
   const [cmd, ...rest] = positionals;
-  const handled = await laneCommand(cmd, [...rest], values, { api, env: process.env, cwd: process.cwd(), out: (t) => console.log(t), err: (t) => console.error(t) });
+  const here = hereFolder();
+  const handled = await laneCommand(cmd, [...rest], values, { api, env: process.env, cwd: here, out: (t) => console.log(t), err: (t) => console.error(t) });
   if (handled !== null) return handled;
 
   switch (cmd) {
@@ -134,7 +136,8 @@ async function run(argv: string[]): Promise<number> {
       if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
       if (h.sandbox === "off") console.log(fail("The sandbox is off: agents run with your full access. Set [sandbox] mode = \"bwrap\" where bubblewrap works."));
-      console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
+      if (h.runtime === "docker") console.log("  Running in its Docker container. Its API answers only inside the contextlanes network; lanes are not available in this setup yet (v4 phase 3).");
+      else console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
       return 0;
     }
     case "list": {
@@ -196,7 +199,7 @@ async function run(argv: string[]): Promise<number> {
       console.log(values.json ? JSON.stringify(await setupLink(), null, 2) : await setupOutput());
       return 0;
     case "add": {
-      const project = await addProject(rest[0]);
+      const project = await addProject(rest[0], here);
       if (values.json) { console.log(JSON.stringify(project, null, 2)); return 0; }
       console.log(ok(`${bold(project.name)} is a project now (${project.path}). Start a lane in it: contextlanes new "<task>"`));
       return 0;
@@ -239,7 +242,7 @@ async function run(argv: string[]): Promise<number> {
       return 0;
     }
     case "arch": {
-      const project = rest[0] ?? (await api<Project[]>("/api/projects")).find((p) => process.cwd() === p.path || process.cwd().startsWith(`${p.path}/`))?.id;
+      const project = rest[0] ?? (await api<Project[]>("/api/projects")).find((p) => here === p.path || here.startsWith(`${p.path}/`))?.id;
       if (!project) throw new UsageError("Name a project, or run this inside one: contextlanes arch <project>");
       const view = await api<ProjectMap>(`/api/projects/${project}/map`);
       console.log(values.json ? JSON.stringify(view, null, 2) : values.mermaid ? formatMermaid(view) : formatArch(view));

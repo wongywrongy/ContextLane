@@ -14,6 +14,10 @@ import {
   type EventPayload,
   type Project,
   type ProjectId,
+  type ProjectEvent,
+  type ProjectOwner,
+  type NewProjectEvent,
+  parseProjectPayload,
   type UsageSummary,
   type PushSubscription,
   type NotificationChannel,
@@ -115,11 +119,37 @@ export class Store {
 
   // ── projects ────────────────────────────────────────────────────────────
 
-  addProject(p: { id: ProjectId; name: string; path: string; remote?: string | null }): Project {
-    this.db
-      .prepare("INSERT INTO project (id, name, path, remote, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(p.id, p.name, p.path, p.remote ?? null, now());
-    return this.getProject(p.id)!;
+  addProject(p: { id: ProjectId; name: string; path: string; remote?: string | null; owner?: ProjectOwner }): Project {
+    return this.tx(() => {
+      this.db
+        .prepare("INSERT INTO project (id, name, path, remote, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(p.id, p.name, p.path, p.remote ?? null, now());
+      if (p.owner) this.setProjectOwner(p.id, p.owner);
+      return this.getProject(p.id)!;
+    });
+  }
+
+  /** Records the folder's owner: a project.owner event and the columns that answer reads, in one transaction. */
+  setProjectOwner(id: ProjectId, owner: ProjectOwner): ProjectEvent {
+    const event = this.appendProjectEvent(id, { type: "project.owner", payload: owner });
+    this.db.prepare("UPDATE project SET owner_uid = ?, owner_gid = ? WHERE id = ?").run(owner.uid, owner.gid, id);
+    return event;
+  }
+
+  /** Append one project event; seq is per project and gap-free. Payloads are validated on the way in. */
+  appendProjectEvent(project: ProjectId, ev: NewProjectEvent): ProjectEvent {
+    const payload = parseProjectPayload(ev.type, ev.payload);
+    return this.tx(() => {
+      const { seq } = this.db.prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM project_event WHERE project = ?").get(project) as { seq: number };
+      const at = now();
+      this.db.prepare("INSERT INTO project_event (project, seq, at, type, payload) VALUES (?, ?, ?, ?, ?)").run(project, seq, at, ev.type, JSON.stringify(payload));
+      return { project, seq, at, type: ev.type, payload } as ProjectEvent;
+    });
+  }
+
+  projectEvents(project: ProjectId): ProjectEvent[] {
+    return (this.db.prepare("SELECT * FROM project_event WHERE project = ? ORDER BY seq").all(project) as Row[])
+      .map((r) => ({ project: String(r.project), seq: Number(r.seq), at: String(r.at), type: String(r.type), payload: JSON.parse(String(r.payload)) }) as ProjectEvent);
   }
 
   /** A project still in ContextLanes; removed ones are kept only for their lanes' history. */
@@ -537,7 +567,8 @@ function toCheckpoint(r: Row): Checkpoint {
 }
 
 function toProject(r: Row): Project {
-  return { id: String(r.id), name: String(r.name), path: String(r.path), remote: (r.remote as string) ?? null, recipeHash: (r.recipe_hash as string) ?? null, pinned: r.pinned === 1 };
+  return { id: String(r.id), name: String(r.name), path: String(r.path), remote: (r.remote as string) ?? null, recipeHash: (r.recipe_hash as string) ?? null, pinned: r.pinned === 1,
+    owner: r.owner_uid == null || r.owner_gid == null ? null : { uid: Number(r.owner_uid), gid: Number(r.owner_gid) } };
 }
 
 function toLane(r: Row): Lane {

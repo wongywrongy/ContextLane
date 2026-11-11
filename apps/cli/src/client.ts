@@ -33,14 +33,17 @@ let shell: Promise<string | undefined> | undefined;
  * Reading <data>/setup-token is what proves this command runs as the owner, on this machine. Before the
  * token is sent anywhere, whatever answers on the port must show it can read the same file (an HMAC of a
  * fresh nonce): another program on the port while the daemon restarts never gets the owner's credential.
- * The file must be the setup token: a regular file of ours called setup-token, not a link.
+ * The file must be the setup token: a regular file of ours (any owner when run as root) called setup-token, not a link.
  */
+/** Ours, or we are root: in the control container the command runs as root over a data folder an earlier install may have left owned by the host's user. */
+export const ownFile = (uid: number, me = process.getuid?.()): boolean => me === undefined || me === 0 || uid === me;
+
 export function shellToken(): Promise<string | undefined> {
   return shell ??= (async () => {
     const status = await api<{ controlFile?: string }>("/api/setup/status").catch(() => ({ controlFile: undefined }));
     if (!status.controlFile) return undefined;
     const info = await lstat(status.controlFile).catch(() => null);
-    if (!info || basename(status.controlFile) !== "setup-token" || !info.isFile() || (process.getuid && info.uid !== process.getuid())) return undefined;
+    if (!info || basename(status.controlFile) !== "setup-token" || !info.isFile() || !ownFile(info.uid)) return undefined;
     const token = (await readFile(status.controlFile, "utf8").catch(() => "")).trim();
     if (!token) return undefined;
     const nonce = randomBytes(32).toString("base64url");

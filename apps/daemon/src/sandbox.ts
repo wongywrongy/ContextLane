@@ -78,7 +78,9 @@ export function confineGit(run: Runner, config: Config, works: () => Promise<boo
   const confined: Runner = async (cmd, args, opts) => {
     if (cmd !== "git" && cmd !== "gh") return run(cmd, args, opts);
     const full = cmd === "git" ? [...GIT_GUARDS, ...args] : args;
-    if (config.sandbox.mode === "off") return run(cmd, full, opts);
+    // In the Docker runtime git on a project runs in a helper container (docker/folders.ts), which is the
+    // confinement: it sees only that folder, as its owner, with no network. There is no bubblewrap there.
+    if (config.sandbox.mode === "off" || config.runtime.mode === "docker") return run(cmd, full, opts);
     // A working sandbox is remembered; a failed check is retried after a minute (bwrap installed meanwhile).
     if (!ready || (Date.now() - checked > 60_000 && !(await ready))) { checked = Date.now(); ready = works().catch(() => false); }
     if (!(await ready)) return run(cmd, full, opts);

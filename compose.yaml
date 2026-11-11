@@ -1,0 +1,47 @@
+# ContextLanes v4 control service (docs/V4.md section 3.1). Nothing to fill in, no .env:
+#   docker compose up -d --build
+#   ./install-command
+# The control service mounts its data folder and the Docker socket, and none of your folders. Git on a
+# project runs in a short-lived helper container that mounts only that project.
+name: contextlanes
+
+services:
+  # Called "control", not "contextlanes", so compose never takes over a container left by an older
+  # stack of the same project name. The container itself is named contextlanes (install-command uses it).
+  control:
+    build: .
+    image: contextlanes:local
+    container_name: contextlanes
+    restart: unless-stopped
+    init: true
+    labels:
+      contextlanes.control: "1"
+    volumes:
+      # Settings (config.toml, written with defaults on first start), the database and sign-ins.
+      - ./data:/data
+      # Root-equivalent on this host. Only this container gets it; helpers and lanes never do.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The tools lanes mount read-only (tmux, Node, Claude Code, Codex), filled from the image at start.
+      - tools:/var/lib/contextlanes-tools
+    networks:
+      contextlanes:
+        aliases: [contextlanes]
+    # Only the preview router (your reverse proxy's wildcard entry points here). The API, 4600, is never
+    # published: it answers only on the contextlanes network. 127.0.0.1 keeps the router to this machine;
+    # for a proxy on another machine change it to "4601:4601".
+    ports:
+      - "127.0.0.1:4601:4601"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4600/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+networks:
+  contextlanes:
+    name: contextlanes
+
+volumes:
+  tools:
+    name: contextlanes-tools

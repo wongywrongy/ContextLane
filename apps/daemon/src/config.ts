@@ -8,8 +8,39 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+/**
+ * Which runtime this daemon is: "host" is the v3 runtime on the machine itself (systemd or process
+ * supervisor, bubblewrap, git run directly); "docker" is the v4 control service in its own container,
+ * which holds the Docker socket, mounts none of your folders and runs git in helper containers.
+ *
+ * This is the one place that decides. The default comes from the image: the control image sets
+ * CONTEXTLANES_RUNTIME=docker, nothing else does. `[runtime] mode` in config.toml overrides it. Everything
+ * else reads config.runtime.mode.
+ */
+export function defaultRuntime(env: Record<string, string | undefined> = process.env): "host" | "docker" {
+  return env.CONTEXTLANES_RUNTIME === "docker" ? "docker" : "host";
+}
+
+/**
+ * Defaults that differ in the Docker runtime, applied before the schema's own: data lives next to
+ * config.toml (the stack's ./data, mounted at /data), and the preview router listens on every address
+ * inside the container so its published port reaches it. A value written in config.toml always wins.
+ */
+function runtimeDefaults(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+  const runtime = (r.runtime ?? {}) as { mode?: unknown };
+  const mode = runtime.mode ?? defaultRuntime();
+  if (mode !== "docker") return raw;
+  const data = dirname(configPath());
+  const paths = { data, lanes: join(data, "lanes"), code: join(data, "code"), ...(r.paths as object | undefined) };
+  const previews = r.previews && typeof r.previews === "object" ? r.previews as Record<string, unknown> : {};
+  return { ...r, runtime: { ...runtime, mode }, paths, previews: { bind: "0.0.0.0", ...previews } };
+}
+
 /** Everything the setup wizard writes ends up in ~/.config/contextlanes/config.toml. */
-export const Config = z.object({
+export const Config = z.preprocess(runtimeDefaults, z.object({
+  runtime: z.object({ mode: z.enum(["host", "docker"]).default(defaultRuntime) }).prefault({}),
   host: z.object({ name: z.string().default(hostname()) }).default({ name: hostname() }),
   listen: z.object({ host: z.literal("127.0.0.1").default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(4600) }).default({ host: "127.0.0.1", port: 4600 }),
   paths: z
@@ -78,8 +109,39 @@ export const Config = z.object({
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),
     toolbox: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../../packages/toolbox/dist/main.js", import.meta.url))] }),
   }).prefault({}),
-});
+}));
 export type Config = z.infer<typeof Config>;
+
+/**
+ * Where the API listens. The host runtime: loopback only. The Docker runtime: every address inside the
+ * container, which is the private `contextlanes` network (the port is never published), so lanes reach it
+ * by name. Tokens are the only authority either way (http/auth.ts).
+ */
+export function listenHost(config: Config): string {
+  return config.runtime.mode === "docker" ? "0.0.0.0" : config.listen.host;
+}
+
+/** config.toml as the Docker runtime writes it on first start: only the choices, each with its default. */
+export const DOCKER_CONFIG_TEMPLATE = `# ContextLanes settings, written on the first start of the control service. Edit, then:
+#   docker compose restart
+# Every setting not listed here keeps its default.
+
+[runtime]
+mode = "docker"
+
+[previews]
+# The wildcard name your reverse proxy sends to this machine's port 4601, e.g. lanes.example.dev
+# for *.lanes.example.dev. Without it, links work only on this machine.
+# domain = "lanes.example.dev"
+`;
+
+/** Writes the Docker runtime's config.toml when there is none. Never touches an existing file. */
+export async function ensureConfigFile(path = configPath()): Promise<boolean> {
+  if (existsSync(path)) return false;
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  try { await writeFile(path, DOCKER_CONFIG_TEMPLATE, { mode: 0o600, flag: "wx" }); return true; }
+  catch (err) { if ((err as NodeJS.ErrnoException).code === "EEXIST") return false; throw err; }
+}
 
 /**
  * Earlier releases had local, services and caddy modes. local is the router without a domain; services
