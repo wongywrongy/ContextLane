@@ -22,3 +22,24 @@ export const DATA_MOUNT = "/data";
 export const API_PORT = 4600;
 /** Where Docker's socket usually is on a Linux host. */
 export const SOCKET = "/var/run/docker.sock";
+
+// ── Lanes (v4 phase 3) ──
+/** Labels on every lane container, so the control service finds its lanes again after a restart. */
+export const LANE_LABEL = "contextlanes.lane";
+export const PROJECT_LABEL = "contextlanes.project";
+/** A random value per container: the Dev Container CLI never reuses a container left by an earlier lane of the same id. */
+export const INSTANCE_LABEL = "contextlanes.instance";
+/** Inside a lane: the tools volume (read-only, first on PATH), the agent logins, and the lane's own files. */
+export const LANE_TOOLS = "/opt/contextlanes";
+export const LANE_AGENT_HOME = "/opt/contextlanes-home";
+/** Created by root when the lane is made and given to the lane's user, mode 0700: launch files, task, unit state. Not in the checkout. */
+export const LANE_DIR = "/var/lib/contextlanes-lane";
+/** Where lanes reach the API: the control container's name on the contextlanes network. */
+export const LANE_API = `http://${CONTROL_CONTAINER}:${API_PORT}`;
+/** tmux runs in each lane with its own socket name, so a project's own tmux use never meets ours. */
+export const LANE_TMUX_SOCKET = "contextlanes";
+/**
+ * Agent logins, one volume per uid. A new volume is owned by root and is given once to the lane's user;
+ * lanes whose users have different uids cannot share one, so each uid gets its own (docs/V4.md 8d).
+ */
+export const agentHomeVolume = (uid: number) => `contextlanes-agent-home-${uid}`;

@@ -8,6 +8,7 @@ import type { Supervisor } from "./types.js";
 export * from "./types.js";
 export { ProcessSupervisor } from "./process.js";
 export { SystemdSupervisor, systemdOneshotArgs, systemdServiceArgs } from "./systemd.js";
+export { DockerSupervisor, UNIT_SH } from "./docker.js";
 
 /** One process supervisor per data folder: it holds the children it restarts. */
 const processes = new Map<string, ProcessSupervisor>();

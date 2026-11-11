@@ -8,11 +8,12 @@ export type UnitStatus = { active: boolean; state: string; pids: number[] };
 export type OneshotResult = { ok: boolean; output: string; ms: number };
 
 /**
- * How ContextLanes runs processes that outlive a request: systemd user units where systemd is, and
- * plain process groups the daemon watches everywhere else. Units are named by the caller and are unique.
+ * How ContextLanes runs processes that outlive a request: systemd user units where systemd is, plain
+ * process groups the daemon watches everywhere else, and in the Docker runtime processes inside one
+ * lane's container (`docker`). Units are named by the caller and are unique.
  */
 export interface Supervisor {
-  readonly name: "systemd" | "process";
+  readonly name: "systemd" | "process" | "docker";
   start(unit: string, spec: ServiceSpec): Promise<void>;
   stop(unit: string): Promise<void>;
   status(unit: string): Promise<UnitStatus>;
