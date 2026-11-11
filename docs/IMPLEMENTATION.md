@@ -1,5 +1,18 @@
 # ContextLanes — implementation plan
 
+## v4 (2026-11-10)
+
+One container per lane: see [V4.md](V4.md) for the plan and why. Until phase 5 the code is still the v3 host runtime below.
+
+| Phase | What | State |
+|---|---|---|
+| 0 Clear the ground | Removed the single-container Docker stack (`Dockerfile`, `compose.yaml`, `.env.example`, `.dockerignore`, `docker/`, `docs/DOCKER.md`) and every `CONTEXTLANES_DOCKER` and `CONTEXTLANES_UNMOUNTED` branch. Removed `cl`: the package bin, the installer's shim and its start-time top-up, the copy in each lane's PATH. One word per action (V4.md section 4): `new`, `list`, `open`, `send`, `rename`, `resume`, `auto`, `delete`, `app start\|stop\|restart\|status`, `approve`; the old spellings (`lane start`, `lanes`, `ls`, `up`, `down`, `ps`, `say`, `sh`, `rm`, `ok`, `env …`, `term`, `lane rm`, `lane rename`, `lane restart`, `lane auto`, `recipe approve`) are unknown commands. `apps/cli/src/short.ts` became `lane-ref.ts` (bare lane numbers and `new "<task>"` only). Help, agent notes, README, web hints and docs use the new words | Done. `pnpm check`; `json.test.ts` runs the real command for every removed spelling |
+| 1 Spike | `scripts/v4-spike.sh`: Dev Container CLI from a helper container, the tools volume, file ownership | Not started |
+| 2 Control service | `compose.yaml` with no variables, API on the private network, Docker-backed runner, `add`, `projects`, the host command | Not started |
+| 3 Lanes | `docker` supervisor driver, lane create and delete, terminal attach, agent launch, lanes found again after a restart | Not started |
+| 4 Apps and links | Services inside the lane, router targets by container name, logs and health, `doctor` checks | Not started |
+| 5 Finish | Resume after reboot, update without stopping lanes, limits and credentials, web terminal, delete the host-only code | Not started |
+
 ## v3 (2026-11-10)
 
 ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why, and the plan in the Rootlane project (`claude/contextlanes-v3-plan.md`). Built in eight stacked pull requests:
@@ -17,10 +30,10 @@ ContextLanes became a lane runtime: see [V3.md](V3.md) for what changed and why,
 | 9 Libraries | http-proxy-3 in the router; cmdk, base-ui, shiki, zustand, clsx in the web app; square high-contrast look | Real Vite hot reload through the router; contrast check; screenshots both themes |
 | 10 CLI JSON | `--json` on setup, help, update and usage errors | `apps/cli/test/json.test.ts` runs the real command |
 | 11 Viewer | The web app only views and decides; the daemon refuses other writes from a browser (`http/viewer.ts`); watch-only lane terminal; `lane rename`, `lane restart`, `lane auto`, `remove` in the CLI; Settings read from config.toml | `viewer.test.ts`; real daemon: browser POSTs refused, CLI does the same things |
-| 15 Branches and mounts | `--branch <name>`: a lane on an existing branch (refused if missing or open elsewhere; never deleted with the lane); the menu asks which branch; in Docker a folder outside the mounts is named instead of silently using the home folder; the CLI works before any browser sign-in; browser sign-ins last 30 days from last use | Real git through a real daemon: lane on an existing branch, second lane refused, branch kept on delete |
-| 14 Docker stack | `Dockerfile`, `compose.yaml`, `.env.example`, `docker/` (entrypoint, host `cl`); PUID/PGID; same-path mounts; sign-in link on the router port; mise for per-project toolchains; mouse on in lane tmux sessions | Entrypoint, generated config, daemon, the `cl` path and sign-in through the router port run here outside Docker; `docker compose config` valid. **The image itself has not been built or run**: no registry was reachable from the build machine |
-| 13 Interactive CLI | Projects first: `cl` alone goes Projects → a project's lanes → one lane, with a way back at every level; `cl projects`; `cl new` outside a project says to add it first; `new`, `rm`, `say`, `sh`, `rename`, `auto`, `inbox` and `ok` ask for what is missing; never without a terminal | `interactive.test.ts` with scripted answers; the real command driven in tmux; piped runs still exit 2 at once |
-| 12 Short CLI | `cl` beside `contextlanes`; short verbs (`new`, `ls`, `up`, `down`, `ps`, `say`, `sh`, `rm`, `ok`) and bare lane numbers (`apps/cli/src/short.ts`); `cl` on PATH in every lane shell; `cl recipe [approve] <lane>` for a recipe written inside a lane | Real daemon: add, new, up, link through the router, daemon restart with the app still up, in-lane `cl ps`, changed recipe refused (exit 4) then approved, rm |
+| 15 Branches and mounts | `--branch <name>`: a lane on an existing branch (refused if missing or open elsewhere; never deleted with the lane); the menu asks which branch; the CLI works before any browser sign-in; browser sign-ins last 30 days from last use | Real git through a real daemon: lane on an existing branch, second lane refused, branch kept on delete |
+| 14 Lane terminals | Mouse on in lane tmux sessions, so the wheel scrolls instead of sending arrow keys. (This phase also added a single-container Docker stack, removed in v4 phase 0.) | Real tmux session |
+| 13 Interactive CLI | Projects first: `contextlanes` alone goes Projects → a project's lanes → one lane, with a way back at every level; `contextlanes projects`; `contextlanes new` outside a project says to add it first; a command with a missing lane, task, message or answer asks for it; never without a terminal | `interactive.test.ts` with scripted answers; the real command driven in tmux; piped runs still exit 2 at once |
+| 12 Lane numbers | `contextlanes new "<task>"` in this project and bare lane numbers (now `apps/cli/src/lane-ref.ts`); `contextlanes` on PATH in every lane shell; reading and approving a recipe written inside a lane. (This phase also added `cl` and short verbs, removed in v4 phase 0.) | Real daemon: add, new, app start, link through the router, daemon restart with the app still up, in-lane app status, changed recipe refused (exit 4) then approved, delete |
 
 ### Needs Kyle
 

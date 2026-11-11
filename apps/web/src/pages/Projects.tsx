@@ -28,11 +28,11 @@ export function ProjectsPage() {
       <NeedsYou lanes={lanes ?? []} projects={projects ?? []} />
       <section aria-labelledby="projects-h">
         <div className="ph"><h2 id="projects-h">Projects</h2><span className="m">{projects ? `${projects.length} on ${health?.host ?? "this machine"}` : ""}</span>
-          <div className="e"><Cmd note="add a repository">cl add [path]</Cmd></div></div>
+          <div className="e"><Cmd note="add a repository">contextlanes add [path]</Cmd></div></div>
         {projects?.length && !board ? <p role="status">Loading lanes…</p> : null}
         <div className="tiles" data-key-list>
           {(board ? projects ?? [] : []).map((p) => <ProjectTile key={p.id} project={p} lanes={(lanes ?? []).filter((l) => l.project === p.id)} cards={(board ?? []).filter(c => c.lane.project === p.id)} waiting={waiting ?? []} services={resources?.projects.find((fact) => fact.project === p.id)} />)}
-          {projects && !projects.length ? <div className="tile add">No repositories yet<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>On the machine, run this inside a repository:</span><Cmd>cl add</Cmd></div> : null}
+          {projects && !projects.length ? <div className="tile add">No repositories yet<span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>On the machine, run this inside a repository:</span><Cmd>contextlanes add</Cmd></div> : null}
         </div>
         {(resources?.gpus?.length || reportedLimits.length) ? <div className="sec machine-strip"><div className="sec-r" style={{ flexWrap: "wrap" }}><span className="lbl">{health?.host ?? "This machine"}</span>
           {reportedLimits.map((limit) => <span className="mono" style={{ fontSize: 12 }} key={`${limit.agent}/${limit.window}`}>{limit.agent === "claude-code" ? "Claude" : limit.agent} {limit.usedPct.toFixed(0)}% of {limit.window}</span>)}

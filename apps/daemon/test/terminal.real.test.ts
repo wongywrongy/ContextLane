@@ -71,7 +71,7 @@ it.runIf(process.env.CONTEXTLANES_REAL_TERMINAL === "1")("keeps the real shell a
     const url = await app.listen({ host: "127.0.0.1", port: 0 });
     const previousUrl = process.env.CONTEXTLANES_URL;
     process.env.CONTEXTLANES_URL = url;
-    const cli = runCommand.terminal!(process.execPath, ["--import", "tsx", "--conditions=source", "apps/cli/src/main.ts", "term", lane.id], { cwd: process.cwd(), cols: 100, rows: 30 });
+    const cli = runCommand.terminal!(process.execPath, ["--import", "tsx", "--conditions=source", "apps/cli/src/main.ts", "open", lane.id], { cwd: process.cwd(), cols: 100, rows: 30 });
     if (previousUrl === undefined) delete process.env.CONTEXTLANES_URL;
     else process.env.CONTEXTLANES_URL = previousUrl;
     let cliOutput = "";

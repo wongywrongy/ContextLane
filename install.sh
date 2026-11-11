@@ -5,7 +5,7 @@ for command in node npm git tmux python3; do
   command -v "$command" >/dev/null 2>&1 || { echo "Install $command, then run this installer again." >&2; exit 1; }
 done
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error("Node >=22.13 is required; Node 24 is recommended."); process.exit(1); }'
-# systemd runs the service where there is one; elsewhere (macOS, containers) `cl daemon` does.
+# systemd runs the service where there is one; elsewhere (macOS, containers) `contextlanes daemon` does.
 contextlanes_systemd=0
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then contextlanes_systemd=1; fi
 if ! command -v bwrap >/dev/null 2>&1; then

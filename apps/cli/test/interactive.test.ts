@@ -15,8 +15,8 @@ function machine(data: Partial<Data> = {}, cwd = "/code/shop") {
   const io: Io = { env: {}, cwd, out: () => {}, err: () => {}, api: (async (path: string) => path === "/api/projects" ? state.projects : path === "/api/lanes" ? state.lanes : path === "/api/inbox" ? state.inbox : []) as Io["api"] };
   const exec = async (argv: string[]) => {
     ran.push(argv);
-    if (argv[0] === "lane" && argv[1] === "rm") state.lanes = state.lanes.filter((l) => l.id !== argv[2]);
-    if (argv[0] === "lane" && argv[1] === "start") state.lanes.push(lane(argv[2]!, 9, { task: argv[3] }));
+    if (argv[0] === "delete") state.lanes = state.lanes.filter((l) => l.id !== argv[1]);
+    if (argv[0] === "new") state.lanes.push(lane(argv[1]!, 9, { task: argv[2] }));
     if (argv[0] === "answer") state.inbox = state.inbox.filter((i) => i.id !== argv[1]);
     if (argv[0] === "add") state.projects.push({ id: "fresh", name: "Fresh", path: cwd });
     if (argv[0] === "remove") state.projects = state.projects.filter((p) => (p as { id: string }).id !== argv[1]);
@@ -47,7 +47,7 @@ describe("who gets asked", () => {
   const tty = { in: true, out: true };
   it("only a person at a terminal", () => {
     expect(canAsk([], {}, tty)).toBe(true);
-    expect(canAsk(["rm", "--json"], {}, tty)).toBe(false);
+    expect(canAsk(["delete", "--json"], {}, tty)).toBe(false);
     expect(canAsk([], { CONTEXTLANES_LANE_TOKEN: "lane-secret" }, tty)).toBe(false);
     expect(canAsk([], { CI: "true" }, tty)).toBe(false);
     expect(canAsk([], {}, { in: false, out: true })).toBe(false);
@@ -55,7 +55,7 @@ describe("who gets asked", () => {
   });
 });
 
-describe("cl on its own: projects, then a project's lanes, then one lane", () => {
+describe("contextlanes on its own: projects, then a project's lanes, then one lane", () => {
   it("starts at Projects outside every project, and each level has a way back", async () => {
     const m = machine({}, "/tmp/elsewhere");
     const s = script("Shop", "01", "Shop", "Projects", "Quit");
@@ -84,7 +84,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
     await session(m.io, s.ask, m.exec);
     expect(s.notes).toEqual(["↑ ↓ move   ·   Enter opens   ·   Esc goes back a step"]);
     expect(hints[0]![0]).toBe("~/code/shop · 1 lane");
-    expect(initials.slice(2, 4)).toEqual([undefined, "up"]);
+    expect(initials.slice(2, 4)).toEqual([undefined, "app start"]);
   });
 
   it("lists only this project's open lanes", async () => {
@@ -96,7 +96,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
   it("stays on the lane after an action, so several can be done in a row", async () => {
     const m = machine();
     await session(m.io, script("01", "Start its app", "Show its app", "Send its agent a message", "Use v2", "Shop", "Projects", "Quit").ask, m.exec);
-    expect(m.ran).toEqual([["env", "start", "shop/01"], ["env", "shop/01"], ["send", "shop/01", "Use v2"]]);
+    expect(m.ran).toEqual([["app", "start", "shop/01"], ["app", "status", "shop/01"], ["send", "shop/01", "Use v2"]]);
   });
 
   it("offers messaging only where there is an agent", async () => {
@@ -110,7 +110,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
     const m = machine();
     const s = script("New lane", "Add CSV", "Change the task", "Add CSV export", "Codex", "Shop", "Projects", "Quit");
     await session(m.io, s.ask, m.exec);
-    expect(m.ran).toEqual([["lane", "start", "shop", "Add CSV export", "--agent", "codex"]]);
+    expect(m.ran).toEqual([["new", "shop", "Add CSV export", "--agent", "codex"]]);
     expect(s.screens[3]!.labels).toEqual(["Add CSV"]);
     expect(s.screens[5]!.message).toBe("Shop / 09  ·  Add CSV export");
   });
@@ -124,22 +124,12 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
     const m = withBranches();
     const s = script("New lane", "Finish the flow", "Codex", "A branch that already exists", "Back", "A branch that already exists", "feature/flow", "Shop", "Projects", "Quit");
     await session(m.io, s.ask, m.exec);
-    expect(m.ran).toEqual([["lane", "start", "shop", "Finish the flow", "--agent", "codex", "--branch", "feature/flow"]]);
+    expect(m.ran).toEqual([["new", "shop", "Finish the flow", "--agent", "codex", "--branch", "feature/flow"]]);
     const which = s.screens.find((x) => x.message === "Which branch?")!;
     expect(which.labels).toEqual(["feature/flow", "fix-login", "← Back"]);
     const fresh = withBranches();
     await session(fresh.io, script("New lane", "Something new", "No agent", "A new branch for this lane", "Shop", "Projects", "Quit").ask, fresh.exec);
-    expect(fresh.ran).toEqual([["lane", "start", "shop", "Something new", "--no-agent"]]);
-  });
-
-  it("in Docker, says why a folder the container cannot see is not offered as a project", async () => {
-    const m = machine({}, "/data/home");
-    Object.assign(m.io.env, { CONTEXTLANES_UNMOUNTED: "/home/kyle/work/api", CONTEXTLANES_CODE: "/home/kyle/code", CONTEXTLANES_LANES: "/home/kyle/lanes" });
-    const s = script("Why is this folder not listed", "Quit");
-    await session(m.io, s.ask, m.exec);
-    expect(s.screens[0]!.labels).not.toContain("+ Make this folder a project");
-    expect(s.notes.at(-1)).toContain("/home/kyle/work/api is outside what the ContextLanes container can see (/home/kyle/code and /home/kyle/lanes)");
-    expect(m.ran).toEqual([]);
+    expect(fresh.ran).toEqual([["new", "shop", "Something new", "--no-agent"]]);
   });
 
   it("backs out of a new lane with Esc without starting anything", async () => {
@@ -155,7 +145,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
     const yes = machine();
     const s = script("02", "Delete it", true, "Projects", "Quit");
     await session(yes.io, s.ask, yes.exec);
-    expect(yes.ran).toEqual([["lane", "rm", "shop/02"]]);
+    expect(yes.ran).toEqual([["delete", "shop/02"]]);
     expect(s.screens.at(-2)!.message).toBe("Shop  ·  1 lane");
   });
 
@@ -172,7 +162,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
   it("answers what is waiting from the project or the lane, and reads a recipe before approving", async () => {
     const m = machine({ inbox: [permission, recipe] });
     await session(m.io, script("Answer what is waiting", "Run pnpm install", "Allow once", "Recipe needs approval", "Read the recipe", "Recipe needs approval", "Approve it", "Recipe needs approval", "Leave it", "Projects", "Quit").ask, m.exec);
-    expect(m.ran).toEqual([["answer", "shop/01#r1", "allow"], ["recipe", "shop/02"], ["recipe", "approve", "shop/02"]]);
+    expect(m.ran).toEqual([["answer", "shop/01#r1", "allow"], ["recipe", "shop/02"], ["approve", "shop/02"]]);
     const one = machine({ inbox: [permission] });
     await session(one.io, script("01", "Answer what it is waiting for", "Deny", "Shop", "Projects", "Quit").ask, one.exec);
     expect(one.ran).toEqual([["answer", "shop/01#r1", "deny"]]);
@@ -182,7 +172,7 @@ describe("cl on its own: projects, then a project's lanes, then one lane", () =>
 describe("a typed command with something left out", () => {
   it("asks nothing when the command is complete", async () => {
     const m = machine();
-    for (const argv of [["lane", "rm", "shop/01"], ["send", "shop/01", "hi"], ["lane", "start", "shop", "Task"], ["lanes"], ["env", "start"], ["status"], ["doctor"], ["--help"], ["answer", "shop/01#r1", "allow"], ["lane", "auto", "shop/01", "on"], ["term", "shop/01"], ["inbox"]]) {
+    for (const argv of [["delete", "shop/01"], ["send", "shop/01", "hi"], ["new", "shop", "Task"], ["list"], ["app", "start"], ["status"], ["doctor"], ["--help"], ["answer", "shop/01#r1", "allow"], ["auto", "shop/01", "on"], ["open", "shop/01"], ["rename", "shop/01", "New name"], ["resume", "shop/01"], ["inbox"]]) {
       expect(await fillIn(argv, m.io, script().ask, m.exec), argv.join(" ")).toBeNull();
     }
     expect(m.ran).toEqual([]);
@@ -190,49 +180,58 @@ describe("a typed command with something left out", () => {
 
   it("new: asks the task and who, in this project, keeping the flags", async () => {
     const m = machine();
-    expect(await fillIn(["lane", "start", "--here"], m.io, script("Fix it", "Claude Code").ask, m.exec)).toBe(0);
-    expect(m.ran).toEqual([["lane", "start", "shop", "Fix it", "--agent", "claude-code", "--here"]]);
+    expect(await fillIn(["new", "--here"], m.io, script("Fix it", "Claude Code").ask, m.exec)).toBe(0);
+    expect(m.ran).toEqual([["new", "shop", "Fix it", "--agent", "claude-code", "--here"]]);
   });
 
   it("new outside a project: which project first, or make this folder one", async () => {
     const m = machine({}, "/tmp/elsewhere");
-    await fillIn(["lane", "start"], m.io, script("Ara", "Wake word", "No agent").ask, m.exec);
-    expect(m.ran).toEqual([["lane", "start", "ara", "Wake word", "--no-agent"]]);
+    await fillIn(["new"], m.io, script("Ara", "Wake word", "No agent").ask, m.exec);
+    expect(m.ran).toEqual([["new", "ara", "Wake word", "--no-agent"]]);
     const fresh = machine({ projects: [], lanes: [] }, "/code/fresh");
-    await fillIn(["lane", "start"], fresh.io, script("Make this folder a project", "Try it", "No agent").ask, fresh.exec);
-    expect(fresh.ran).toEqual([["add"], ["lane", "start", "fresh", "Try it", "--no-agent"]]);
+    await fillIn(["new"], fresh.io, script("Make this folder a project", "Try it", "No agent").ask, fresh.exec);
+    expect(fresh.ran).toEqual([["add"], ["new", "fresh", "Try it", "--no-agent"]]);
   });
 
   it("asks which lane of this project, then for the rest", async () => {
     const m = machine();
     const s = script("02");
-    await fillIn(["term"], m.io, s.ask, m.exec);
+    await fillIn(["open"], m.io, s.ask, m.exec);
     expect(s.screens[0]!.labels).toEqual(["01  Task 1", "02  Task 2", "Cancel"]);
     await fillIn(["send"], m.io, script("01", "hello").ask, m.exec);
-    await fillIn(["lane", "auto"], m.io, script("01", "On").ask, m.exec);
-    await fillIn(["lane", "rename", "shop/01"], m.io, script("Better name").ask, m.exec);
-    await fillIn(["lane", "rm", "--force"], m.io, script("01", true).ask, m.exec);
-    expect(m.ran).toEqual([["term", "shop/02"], ["send", "shop/01", "hello"], ["lane", "auto", "shop/01", "on"], ["lane", "rename", "shop/01", "Better name"], ["lane", "rm", "shop/01", "--force"]]);
+    await fillIn(["auto"], m.io, script("01", "On").ask, m.exec);
+    await fillIn(["rename", "shop/01"], m.io, script("Better name").ask, m.exec);
+    await fillIn(["resume"], m.io, script("02").ask, m.exec);
+    await fillIn(["delete", "--force"], m.io, script("01", true).ask, m.exec);
+    expect(m.ran).toEqual([["open", "shop/02"], ["send", "shop/01", "hello"], ["auto", "shop/01", "on"], ["rename", "shop/01", "Better name"], ["resume", "shop/02"], ["delete", "shop/01", "--force"]]);
+  });
+
+  it("never fills in a removed spelling: it runs as typed and is refused as unknown", async () => {
+    const m = machine();
+    for (const argv of [["term"], ["sh"], ["say"], ["rm"], ["ok"], ["lane", "rm"], ["lane", "start"], ["lane", "rename"], ["lane", "restart"], ["lane", "auto"]]) {
+      expect(await fillIn(argv, m.io, script().ask, m.exec), argv.join(" ")).toBeNull();
+    }
+    expect(m.ran).toEqual([]);
   });
 
   it("does nothing when the person cancels or says no", async () => {
     const m = machine();
-    expect(await fillIn(["lane", "rm"], m.io, script("01", false).ask, m.exec)).toBe(0);
-    expect(await fillIn(["lane", "rm"], m.io, script("Cancel").ask, m.exec)).toBe(0);
+    expect(await fillIn(["delete"], m.io, script("01", false).ask, m.exec)).toBe(0);
+    expect(await fillIn(["delete"], m.io, script("Cancel").ask, m.exec)).toBe(0);
     expect(await fillIn(["send"], m.io, script("01", CANCEL).ask, m.exec)).toBe(0);
     expect(m.ran).toEqual([]);
   });
 
   it("skips the list when the project has one lane, and says so when it has none", async () => {
     const one = machine({ lanes: [lane("shop", 1)] });
-    await fillIn(["term"], one.io, script().ask, one.exec);
-    expect(one.ran).toEqual([["term", "shop/01"]]);
+    await fillIn(["open"], one.io, script().ask, one.exec);
+    expect(one.ran).toEqual([["open", "shop/01"]]);
     const none = machine({ lanes: [] }); const s = script();
-    expect(await fillIn(["term"], none.io, s.ask, none.exec)).toBe(0);
+    expect(await fillIn(["open"], none.io, s.ask, none.exec)).toBe(0);
     expect(s.notes[0]).toContain("Shop has no open lanes");
   });
 
-  it("inbox and ok answer without copying an id", async () => {
+  it("inbox and answer work without copying an id", async () => {
     const m = machine({ inbox: [permission] });
     await fillIn(["inbox"], m.io, script("Run pnpm install", "Allow once").ask, m.exec);
     expect(m.ran).toEqual([["answer", "shop/01#r1", "allow"]]);

@@ -32,7 +32,7 @@ export function SetupPage() {
     <div className="cols">
       <div className="col">
         <section className="sec"><div className="sec-h"><span className="stepn">1</span><h3>On the always-on machine</h3></div>
-          <div className="term"><span className="c"># in the machine’s SSH session</span>{"\n"}$ cl setup{"\n\n"}<span className="ok">✓</span> keeps lanes running after you log out{"\n"}<span className="ok">✓</span> turns on Tailscale for a private HTTPS address{"\n"}<span className="ok">✓</span> prints a sign-in link and a QR code{"\n\n"}Open the link here. It works once, for 10 minutes.{status?.publicUrl ? <>{"\n\n"}Reachable at <span className="y">{status.publicUrl}</span></> : null}</div>
+          <div className="term"><span className="c"># in the machine’s SSH session</span>{"\n"}$ contextlanes setup{"\n\n"}<span className="ok">✓</span> keeps lanes running after you log out{"\n"}<span className="ok">✓</span> turns on Tailscale for a private HTTPS address{"\n"}<span className="ok">✓</span> prints a sign-in link and a QR code{"\n\n"}Open the link here. It works once, for 10 minutes.{status?.publicUrl ? <>{"\n\n"}Reachable at <span className="y">{status.publicUrl}</span></> : null}</div>
         </section>
         <section className="sec"><div className="sec-h"><h3>Why an always-on machine</h3></div>
           {([["run", "environment", "Lanes keep working when your laptop sleeps."], ["you", "permission", "Your phone can answer agents from anywhere on your network."], ["look", "read", "Each lane gets its own checkout and shell, so agents never collide."], ["mind", "think", "GPUs for local models usually live there anyway."]] as [Family, IconName, string][])
@@ -83,10 +83,10 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
   const finished = signed && (status.hasLane || skipped);
   return <section className="sec" aria-label="From any browser">
     <div className="sec-h"><span className="stepn">2</span><h3>From any browser</h3><div className="e"><span className="mono muted" style={{ fontSize: 12 }}>{done.filter(Boolean).length} of {done.length} done</span><span className="prog" aria-hidden="true">{done.map((d, i) => <i key={i} className={d ? "done" : i === current ? "now" : ""} />)}</span></div></div>
-    <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Open the link cl setup prints."}>
+    <Step n={1} state={state(0)} title="Sign in" desc={signed ? status.tailnetLogin ? `Signed in as ${status.tailnetLogin}.` : "Signed in on this browser." : "Open the link contextlanes setup prints."}>
       {!signed ? <>
         {signedOut ? <Glyph g="wait">Signed out by an update · sign in once more</Glyph> : null}
-        {signInError ? <p role="alert" style={{ margin: 0 }}>{signInError} Run <code>cl setup</code> again for a new link.</p> : null}
+        {signInError ? <p role="alert" style={{ margin: 0 }}>{signInError} Run <code>contextlanes setup</code> again for a new link.</p> : null}
         {status.hasPasskey ? <div><Action run={async () => {
           if (!window.PublicKeyCredential?.parseRequestOptionsFromJSON) throw new RequestError("Use a current browser at the HTTPS address where you added the passkey.");
           const result = await postJson<{ options: PublicKeyCredentialRequestOptionsJSON; challengeId: string }>("/api/setup/login/options", {});
@@ -102,7 +102,7 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
     </Step>
     <Step n={3} state={state(2)} title="Add projects" change={done[2] && current !== 2 ? () => setOpened(2) : undefined}
       desc={hasProject ? `Added ${projects!.map((p) => p.name).join(", ")}.` : "On the machine, inside each repository your agents work in:"}>
-      {state(2) === "now" ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><Cmd>cl add</Cmd>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
+      {state(2) === "now" ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><Cmd>contextlanes add</Cmd>{hasProject ? <button className="btn ghost" onClick={() => setOpened(null)}>Continue</button> : null}</div> : null}
     </Step>
     {features.architecture ? <Step n={4} state={state(3)} title="Map your projects" change={done[3] && current !== 3 ? () => setOpened(3) : undefined}
       desc={done[3] && current !== 3 ? "Mapped · see Architecture and Run." : "Its code and how it runs · read on this machine only."}>
@@ -110,7 +110,7 @@ function BrowserSteps({ status, reload, signInError, signedOut }: { status: Setu
         <div><button className="btn" disabled={!surveyed} onClick={() => { remember("cl-projects-surveyed"); setSeen(true); setOpened(null); }}>{surveyed ? "Continue" : "Mapping…"}</button></div></> : null}
     </Step> : null}
     <Step n={features.architecture ? 5 : 4} state={state(4)} title="Start your first lane" desc={status.hasLane ? "Your first lane is running." : skipped ? "Skipped · start one any time from the machine." : "One task · its own branch, checkout and shell. From the machine, or ask your agent to:"}>
-      {state(4) === "now" && projects?.length ? <><div><Cmd>{`cl new ${projects[0]!.id} "<task>"`}</Cmd></div><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
+      {state(4) === "now" && projects?.length ? <><div><Cmd>{`contextlanes new ${projects[0]!.id} "<task>"`}</Cmd></div><div><button className="btn ghost" onClick={() => { remember("cl-skip-first-lane"); setSkipped(true); setOpened(null); }}>Skip for now</button></div></> : null}
     </Step>
     <Step n={features.architecture ? 6 : 5} state="next" optional title="Get pinged on your phone" desc="Answer permissions and questions in one tap.">
       {finished ? <div className="choice">

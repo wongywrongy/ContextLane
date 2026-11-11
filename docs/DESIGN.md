@@ -81,7 +81,7 @@ The web app shows lanes and takes two decisions: answering a question or permiss
 
 **Setup:** two columns. Left: what to run on the machine (`contextlanes setup`) and why an always-on machine. Right: numbered steps with Done / Now / Next: sign in, connect an agent, add projects, start your first lane, then the optional phone and local-model steps. Only the current step is open; done steps can be reopened with Change.
 
-**Terminal:** every pane attaches to the same native tmux session. Closing a pane or changing theme never stops the CLI. Reconnect belongs to a lost browser connection. `contextlanes term <lane>` opens that same session from a shell.
+**Terminal:** every pane attaches to the same native tmux session. Closing a pane or changing theme never stops the CLI. Reconnect belongs to a lost browser connection. `contextlanes open <lane>` opens that same session from a shell.
 
 **Header:** a compact status bar shows the machine, project/lane breadcrumbs, Inbox count, navigation and the command palette hint. No project covers.
 

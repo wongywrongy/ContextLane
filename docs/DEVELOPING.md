@@ -20,9 +20,9 @@ To install this built checkout as a service, run `node apps/daemon/dist/install-
 ~/.local/bin/contextlanes status
 ~/.local/bin/contextlanes add                   # current repository
 ~/.local/bin/contextlanes add ~/code/project
-~/.local/bin/contextlanes lanes
-~/.local/bin/contextlanes lane start <project> "Add a health check" --agent codex
-~/.local/bin/contextlanes term <project>/01
+~/.local/bin/contextlanes list
+~/.local/bin/contextlanes new <project> "Add a health check" --agent codex
+~/.local/bin/contextlanes open <project>/01
 systemctl --user restart contextlanes
 journalctl --user -u contextlanes -n 50
 ```

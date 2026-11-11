@@ -37,7 +37,7 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Your access</span></div>
       <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Watch the lane's terminal</button>
       {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open the folder in your editor</a> : null}
-      <button className="act" onClick={() => void copy(`cl sh ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>cl sh {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+      <button className="act" onClick={() => void copy(`contextlanes open ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes open {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
       {(features.handoff && lane.kind !== "cli") ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
@@ -46,10 +46,10 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
       <div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">From the machine</span></div>
       <div className="cmds">
-        {lane.kind !== "shell" && ["working", "needs_you"].includes(lane.state) ? <Cmd>{`cl say ${lane.id} "<message>"`}</Cmd> : null}
-        {lane.kind !== "shell" && ["working", "needs_you", "failed"].includes(lane.state) ? <Cmd>{`cl lane restart ${lane.id}`}</Cmd> : null}
-        <Cmd>{`cl rename ${lane.id} "<task>"`}</Cmd>
-        {lane.state !== "merged" && lane.state !== "archived" ? <Cmd>{`cl rm ${lane.id}`}</Cmd> : null}
+        {lane.kind !== "shell" && ["working", "needs_you"].includes(lane.state) ? <Cmd>{`contextlanes send ${lane.id} "<message>"`}</Cmd> : null}
+        {lane.kind !== "shell" && ["working", "needs_you", "failed"].includes(lane.state) ? <Cmd>{`contextlanes resume ${lane.id}`}</Cmd> : null}
+        <Cmd>{`contextlanes rename ${lane.id} "<task>"`}</Cmd>
+        {lane.state !== "merged" && lane.state !== "archived" ? <Cmd>{`contextlanes delete ${lane.id}`}</Cmd> : null}
       </div>
       <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>

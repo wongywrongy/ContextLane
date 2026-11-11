@@ -31,7 +31,7 @@ export class LaneManager {
 
   /**
    * What the owner's shell in a lane starts with: which lane it is, where the daemon listens, and the
-   * cl command on PATH, so `cl up` works there with nothing installed and nothing to name.
+   * contextlanes command on PATH, so `contextlanes app start` works there with nothing installed and nothing to name.
    */
   private async terminalEnv(id: string): Promise<Record<string, string>> {
     const { config } = this.deps;

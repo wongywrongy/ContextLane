@@ -43,7 +43,7 @@ export class Terminals {
   }
 }
 
-/** What `cl sh <lane>` execs on the machine. */
+/** What `contextlanes open <lane>` execs on the machine. */
 export function attachArgs(session: string, opts: { watch?: boolean } = {}): string[] {
   // "=" matches the exact session name; plain names also prefix-match cl-shop-010 for cl-shop-01.
   // -r: a client that can look but not type, and whose size does not resize the session for the agent.

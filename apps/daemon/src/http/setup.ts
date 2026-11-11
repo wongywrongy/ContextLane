@@ -41,7 +41,7 @@ export function setupRoutes(app: FastifyInstance, setup: SetupManager, store: St
     ...(!req.headers["tailscale-user-login"] && ["localhost", "127.0.0.1"].includes(req.hostname) ? { controlFile: setup.controlFile } : {}) };
   });
   app.post("/api/setup/local", async (req) => {
-    if (req.headers.origin || req.headers["tailscale-user-login"] || !["127.0.0.1", "localhost"].includes(req.hostname) || !["127.0.0.1", "::1"].includes(req.ip)) throw new SetupError("Run cl setup in this machine’s SSH session.", 403);
+    if (req.headers.origin || req.headers["tailscale-user-login"] || !["127.0.0.1", "localhost"].includes(req.hostname) || !["127.0.0.1", "::1"].includes(req.ip)) throw new SetupError("Run contextlanes setup in this machine’s SSH session.", 403);
     await setup.checkShell(req.headers.authorization?.replace(/^Bearer /, ""));
     return setup.shellSetup(LocalSetupRequest.parse(req.body ?? {}).sshHost);
   });
