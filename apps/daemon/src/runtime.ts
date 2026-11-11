@@ -475,7 +475,7 @@ export class Runtime {
    */
   private async prepareInLane(lane: Lane, project: Project, recipe: Recipe, env: Record<string, string>): Promise<NonNullable<EnvironmentView["setup"]>> {
     if (recipe.cache.length) throw new Refused(`The recipe's "cache" (${recipe.cache.join(", ")}) links folders from the main checkout, which lanes in Docker do not do: the lane's image may not match the host's. Remove "cache" and install dependencies in a setup step (for example ["npm", "ci"]).`, 400, "docker_unsupported");
-    if (recipe.database) throw new Refused(`The recipe's "database" makes a copy through this machine's own database, which lanes in Docker cannot reach. Remove "database" and declare the database in the project's devcontainer.json (docs/V4.md 3.4).`, 400, "docker_unsupported");
+    if (recipe.database) throw new Refused(`The recipe's "database" makes a copy through this machine's own database, which lanes in Docker cannot reach. Remove "database" and run the database inside the lane as another service (Compose-based dev containers, where databases belong, are not supported in lanes yet).`, 400, "docker_unsupported");
     const started = Date.now();
     const lanes = this.dockerLanes!;
     const supervisor = this.supervisorOf(lane);
