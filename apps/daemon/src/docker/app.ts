@@ -15,6 +15,7 @@ import { folderMount, helperBase, helperName } from "./folders.js";
  * Prints the first of the files named that exists, as `file <name>` and its first MAX_BYTES + 1 bytes in
  * base64, or `link <name>` / `other <name>` for a symbolic link or something that is not a regular file
  * (never followed). Nothing at all when none is there. POSIX sh, head and base64 (coreutils).
+ * UNVERIFIED: that every glibc image a project uses has head -c and base64 (Debian and Ubuntu images do; run here in tests).
  */
 export const READ_SH = `for f in "$@"; do
   if [ -L "$f" ]; then printf 'link %s\\n' "$f"; exit 0; fi
