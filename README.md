@@ -33,7 +33,27 @@ With a systemd user session the installer runs ContextLanes as a user service; e
 
 On macOS, where bubblewrap does not exist, agents start only after you choose to run them unconfined: `[sandbox] mode = "off"` in `~/.config/contextlanes/config.toml`.
 
-**Where this is going.** The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json`. It is not built yet; [docs/V4.md](docs/V4.md) is the plan and what changes on the way.
+### Docker (v4, in progress)
+
+The planned way to run ContextLanes is Docker: a small control service and one container per lane, built from the project's own `devcontainer.json` ([docs/V4.md](docs/V4.md)). **Only phase 2 of 5 is written: projects, branches and `doctor` work in Docker; lanes do not yet** (`contextlanes new` answers `not_yet`). For lanes, use the host install above for now. Phase 2 has not yet been run on a real Docker host.
+
+```sh
+git clone https://github.com/wongywrongy/ContextLane.git /opt/stacks/contextlanes
+cd /opt/stacks/contextlanes
+docker compose up -d --build   # nothing to fill in; data/config.toml is written with defaults
+./install-command              # puts contextlanes in ~/.local/bin (as root: /usr/local/bin)
+cd ~/code/your-repository
+contextlanes add
+contextlanes projects
+contextlanes doctor
+```
+
+- The control container mounts `./data` and the Docker socket, and none of your folders. Git on a project runs in a short-lived helper container that mounts only that project, as the folder's owner, with no network.
+- It holds the Docker socket, which is root-equivalent on the host. Only it has the socket; helpers and lanes never do.
+- Only the preview router (port 4601, on 127.0.0.1) is published. The API (4600) answers only on the private `contextlanes` network.
+- `contextlanes` on the host is a small script that runs the command in the container with `docker exec` and passes the folder you are in as text. Run `contextlanes add` in the repository's top folder (the one with `.git`).
+- A container already called `contextlanes` from an older stack stops `docker compose up`; compose never takes it over. Look at it with `docker inspect contextlanes` and remove or rename it yourself.
+- `scripts/v4-check/phase2.sh <repository>` brings the stack up and checks all of the above.
 
 ## Use
 
