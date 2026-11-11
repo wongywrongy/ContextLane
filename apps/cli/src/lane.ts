@@ -22,7 +22,7 @@ export async function resolveLane(given: string | undefined, io: Io): Promise<st
   const lanes = (await io.api<Lane[]>("/api/lanes")).filter((l) => !["cleaned", "archived"].includes(l.state));
   const here = lanes.filter((l) => io.cwd === l.worktree || io.cwd.startsWith(`${l.worktree}/`)).sort((a, b) => b.worktree.length - a.worktree.length || Number(!!a.direct) - Number(!!b.direct));
   if (here[0]) return here[0].id;
-  throw new UsageError(lanes.length ? `Name a lane, or run this inside a lane's checkout. Open lanes: ${lanes.map((l) => l.id).join(", ")}` : "No open lanes. Start one with: cl new \"<task>\"");
+  throw new UsageError(lanes.length ? `Name a lane, or run this inside a lane's checkout. Open lanes: ${lanes.map((l) => l.id).join(", ")}` : "No open lanes. Start one with: contextlanes new \"<task>\"");
 }
 
 /** A lane's tool route with its token, or the owner's route. */
@@ -37,7 +37,7 @@ function print(io: Io, flags: Flags, value: unknown, text: () => string): void {
 }
 
 export function formatEnv(env: EnvironmentView | null): string {
-  if (!env || !env.services.length) return "No environment yet. Start it: cl up";
+  if (!env || !env.services.length) return "No app running yet. Start it: contextlanes app start";
   const rows = env.services.map((s) => [s.name, `${STATE[s.state]} ${s.state}`, String(s.port), s.url ?? "-"]);
   const details = env.services.filter((s) => s.detail).map((s) => `${s.name}: ${s.detail}`);
   return [table(["SERVICE", "STATE", "PORT", "LINK"], rows), ...(env.error ? [env.error] : []), ...details].join("\n");
@@ -69,9 +69,12 @@ async function projectFor(given: string | undefined, io: Io): Promise<string> {
   throw new UsageError("Name a project, or run this inside one.");
 }
 
+/** Commands that change a lane for its owner; a lane's own agent may not use them. */
+const OWNER_ONLY: Record<string, string> = { delete: "delete a lane", rename: "rename a lane", resume: "resume a lane's agent", auto: "turn Auto on or off" };
+
 /**
- * The lane commands an agent uses: env, logs, url, recipe, lane rm, agent-notes. Returns null for any
- * other command. Every command takes --json and then prints exactly one JSON document on stdout.
+ * The lane commands: app, logs, url, recipe, approve, delete, rename, resume, auto, agent-notes. Returns
+ * null for any other command. Every command takes --json and then prints exactly one JSON document on stdout.
  */
 export async function laneCommand(cmd: string | undefined, args: string[], flags: Flags, io: Io): Promise<number | null> {
   switch (cmd) {
@@ -79,8 +82,9 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
       print(io, flags, { notes: AGENT_NOTES }, () => AGENT_NOTES);
       return 0;
 
-    case "env": {
-      const action = ["start", "stop", "restart", "status"].includes(args[0] ?? "") ? args.shift()! : "status";
+    case "app": {
+      const action = args.shift();
+      if (action !== "start" && action !== "stop" && action !== "restart" && action !== "status") throw new UsageError("Usage: contextlanes app start|stop|restart|status [lane] [service…]");
       const lane = await resolveLane(args.find(isLane), io);
       const services = args.filter((a) => !isLane(a));
       if (action === "status") {
@@ -107,7 +111,7 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
 
     case "logs": {
       const service = args.find((a) => !isLane(a));
-      if (!service) throw new UsageError("Name a service: cl logs <service> [lane] [-n 100]");
+      if (!service) throw new UsageError("Name a service: contextlanes logs <service> [lane] [-n 100]");
       const lines = Number(flags.lines ?? 100);
       if (!Number.isInteger(lines) || lines < 1 || lines > 500) throw new UsageError("-n takes a number from 1 to 500.");
       const lane = await resolveLane(args.find(isLane), io);
@@ -124,10 +128,11 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
       return 0;
     }
 
-    case "recipe": {
-      const approve = args[0] === "approve";
-      if (approve) args.shift();
-      if (approve && token(io)) throw new ClientError("Only the owner can approve a recipe. Ask them to approve it on the Run page, or with cl recipe approve.", { exit: 4, code: "owner_only" });
+    case "recipe":
+    case "approve": {
+      const approve = cmd === "approve";
+      if (!approve && args[0] === "approve") throw new UsageError("Approving is its own command: contextlanes approve [lane|project]");
+      if (approve && token(io)) throw new ClientError("Only the owner can approve a recipe. Ask them to approve it on the Run page, or with contextlanes approve.", { exit: 4, code: "owner_only" });
       if (token(io)) {
         const view = await call<RecipeView | null>(io, await resolveLane(undefined, io), "recipe_status", { path: "" });
         print(io, flags, view, () => formatRecipe(view));
@@ -147,30 +152,32 @@ export async function laneCommand(cmd: string | undefined, args: string[], flags
       return 0;
     }
 
-    case "lane": {
-      if (args[0] === "rename" || args[0] === "restart" || args[0] === "auto") {
-        const [verb, lane, value] = args;
-        const shape = { rename: 'cl rename <lane> "<new task>"', restart: "cl lane restart <lane>", auto: "cl auto <lane> on|off" }[verb];
-        if (!lane || !isLane(lane) || (verb === "rename" && !value) || (verb === "auto" && value !== "on" && value !== "off")) throw new UsageError(`Usage: ${shape}`);
-        // These change a lane for its owner; a lane's own agent may not rename it, restart it or loosen its approvals.
-        if (token(io)) throw new ClientError(`Only the owner can ${verb === "auto" ? "turn Auto on or off" : `${verb} a lane`}.`, { exit: 4, code: "owner_only" });
-        if (verb === "rename") {
-          const result = await io.api<Lane>(`/api/lanes/${encodeLane(lane)}`, { method: "PATCH", body: { task: args.slice(2).join(" ") } });
-          print(io, flags, result, () => `Renamed ${lane}: ${result.task}`);
-        } else if (verb === "restart") {
-          const result = await io.api<unknown>(`/api/lanes/${encodeLane(lane)}/restart`, { method: "POST", body: {} });
-          print(io, flags, result ?? { restarted: true, lane }, () => `Restarted the agent in ${lane}.`);
-        } else {
-          const on = value === "on";
-          const result = await io.api<{ answered?: number }>(`/api/lanes/${encodeLane(lane)}/auto`, { method: "POST", body: { on } });
-          print(io, flags, { lane, auto: on, ...result }, () => on ? `Auto is on for ${lane}: safe requests are allowed once; dire ones still wait for you.` : `Auto is off for ${lane}.`);
-        }
-        return 0;
+    case "rename":
+    case "resume":
+    case "auto": {
+      const [lane, value] = args;
+      const shape = { rename: 'contextlanes rename <lane> "<new task>"', resume: "contextlanes resume <lane>", auto: "contextlanes auto <lane> on|off" }[cmd];
+      if (!lane || !isLane(lane) || (cmd === "rename" && !value) || (cmd === "auto" && value !== "on" && value !== "off")) throw new UsageError(`Usage: ${shape}`);
+      // These change a lane for its owner; a lane's own agent may not rename it, resume it or loosen its approvals.
+      if (token(io)) throw new ClientError(`Only the owner can ${OWNER_ONLY[cmd]}.`, { exit: 4, code: "owner_only" });
+      if (cmd === "rename") {
+        const result = await io.api<Lane>(`/api/lanes/${encodeLane(lane)}`, { method: "PATCH", body: { task: args.slice(1).join(" ") } });
+        print(io, flags, result, () => `Renamed ${lane}: ${result.task}`);
+      } else if (cmd === "resume") {
+        const result = await io.api<unknown>(`/api/lanes/${encodeLane(lane)}/restart`, { method: "POST", body: {} });
+        print(io, flags, result ?? { restarted: true, lane }, () => `Started the agent in ${lane} again where it left off.`);
+      } else {
+        const on = value === "on";
+        const result = await io.api<{ answered?: number }>(`/api/lanes/${encodeLane(lane)}/auto`, { method: "POST", body: { on } });
+        print(io, flags, { lane, auto: on, ...result }, () => on ? `Auto is on for ${lane}: safe requests are allowed once; dire ones still wait for you.` : `Auto is off for ${lane}.`);
       }
-      if (args[0] !== "rm") return null;
-      const lane = args[1];
-      if (!lane || !isLane(lane)) throw new UsageError("Name the lane: cl rm <lane> [--force] [--delete-branch]");
-      if (token(io)) throw new ClientError("Only the owner can delete a lane.", { exit: 4, code: "owner_only" });
+      return 0;
+    }
+
+    case "delete": {
+      const lane = args[0];
+      if (!lane || !isLane(lane)) throw new UsageError("Name the lane: contextlanes delete <lane> [--force] [--delete-branch]");
+      if (token(io)) throw new ClientError(`Only the owner can ${OWNER_ONLY.delete}.`, { exit: 4, code: "owner_only" });
       const preview = await io.api<{ uncommitted: number; commits: number; branch: string; present: boolean }>(`/api/lanes/${encodeLane(lane)}/discard`);
       if (preview.uncommitted && !flags.force) throw new ClientError(`${lane} has ${preview.uncommitted} uncommitted ${preview.uncommitted === 1 ? "change" : "changes"}; nothing was deleted. Commit them, or add --force to delete them with the lane.`, { exit: 1, code: "uncommitted" });
       const result = await io.api<Lane>(`/api/lanes/${encodeLane(lane)}/discard`, { method: "POST", body: { deleteBranch: !!flags["delete-branch"] } });

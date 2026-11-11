@@ -1,7 +1,7 @@
 import type { DoctorReport, InboxItem, Lane, LaneState , ProjectMap } from "@contextlanes/protocol";
 
 const MARK = { ok: "✓", warn: "!", fail: "✗" } as const;
-/** `cl doctor`: one line per check, its fix indented under it. */
+/** `contextlanes doctor`: one line per check, its fix indented under it. */
 export function formatDoctor(r: DoctorReport): string {
   const lines = [`ContextLanes ${r.version} · Node ${r.node} · ${r.platform} · ${r.supervisor} · sandbox ${r.sandbox} · previews ${r.previews.mode}${r.previews.domain ? ` *.${r.previews.domain}` : ""} on ${r.previews.bind}:${r.previews.port}`, ""];
   const width = Math.max(...r.checks.map((c) => c.title.length));
@@ -26,7 +26,7 @@ const LABEL: Record<LaneState, string> = {
 };
 
 export function formatLanes(lanes: Lane[]): string {
-  if (lanes.length === 0) return "No lanes. Start one with: cl new <project> \"<task>\"";
+  if (lanes.length === 0) return "No lanes. Start one with: contextlanes new <project> \"<task>\"";
   const rows = lanes.map((l) => [`[${l.id.slice(l.id.lastIndexOf("/") + 1)}]`, l.project, `${GLYPH[l.state]} ${LABEL[l.state]}`, l.agent, l.task]);
   return table(["LANE", "PROJECT", "STATE", "AGENT", "TASK"], rows);
 }
@@ -48,7 +48,7 @@ export function table(head: string[], rows: string[][]): string {
 }
 
 /**
- * `cl arch`: layers top to bottom, each module with what it uses, and where lanes are working.
+ * `contextlanes arch`: layers top to bottom, each module with what it uses, and where lanes are working.
  * Lane numbers in brackets; "*" marks a module two or more lanes are editing.
  */
 export function formatArch(view: ProjectMap): string {

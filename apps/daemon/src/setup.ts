@@ -79,7 +79,7 @@ export class SetupManager {
   }
   async checkShell(token: string | undefined): Promise<void> {
     const actual = await readFile(this.controlFile, "utf8");
-    if (!token || Buffer.byteLength(token) !== Buffer.byteLength(actual) || !timingSafeEqual(Buffer.from(token), Buffer.from(actual))) throw new SetupError("Run cl setup in this machine’s SSH session.", 403);
+    if (!token || Buffer.byteLength(token) !== Buffer.byteLength(actual) || !timingSafeEqual(Buffer.from(token), Buffer.from(actual))) throw new SetupError("Run contextlanes setup in this machine’s SSH session.", 403);
   }
   /**
    * Lets the CLI check it is talking to this daemon before it sends the setup token: only a process that
@@ -100,36 +100,32 @@ export class SetupManager {
     if (!this.claimed) await this.update({ access: { ...this.config.access, shellOwner: user } });
     const messages: string[] = [];
     const quote = (text: string) => /^[\w.@:-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`;
-    // In a container, and wherever the daemon watches lane processes itself, there is no login session to keep alive.
-    const docker = !!process.env.CONTEXTLANES_DOCKER;
-    if (!docker && this.config.supervisor.driver !== "process") {
+    // Where the daemon watches lane processes itself, there is no login session to keep alive.
+    if (this.config.supervisor.driver !== "process") {
       try {
         const linger = (await this.run("loginctl", ["show-user", user, "--property=Linger", "--value"], { timeout: 5000 })).stdout.trim();
         if (linger !== "yes") messages.push(`Keep ContextLanes running after logout: sudo loginctl enable-linger ${quote(user)}`);
       } catch { messages.push(`Check services after logout: sudo loginctl enable-linger ${quote(user)}`); }
     }
-    // The API port never leaves a container; there the web app is reached on the published router port by name.
-    const port = docker ? this.config.previews.localPort : this.config.listen.port;
-    let origin = docker ? `http://${this.config.previews.appLabel}.localhost:${port}` : `http://localhost:${port}`;
+    let origin = `http://localhost:${this.config.listen.port}`;
     const routed = appOrigin(this.config);
-    const tailscale = routed || docker ? null : await (this.options.find ?? findExecutable)("tailscale");
+    const tailscale = routed ? null : await (this.options.find ?? findExecutable)("tailscale");
     if (routed) {
       // The app's own name through the owner's proxy; no Tailscale needed.
       origin = routed;
       if (this.config.notifications.publicUrl !== routed) await this.update({ notifications: { ...this.config.notifications, publicUrl: routed } });
-    } else if (docker) { /* The link is this machine's; the command line says how to reach it from elsewhere. */ }
-    else if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy.");
+    } else if (!tailscale) messages.push("Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy.");
     else {
       try { origin = (await this.enableTailnet()).publicUrl; }
       catch (error) { messages.push(error instanceof SetupError ? error.message : "Tailscale could not be checked; use the SSH tunnel below."); }
     }
     const local = origin.startsWith("http:");
-    const tunnel = local && !docker ? `ssh -N -L ${port}:127.0.0.1:${port} ${quote(`${user}@${sshHost ?? this.config.host.name}`)}` : undefined;
+    const tunnel = local ? `ssh -N -L ${this.config.listen.port}:127.0.0.1:${this.config.listen.port} ${quote(`${user}@${sshHost ?? this.config.host.name}`)}` : undefined;
     const { token, expiresAt } = this.store.setupLink(origin);
     return { url: `${origin}/setup#signin=${token}`, expiresAt, messages, ...(tunnel ? { tunnel } : {}) };
   }
   signIn(token: string, origin: string): string {
-    if (!this.store.consumeSetupLink(token, origin)) throw new SetupError("This sign-in link was used or expired; run cl setup for a new link.", 401);
+    if (!this.store.consumeSetupLink(token, origin)) throw new SetupError("This sign-in link was used or expired; run contextlanes setup for a new link.", 401);
     return this.store.ownerSession();
   }
   private remember(value: string, origin: string, rpId: string, kind: Challenge["kind"]): string {
@@ -175,7 +171,7 @@ export class SetupManager {
     const b = LoginOwnerRequest.parse(body);
     const c = this.take(b.challengeId, origin, "login");
     const key = this.config.access.passkey;
-    if (!key || b.response.id !== key.id) throw new SetupError("This passkey is not saved here; use your saved passkey or run cl setup.", 403);
+    if (!key || b.response.id !== key.id) throw new SetupError("This passkey is not saved here; use your saved passkey or run contextlanes setup.", 403);
     const result = await verifyAuthenticationResponse({ response: { ...b.response, response: { ...b.response.response, userHandle: b.response.response.userHandle ?? undefined } }, expectedChallenge: c.value, expectedOrigin: origin, expectedRPID: c.rpId,
       credential: { id: key.id, publicKey: Buffer.from(key.publicKey, "base64url"), counter: key.counter, transports: key.transports }, requireUserVerification: true }).catch(() => { throw new SetupError("Passkey verification failed; try signing in again.", 403); });
     if (!result.verified) throw new SetupError("Passkey verification failed; try signing in again.", 403);
@@ -349,14 +345,14 @@ export class SetupManager {
   async enableTailnet() {
     let status;
     try { status = JSON.parse((await this.run("tailscale", ["status", "--json"], { timeout: 5000 })).stdout); }
-    catch { throw new SetupError("Sign in with tailscale up on this machine, then run cl setup again."); }
+    catch { throw new SetupError("Sign in with tailscale up on this machine, then run contextlanes setup again."); }
     const dns = status.Self?.DNSName?.replace(/\.$/, "");
     const owner = status.User?.[String(status.Self?.UserID)]?.LoginName;
-    if (status.BackendState !== "Running" || !dns || !owner) throw new SetupError("Sign in with tailscale up on this machine, then run cl setup again.");
-    if (this.config.access.owner && this.config.access.owner !== owner) throw new SetupError("Sign in to Tailscale as this machine’s owner, then run cl setup again.", 403);
+    if (status.BackendState !== "Running" || !dns || !owner) throw new SetupError("Sign in with tailscale up on this machine, then run contextlanes setup again.");
+    if (this.config.access.owner && this.config.access.owner !== owner) throw new SetupError("Sign in to Tailscale as this machine’s owner, then run contextlanes setup again.", 403);
     let serving;
     try { serving = JSON.parse((await this.run("tailscale", ["serve", "status", "--json"], { timeout: 5000 })).stdout || "{}"); }
-    catch { throw new SetupError("Tailscale Serve could not be checked; grant this user Serve access and run cl setup again."); }
+    catch { throw new SetupError("Tailscale Serve could not be checked; grant this user Serve access and run contextlanes setup again."); }
     const target = `http://127.0.0.1:${this.config.listen.port}`;
     let publicUrl: string | undefined;
     for (const [host, value] of Object.entries(serving.Web ?? {}) as [string, { Handlers?: Record<string, { Proxy?: string }> }][]) {
@@ -367,7 +363,7 @@ export class SetupManager {
       for (const port of [443, 8443, 4601, 4602, 4603]) {
         if (serving.TCP?.[port] || serving.AllowFunnel?.[`${dns}:${port}`] || !(await (this.options.portFree ?? portFree)(port))) continue;
         try { await this.run("tailscale", ["serve", "--bg", `--https=${port}`, "--yes", target], { timeout: 30_000 }); }
-        catch { throw new SetupError("Enable HTTPS and grant this user Tailscale Serve access, then run cl setup again."); }
+        catch { throw new SetupError("Enable HTTPS and grant this user Tailscale Serve access, then run contextlanes setup again."); }
         publicUrl = `https://${dns}${port === 443 ? "" : `:${port}`}`;
         break;
       }

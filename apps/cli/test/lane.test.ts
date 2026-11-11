@@ -51,22 +51,28 @@ describe("lane resolution", () => {
   });
 });
 
-describe("env, logs and url as the owner", () => {
+describe("app, logs and url as the owner", () => {
   it("shows the environment as a table, or as one JSON document", async () => {
     const view = env([{ name: "web", url: "https://web-01-shop.root.example.dev" }, { name: "api", port: 20101, state: "failed", detail: "Nothing answered on /health." }]);
     const h = harness({ "GET /api/lanes/shop/01/env": () => view }, { CONTEXTLANES_LANE: "shop/01" });
-    expect(await h.run(["env"])).toBe(0);
+    expect(await h.run(["app", "status"])).toBe(0);
     expect(h.out[0]).toMatch(/^SERVICE\s+STATE\s+PORT\s+LINK/);
     expect(h.out[0]).toContain("● healthy");
     expect(h.out[0]).toContain("api: Nothing answered on /health.");
-    expect(await h.run(["env"], { json: true })).toBe(0);
+    expect(await h.run(["app", "status"], { json: true })).toBe(0);
     expect(JSON.parse(h.out[1]!)).toEqual(view);
   });
 
-  it("says how to start when there is no environment yet", async () => {
+  it("says how to start when the app is not running yet", async () => {
     const h = harness({ "GET /api/lanes/shop/01/env": () => null });
-    expect(await h.run(["env", "shop/01"])).toBe(0);
-    expect(h.out[0]).toBe("No environment yet. Start it: cl up");
+    expect(await h.run(["app", "status", "shop/01"])).toBe(0);
+    expect(h.out[0]).toBe("No app running yet. Start it: contextlanes app start");
+  });
+
+  it("needs a verb after app", async () => {
+    const h = harness({}, { CONTEXTLANES_LANE: "shop/01" });
+    for (const argv of [["app"], ["app", "shop/01"], ["app", "up"], ["app", "ps"]]) await expect(h.run(argv), argv.join(" ")).rejects.toMatchObject({ exit: 2, code: "usage" });
+    expect(h.calls).toEqual([]);
   });
 
   it("starts the named services and exits 1 with the detail and last log lines when one fails", async () => {
@@ -74,7 +80,7 @@ describe("env, logs and url as the owner", () => {
       "POST /api/lanes/shop/01/env/start": () => env([{ name: "web" }, { name: "api", state: "failed", detail: "Nothing answered on /health." }]),
       "GET /api/lanes/shop/01/logs": () => [{ at: "2026-11-10T00:00:00Z", text: "Error: EADDRINUSE" }],
     });
-    expect(await h.run(["env", "start", "shop/01", "api"], { json: true })).toBe(1);
+    expect(await h.run(["app", "start", "shop/01", "api"], { json: true })).toBe(1);
     expect(h.calls[0]).toMatchObject({ path: "/api/lanes/shop/01/env/start", method: "POST", body: { services: ["api"] } });
     expect(h.calls[1]!.path).toBe("/api/lanes/shop/01/logs?service=api&lines=20");
     expect(JSON.parse(h.out[0]!).services).toHaveLength(2);
@@ -83,7 +89,7 @@ describe("env, logs and url as the owner", () => {
 
   it("exits 0 when every service came up, and restarts only what is named", async () => {
     const h = harness({ "POST /api/lanes/shop/01/env/restart": () => env([{ name: "web" }]) }, { CONTEXTLANES_LANE: "shop/01" });
-    expect(await h.run(["env", "restart", "web"])).toBe(0);
+    expect(await h.run(["app", "restart", "web"])).toBe(0);
     expect(h.calls[0]).toMatchObject({ body: { services: ["web"] } });
     expect(h.err).toEqual([]);
   });
@@ -107,27 +113,29 @@ describe("env, logs and url as the owner", () => {
     const h = harness({}, { CONTEXTLANES_LANE: "shop/01" });
     await expect(h.run(["logs"])).rejects.toMatchObject({ exit: 2 });
     await expect(h.run(["logs", "web"], { lines: "9000" })).rejects.toMatchObject({ exit: 2 });
-    await expect(h.run(["lane", "rm"])).rejects.toMatchObject({ exit: 2 });
-    expect(await h.run(["lanes"])).toBeNull();
+    await expect(h.run(["delete"])).rejects.toMatchObject({ exit: 2 });
+    for (const old of ["lanes", "lane", "env", "term", "ls", "ps", "up", "down", "say", "sh", "rm", "ok"]) expect(await h.run([old, "shop/01"]), old).toBeNull();
   });
 });
 
 describe("what the owner does from the command line instead of the web app", () => {
-  it("renames a lane, restarts its agent and turns Auto on or off", async () => {
+  it("renames a lane, resumes its agent and turns Auto on or off", async () => {
     const h = harness({
       "PATCH /api/lanes/shop/01": () => ({ id: "shop/01", task: "Cart totals" }),
       "POST /api/lanes/shop/01/restart": () => ({ id: "shop/01" }),
       "POST /api/lanes/shop/01/auto": () => ({ answered: 2 }),
     });
-    expect(await h.run(["lane", "rename", "shop/01", "Cart", "totals"])).toBe(0);
+    expect(await h.run(["rename", "shop/01", "Cart", "totals"])).toBe(0);
     expect(h.calls[0]).toMatchObject({ method: "PATCH", body: { task: "Cart totals" } });
-    expect(await h.run(["lane", "restart", "shop/01"])).toBe(0);
-    expect(await h.run(["lane", "auto", "shop/01", "on"])).toBe(0);
+    expect(await h.run(["resume", "shop/01"])).toBe(0);
+    expect(h.calls[1]).toMatchObject({ method: "POST", path: "/api/lanes/shop/01/restart" });
+    expect(await h.run(["auto", "shop/01", "on"])).toBe(0);
     expect(h.calls[2]).toMatchObject({ path: "/api/lanes/shop/01/auto", body: { on: true } });
-    expect(await h.run(["lane", "auto", "shop/01", "off"])).toBe(0);
+    expect(await h.run(["auto", "shop/01", "off"])).toBe(0);
     expect(h.calls[3]!.body).toEqual({ on: false });
-    await expect(h.run(["lane", "auto", "shop/01", "maybe"])).rejects.toMatchObject({ exit: 2 });
-    await expect(h.run(["lane", "rename", "shop/01"])).rejects.toMatchObject({ exit: 2 });
+    await expect(h.run(["auto", "shop/01", "maybe"])).rejects.toMatchObject({ exit: 2 });
+    await expect(h.run(["rename", "shop/01"])).rejects.toMatchObject({ exit: 2 });
+    await expect(h.run(["resume"])).rejects.toMatchObject({ exit: 2 });
   });
 });
 
@@ -141,10 +149,12 @@ describe("a recipe written or changed inside a lane", () => {
     expect(await h.run(["recipe", "shop/04"])).toBe(0);
     expect(h.out[0]).toContain("waiting for the owner's approval");
     expect(h.out[0]).toContain("The whole file, to read before approving:");
-    expect(await h.run(["recipe", "approve", "shop/04"])).toBe(0);
+    expect(await h.run(["approve", "shop/04"])).toBe(0);
     expect(h.calls.at(-1)).toMatchObject({ method: "POST", body: { hash: "de4c737aa" } });
     expect(h.out[1]).toBe("Approved recipe de4c737 for shop/04.");
-    await expect(h.run(["recipe", "approve", "shop/01"])).rejects.toMatchObject({ code: "no_recipe" });
+    await expect(h.run(["approve", "shop/01"])).rejects.toMatchObject({ code: "no_recipe" });
+    // Approving is its own command; the old two-word spelling is refused, not read as a project called "approve".
+    await expect(h.run(["recipe", "approve", "shop/04"])).rejects.toMatchObject({ exit: 2, code: "usage" });
   });
 });
 
@@ -161,7 +171,7 @@ describe("inside a lane, with only the lane token", () => {
       "POST /api/lanes/shop/01/tools/get_logs": () => [],
       "POST /api/lanes/shop/01/tools/recipe_status": () => null,
     }, vars);
-    for (const argv of [["env"], ["env", "start"], ["env", "stop"], ["env", "restart", "web"], ["url"], ["logs", "web"], ["recipe"]]) expect(await h.run(argv), argv.join(" ")).toBe(0);
+    for (const argv of [["app", "status"], ["app", "start"], ["app", "stop"], ["app", "restart", "web"], ["url"], ["logs", "web"], ["recipe"]]) expect(await h.run(argv), argv.join(" ")).toBe(0);
     expect(h.calls.every((c) => c.token === "lane-secret" && c.method === "POST" && c.path.startsWith("/api/lanes/shop/01/tools/"))).toBe(true);
     expect(h.calls.find((c) => c.path.endsWith("/env_restart"))!.body).toEqual({ services: ["web"] });
     expect(h.calls.find((c) => c.path.endsWith("/get_logs"))!.body).toEqual({ service: "web", lines: 100 });
@@ -169,29 +179,29 @@ describe("inside a lane, with only the lane token", () => {
 
   it("never approves a recipe or deletes a lane, and says the owner must (exit 4)", async () => {
     const h = harness({}, vars);
-    await expect(h.run(["recipe", "approve"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
-    await expect(h.run(["lane", "rm", "shop/01"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
-    for (const argv of [["lane", "auto", "shop/01", "on"], ["lane", "rename", "shop/01", "Easier"], ["lane", "restart", "shop/01"]]) await expect(h.run(argv), argv.join(" ")).rejects.toMatchObject({ exit: 4, code: "owner_only" });
+    await expect(h.run(["approve"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
+    await expect(h.run(["delete", "shop/01"])).rejects.toMatchObject({ exit: 4, code: "owner_only" });
+    for (const argv of [["auto", "shop/01", "on"], ["rename", "shop/01", "Easier"], ["resume", "shop/01"]]) await expect(h.run(argv), argv.join(" ")).rejects.toMatchObject({ exit: 4, code: "owner_only" });
     expect(h.calls).toEqual([]);
   });
 });
 
-describe("recipes and lane rm as the owner", () => {
+describe("recipes and delete as the owner", () => {
   const view = { file: ".contextlanes.json", hash: "b".repeat(64), approved: false, error: null, recipe: { services: [{ name: "web", command: ["vite"] }] } };
 
   it("shows a recipe and approves exactly the hash it read", async () => {
     const h = harness({ "GET /api/projects/shop/recipe": () => view, "POST /api/projects/shop/recipe/approve": (c) => ({ approved: true, hash: (c.body as { hash: string }).hash }) }, { CONTEXTLANES_LANE: "shop/01" });
     expect(await h.run(["recipe"])).toBe(0);
     expect(h.out[0]).toBe(`.contextlanes.json · sha bbbbbbb · waiting for the owner's approval\nservices:\n  web: vite`);
-    expect(await h.run(["recipe", "approve", "shop"])).toBe(0);
+    expect(await h.run(["approve", "shop"])).toBe(0);
     expect(h.calls.at(-1)).toMatchObject({ path: "/api/projects/shop/recipe/approve", body: { hash: "b".repeat(64) } });
   });
 
   it("keeps a lane with uncommitted changes unless forced", async () => {
     const h = harness({ "GET /api/lanes/shop/01/discard": () => ({ uncommitted: 2, commits: 1, branch: "lane/01-x", present: true }), "POST /api/lanes/shop/01/discard": (c) => ({ ...lane("shop/01", "/x"), state: "archived", body: c.body }) });
-    await expect(h.run(["lane", "rm", "shop/01"])).rejects.toMatchObject({ exit: 1, code: "uncommitted" });
+    await expect(h.run(["delete", "shop/01"])).rejects.toMatchObject({ exit: 1, code: "uncommitted" });
     expect(h.calls.filter((c) => c.method === "POST")).toEqual([]);
-    expect(await h.run(["lane", "rm", "shop/01"], { force: true, "delete-branch": true })).toBe(0);
+    expect(await h.run(["delete", "shop/01"], { force: true, "delete-branch": true })).toBe(0);
     expect(h.calls.at(-1)).toMatchObject({ method: "POST", body: { deleteBranch: true } });
   });
 

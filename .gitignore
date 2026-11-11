@@ -2,10 +2,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 *.sqlite*
-/.env
+.env
 .env.*
 !.env.example
 coverage/
 .DS_Store
-/data/
-/.env

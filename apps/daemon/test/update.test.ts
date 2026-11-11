@@ -84,8 +84,8 @@ describe("contextlanes update", () => {
     expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).history).toHaveLength(1);
     expect(f.logs).toContain("1 new change on main:");
     expect(f.logs.at(-3)).toBe(`Updated ${f.first.slice(0, 12)} → ${second.slice(0, 12)}. 2 of 2 active lanes kept running.`);
-    expect(f.logs.at(-2)).toBe("Open ContextLanes: http://127.0.0.1:4600 (this machine only; run cl setup to reach it over Tailscale)");
-    expect(f.logs.at(-1)).toBe("Undo with: cl update --rollback");
+    expect(f.logs.at(-2)).toBe("Open ContextLanes: http://127.0.0.1:4600 (this machine only; run contextlanes setup to reach it over Tailscale)");
+    expect(f.logs.at(-1)).toBe("Undo with: contextlanes update --rollback");
 
     f.calls.length = 0; f.logs.length = 0;
     expect(await (await f.updater()).update()).toBe(0);
@@ -97,7 +97,7 @@ describe("contextlanes update", () => {
     const f = await fixture();
     await commit(f.work, "Faster lanes");
     expect(await (await f.updater()).update({ check: true })).toBe(0);
-    expect(f.logs.join("\n")).toMatch(/1 new change on main:\n {2}\w+ Faster lanes\nRun cl update to install them\./);
+    expect(f.logs.join("\n")).toMatch(/1 new change on main:\n {2}\w+ Faster lanes\nRun contextlanes update to install them\./);
     expect(f.calls).toEqual([]);
     await expect(readlink(join(f.base, "current"))).rejects.toThrow();
   });
@@ -137,7 +137,7 @@ describe("contextlanes update", () => {
     expect(await (await f.updater()).update()).toBe(0);
     expect(userVersion(f.database)).toBe(4);
     expect(await (await f.updater()).rollback()).toBe(1);
-    expect(f.logs.at(-1)).toBe("Run cl update --rollback --yes to continue.");
+    expect(f.logs.at(-1)).toBe("Run contextlanes update --rollback --yes to continue.");
     expect(await (await f.updater()).rollback({ yes: true })).toBe(0);
     expect(await realpath(join(f.base, "current"))).toBe(f.app);
     expect(userVersion(f.database)).toBe(3);

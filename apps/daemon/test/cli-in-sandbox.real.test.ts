@@ -39,10 +39,10 @@ describe.skipIf(!enabled)("the contextlanes command inside the real sandbox", ()
     const inLane = (command: string[]) => exec(sandbox(config, { laneData: laneDir })[0]!, [...sandbox(config, { laneData: laneDir }).slice(1), ...command], { env }).then((r) => ({ ok: true, out: r.stdout }), (e: { stdout?: string; stderr?: string }) => ({ ok: false, out: `${e.stdout ?? ""}${e.stderr ?? ""}` }));
     try {
       const viaCurrent = await laneCommandDir(join(root, "through-current"), process.execPath, join(data, "current", "apps/cli/dist/main.js"));
-      expect((await inLane(["/bin/sh", "-c", `${join(viaCurrent, "contextlanes")} env --json`])).ok).toBe(false);
+      expect((await inLane(["/bin/sh", "-c", `${join(viaCurrent, "contextlanes")} app status --json`])).ok).toBe(false);
 
       const bin = await laneCommandDir(laneDir);
-      const result = await inLane([join(bin, "contextlanes"), "env", "--json"]);
+      const result = await inLane([join(bin, "contextlanes"), "app", "status", "--json"]);
       expect(result.ok, result.out).toBe(true);
       expect(JSON.parse(result.out)).toMatchObject({ lane: "demo/01", services: [] });
       expect(seen.at(-1)).toEqual({ url: "/api/lanes/demo/01/tools/env_status", auth: "Bearer lane-secret" });

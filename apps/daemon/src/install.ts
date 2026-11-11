@@ -9,7 +9,7 @@ const MARKER = "# Installed by ContextLanes";
 
 /**
  * The commands in ~/.local/bin, and where systemd runs (systemd: true, the default) the user service and
- * nightly backups. Without systemd, `cl daemon` runs it in the foreground under any supervisor.
+ * nightly backups. Without systemd, `contextlanes daemon` runs it in the foreground under any supervisor.
  */
 export async function installService(options: { root: string; home: string; node: string; run: Runner; config?: string; systemd?: boolean }): Promise<void> {
   const { root, home, node, run } = options;
@@ -24,10 +24,9 @@ export async function installService(options: { root: string; home: string; node
     await mkdir(dirname(unit), { recursive: true, mode: 0o700 });
     await writeOwned(unit, content, 0o600);
   }
-  for (const [name, entry] of [["contextlanes", "apps/cli"], ["cl", "apps/cli"], ["contextlanes-lanehost", "apps/lanehost"], ["contextlanes-toolbox", "packages/toolbox"]]) {
+  for (const [name, entry] of [["contextlanes", "apps/cli"], ["contextlanes-lanehost", "apps/lanehost"], ["contextlanes-toolbox", "packages/toolbox"]]) {
     const script = `#!/bin/sh\n# Installed by ContextLanes\nexec ${shellQuote(node)} ${shellQuote(join(root, entry!, "dist/main.js"))} "$@"\n`;
-    // `cl` is the short name. Someone else's `cl` already there is left alone; the long name always works.
-    await writeOwned(join(bin, name!), script, 0o755).catch((err) => { if (name !== "cl") throw err; });
+    await writeOwned(join(bin, name!), script, 0o755);
   }
   if (!systemd) return;
   await run("systemctl", ["--user", "daemon-reload"]);
@@ -51,19 +50,4 @@ async function writeOwned(path: string, content: string, mode: number): Promise<
   if (current !== null && !current.split("\n").slice(0, 2).includes(MARKER)) throw new Error(`Refusing to overwrite ${path}; move it aside before installing`);
   if (current === null) await writeFile(path, content, { mode, flag: "wx" });
   else { await writeFile(`${path}.tmp`, content, { mode }); await rename(`${path}.tmp`, path); }
-}
-
-/**
- * Makes sure the short command exists beside the long one. An update is switched over by the version
- * being replaced, which cannot know about a command added since, so the daemon checks at start: where
- * `contextlanes` in ~/.local/bin is ours, `cl` gets the same script. Someone else's `cl` is left alone.
- * Returns whether it wrote the file.
- */
-export async function ensureShortCommand(home: string): Promise<boolean> {
-  const bin = join(home, ".local/bin");
-  const long = await readFile(join(bin, "contextlanes"), "utf8").catch(() => null);
-  if (!long || !long.split("\n").slice(0, 2).includes(MARKER)) return false;
-  const short = await readFile(join(bin, "cl"), "utf8").catch(() => null);
-  if (short === long) return false;
-  try { await writeOwned(join(bin, "cl"), long, 0o755); return true; } catch { return false; }
 }

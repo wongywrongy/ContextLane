@@ -40,7 +40,7 @@ const NEW_REPO = "https://github.com/wongywrongy/ContextLane.git";
 const ACTIVE = ["setting_up", "working", "needs_you", "in_review"];
 
 /**
- * cl update: fetch, build the new version in its own folder, back up the database,
+ * contextlanes update: fetch, build the new version in its own folder, back up the database,
  * point current at it, restart, and switch back by itself if it does not come up healthy.
  * Lanes run as their own units, so agents and shells keep going through the restart.
  */
@@ -51,7 +51,7 @@ export class Updater {
   /** The address only, never a sign-in link: terminal output ends up in scrollback, logs and screenshots. */
   private openAt() {
     const local = `http://127.0.0.1:${this.deps.port}`;
-    this.log(this.deps.publicUrl ? `Open ContextLanes: ${this.deps.publicUrl} (on this machine: ${local})` : `Open ContextLanes: ${local} (this machine only; run cl setup to reach it over Tailscale)`);
+    this.log(this.deps.publicUrl ? `Open ContextLanes: ${this.deps.publicUrl} (on this machine: ${local})` : `Open ContextLanes: ${local} (this machine only; run contextlanes setup to reach it over Tailscale)`);
   }
   private async git(cwd: string, args: string[], timeout = 120_000): Promise<string> {
     return (await this.deps.run("git", ["-C", cwd, ...args], { timeout })).stdout.trim();
@@ -75,9 +75,9 @@ export class Updater {
       this.log(`${changes.length} new ${changes.length === 1 ? "change" : "changes"} on ${branch}:`);
       for (const line of changes.slice(0, 20)) this.log(`  ${line}`);
       if (changes.length > 20) this.log(`  …and ${changes.length - 20} more`);
-      if (options.check) { this.log("Run cl update to install them."); return 0; }
+      if (options.check) { this.log("Run contextlanes update to install them."); return 0; }
       const dirty = await this.git(running, ["status", "--porcelain", "--untracked-files=no"]);
-      if (dirty) throw new UpdateError(`Files in the running copy were changed by hand, so nothing was updated:\n${dirty}\nUndo or commit them in ${running}, then run cl update again.`);
+      if (dirty) throw new UpdateError(`Files in the running copy were changed by hand, so nothing was updated:\n${dirty}\nUndo or commit them in ${running}, then run contextlanes update again.`);
       const release = join(this.l.releases, shortSha(to));
       await this.build(release, to);
       if (options.branch || state.branch) { state.branch = branch; await this.saveState(state); }
@@ -115,7 +115,7 @@ export class Updater {
       const restore = undoing?.backup && now !== null && undoing.userVersion !== null && now > undoing.userVersion ? undoing : null;
       if (restore && !options.yes) {
         this.log(`Going back to ${shortSha(to)} also restores the database saved on ${restore.at}, because the newer version changed its format. Lane history recorded since then is lost.`);
-        this.log("Run cl update --rollback --yes to continue.");
+        this.log("Run contextlanes update --rollback --yes to continue.");
         return 1;
       }
       this.log(`Going back from ${shortSha(from)} to ${shortSha(to)}…`);
@@ -167,7 +167,7 @@ export class Updater {
     const lanes = before !== null && after !== null ? ` ${after} of ${before} active ${before === 1 ? "lane" : "lanes"} kept running.` : "";
     this.log(`Updated ${shortSha(v.from)} → ${shortSha(v.to)}.${lanes}`);
     this.openAt();
-    this.log("Undo with: cl update --rollback");
+    this.log("Undo with: contextlanes update --rollback");
     return 0;
   }
 

@@ -151,8 +151,10 @@ describe("the contextlanes command inside a CLI lane", () => {
     const script = join(root, "echo args.mjs");
     await writeFile(script, "console.log(JSON.stringify(process.argv.slice(2)));\n");
     const bin = await laneCommandDir(root, process.execPath, script);
-    const out = execFileSync(join(bin, "contextlanes"), ["env", "--json", "it's here"], { encoding: "utf8" });
-    expect(JSON.parse(out)).toEqual(["env", "--json", "it's here"]);
+    const out = execFileSync(join(bin, "contextlanes"), ["app", "status", "--json", "it's here"], { encoding: "utf8" });
+    expect(JSON.parse(out)).toEqual(["app", "status", "--json", "it's here"]);
+    // One command name in the lane, too.
+    await expect(stat(join(bin, "cl"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("gives Codex the notes in its own AGENTS.md, or the override the owner uses, once", async () => {

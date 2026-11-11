@@ -94,19 +94,6 @@ describe("headless setup", () => {
     expect((await f.app.inject({ url: "/api/setup/settings", headers: { host: "rebind.example" } })).statusCode).toBe(401);
     expect((await f.app.inject({ method: "POST", url: "/api/projects", headers: { host: "localhost", origin: "https://evil.example" }, payload: { path: f.home } })).statusCode).toBe(403);
   });
-  it("in Docker, links to the web app on the published router port and gives no host-only advice", async () => {
-    vi.stubEnv("CONTEXTLANES_DOCKER", "1");
-    try {
-      const f = await fixture();
-      f.find.mockResolvedValue(null);
-      f.run.mockResolvedValue({ stdout: "no\n" });
-      const result = (await f.app.inject({ method: "POST", url: "/api/setup/local", headers: { authorization: `Bearer ${f.secret}` }, payload: {} })).json();
-      expect(result.url).toMatch(/^http:\/\/lanes\.localhost:4601\/setup#signin=/);
-      expect(result.messages).toEqual([]);
-      expect(result.tunnel).toBeUndefined();
-    } finally { vi.unstubAllEnvs(); }
-  });
-
   it("prints the exact linger command and gives one missing-Tailscale line plus SSH fallback", async () => {
     const f = await fixture();
     f.find.mockResolvedValue(null);
@@ -116,6 +103,15 @@ describe("headless setup", () => {
     expect(result.tunnel).toBe("ssh -N -L 4600:127.0.0.1:4600 kyle@192.0.2.42");
     expect(result.url).toMatch(/^http:\/\/localhost:4600\/setup#signin=/);
     expect(f.config.access.shellOwner).toBe("kyle");
+  });
+  it("gives no linger advice where the daemon supervises lane processes itself", async () => {
+    const f = await fixture();
+    f.config.supervisor.driver = "process";
+    f.find.mockResolvedValue(null);
+    f.run.mockResolvedValue({ stdout: "no\n" });
+    const result = (await f.claim()).json();
+    expect(result.messages).toEqual(["Tailscale is not installed: https://tailscale.com/download, or set [previews] domain to use your own reverse proxy."]);
+    expect(f.run.mock.calls.some(([cmd]) => cmd === "loginctl")).toBe(false);
   });
   it("falls back for signed-out/denied Tailscale without exposing command errors", async () => {
     const f = await fixture();
@@ -369,6 +365,8 @@ it("installs an absolute user service without replacing unrelated files", async 
   expect(unit).toContain(`WorkingDirectory=${options.root.replace(/%/g, "%%")}\n`); expect(unit).toContain("spaces%%$$/apps/daemon/dist/main.js"); expect(unit).toContain(`ExecStart="${process.execPath}"`); expect(unit).toContain("UMask=0077");
   expect(f.calls.slice(-4)).toEqual([{ cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes.service"] }, { cmd: "systemctl", args: ["--user", "daemon-reload"] }, { cmd: "systemctl", args: ["--user", "enable", "--now", "contextlanes-backup.timer"] }]);
   expect((await stat(join(f.root, ".local/bin/contextlanes"))).mode & 0o777).toBe(0o755); await installService(options);
+  // One command name: nothing is installed as cl.
+  await expect(stat(join(f.root, ".local/bin/cl"))).rejects.toMatchObject({ code: "ENOENT" });
   await expect(installService({ ...options, root: "bad\npath" })).rejects.toThrow("line breaks");
   await writeFile(join(f.root, ".local/bin/contextlanes"), "user work"); await expect(installService(options)).rejects.toThrow("Refusing to overwrite"); expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");
 });

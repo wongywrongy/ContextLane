@@ -81,7 +81,7 @@ export function Terminal(props: ({ lane: string; login?: never } | { login: Agen
         {!connected ? <button className="btn ghost" onClick={() => setAttempt((n) => n + 1)}>Reconnect</button> : null}
       </div> : null}
       <div className="tty" ref={container} aria-label={login ? `Login terminal for ${login}` : `Terminal of lane ${lane}, watching only`} />
-      {!login && <div className="sec-f terminal-help">Watching only. To type in it: <code>cl sh {lane}</code></div>}
+      {!login && <div className="sec-f terminal-help">Watching only. To type in it: <code>contextlanes open {lane}</code></div>}
     </>
   );
 }

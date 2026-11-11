@@ -1,6 +1,5 @@
 import type { InboxItem, Lane, Project } from "@contextlanes/protocol";
 import type { Io } from "./lane.js";
-import { unmounted } from "./short.js";
 
 /** What a prompt returns when the person presses Esc: one step back, or out at the top. */
 export const CANCEL = Symbol("cancel");
@@ -45,9 +44,7 @@ async function world(io: Io): Promise<World> {
 }
 
 /** The project whose folder, or one of whose lane checkouts, holds this folder. */
-function projectAt(cwd: string, w: World, env: Record<string, string | undefined> = {}): Project | null {
-  // In Docker, a folder the container cannot see: the command is not really "in" any project.
-  if (env.CONTEXTLANES_UNMOUNTED) return null;
+function projectAt(cwd: string, w: World): Project | null {
   const byFolder = w.projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0];
   if (byFolder) return byFolder;
   const lane = w.lanes.find((l) => inside(cwd, l.worktree));
@@ -55,7 +52,7 @@ function projectAt(cwd: string, w: World, env: Record<string, string | undefined
 }
 
 /**
- * `cl` on its own. Three levels, each one step from the next:
+ * `contextlanes` on its own. Three levels, each one step from the next:
  *   Projects  →  one project and its lanes  →  one lane and what to do with it.
  * Every list ends with a way back (the top one with Quit), and Esc does the same. After an action the
  * same screen comes back, so several things can be done in a row. Starts inside the project this
@@ -63,7 +60,7 @@ function projectAt(cwd: string, w: World, env: Record<string, string | undefined
  */
 export async function session(io: Io, ask: Ask, exec: Exec): Promise<number> {
   ask.note("↑ ↓ move   ·   Enter opens   ·   Esc goes back a step");
-  let project: string | null = projectAt(io.cwd, await world(io), io.env)?.id ?? null;
+  let project: string | null = projectAt(io.cwd, await world(io))?.id ?? null;
   for (;;) {
     if (project === null) {
       const chosen = await projectsScreen(io, ask, exec);
@@ -77,14 +74,13 @@ export async function session(io: Io, ask: Ask, exec: Exec): Promise<number> {
 async function projectsScreen(io: Io, ask: Ask, exec: Exec): Promise<string | null> {
   for (;;) {
     const w = await world(io);
-    const here = projectAt(io.cwd, w, io.env);
-    const hidden = unmounted(io.env);
+    const here = projectAt(io.cwd, w);
     const choice = await ask.select<string>(w.projects.length ? "Projects" : "No projects yet · a project is a repository folder", [
       ...w.projects.map((p) => {
         const lanes = w.lanes.filter((l) => l.project === p.id), need = w.waiting.filter((i) => i.lane.startsWith(`${p.id}/`)).length;
         return { value: `p:${p.id}`, label: p.name, hint: [tilde(p.path, io), lanes.length ? plural(lanes.length, "lane") : "no lanes", ...(need ? [`${need} need you`] : [])].join(" · ") };
       }),
-      ...(here ? [] : hidden ? [{ value: "+hidden", label: "Why is this folder not listed?", hint: io.env.CONTEXTLANES_UNMOUNTED }] : [{ value: "+add", label: "+ Make this folder a project", hint: tilde(io.cwd, io) }]),
+      ...(here ? [] : [{ value: "+add", label: "+ Make this folder a project", hint: tilde(io.cwd, io) }]),
       ...(w.waiting.length ? [{ value: "+inbox", label: "Answer what is waiting on you", hint: `${w.waiting.length}` }] : []),
       { value: "+help", label: "Every command" },
       { value: BACK, label: "Quit" },
@@ -92,10 +88,9 @@ async function projectsScreen(io: Io, ask: Ask, exec: Exec): Promise<string | nu
     if (gone(choice)) return null;
     if (choice === "+help") { await exec(["help"]); return null; }
     if (choice === "+inbox") { await inboxScreen(io, ask, exec, "Projects"); continue; }
-    if (choice === "+hidden") { ask.note(hidden!); continue; }
     if (choice === "+add") {
       if (await exec(["add"]) !== 0) continue;
-      const added = projectAt(io.cwd, await world(io), io.env);
+      const added = projectAt(io.cwd, await world(io));
       if (added) return added.id;
       continue;
     }
@@ -146,7 +141,7 @@ async function newLane(project: string, io: Io, ask: Ask, exec: Exec, flags: str
     const branch = await whichBranch(project, io, ask);
     if (branch === CANCEL) continue;
     const before = new Set((await io.api<Lane[]>("/api/lanes")).map((l) => l.id));
-    if (await exec(["lane", "start", project, task, ...(who ? ["--agent", who] : ["--no-agent"]), ...(branch ? ["--branch", branch] : []), ...flags]) !== 0) return null;
+    if (await exec(["new", project, task, ...(who ? ["--agent", who] : ["--no-agent"]), ...(branch ? ["--branch", branch] : []), ...flags]) !== 0) return null;
     return (await io.api<Lane[]>("/api/lanes")).find((l) => l.project === project && !before.has(l.id))?.id ?? null;
   }
 }
@@ -183,22 +178,20 @@ async function laneScreen(id: string, projectName: string, io: Io, ask: Ask, exe
     const agent = lane.kind !== "shell", waiting = w.waiting.filter((i) => i.lane === id);
     const action = await ask.select<string>(`${projectName} / ${number(id)}  ·  ${lane.task}`, [
       ...(waiting.length ? [{ value: "inbox", label: "Answer what it is waiting for", hint: waiting[0]!.title }] : []),
-      { value: "sh", label: agent ? "Open its terminal" : "Open its shell", hint: "come back here with Ctrl-b d" },
-      ...(agent ? [{ value: "say", label: "Send its agent a message" }] : []),
-      { value: "up", label: "Start its app" }, { value: "ps", label: "Show its app and links" }, { value: "down", label: "Stop its app" },
-      { value: "rename", label: "Rename it" }, { value: "rm", label: "Delete it" },
+      { value: "open", label: agent ? "Open its terminal" : "Open its shell", hint: "come back here with Ctrl-b d" },
+      ...(agent ? [{ value: "send", label: "Send its agent a message" }] : []),
+      { value: "app start", label: "Start its app" }, { value: "app status", label: "Show its app and links" }, { value: "app stop", label: "Stop its app" },
+      { value: "rename", label: "Rename it" }, { value: "delete", label: "Delete it" },
       back(projectName),
     ], last);
     if (gone(action)) return;
     last = action;
     if (action === "inbox") { await inboxScreen(io, ask, exec, `lane ${number(id)}`, undefined, id); continue; }
-    if (action === "sh") { await exec(["term", id]); continue; }
-    if (action === "up") { await exec(["env", "start", id]); continue; }
-    if (action === "down") { await exec(["env", "stop", id]); continue; }
-    if (action === "ps") { await exec(["env", id]); continue; }
-    if (action === "say") { const text = await ask.text(`Message for lane ${number(id)}'s agent  (Esc to go back)`); if (text !== CANCEL) await exec(["send", id, text]); continue; }
-    if (action === "rename") { const task = await ask.text(`New name for lane ${number(id)}  (Esc to go back)`, lane.task); if (task !== CANCEL) await exec(["lane", "rename", id, task]); continue; }
-    if (await ask.confirm(`Delete lane ${number(id)}? Its app stops and its checkout is removed. The branch ${lane.branch} is kept.`) === true && await exec(["lane", "rm", id]) === 0) return;
+    if (action === "open") { await exec(["open", id]); continue; }
+    if (action === "app start" || action === "app stop" || action === "app status") { await exec([...action.split(" "), id]); continue; }
+    if (action === "send") { const text = await ask.text(`Message for lane ${number(id)}'s agent  (Esc to go back)`); if (text !== CANCEL) await exec(["send", id, text]); continue; }
+    if (action === "rename") { const task = await ask.text(`New name for lane ${number(id)}  (Esc to go back)`, lane.task); if (task !== CANCEL) await exec(["rename", id, task]); continue; }
+    if (await ask.confirm(`Delete lane ${number(id)}? Its app stops and its checkout is removed. The branch ${lane.branch} is kept.`) === true && await exec(["delete", id]) === 0) return;
   }
 }
 
@@ -221,7 +214,7 @@ async function answerFor(item: InboxItem, ask: Ask): Promise<string[] | null> {
     const how = await ask.select<string>(`${item.lane}: ${item.title}`, [
       { value: "read", label: "Read the recipe" }, { value: "approve", label: "Approve it", hint: "its commands will run on this machine as you" }, back("Leave it for now"),
     ]);
-    return how === "read" ? ["recipe", item.lane] : how === "approve" ? ["recipe", "approve", item.lane] : null;
+    return how === "read" ? ["recipe", item.lane] : how === "approve" ? ["approve", item.lane] : null;
   }
   if (!item.options.length) { ask.note(`${item.lane}: ${item.title}\nOpen it in the browser to answer.`); return null; }
   const option = await ask.select<string>(`${item.lane}: ${item.title}`, [...item.options.map((o) => ({ value: o.id, label: o.label })), back("Leave it for now")]);
@@ -230,12 +223,12 @@ async function answerFor(item: InboxItem, ask: Ask): Promise<string[] | null> {
 
 /** Commands that act on one lane and cannot guess it: [command words, question]. */
 const NEEDS_LANE: [string[], string][] = [
-  [["term"], "Open which lane?"], [["send"], "Message which lane?"], [["lane", "rm"], "Delete which lane?"],
-  [["lane", "rename"], "Rename which lane?"], [["lane", "restart"], "Restart which lane's agent?"], [["lane", "auto"], "Auto for which lane?"],
+  [["open"], "Open which lane?"], [["send"], "Message which lane?"], [["delete"], "Delete which lane?"],
+  [["rename"], "Rename which lane?"], [["resume"], "Resume which lane's agent?"], [["auto"], "Auto for which lane?"],
 ];
 
 /**
- * A typed command with something left out (`cl new`, `cl rm`, `cl say`…): asks for the missing part,
+ * A typed command with something left out (`contextlanes new`, `delete`, `send`…): asks for the missing part,
  * runs it and is done. Returns null when nothing was missing, so the command runs as typed.
  */
 export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Promise<number | null> {
@@ -247,10 +240,10 @@ export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Prom
     return 0;
   }
   if (words[0] === "answer" && words.length < 3) { await inboxScreen(io, ask, exec, "Quit"); return 0; }
-  if (words[0] === "lane" && words[1] === "start" && words.length < 4) {
+  if (words[0] === "new" && words.length < 3) {
     const w = await world(io);
-    // `cl new` works inside a project; anywhere else, which project comes first.
-    const project = words[2] && w.projects.some((p) => p.id === words[2]) ? words[2] : projectAt(io.cwd, w, io.env)?.id ?? await pickProject(w, io, ask, exec);
+    // `contextlanes new` works inside a project; anywhere else, which project comes first.
+    const project = words[1] && w.projects.some((p) => p.id === words[1]) ? words[1] : projectAt(io.cwd, w)?.id ?? await pickProject(w, io, ask, exec);
     if (!project) return 0;
     await newLane(project, io, ask, exec, flags);
     return 0;
@@ -259,11 +252,11 @@ export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Prom
     if (command.some((word, i) => words[i] !== word)) continue;
     const given = words[command.length];
     const w = await world(io);
-    const here = projectAt(io.cwd, w, io.env);
+    const here = projectAt(io.cwd, w);
     const lanes = here ? w.lanes.filter((l) => l.project === here.id) : w.lanes;
     let lane = given;
     if (!lane) {
-      if (!lanes.length) { ask.note(here ? `${here.name} has no open lanes. Start one: cl new` : "No open lanes. Start one inside a project: cl new"); return 0; }
+      if (!lanes.length) { ask.note(here ? `${here.name} has no open lanes. Start one: contextlanes new` : "No open lanes. Start one inside a project: contextlanes new"); return 0; }
       const picked = lanes.length === 1 ? lanes[0]!.id : await ask.select<string>(question, [...lanes.map((l) => ({ ...laneChoice(l, w.waiting), label: here ? `${number(l.id)}  ${l.task}` : `${l.id}  ${l.task}` })), { value: BACK, label: "Cancel" }]);
       if (gone(picked)) return 0;
       lane = picked;
@@ -272,14 +265,14 @@ export async function fillIn(argv: string[], io: Io, ask: Ask, exec: Exec): Prom
     const verb = command.join(" ");
     const typed = rest.length;
     if (verb === "send" && !rest.length) { const text = await ask.text(`Message for ${lane}'s agent  (Esc to cancel)`); if (text === CANCEL) return 0; rest.push(text); }
-    if (verb === "lane rename" && !rest.length) { const task = await ask.text(`New name for ${lane}  (Esc to cancel)`, w.lanes.find((l) => l.id === lane)?.task); if (task === CANCEL) return 0; rest.push(task); }
-    if (verb === "lane auto" && !rest.length) {
+    if (verb === "rename" && !rest.length) { const task = await ask.text(`New name for ${lane}  (Esc to cancel)`, w.lanes.find((l) => l.id === lane)?.task); if (task === CANCEL) return 0; rest.push(task); }
+    if (verb === "auto" && !rest.length) {
       const on = await ask.select<string>(`Auto for ${lane}`, [{ value: "on", label: "On", hint: "safe requests are allowed once for you; dire ones still wait" }, { value: "off", label: "Off", hint: "every request waits for you" }, { value: BACK, label: "Cancel" }]);
       if (gone(on)) return 0;
       rest.push(on);
     }
     // A lane chosen from a list gets one more question before it is deleted; one typed out was meant.
-    if (verb === "lane rm" && !given && await ask.confirm(`Delete ${lane}? Its app stops and its checkout is removed. The branch is kept.`) !== true) return 0;
+    if (verb === "delete" && !given && await ask.confirm(`Delete ${lane}? Its app stops and its checkout is removed. The branch is kept.`) !== true) return 0;
     if (given && rest.length === typed) return null;
     return exec([...command, lane, ...rest, ...flags]);
   }
@@ -296,5 +289,5 @@ async function pickProject(w: World, io: Io, ask: Ask, exec: Exec): Promise<stri
   if (gone(choice)) return null;
   if (choice !== "+add") return choice.slice(2);
   if (await exec(["add"]) !== 0) return null;
-  return projectAt(io.cwd, await world(io), io.env)?.id ?? null;
+  return projectAt(io.cwd, await world(io))?.id ?? null;
 }

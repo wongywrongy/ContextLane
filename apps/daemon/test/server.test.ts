@@ -77,7 +77,7 @@ describe("http api", () => {
     const setupCalls = calls.filter((c) => /^(git worktree|tmux new-session)/.test(c));
     expect(setupCalls[0]).toMatch(/^git worktree add -b lane\/01-billing-phase-0 /);
     expect(setupCalls[1]).toMatch(/^tmux new-session -d -s cl-shuttleworks-01 /);
-    // The owner's shell in the lane knows its lane and has the cl command, with nothing installed.
+    // The owner's shell in the lane knows its lane and has the contextlanes command, with nothing installed.
     expect(setupCalls[1]).toContain("-e CONTEXTLANES_LANE=shuttleworks/01");
     expect(setupCalls[1]).toContain("-e CONTEXTLANES_URL=http://127.0.0.1:");
     expect(setupCalls[1]).toMatch(/-e PATH=\/tmp\/cl-test\/bin:/);
