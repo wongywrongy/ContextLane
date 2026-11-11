@@ -45,7 +45,7 @@ status)
   else echo inactive; fi ;;
 logs)
   d="$U/$1"; [ -f "$d/log" ] || exit 0
-  date -r "$d/log" +%s; tail -n "$2" "$d/log" ;;
+  date -r "$d/log" +%s; tail -n "$2" "$d/log" | cut -c 1-4000 ;;
 list)
   [ -d "$U" ] && ls -1 "$U"; exit 0 ;;
 oneshot)

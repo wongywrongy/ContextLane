@@ -41,6 +41,7 @@ function kind(c: DockerCall): string {
     const e = a[a.indexOf("--entrypoint") + 1];
     if (e === "git") { const rest = a.slice(a.indexOf("--entrypoint") + 3).filter((x, i, all) => !(x === "-c" || all[i - 1] === "-c" || x === "-C" || all[i - 1] === "-C")); return `git ${rest.slice(0, 2).join(" ")}`; }
     if (a.includes("devcontainer")) return a.includes("read-configuration") ? "devcontainer read-configuration" : "devcontainer up";
+    if (a.some((x) => x.includes("base64"))) return "read project recipe";
     if (a.includes("-v")) return "lanes folder";
     return "look";
   }
@@ -51,6 +52,7 @@ function kind(c: DockerCall): string {
     if (argv[0] === "sh" && argv[2]?.includes("cat >")) return `write ${argv[4]}`;
     if (argv[0] === "sh" && argv[2]?.includes("chown")) return "prepare";
     if (argv[0] === "sh" && argv[2]?.includes("id -u")) return "ids";
+    if (argv[0] === "sh" && argv[2]?.includes("base64")) return "read recipe";
     return `exec ${argv[0]}`;
   }
   return a.slice(0, 2).join(" ");
@@ -69,6 +71,8 @@ describe("lane create in the Docker runtime", () => {
       "inspect --type", "ids", "prepare",
       "network connect",
       "tmux new-session", "tmux set-option",
+      // The recipe, looked for in the checkout (inside the lane), then in the main checkout (a helper): none here.
+      "read recipe", "read project recipe",
       // A lane without an agent still gets its token, for `contextlanes` in the owner's shell there.
       "write /var/lib/contextlanes-lane/token",
     ]);
@@ -351,15 +355,16 @@ describe("lane delete, attach, send and reconcile", () => {
     expect(s.store.getLane("shop/01")!.state).toBe("failed");
   });
 
-  it("refuses the lane's app and review in the Docker runtime until their phase", async () => {
+  it("refuses review in the Docker runtime until its phase; the lane's app answers (more in docker-apps.test.ts)", async () => {
     const s = await started();
     const as = await server(s);
-    for (const url of ["/api/lanes/shop/01/env", "/api/lanes/shop/01/logs?service=web", "/api/lanes/shop/01/diff"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
-    // A lane's own token reaches its status but not its app yet.
+    for (const url of ["/api/lanes/shop/01/diff"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
+    expect((await as("GET", "/api/lanes/shop/01/env")).statusCode).toBe(200);
+    // A lane's own token reaches its app's tools.
     const token = s.store.mintLaneToken("shop/01");
     const app = buildServer({ config: s.config, store: s.store, bus: s.bus, hosts: new HostLinks({ store: s.store, bus: s.bus }), lanes: s.lanes, run: s.git, version: "test" }); cleanups.push(() => app.close());
-    const tool = await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/env_start", headers: { authorization: `Bearer ${token}` }, payload: {} });
-    expect(tool.json()).toMatchObject({ code: "not_yet" });
+    const tool = await app.inject({ method: "POST", url: "/api/lanes/shop/01/tools/env_status", headers: { authorization: `Bearer ${token}` }, payload: {} });
+    expect(tool.statusCode).toBe(200);
   });
 });
 

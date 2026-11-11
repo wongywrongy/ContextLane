@@ -35,8 +35,8 @@ export function procAddress(hex: string): string | null {
   return `[${text}]:${p}`;
 }
 
-/** Listening sockets (state 0A) whose inode is among the processes' own, that reach beyond loopback. */
-export function publicProcNet(output: string): string[] {
+/** Listening sockets (state 0A) whose inode is among the processes' own, loopback or not. */
+export function procListening(output: string): string[] {
   const [fds = "", net = ""] = output.split("\n---\n");
   const inodes = new Set(fds.split("\n").map((l) => /^socket:\[(\d+)\]$/.exec(l.trim())?.[1]).filter((i): i is string => !!i));
   const found = new Set<string>();
@@ -44,11 +44,21 @@ export function publicProcNet(output: string): string[] {
     const cols = line.trim().split(/\s+/);
     if (cols.length < 10 || cols[3] !== "0A" || !inodes.has(cols[9]!)) continue;
     const local = procAddress(cols[1]!);
-    if (!local) continue;
-    const host = local.slice(0, local.lastIndexOf(":"));
-    if (!isLoopback(host)) found.add(local);
+    if (local) found.add(local);
   }
   return [...found];
+}
+
+const hostOf = (address: string) => address.slice(0, address.lastIndexOf(":"));
+
+/** The same, only those that reach beyond loopback. */
+export function publicProcNet(output: string): string[] {
+  return procListening(output).filter((a) => !isLoopback(hostOf(a)));
+}
+
+/** Addresses a service listens on, and true when every one of them is loopback (nothing outside the lane can reach it). */
+export function loopbackOnly(addresses: string[]): boolean {
+  return addresses.length > 0 && addresses.every((a) => isLoopback(hostOf(a)));
 }
 
 /**
@@ -94,7 +104,8 @@ export class DockerSupervisor implements Supervisor {
     const [first, ...rest] = out.split("\n");
     // A plain file has no time per line; each line carries the file's last write, as the process driver does.
     const at = new Date(Number(first) * 1000 || Date.now()).toISOString();
-    return rest.filter((l) => l.length).slice(-lines).map((text) => ({ at, text }));
+    // Bounded: at most `lines` lines of at most 4000 characters each.
+    return rest.filter((l) => l.length).slice(-lines).map((text) => ({ at, text: text.length > 4000 ? `${text.slice(0, 4000)}…` : text }));
   }
 
   async oneshot(spec: OneshotSpec): Promise<OneshotResult> {
@@ -112,6 +123,13 @@ export class DockerSupervisor implements Supervisor {
     if (!pids.length) return [];
     const out = await this.unit("listeners", pids.map(String)).then((r) => r.stdout, () => "");
     return publicProcNet(out);
+  }
+
+  /** Every address these processes listen on, loopback included (for "listens only on 127.0.0.1"). */
+  async listening(pids: number[]): Promise<string[]> {
+    if (!pids.length) return [];
+    const out = await this.unit("listeners", pids.map(String)).then((r) => r.stdout, () => "");
+    return procListening(out);
   }
 
   /** tmux daemonizes its own server, and a `docker exec` ending does not stop what it left running. */

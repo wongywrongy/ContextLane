@@ -19,8 +19,12 @@ export type RecipeStep = z.infer<typeof RecipeStep>;
 export const RecipeService = z.strictObject({
   name: Name,
   command: Argv,
-  /** The lane's free port arrives in this variable, and as $PORT inside command arguments. */
-  port: z.strictObject({ env: z.string().regex(/^[A-Z_][A-Z0-9_]*$/).default("PORT") }).prefault({}),
+  /**
+   * The service's port arrives in this variable, and as $PORT inside command arguments. On the host each
+   * lane gets a free port. In the Docker runtime every lane has its own network, so the service keeps one
+   * port in every lane: `number`, or 3000, 3001… in the order of the services when it is left out.
+   */
+  port: z.strictObject({ env: z.string().regex(/^[A-Z_][A-Z0-9_]*$/).default("PORT"), number: z.number().int().min(1).max(65535).optional() }).prefault({}),
   health: z.strictObject({ path: z.string().startsWith("/").default("/"), status: z.number().int().min(100).max(599).default(200), timeoutSeconds: Timeout(60) }).prefault({}),
   env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string()).default({}),
 });
@@ -46,7 +50,8 @@ export const Recipe = z.strictObject({
   setup: z.array(RecipeStep).max(20).default([]),
   /** Dependency folders taken from the main checkout, such as node_modules. */
   cache: z.array(RelativePath).max(20).default([]),
-  services: z.array(RecipeService).max(10).default([]).refine((s) => new Set(s.map((x) => x.name)).size === s.length, "service names must be unique"),
+  services: z.array(RecipeService).max(10).default([]).refine((s) => new Set(s.map((x) => x.name)).size === s.length, "service names must be unique")
+    .refine((s) => { const n = s.flatMap((x) => x.port.number === undefined ? [] : [x.port.number]); return new Set(n).size === n.length; }, "two services cannot have the same port number"),
   checks: z.array(RecipeStep).max(20).default([]),
   database: RecipeDatabase.optional(),
   /** Layers for the Architecture page; inferred from folder names when absent. Never run. */

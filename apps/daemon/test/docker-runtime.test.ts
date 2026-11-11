@@ -177,8 +177,8 @@ describe("projects through the API in the Docker runtime", () => {
     const lane = await as("POST", "/api/lanes", { project: "shop", task: "Fix it", kind: "shell" });
     expect(lane.statusCode).toBe(503);
     expect(lane.json()).toMatchObject({ code: "docker_unreachable" });
-    // What phase 4 and later bring answers not_yet.
-    for (const url of ["/api/setup/projects/scan", "/api/projects/shop/recipe", "/api/lanes/shop/1/env", "/api/lanes/shop/1/diff"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
+    // What later phases bring answers not_yet.
+    for (const url of ["/api/setup/projects/scan", "/api/projects/shop/skills", "/api/lanes/shop/1/diff"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
     // Reading lanes still works: there are none.
     expect((await as("GET", "/api/lanes")).json()).toEqual([]);
     expect((await as("GET", "/api/health")).json()).toMatchObject({ ok: true, runtime: "docker" });

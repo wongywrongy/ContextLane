@@ -213,8 +213,8 @@ export class LaneManager {
 
   /**
    * The Docker runtime's half of start: checkout, container, mounts, network, terminal and agent, in that
-   * order, through DockerLanes, which cleans up after a failed step. The app recipe and project skills read
-   * the checkout's files, which the control service cannot see: they arrive with v4 phase 4.
+   * order, through DockerLanes, which cleans up after a failed step. An approved recipe's setup runs inside
+   * the lane before the agent; project skills read the project's files from the control side and are not copied yet.
    */
   private async startInContainer(lane: Lane, project: NonNullable<ReturnType<Store["getProject"]>>, req: ReturnType<typeof StartLaneRequest.parse>, ownBranch: { name: string; remoteOnly: boolean } | null, extra: { prepare?: (lane: Lane) => Promise<void>; firstPrompt?: string }, title: string): Promise<Lane> {
     const { store, config } = this.deps;
@@ -224,6 +224,9 @@ export class LaneManager {
       await this.deps.docker!.create(lane, project, {
         ownBranch, base: req.base,
         launch: async (target) => {
+          // An approved recipe's setup runs before the agent, inside the lane, as on the host. A setup that
+          // fails is recorded on the lane's app (contextlanes app status) and the lane still starts.
+          await new Runtime(this.deps).prepareWorkspace(lane).catch((err: Error) => this.emit(store.appendEvent(id, { type: "env.status", payload: { service: "setup", up: false, state: "failed", detail: err.message.slice(0, 600) } })));
           // Every lane gets its token, so `contextlanes` in the owner's own shell there works too.
           if (!config.lanes.launchHosts || lane.kind !== "cli") { await this.deps.docker!.write(target, `${LANE_DIR}/token`, store.mintLaneToken(id)); return; }
           const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined));

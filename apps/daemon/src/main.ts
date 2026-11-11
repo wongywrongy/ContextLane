@@ -86,7 +86,8 @@ async function main(): Promise<void> {
   const lanes = new LaneManager({ store, bus, config, run, ...(dockerLanes ? { docker: dockerLanes } : {}) });
   const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); }, ...(folders ? { folders } : {}) });
   await setup.initialize();
-  const runtime = new Runtime({ store, bus, config, run });
+  // In the Docker runtime a lane's app runs in its container (docs/V4.md 3.4): the runtime gets the lanes.
+  const runtime = new Runtime({ store, bus, config, run, ...(dockerLanes ? { docker: dockerLanes } : {}) });
   const codemaps = new CodeMaps({ run, store, config });
   const localModels = new LocalModels({ config, run, journal: join(config.paths.data, "local-jobs.json") });
   const briefs = new Briefs({ config, store, codemaps, models: localModels });
