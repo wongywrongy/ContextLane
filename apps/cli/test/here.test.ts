@@ -44,3 +44,14 @@ describe("the folder a command runs in", () => {
     expect(JSON.parse(done.stderr)).toMatchObject({ code: "usage", error: expect.stringContaining("CONTEXTLANES_CWD") });
   }, 30_000);
 });
+
+import { ownFile } from "../src/client.js";
+
+describe("whose setup-token the command accepts", () => {
+  it("takes its own file, and any owner's when it runs as root in the control container", () => {
+    expect(ownFile(1000, 1000)).toBe(true);
+    expect(ownFile(1000, 1001)).toBe(false);
+    expect(ownFile(1000, 0)).toBe(true);
+    expect(ownFile(0, 1000)).toBe(false);
+  });
+});

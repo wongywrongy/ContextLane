@@ -85,7 +85,8 @@ log_cmd() { { printf '\n$'; printf ' %q' "$@"; printf '\n'; } >>"$LOG"; }
 run() {
   local t="$1"; shift
   log_cmd "$@"
-  timeout -k 10 "$t" "$@" 2>&1 | tee "$OUT" >>"$LOG"
+  # stdin is /dev/null: timeout puts the command in its own process group, where reading the terminal stops it.
+  timeout -k 10 "$t" "$@" </dev/null 2>&1 | tee "$OUT" >>"$LOG"
   local rc="${PIPESTATUS[0]}"
   printf '[exit %s]\n' "$rc" >>"$LOG"
   [ "$rc" -eq 124 ] && line "timed out after ${t}s: $1 ${2:-}"
@@ -95,7 +96,7 @@ run() {
 run_split() {
   local t="$1" so="$2"; shift 2
   log_cmd "$@"
-  { timeout -k 10 "$t" "$@" >"$so"; } 2>&1 | tee "$OUT" >>"$LOG"
+  { timeout -k 10 "$t" "$@" </dev/null >"$so"; } 2>&1 | tee "$OUT" >>"$LOG"
   local rc="${PIPESTATUS[0]}"
   { echo "--- stdout:"; cat "$so"; } >>"$LOG"
   printf '[exit %s]\n' "$rc" >>"$LOG"
