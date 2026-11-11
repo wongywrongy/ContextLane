@@ -10,6 +10,8 @@ import type { Config } from "../config.js";
 import type { Runner } from "../run.js";
 import { sandbox } from "../sandbox.js";
 import { Refused } from "./manager.js";
+import { laneEnv, type LaneTarget } from "../docker/exec.js";
+import { LANE_AGENT_HOME, LANE_DIR, LANE_TMUX_SOCKET, LANE_TOOLS } from "../docker/names.js";
 
 /** Keep login and customizations, but let native trust/login refresh write only inside this lane. */
 async function agentHome(agent: string, dir: string): Promise<Record<string, string>> {
@@ -87,6 +89,7 @@ export function cliArgs(lane: Lane, prompt: string, extra?: string[], resume = f
     return [...(lane.remoteControl ? ["--remote-control"] : []), "--permission-mode", mode, ...(lane.model ? ["--model", lane.model] : []),
       ...(lane.effort ? ["--effort", lane.effort] : []), ...(resume ? ["--continue"] : extra ?? ["--", prompt])];
   }
+  // UNVERIFIED in a lane container: Codex's own workspace-write sandbox (Landlock and seccomp) inside Docker's default seccomp profile.
   return [...(resume ? ["resume", "--last"] : []), "--no-daemon", "--sandbox", lane.mode === "plan" ? "read-only" : "workspace-write", "--ask-for-approval", "on-request",
     "-c", 'approval_reviewer="user"', ...(lane.model ? ["--model", lane.model] : []),
     ...(lane.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(lane.effort)}`] : []), ...(extra ?? (resume ? [] : ["--", prompt]))];
@@ -152,4 +155,84 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
     env }), { mode: 0o600 });
   await run("tmux", ["set-option", "-w", "-t", `=${lane.terminal}:`, "remain-on-exit", "on"]);
   await run("tmux", ["respawn-pane", "-k", "-t", `=${lane.terminal}:`, "-c", lane.worktree, process.execPath, fileURLToPath(new URL("../../bin/cli-agent.mjs", import.meta.url)), file]);
+}
+
+// ── The Docker runtime (docs/V4.md 3.3): the agent runs in the lane's container, from the tools volume ──
+
+/** The hook events v3 wires, per agent. */
+const hookEvents = (agent: string) => agent === "claude-code" ? ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "Notification"]
+  : ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "Interrupt"];
+
+/** The hooks file the agent gets in a lane: the hook from the tools volume, which reads the lane from its environment. */
+export function laneHooks(agent: string): { hooks: Record<string, { hooks: { type: "command"; command: string; timeout: number }[] }[]> } {
+  const command = `'${LANE_TOOLS}/bin/node' '${LANE_TOOLS}/cli/hook.mjs'`;
+  return { hooks: Object.fromEntries(hookEvents(agent).map((event) => [event, [{ hooks: [{ type: "command" as const, command: `${command} ${event}`, timeout: event === "PermissionRequest" ? 86_400 : 2 }] }]])) };
+}
+
+/** The MCP toolbox in a lane: the bundle in the tools volume, run by the volume's own Node. */
+export const laneToolbox = (config: Config) => ({ command: `${LANE_TOOLS}/bin/node`, args: [`${LANE_TOOLS}/cli/toolbox.mjs`], env: config.lanes.toolbox.env ?? {} });
+
+/** What launchCliDocker needs from the lane's container. */
+export type LaneFiles = {
+  write(target: LaneTarget, path: string, content: string): Promise<void>;
+  read(target: LaneTarget, path: string): Promise<string>;
+  exec(target: LaneTarget, argv: string[], opts?: { timeout?: number }): Promise<{ stdout: string }>;
+};
+
+/**
+ * launchCli for a lane container. Files go in the lane's own folder inside the container (LANE_DIR, 0700,
+ * not the checkout), written through stdin; the token is in the launch file and in LANE_DIR/token, where the
+ * lane's `contextlanes` reads it, never in an argument. The agents' config folders are the shared login
+ * volume (CLAUDE_CONFIG_DIR, CODEX_HOME), so one sign-in covers every lane of that uid: what ContextLanes
+ * puts there (Codex's hooks, MCP entry and notes) is the same for every lane, and lane-specific files stay
+ * in LANE_DIR.
+ */
+export async function launchCliDocker(lane: Lane, config: Config, files: LaneFiles, target: LaneTarget, token: string, prompt: string, extra?: string[], resume = false, baseline = false): Promise<void> {
+  const dir = `${LANE_DIR}/agent`;
+  const tmux = (args: string[]) => files.exec(target, ["tmux", "-L", LANE_TMUX_SOCKET, ...args]);
+  await files.write(target, `${LANE_DIR}/token`, token);
+  const task = `${dir}/task.md`;
+  if (resume) {
+    prompt = (await files.read(target, task)) || lane.task;
+    // UNVERIFIED: Claude Code keeps a session per folder under projects/<folder with / and . as ->; Codex's resume --last is assumed to pick this folder's session.
+    const logs = lane.agent === "claude-code" ? `${LANE_AGENT_HOME}/claude/projects/${lane.worktree.replace(/[/.]/g, "-")}` : `${LANE_AGENT_HOME}/codex/sessions`;
+    resume = !!(await files.exec(target, ["sh", "-c", 'find "$1" -name "*.jsonl" -print 2>/dev/null | head -n 1', "sh", logs]).then((r) => r.stdout.trim(), () => ""));
+  }
+  await files.write(target, task, prompt);
+  const first = Buffer.byteLength(prompt) > 64_000 ? `Read ${task} for your task, then carry it out.` : prompt;
+  const args: string[] = [];
+  const toolbox = laneToolbox(config);
+  if (lane.agent === "claude-code") {
+    await files.write(target, `${dir}/hooks.json`, JSON.stringify(laneHooks(lane.agent)));
+    await files.write(target, `${dir}/mcp.json`, JSON.stringify({ mcpServers: baseline ? {} : { contextlanes: { ...toolbox, timeout: 86_400_000 } } }));
+    args.push("--settings", `${dir}/hooks.json`, "--mcp-config", `${dir}/mcp.json`, ...(baseline ? ["--strict-mcp-config"] : []), ...(baseline ? [] : ["--append-system-prompt", AGENT_NOTES]));
+  } else {
+    const home = `${LANE_AGENT_HOME}/codex`;
+    // Codex reads hooks from CODEX_HOME. Earlier entries of ours are replaced; the owner's own are kept.
+    const previous = JSON.parse((await files.read(target, `${home}/hooks.json`)) || "{}") as { hooks?: Record<string, { hooks?: { command?: string }[] }[]> };
+    const hooks = laneHooks(lane.agent).hooks as Record<string, unknown[]>;
+    for (const [event, entries] of Object.entries(previous.hooks ?? {})) {
+      const kept = entries.map((entry) => ({ ...entry, hooks: entry.hooks?.filter((h) => !h.command?.includes("/cli/hook.mjs")) })).filter((entry) => entry.hooks?.length);
+      hooks[event] = [...kept, ...(hooks[event] ?? [])];
+    }
+    await files.write(target, `${home}/hooks.json`, JSON.stringify({ hooks }));
+    if (baseline) {
+      const listed = await files.exec(target, ["codex", "mcp", "list", "--json"], { timeout: 10_000 });
+      const servers = z.array(z.object({ name: z.string().min(1) })).parse(JSON.parse(listed.stdout));
+      args.push(...servers.flatMap(({ name }) => ["-c", `mcp_servers.${JSON.stringify(name)}.enabled=false`]));
+    } else {
+      const server = { command: toolbox.command, args: toolbox.args, env: toolbox.env, env_vars: ["CONTEXTLANES_LANE", "CONTEXTLANES_URL", "CONTEXTLANES_LANE_TOKEN"], startup_timeout_sec: 10, tool_timeout_sec: 86_400, enabled: true };
+      const current = parse((await files.read(target, `${home}/config.toml`)) || "");
+      const inherited = current.mcp_servers && typeof current.mcp_servers === "object" ? current.mcp_servers : {};
+      await files.write(target, `${home}/config.toml`, stringify({ ...current, mcp_servers: { ...inherited, contextlanes: server } }));
+      args.push(...Object.entries(server).filter(([key]) => key !== "env").flatMap(([key, value]) => ["-c", `mcp_servers.contextlanes.${key}=${JSON.stringify(value)}`]));
+      const notes = (await files.read(target, `${home}/AGENTS.md`));
+      if (!notes.includes(AGENT_NOTES)) await files.write(target, `${home}/AGENTS.md`, `${notes.trimEnd()}${notes.trim() ? "\n\n" : ""}${AGENT_NOTES}\n`);
+    }
+  }
+  const env = { ...laneEnv(target), CONTEXTLANES_LANE_TOKEN: token };
+  const launch = `${dir}/launch.json`;
+  await files.write(target, launch, JSON.stringify({ command: lane.agent === "claude-code" ? "claude" : "codex", args: [...args, ...cliArgs(lane, first, extra, resume)], env }));
+  await tmux(["set-option", "-w", "-t", `=${lane.terminal}:`, "remain-on-exit", "on"]);
+  await tmux(["respawn-pane", "-k", "-t", `=${lane.terminal}:`, "-c", lane.worktree, `${LANE_TOOLS}/bin/node`, `${LANE_TOOLS}/cli/cli-agent.mjs`, launch]);
 }

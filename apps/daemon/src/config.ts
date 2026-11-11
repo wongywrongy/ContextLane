@@ -106,6 +106,12 @@ export const Config = z.preprocess(runtimeDefaults, z.object({
   features: z.object(Object.fromEntries(FEATURE_NAMES.map((f) => [f, z.boolean().default(false)])) as Record<Feature, z.ZodDefault<z.ZodBoolean>>).prefault({}),
   lanes: z.object({
     maxConcurrent: z.number().int().positive().default(6), launchHosts: z.boolean().default(true),
+    /**
+     * The Docker runtime: the image a lane gets when its checkout has no devcontainer.json, and that image's
+     * user (whose uid the Dev Container CLI changes to the project folder's owner). Any glibc image with git and a shell.
+     */
+    image: z.string().min(1).max(300).default("mcr.microsoft.com/devcontainers/base:bookworm"),
+    imageUser: z.string().regex(/^[a-z_][a-z0-9_-]{0,31}$/).default("vscode"),
     host: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../lanehost/dist/main.js", import.meta.url))] }),
     toolbox: AgentSpec.default({ command: process.execPath, args: [fileURLToPath(new URL("../../../packages/toolbox/dist/main.js", import.meta.url))] }),
   }).prefault({}),
@@ -128,6 +134,11 @@ export const DOCKER_CONFIG_TEMPLATE = `# ContextLanes settings, written on the f
 
 [runtime]
 mode = "docker"
+
+[lanes]
+# The image a lane gets when its checkout has no .devcontainer/devcontainer.json, and that image's user.
+# image = "mcr.microsoft.com/devcontainers/base:bookworm"
+# imageUser = "vscode"
 
 [previews]
 # The wildcard name your reverse proxy sends to this machine's port 4601, e.g. lanes.example.dev

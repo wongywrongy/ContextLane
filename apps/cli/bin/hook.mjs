@@ -5,7 +5,8 @@ try {
   const lane = process.env.CONTEXTLANES_LANE;
   const token = process.env.CONTEXTLANES_LANE_TOKEN;
   const url = new URL(process.env.CONTEXTLANES_URL ?? "http://127.0.0.1:4600");
-  if (!lane || !token || url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname)) process.exit(0);
+  // Loopback on the host; in a lane container, the control service by its name on the contextlanes network.
+  if (!lane || !token || url.protocol !== "http:" || !["127.0.0.1", "localhost", "contextlanes"].includes(url.hostname)) process.exit(0);
   process.stdin.setEncoding("utf8");
   let stdin = "";
   for await (const chunk of process.stdin) { stdin += chunk; if (stdin.length > 2_000_000) process.exit(0); }

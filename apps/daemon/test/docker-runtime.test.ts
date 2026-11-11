@@ -50,7 +50,7 @@ describe("the runtime switch", () => {
     const path = join(dir, "config.toml");
     expect(await ensureConfigFile(path)).toBe(true);
     expect(await readFile(path, "utf8")).toBe(DOCKER_CONFIG_TEMPLATE);
-    expect(parse(DOCKER_CONFIG_TEMPLATE)).toEqual({ runtime: { mode: "docker" }, previews: {} });
+    expect(parse(DOCKER_CONFIG_TEMPLATE)).toEqual({ runtime: { mode: "docker" }, lanes: {}, previews: {} });
     vi.stubEnv("CONTEXTLANES_CONFIG", path);
     expect(loadConfig(path)).toMatchObject({ runtime: { mode: "docker" }, paths: { data: dir }, previews: { bind: "0.0.0.0", localPort: 4601 } });
     await writeFile(path, "[runtime]\nmode = \"docker\"\n[previews]\ndomain = \"lanes.example.dev\"\n");
@@ -173,10 +173,12 @@ describe("projects through the API in the Docker runtime", () => {
     }
     expect(calls).toEqual([]);
     await as("POST", "/api/projects", { path: "/srv/shop" });
+    // This server was built without lane containers (docker-lanes.test.ts has them): it says so.
     const lane = await as("POST", "/api/lanes", { project: "shop", task: "Fix it", kind: "shell" });
-    expect(lane.statusCode).toBe(501);
-    expect(lane.json()).toMatchObject({ code: "not_yet", error: expect.stringContaining("phase 3") });
-    for (const url of ["/api/setup/projects/scan", "/api/projects/shop/recipe"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
+    expect(lane.statusCode).toBe(503);
+    expect(lane.json()).toMatchObject({ code: "docker_unreachable" });
+    // What phase 4 and later bring answers not_yet.
+    for (const url of ["/api/setup/projects/scan", "/api/projects/shop/recipe", "/api/lanes/shop/1/env", "/api/lanes/shop/1/diff"]) expect((await as("GET", url)).json(), url).toMatchObject({ code: "not_yet" });
     // Reading lanes still works: there are none.
     expect((await as("GET", "/api/lanes")).json()).toEqual([]);
     expect((await as("GET", "/api/health")).json()).toMatchObject({ ok: true, runtime: "docker" });

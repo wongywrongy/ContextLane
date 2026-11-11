@@ -18,7 +18,8 @@ export type TerminalProcess = {
 };
 /** Runs a command without a shell. Injected everywhere so tests never touch git or tmux. */
 export type Runner = {
-  (cmd: string, args: string[], opts?: { cwd?: string; timeout?: number; env?: Record<string, string> }): Promise<{ stdout: string }>;
+  /** input: written to the command's stdin, then closed (files written into a lane container, never put in argv). */
+  (cmd: string, args: string[], opts?: { cwd?: string; timeout?: number; env?: Record<string, string>; input?: string }): Promise<{ stdout: string }>;
   terminal?: (cmd: string, args: string[], opts: TerminalSize & { cwd: string }) => TerminalProcess;
 };
 
@@ -26,7 +27,9 @@ export type Runner = {
 export const DEFAULT_TIMEOUT = 300_000;
 export const runCommand: Runner = async (cmd, args, opts) => {
   try {
-    const { stdout } = await exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout ?? DEFAULT_TIMEOUT, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
+    const running = exec(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout ?? DEFAULT_TIMEOUT, maxBuffer: 16 * 1024 * 1024, ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}) });
+    if (opts?.input !== undefined) { running.child.stdin?.on("error", () => {}); running.child.stdin?.end(opts.input); }
+    const { stdout } = await running;
     return { stdout };
   } catch (err) {
     throw readable(err, cmd, args);

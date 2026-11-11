@@ -77,6 +77,9 @@ describe("helper containers", () => {
     await expect(r("git", ["status"], { cwd: "/home/kyle/code/other" })).rejects.toMatchObject({ code: "not_a_project" });
     await expect(r("git", ["status"], { cwd: "/home/kyle/code/shopping" })).rejects.toMatchObject({ code: "not_a_project" });
     await expect(r("npm", ["test"], { cwd: "/home/kyle/code/shop" })).rejects.toMatchObject({ code: "not_yet", statusCode: 501 });
+    // A helper cannot see the owner's other worktrees, so prune would drop their records.
+    await expect(r("git", ["worktree", "prune"], { cwd: "/home/kyle/code/shop" })).rejects.toMatchObject({ code: "no_prune" });
+    await expect(r("git", ["-C", "/home/kyle/code/shop", "worktree", "prune", "--expire", "now"], { cwd: "/home/kyle/code/shop" })).rejects.toMatchObject({ code: "no_prune" });
     expect(calls).toEqual([]);
     await r("docker", ["version"]);
     expect(calls).toEqual([{ cmd: "docker", args: ["version"] }]);

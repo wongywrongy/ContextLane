@@ -17,6 +17,16 @@ import { supervisorFor } from "./supervisor/index.js";
 export async function recover(deps: { store: Store; bus: EventBus; config: Config; run: Runner }): Promise<string[]> {
   const { store, bus, config, run } = deps;
   const done: string[] = [];
+  // The Docker runtime: a lane caught setting up has a half-made container; nothing tells whether its
+  // last step finished, so it fails with its checkout kept, and the lane containers are found again in main.
+  if (config.runtime.mode === "docker") {
+    for (const lane of store.listLanes().filter((l) => l.state === "draft" || l.state === "setting_up")) {
+      bus.publish(lane.state === "draft" ? store.setLaneState(lane.id, "archived", "ContextLanes restarted before this lane was set up.")
+        : store.setLaneState(lane.id, "failed", "ContextLanes restarted while this lane was being set up. Delete it (contextlanes delete) and start a new lane with the same task."));
+      done.push(`${lane.id}: ${store.getLane(lane.id)!.state}`);
+    }
+    return done;
+  }
   for (const lane of store.listLanes().filter((l) => l.state === "draft" || l.state === "setting_up")) {
     const active = lane.kind === "cli" ? await run("tmux", ["display-message", "-p", "-t", `=${lane.terminal}:`, "#{pane_dead}"]).then((r) => r.stdout.trim() === "0", () => false) : await run("systemctl", ["--user", "is-active", "--quiet", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 10_000 }).then(() => true, () => false);
     try {

@@ -12,7 +12,9 @@ import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
 import { supervisorFor } from "../supervisor/index.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
-import { checkCliArgs, launchCli, laneCommandDir } from "./cli.js";
+import { checkCliArgs, launchCli, launchCliDocker, laneCommandDir } from "./cli.js";
+import type { DockerLanes } from "../docker/lanes.js";
+import { LANE_DIR } from "../docker/names.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -24,9 +26,22 @@ export class LaneManager {
   private readonly launched = new Map<string, { at: number; since: number }>();
 
   constructor(
-    private readonly deps: { store: Store; bus: EventBus; config: Config; run: Runner },
+    /** docker: lane containers, in the Docker runtime (docs/V4.md 3.3). */
+    private readonly deps: { store: Store; bus: EventBus; config: Config; run: Runner; docker?: DockerLanes },
   ) {
     this.terminals = new Terminals(deps.run, supervisorFor(deps.config, deps.run));
+  }
+
+  /** Lane containers, when this daemon is the Docker runtime's control service. */
+  get docker(): DockerLanes | undefined { return this.deps.config.runtime.mode === "docker" ? this.deps.docker : undefined; }
+
+  /** The lane is a container of the Docker runtime (it has lane.container events). */
+  inContainer(lane: Pick<Lane, "id">): boolean { return !!this.docker?.isDocker(lane); }
+
+  /** tmux for this lane: inside its container in the Docker runtime, on this machine otherwise. */
+  tmux(lane: Pick<Lane, "id" | "worktree">, args: string[], opts: { timeout?: number } = {}): Promise<{ stdout: string }> {
+    if (this.docker && this.inContainer(lane)) return this.docker.tmux(lane, args, opts);
+    return this.deps.run("tmux", args, opts);
   }
 
   /**
@@ -96,7 +111,8 @@ export class LaneManager {
   async start(input: unknown, extra: { prepare?: (lane: Lane) => Promise<void>; firstPrompt?: string } = {}): Promise<Lane> {
     const req = StartLaneRequest.parse(input);
     const { store, config } = this.deps;
-    if (config.runtime.mode === "docker") throw new Refused("Lanes do not run in the Docker setup yet (v4 phase 3). Projects, branches and doctor work; for lanes use the v3 host install for now.", 501, "not_yet");
+    const docker = config.runtime.mode === "docker";
+    if (docker && !this.deps.docker) throw new Refused("This control service was started without lane containers.", 503, "docker_unreachable");
     const project = store.getProject(req.project);
     if (!project) throw new NotFound(`no project ${req.project}`);
     // Claude Code and Codex run as their own CLIs; other agents speak ACP. A shell lane runs no agent.
@@ -107,6 +123,8 @@ export class LaneManager {
     if (kind === "acp" && !config.features.acp) throw new Refused(featureOff("acp"), 400, "feature_off");
     if (kind === "acp" && config.supervisor.driver === "process") throw new Refused("ACP lanes run their agent host as a systemd user unit, and this machine runs without systemd. Use Claude Code or Codex, which run as their own CLIs.", 400, "needs_systemd");
     if (req.remoteControl && (kind !== "cli" || req.agent !== "claude-code")) throw new Refused("Remote Control requires a Claude Code CLI lane.", 400);
+    if (docker && kind === "acp") throw new Refused("ACP lanes run their agent host as a systemd unit and are not part of the Docker setup. Use Claude Code or Codex, which run as their own CLIs in the lane's container.", 400, "needs_systemd");
+    if (docker && req.direct) throw new Refused("--here (a lane in the project folder itself) does not run in the Docker setup yet; a lane gets its own checkout beside the project.", 501, "not_yet");
     const directBranch = req.direct ? (await this.deps.run("git", ["symbolic-ref", "--short", "HEAD"], { cwd: project.path })).stdout.trim() : null;
     if (req.direct && !directBranch) throw new Refused("Direct mode needs a checked-out branch.", 400);
     const ownBranch = req.direct ? null : await this.existingBranch(project.path, req.branch);
@@ -119,14 +137,17 @@ export class LaneManager {
       const active = store.listLanes().filter((l) => ["setting_up", "working", "needs_you"].includes(l.state));
       if (active.length >= config.lanes.maxConcurrent) throw new Refused(`${active.length} lanes are already running, the most this machine allows. Finish or pause one, or raise the limit in Settings.`);
 
-      // The sandbox protects ContextLanes from agent code; a lane with no agent of ours runs none.
-      if (config.lanes.launchHosts && kind !== "shell") await requireSandbox(this.deps.run, config);
+      // The sandbox protects ContextLanes from agent code; a lane with no agent of ours runs none. In the
+      // Docker runtime the lane's container is the boundary (docs/V4.md 3.5).
+      if (!docker && config.lanes.launchHosts && kind !== "shell") await requireSandbox(this.deps.run, config);
 
       const n = store.nextLaneNumber(project.id);
       const id = laneId(project.id, n);
       // A task can be a whole plan: lists, the branch and the header use a short title; the agent gets all of it.
       const title = req.title ?? laneTitle(req.task);
-      const names = await this.freeNames(project.path, project.id, id, n, title);
+      const names = docker
+        ? await this.deps.docker!.freeNames(project, n, title, ownBranch?.name ?? null).then((d) => ({ branch: d.branch, worktree: d.worktree, terminal: d.container, hostUnit: null }))
+        : await this.freeNames(project.path, project.id, id, n, title);
       const lane = store.insertLane({
         id,
         n,
@@ -158,6 +179,7 @@ export class LaneManager {
       return { lane, id, title };
     });
 
+    if (docker) return this.startInContainer(lane, project, req, ownBranch, extra, title);
     try {
       if (!lane.direct) {
         await mkdir(dirname(lane.worktree), { recursive: true });
@@ -185,6 +207,35 @@ export class LaneManager {
       if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
     } catch (err) {
       this.emit(store.setLaneState(id, "failed", err instanceof Error ? err.message : String(err)));
+    }
+    return store.getLane(id)!;
+  }
+
+  /**
+   * The Docker runtime's half of start: checkout, container, mounts, network, terminal and agent, in that
+   * order, through DockerLanes, which cleans up after a failed step. The app recipe and project skills read
+   * the checkout's files, which the control service cannot see: they arrive with v4 phase 4.
+   */
+  private async startInContainer(lane: Lane, project: NonNullable<ReturnType<Store["getProject"]>>, req: ReturnType<typeof StartLaneRequest.parse>, ownBranch: { name: string; remoteOnly: boolean } | null, extra: { prepare?: (lane: Lane) => Promise<void>; firstPrompt?: string }, title: string): Promise<Lane> {
+    const { store, config } = this.deps;
+    const id = lane.id;
+    try {
+      if (extra.prepare) throw new Refused("Taking over changes into a new lane does not run in the Docker setup yet.", 501, "not_yet");
+      await this.deps.docker!.create(lane, project, {
+        ownBranch, base: req.base,
+        launch: async (target) => {
+          // Every lane gets its token, so `contextlanes` in the owner's own shell there works too.
+          if (!config.lanes.launchHosts || lane.kind !== "cli") { await this.deps.docker!.write(target, `${LANE_DIR}/token`, store.mintLaneToken(id)); return; }
+          const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined));
+          await launchCliDocker(lane, config, this.deps.docker!, target, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline);
+        },
+      });
+      if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
+      if (store.getLane(id)!.state === "working" && store.inbox().some((i) => i.lane === id && i.kind === "permission")) this.emit(store.setLaneState(id, "needs_you"));
+    } catch (err) {
+      const step = (err as { step?: string }).step;
+      const message = err instanceof Error ? err.message : String(err);
+      this.emit(store.setLaneState(id, "failed", step ? `Setting up the lane failed at the ${step} step: ${message}` : message));
     }
     return store.getLane(id)!;
   }
@@ -244,7 +295,8 @@ export class LaneManager {
     if (lane.kind === "shell") throw new Refused("This lane has no agent to restart.", 400);
     if (!["working", "needs_you", "failed"].includes(lane.state)) throw new Refused("Only a working, waiting or failed lane's agent can be restarted.");
     if (lane.kind === "cli") {
-      if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, await this.terminalEnv(id), true);
+      if (this.docker && this.inContainer(lane)) await this.docker.ensureTerminal(lane);
+      else if (!await this.terminals.exists(lane.terminal)) await this.terminals.create(lane.terminal, lane.worktree, await this.terminalEnv(id), true);
       this.emit(store.appendEvent(id, { type: "agent.error", payload: { message: "CLI restarted by you; resuming the last session in this checkout." } }));
       await this.relaunch(lane, "");
       return store.getLane(id)!;
@@ -274,7 +326,10 @@ export class LaneManager {
     }
     if (["failed", "needs_you"].includes(store.getLane(id)!.state)) this.emit(store.setLaneState(id, "working", "agent restarted"));
     try {
-      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true, !!store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline);
+      const baseline = !!store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline;
+      const target = this.docker && this.inContainer(lane) ? this.docker.target(lane) : null;
+      if (lane.kind === "cli" && target) await launchCliDocker(store.getLane(id)!, this.deps.config, this.docker!, target, store.mintLaneToken(id), text, undefined, true, baseline);
+      else if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true, baseline);
       else await this.launch(store.getLane(id)!, text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -310,7 +365,7 @@ export class LaneManager {
   async cliConnected(id: string): Promise<boolean> {
     const lane = this.deps.store.getLane(id);
     if (!lane || lane.kind !== "cli") return false;
-    return this.deps.run("tmux", ["display-message", "-p", "-t", `=${lane.terminal}:`, "#{pane_dead}" ]).then((r) => r.stdout.trim() === "0", () => false);
+    return this.tmux(lane, ["display-message", "-p", "-t", `=${lane.terminal}:`, "#{pane_dead}"], { timeout: 15_000 }).then((r) => r.stdout.trim() === "0", () => false);
   }
 }
 

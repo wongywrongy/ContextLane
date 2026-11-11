@@ -41,6 +41,15 @@ describe("--json on every command", () => {
   }, 60_000);
 });
 
+describe("inside a lane container", () => {
+  it("does not attach a terminal from inside a lane: wrong usage, exit 2", () => {
+    const done = spawnSync(tsx, [main, "open", "shop/01", "--json"], { encoding: "utf8", env: { ...process.env, CONTEXTLANES_URL: "http://127.0.0.1:1", CONTEXTLANES_LANE: "shop/01", CONTEXTLANES_LANE_TOKEN: "cl-lane-x", CONTEXTLANES_RUNTIME: "docker" } });
+    expect(done.status).toBe(2);
+    expect(done.stdout).toBe("");
+    expect(JSON.parse(done.stderr)).toMatchObject({ code: "usage", error: expect.stringContaining("from the host") });
+  }, 30_000);
+});
+
 describe("one word per action", () => {
   /** Every second spelling there used to be. None is an alias now: each is refused before anything is asked of the daemon. */
   const removed = [["lane", "start", "shop", "Task"], ["lanes"], ["ls"], ["up"], ["down"], ["ps"], ["say", "shop/01", "hi"], ["sh", "shop/01"], ["rm", "shop/01"], ["ok", "shop/01#r1", "allow"],

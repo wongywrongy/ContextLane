@@ -5,8 +5,12 @@ import type { EventBus } from "../bus.js";
 import type { Config } from "../config.js";
 import type { Store } from "../db/store.js";
 import type { Runner } from "../run.js";
+import type { Lane } from "@contextlanes/protocol";
+import type { LaneManager } from "./manager.js";
+import { LANE_DIR } from "../docker/names.js";
 
-type Deps = { store: Store; bus: EventBus; config: Config; run: Runner };
+/** lanes: in the Docker runtime a lane's tmux runs in its container (LaneManager.tmux, DockerLanes). */
+type Deps = { store: Store; bus: EventBus; config: Config; run: Runner; lanes?: Pick<LaneManager, "tmux" | "inContainer" | "docker"> };
 
 /** CLI input shares the durable command queue with ACP. Only a native Stop makes a lane ready. */
 export class CliInputs {
@@ -27,8 +31,12 @@ export class CliInputs {
     const work = this.drain(id).catch((e) => console.error(`CLI input ${id}:`, e)).finally(() => { this.running.delete(id); if (this.dirty.delete(id)) this.wake(id); });
     this.running.set(id, work);
   }
+  private tmux(lane: Lane, args: string[]): Promise<{ stdout: string }> {
+    return this.deps.lanes?.inContainer(lane) ? this.deps.lanes.tmux(lane, args, { timeout: 10_000 }) : this.deps.run("tmux", args, { timeout: 10_000 });
+  }
+
   private async drain(id: string): Promise<void> {
-    const { store, run, config } = this.deps;
+    const { store, config } = this.deps;
     const lane = store.getLane(id)!;
     if (!["working", "needs_you", "in_review"].includes(lane.state)) return;
     const pending = store.pendingCommands(id);
@@ -37,7 +45,7 @@ export class CliInputs {
       const { command, commandId } = event.payload;
       try {
         if (command.kind !== "cancel") throw new Error("Use the agent's own session commands in its terminal to change settings.");
-        await run("tmux", ["send-keys", "-t", `=${lane.terminal}:`, "Escape"], { timeout: 10_000 });
+        await this.tmux(lane, ["send-keys", "-t", `=${lane.terminal}:`, "Escape"]);
         this.done(id, commandId, true);
       } catch (e) { this.done(id, commandId, false, (e as Error).message); }
     }
@@ -55,19 +63,29 @@ export class CliInputs {
       const prior = store.eventsOfType(["agent.command"], { lanes: [id] }).find((e) => e.payload.commandId === previous.payload.commandId)?.payload.command;
       if (prior?.kind === "prompt" && !prior.text.trimStart().startsWith("/")) return;
     }
-    const dir = join(config.paths.data, "cli", id.replace("/", "-"));
-    const file = join(dir, `input-${commandId}.txt`);
+    // In a lane container the message file is written inside it (through stdin), where its tmux can read it.
+    const docker = this.deps.lanes?.inContainer(lane) ? this.deps.lanes.docker : undefined;
+    const target = docker?.target(lane) ?? null;
+    const dir = target ? LANE_DIR : join(config.paths.data, "cli", id.replace("/", "-"));
+    const file = target ? `${LANE_DIR}/input-${commandId}.txt` : join(dir, `input-${commandId}.txt`);
     const buffer = `cl-${commandId}`;
     try {
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      await writeFile(file, cliPromptText(command), { mode: 0o600 });
+      if (docker && target) await docker.write(target, file, cliPromptText(command));
+      else {
+        await mkdir(dir, { recursive: true, mode: 0o700 });
+        await writeFile(file, cliPromptText(command), { mode: 0o600 });
+      }
       this.emit(id, { type: "agent.input", payload: { commandId, phase: "sending" } });
-      await run("tmux", ["load-buffer", "-b", buffer, file], { timeout: 10_000 });
-      await run("tmux", ["paste-buffer", "-d", "-p", "-b", buffer, "-t", `=${lane.terminal}:`], { timeout: 10_000 });
-      await run("tmux", ["send-keys", "-t", `=${lane.terminal}:`, "Enter"], { timeout: 10_000 });
+      await this.tmux(lane, ["load-buffer", "-b", buffer, file]);
+      await this.tmux(lane, ["paste-buffer", "-d", "-p", "-b", buffer, "-t", `=${lane.terminal}:`]);
+      await this.tmux(lane, ["send-keys", "-t", `=${lane.terminal}:`, "Enter"]);
       this.emit(id, { type: "agent.input", payload: { commandId, phase: "sent" } });
       this.done(id, commandId, true);
     } catch (e) { this.done(id, commandId, false, `The message could not be sent. Check the terminal before retrying: ${(e as Error).message}`); }
-    finally { await rm(file, { force: true }); await run("tmux", ["delete-buffer", "-b", buffer], { timeout: 10_000 }).catch(() => {}); }
+    finally {
+      if (docker && target) await docker.exec(target, ["rm", "-f", file]).catch(() => {});
+      else await rm(file, { force: true });
+      await this.tmux(lane, ["delete-buffer", "-b", buffer]).catch(() => {});
+    }
   }
 }

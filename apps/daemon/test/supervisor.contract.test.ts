@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { runCommand } from "@contextlanes/daemon";
-import { ProcessSupervisor, SystemdSupervisor, type Supervisor } from "../src/supervisor/index.js";
+import { DockerSupervisor, ProcessSupervisor, SystemdSupervisor, type Supervisor } from "../src/supervisor/index.js";
+import { localDocker } from "./docker-fakes.js";
 
 const node = process.execPath;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -87,6 +88,10 @@ setInterval(() => {}, 1000);`);
 
 contract("process", (data) => new ProcessSupervisor(data), true);
 contract("systemd", () => new SystemdSupervisor(runCommand), process.env.CONTEXTLANES_REAL_HOSTS === "1");
+// The docker driver with a fake docker that runs each `docker exec` on this machine: the same unit helper
+// and argv as in a lane container, against real processes. A real lane container is checked by
+// scripts/v4-check/phase3.sh.
+contract("docker", (data) => new DockerSupervisor(localDocker().run, { container: "cl-test-01", user: "vscode", workdir: "/", path: process.env.PATH!, env: {} }, join(data, "units")), process.platform === "linux");
 
 describe("process supervisor across a daemon restart", () => {
   it("finds a service that kept running, starts again one that died and restarts, and treats the rest as stopped", async () => {

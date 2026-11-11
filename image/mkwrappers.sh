@@ -1,5 +1,5 @@
 #!/bin/sh
-# Writes <tools>/bin/{tmux,node,claude,codex}. Each wrapper finds its own folder at run time, so the
+# Writes <tools>/bin/{tmux,node,contextlanes,claude,codex}. Each wrapper finds its own folder at run time, so the
 # tools work wherever the volume is mounted (/opt/contextlanes in a lane). From scripts/v4-spike/v4-spike.sh.
 set -eu
 T="$1"
@@ -16,6 +16,12 @@ write tmux 'TERMINFO_DIRS="$root/share/terminfo${TERMINFO_DIRS:+:$TERMINFO_DIRS}
 exec "$root/libexec/tmux" "$@"'
 # shellcheck disable=SC2016
 write node 'exec "$root/node/bin/node" "$@"'
+# The contextlanes command in a lane (docs/V4.md 3.3): the bundled CLI, run by the volume's own Node. The
+# lane's token is in the lane's own folder (written by the control service), so a shell started before the
+# agent was last restarted still has the current one.
+# shellcheck disable=SC2016
+write contextlanes 'if [ -r /var/lib/contextlanes-lane/token ]; then CONTEXTLANES_LANE_TOKEN=$(cat /var/lib/contextlanes-lane/token); export CONTEXTLANES_LANE_TOKEN; fi
+exec "$root/node/bin/node" "$root/cli/cli.mjs" "$@"'
 
 agent() {
   name="$1"; extra="$2"

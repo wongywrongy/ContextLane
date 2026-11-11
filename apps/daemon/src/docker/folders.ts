@@ -41,9 +41,23 @@ export function statArgv(image: string, path: string, name = helperName()): stri
  * git in the project folder as the folder's owner, so anything it writes is theirs. HOME is a private
  * tmpfs; the image's own git config is ignored. The folder is the only thing mounted.
  */
-export function gitArgv(image: string, project: string, cwd: string, owner: ProjectOwner, args: string[], env: Record<string, string> = {}, name = helperName()): string[] {
+export function gitArgv(image: string, project: string, cwd: string, owner: ProjectOwner, args: string[], env: Record<string, string> = {}, name = helperName(), also: string[] = []): string[] {
   const vars = Object.entries({ HOME: "/tmp", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", ...env }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-  return [...helperBase(name), "--read-only", "--tmpfs", "/tmp", "--user", `${owner.uid}:${owner.gid}`, ...vars, ...folderMount(project), "-w", cwd, "--entrypoint", "git", image, ...args];
+  return [...helperBase(name), "--read-only", "--tmpfs", "/tmp", "--user", `${owner.uid}:${owner.gid}`, ...vars, ...folderMount(project), ...also.flatMap((p) => folderMount(p)), "-w", cwd, "--entrypoint", "git", image, ...args];
+}
+
+/** Lane checkouts of a project live beside it, in `<project folder>.lanes` (docs/V4.md 9.1). */
+export const lanesFolder = (project: string) => `${project}.lanes`;
+
+/**
+ * Makes `<project>.lanes` the owner's. The helper mounts only that folder: Docker creates it when it is
+ * missing (as root), and the helper, root with only CHOWN added back, hands it to the owner, but only an
+ * empty folder owned by root, which is what Docker just made. A folder that exists is never changed.
+ * Proven by the phase 1 spike (docs/V4.md 8b).
+ */
+export function lanesFolderArgv(image: string, folder: string, owner: ProjectOwner, name = helperName()): string[] {
+  return [...helperBase(name), "--read-only", "--cap-add", "CHOWN", "--user", "0:0", "-v", `${folder}:${folder}`, "--entrypoint", "sh", image, "-c",
+    'if [ "$(stat -c %u "$1")" = 0 ] && [ -z "$(ls -A "$1")" ]; then chown "$2" "$1"; fi; stat -c %u:%g "$1"', "sh", folder, `${owner.uid}:${owner.gid}`];
 }
 
 /** What `add` learns about a folder, read through helpers. */
@@ -72,7 +86,7 @@ export class DockerFolders {
   }
 
   /** Runs one helper and removes it by name if the command is stopped (a killed client leaves the container running). */
-  private async helper(argv: string[], opts: { timeout?: number } = {}): Promise<{ stdout: string }> {
+  async helper(argv: string[], opts: { timeout?: number } = {}): Promise<{ stdout: string }> {
     const name = argv[argv.indexOf("--name") + 1]!;
     try {
       return await this.deps.run("docker", argv, { timeout: (opts.timeout ?? DEFAULT_TIMEOUT) + START_MS });
@@ -142,13 +156,25 @@ export class DockerFolders {
   runner(): Runner {
     const wrapped: Runner = async (cmd, args, opts = {}) => {
       if (!opts.cwd) return this.deps.run(cmd, args, opts);
-      if (cmd !== "git") throw new Refused(`${cmd} would run in ${opts.cwd}, which the control service cannot see. This arrives with lanes in v4 phase 3.`, 501, "not_yet");
+      // A helper mounts one project (and its lanes folder). Worktrees the owner keeps anywhere else look
+      // missing from inside it, and prune would delete their records from the owner's repository.
+      if (cmd === "git" && args.includes("worktree") && args[args.indexOf("worktree") + 1] === "prune")
+        throw new Refused("git worktree prune is never run from a helper container: it would drop the records of worktrees the helper cannot see.", 400, "no_prune");
+      if (cmd !== "git") throw new Refused(`${cmd} would run in ${opts.cwd}, which the control service cannot see. In the Docker setup it runs in the lane's container; this one arrives in a later v4 phase.`, 501, "not_yet");
       const cwd = posix.normalize(opts.cwd);
       const known = [...this.deps.store.listProjects(), ...[...this.pending.keys()].map((path) => ({ id: "", path, owner: this.pending.get(path)! }))];
-      const project = known.filter((p) => cwd === p.path || cwd.startsWith(`${p.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
+      const inside = (root: string) => cwd === root || cwd.startsWith(`${root}/`);
+      // A lane checkout (in <project>.lanes) needs the project too: its .git file points at <project>/.git.
+      const project = known.filter((p) => inside(p.path) || inside(lanesFolder(p.path))).sort((a, b) => b.path.length - a.path.length)[0];
       if (!project) throw new Refused(`${cwd} is not inside a project, so no helper container may mount it.`, 400, "not_a_project");
       const owner = project.id ? await this.ownerOf(project) : project.owner!;
-      return this.helper(gitArgv(this.control().image, this.checkPath(project.path), cwd, owner, args, opts.env), opts.timeout === undefined ? {} : { timeout: opts.timeout });
+      const timeout = opts.timeout === undefined ? {} : { timeout: opts.timeout };
+      if (inside(project.path)) return this.helper(gitArgv(this.control().image, this.checkPath(project.path), cwd, owner, args, opts.env), timeout);
+      // In a lane checkout: start in <project>.lanes and let git change folder (-C). Docker would create a
+      // missing working folder, and on a bind mount that is a folder on the host.
+      // UNVERIFIED: that docker run -w creates a missing folder through a bind mount (from memory); -C is safe either way.
+      const lanes = this.checkPath(lanesFolder(project.path));
+      return this.helper(gitArgv(this.control().image, this.checkPath(project.path), lanes, owner, cwd === lanes ? args : ["-C", cwd, ...args], opts.env, helperName(), [lanes]), timeout);
     };
     return wrapped;
   }
