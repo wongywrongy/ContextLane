@@ -4,7 +4,9 @@ import type { DoctorCheck } from "@contextlanes/protocol";
 import type { Runner } from "../run.js";
 import type { ControlInfo } from "./control.js";
 import { helperBase, helperName } from "./folders.js";
-import { API_PORT, DATA_MOUNT, NETWORK, SOCKET, TOOLS_IN_IMAGE, TOOLS_MARKER, TOOLS_MOUNT, TOOLS_VOLUME } from "./names.js";
+import type { DockerLanes } from "./lanes.js";
+import type { Config } from "../config.js";
+import { API_PORT, DATA_MOUNT, LANE_LABEL, NETWORK, SOCKET, TOOLS_IN_IMAGE, TOOLS_MARKER, TOOLS_MOUNT, TOOLS_VOLUME } from "./names.js";
 
 export type DockerDoctorDeps = {
   /** Read once at start; null when the control service could not find its own container. */
@@ -12,6 +14,9 @@ export type DockerDoctorDeps = {
   /** The two tools folders, injectable for tests. */
   toolsMount?: string;
   toolsInImage?: string;
+  /** Lane containers (phase 3): the lane image, the agent logins, containers with no lane and lanes with no container. */
+  lanes?: DockerLanes;
+  config?: Config;
 };
 
 const readMarker = (dir: string) => readFile(join(dir, TOOLS_MARKER), "utf8").then((t) => t.trim(), () => null);
@@ -62,7 +67,32 @@ export async function dockerChecks(run: Runner, deps: DockerDoctorDeps): Promise
       : { id: "helpers", title: "Helper containers", state: "fail", found: `could not start one: ${helper.slice(0, 300)}`, fix: "Read the message above; the helper uses the control service's own image." });
   }
 
+  if (deps.config) {
+    const image = deps.config.lanes.image;
+    const local = await run("docker", ["image", "inspect", "--format", "{{.Id}}", image], { timeout: 15_000 }).then(() => true, () => false);
+    add(local
+      ? { id: "lane-image", title: "Lane image", state: "ok", found: `${image} (for checkouts without devcontainer.json; [lanes] image in config.toml), present` }
+      : { id: "lane-image", title: "Lane image", state: "warn", found: `${image} is not on this machine yet; the first lane without a devcontainer.json pulls it`, fix: `To pull it now: docker pull ${image}` });
+    const homes = (await run("docker", ["volume", "ls", "--filter", "name=contextlanes-agent-home-", "--format", "{{.Name}}"], { timeout: 15_000 }).then((r) => r.stdout, () => "")).split("\n").map((l) => l.trim()).filter(Boolean);
+    add({ id: "agent-logins", title: "Agent logins", state: "ok", found: homes.length
+      ? `${homes.join(", ")}: one per uid; signing in once in a lane covers every lane of that uid`
+      : "no agent-login volume yet; the first lane makes contextlanes-agent-home-<uid>" });
+  }
+  if (deps.lanes) {
+    const found = await deps.lanes.reconcile({ record: false }).catch((err: Error) => ({ error: err.message }));
+    if ("error" in found) add({ id: "lanes", title: "Lane containers", state: "fail", found: `could not list containers labelled ${LANE_LABEL}: ${found.error.slice(0, 300)}` });
+    else {
+      const problems = [
+        found.strays.length ? `${found.strays.length === 1 ? "a container" : `${found.strays.length} containers`} labelled as a lane that no open lane owns: ${found.strays.join(", ")}` : "",
+        found.missing.length ? `${found.missing.length === 1 ? "a lane" : `${found.missing.length} lanes`} whose container is gone: ${found.missing.join(", ")}` : "",
+      ].filter(Boolean);
+      add(problems.length
+        ? { id: "lanes", title: "Lane containers", state: "warn", found: problems.join("; "), fix: [found.strays.length ? `Look at a stray with docker inspect <name>, and remove it with docker rm -f <name> if it is not needed.` : "", found.missing.length ? "Delete a lane whose container is gone: contextlanes delete <lane>" : ""].filter(Boolean).join(" ") }
+        : { id: "lanes", title: "Lane containers", state: "ok", found: "every open lane has its container, and every lane container has its lane" });
+    }
+  }
+
   add({ id: "socket", title: "Docker socket", state: "ok",
-    found: "The control service holds the Docker socket, which is root-equivalent on this host. Only it has the socket; helper containers and lanes never get it." });
+    found: "The control service holds the Docker socket, which is root-equivalent on this host. Only it and the one Dev Container CLI helper that builds a lane have the socket; other helpers and lanes never get it." });
   return checks;
 }

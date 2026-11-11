@@ -87,7 +87,7 @@ async function main(argv: string[]): Promise<number> {
 async function run(argv: string[]): Promise<number> {
   if (argv[0] === "claude" || argv[0] === "codex") {
     const lane = await startCliLane(argv[0], argv.slice(1));
-    return openTerminal(lane);
+    return openTerminal(lane, argv.includes("--json"));
   }
   // In the foreground, for any init system or none; logs go to this terminal. Ctrl-C stops it.
   if (argv[0] === "daemon") {
@@ -136,7 +136,7 @@ async function run(argv: string[]): Promise<number> {
       if (values.json) { console.log(JSON.stringify(h, null, 2)); return 0; }
       console.log(ok(`ContextLanes ${bold(h.version)} is running on ${h.host}`));
       if (h.sandbox === "off") console.log(fail("The sandbox is off: agents run with your full access. Set [sandbox] mode = \"bwrap\" where bubblewrap works."));
-      if (h.runtime === "docker") console.log("  Running in its Docker container. Its API answers only inside the contextlanes network; lanes are not available in this setup yet (v4 phase 3).");
+      if (h.runtime === "docker") console.log("  Running in its Docker container. Its API answers only inside the contextlanes network; each lane is its own container. Open a lane's terminal: contextlanes open <lane>");
       else console.log(`  Open ${cyan(daemonUrl())} on this machine, or the HTTPS address contextlanes setup printed.`);
       return 0;
     }
@@ -171,11 +171,12 @@ async function run(argv: string[]): Promise<number> {
     }
     case "open": {
       if (!rest[0]) return usage(values.json);
+      if (process.env.CONTEXTLANES_LANE_TOKEN) throw new ClientError("contextlanes open attaches a person's terminal from the host; it does not run inside a lane.", { exit: 2, code: "usage" });
       const [project, n] = rest[0].split("/");
       const lanes = await api<Lane[]>(`/api/projects/${project}/lanes`);
       const lane = lanes.find((l) => l.id === `${project}/${n}`);
-      if (!lane) throw new Error(`no lane ${rest[0]}`);
-      return openTerminal(lane);
+      if (!lane) throw new ClientError(`There is no lane ${rest[0]}.`, { code: "not_found" });
+      return openTerminal(lane, !!values.json);
     }
     case "doctor": {
       const report = await api<DoctorReport>("/api/doctor");
@@ -255,11 +256,35 @@ async function run(argv: string[]): Promise<number> {
   }
 }
 
+/** What GET /api/lanes/:project/:n/attach answers. */
+type Attach = { runtime: "host"; session: string } | { runtime: "docker"; session: string; docker: string[] };
+
+/**
+ * Puts this terminal in the lane's tmux session. In the Docker setup this command runs in the control
+ * container (the host command passed -it), and the lane's tmux runs in the lane's container: the daemon
+ * gives the `docker exec -it` argv, run here with this terminal, so the chain is host → docker exec -it
+ * contextlanes → docker exec -it cl-… → tmux attach. Each docker exec passes the window size and its
+ * changes on, and tmux's mouse is on for the session (the wheel scrolls output).
+ */
+async function openTerminal(lane: Pick<Lane, "id" | "terminal">, json = false): Promise<number> {
+  if (process.env.CONTEXTLANES_LANE_TOKEN) throw new ClientError("contextlanes open attaches a person's terminal from the host; it does not run inside a lane.", { exit: 2, code: "usage" });
+  const encoded = lane.id.split("/").map(encodeURIComponent).join("/");
+  const attach = process.env.CONTEXTLANES_RUNTIME === "docker" ? await api<Attach>(`/api/lanes/${encoded}/attach?term=${encodeURIComponent(process.env.TERM ?? "xterm-256color")}`) : null;
+  if (attach?.runtime === "docker") {
+    if (json) { console.log(JSON.stringify({ lane: lane.id, session: attach.session, attach: ["docker", ...attach.docker] }, null, 2)); return 0; }
+    if (!process.stdin.isTTY || !process.stdout.isTTY) throw new ClientError("contextlanes open needs a terminal. Run it from a terminal on this machine (with --json it prints the command instead).", { exit: 2, code: "usage" });
+    const done = spawnSync("docker", attach.docker, { stdio: "inherit" });
+    if (done.error) throw new ClientError(`Could not run docker to reach the lane's container: ${done.error.message}`, { exit: 3, code: "unreachable" });
+    return done.status ?? 1;
+  }
+  return openHostTerminal(lane);
+}
+
 /**
  * Puts this terminal in the lane's tmux session. "=" makes tmux match the exact name, never cl-shop-010
  * for cl-shop-01. Already inside tmux, attaching would nest, so this client switches over instead.
  */
-function openTerminal(lane: Pick<Lane, "id" | "terminal">): number {
+function openHostTerminal(lane: Pick<Lane, "id" | "terminal">): number {
   // Lanes made before the wheel fix get it when they are next opened (see Terminals.wheel in the daemon).
   spawnSync("tmux", ["set-option", "-t", `=${lane.terminal}:`, "mouse", "on"], { stdio: "ignore" });
   if (!process.env.TMUX) return spawnSync("tmux", ["attach-session", "-t", `=${lane.terminal}`], { stdio: "inherit" }).status ?? 1;

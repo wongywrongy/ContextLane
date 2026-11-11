@@ -5,6 +5,8 @@ import { EventBus } from "./bus.js";
 import { loadConfig, configPath, defaultRuntime, ensureConfigFile, listenHost } from "./config.js";
 import { inspectSelf, type ControlInfo } from "./docker/control.js";
 import { DockerFolders } from "./docker/folders.js";
+import { DockerLanes } from "./docker/lanes.js";
+import { writeFile, mkdir as mkdirp } from "node:fs/promises";
 import { Store } from "./db/store.js";
 import { HostLinks } from "./hosts.js";
 import { buildServer } from "./http/server.js";
@@ -36,9 +38,10 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const docker = config.runtime.mode === "docker";
   if (docker) {
-    // Lanes are not started in the Docker runtime yet (v4 phase 3); nothing here supervises anything.
+    // Lanes are containers (docker/lanes.ts) and their processes run in them (supervisor/docker.ts); the
+    // process driver is only for anything the control service itself would run.
     config.supervisor.driver = "process";
-    console.log("Docker runtime: the control service mounts none of your folders; git on a project runs in a helper container.");
+    console.log("Docker runtime: the control service mounts none of your folders; git on a project runs in a helper container, and each lane is its own container.");
   } else {
     // Settled once: everything built below runs lane services the same way.
     if (config.supervisor.driver === "auto") config.supervisor.driver = await detectDriver(runCommand);
@@ -70,7 +73,17 @@ async function main(): Promise<void> {
   // Every git and gh the daemon runs goes through confineGit: the lane sandbox on the host, a helper
   // container per call in the Docker runtime.
   const run = confineGit(folders ? folders.runner() : runCommand, config);
-  const lanes = new LaneManager({ store, bus, config, run });
+  // Lane containers. dataFile: a file in ./data that one helper mounts read-only (the Dev Container CLI's passwd line).
+  const dockerLanes = docker && folders ? new DockerLanes({ docker: runCommand, git: run, folders, store, bus, config, control: () => control,
+    dataFile: async (name, content) => {
+      const host = (control as ControlInfo | null)?.data;
+      if (!host) return null;
+      const path = join(config.paths.data, name);
+      await mkdirp(dirname(path), { recursive: true, mode: 0o755 });
+      await writeFile(path, content, { mode: 0o644 });
+      return join(host, name);
+    } }) : undefined;
+  const lanes = new LaneManager({ store, bus, config, run, ...(dockerLanes ? { docker: dockerLanes } : {}) });
   const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); }, ...(folders ? { folders } : {}) });
   await setup.initialize();
   const runtime = new Runtime({ store, bus, config, run });
@@ -83,7 +96,13 @@ async function main(): Promise<void> {
   const cli = join(layout.managed && await exists(layout.current) ? layout.current : root, "apps/cli/dist/main.js");
   const schedules = config.features.schedules ? new Schedules({ config, store, lanes, setup, run, home: homedir(), node: process.execPath, cli }) : undefined;
   for (const line of await recover({ store, bus, config, run }).catch((err) => { console.error("Startup recovery failed:", err); return []; })) console.log(`Recovered: ${line}`);
-  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules, ...(docker ? { docker: { control: () => control } } : {}) });
+  // Lane containers keep running while the control container is replaced: find them again by their labels.
+  if (dockerLanes && control) {
+    const found = await dockerLanes.reconcile().catch((err: Error) => { console.error("Finding lane containers failed:", err.message); return null; });
+    for (const line of found?.lines ?? []) console.log(`Lanes: ${line}`);
+    if (found?.strays.length) console.log(`Lanes: containers labelled as lanes that no open lane owns: ${found.strays.join(", ")} (left as they are; contextlanes doctor lists them)`);
+  }
+  const app = buildServer({ store, bus, lanes, hosts, config, version: VERSION, setup, runtime, run, codemaps, collisions, localModels, briefs, insights, schedules, ...(docker ? { docker: { control: () => control, ...(dockerLanes ? { lanes: dockerLanes, config } : {}) } } : {}) });
   const makeNotifier = () => new Notifier({ store, bus, config: config.notifications,
     answer: async (token) => (await app.inject({ method: "POST", url: "/api/answers", headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode === 202 });
   let notifier = makeNotifier();

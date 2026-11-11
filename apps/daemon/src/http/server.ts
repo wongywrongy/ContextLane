@@ -2,7 +2,7 @@ import { boardLanes } from "../board.js";
 import { setupRoutes, requestOrigin } from "./setup.js";
 import { appHostnames } from "../previews.js";
 import { laneTools, requireFeature, routeFeature, toolFeature } from "../features.js";
-import { refuseInDocker } from "../docker/refusals.js";
+import { refuseInDocker, refuseToolInDocker } from "../docker/refusals.js";
 import { doctor } from "../doctor.js";
 import type { DockerDoctorDeps } from "../docker/doctor.js";
 import { serveWeb } from "./static.js";
@@ -78,7 +78,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false, forceCloseConnections: true });
   const { store, bus, config } = deps;
   const run = deps.run ?? runCommand;
-  const cliInputs = new CliInputs({ store, bus, config, run });
+  const cliInputs = new CliInputs({ store, bus, config, run, lanes: deps.lanes });
   app.addHook("onClose", () => cliInputs.close());
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
   const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
@@ -227,6 +227,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const discardPreview = async (id: string): Promise<DiscardPreview> => {
     const lane = store.getLane(id);
     if (!lane) throw new NotFound("no such lane");
+    // A lane container's checkout is on the host, which the control service cannot see: a helper reads it.
+    const docker = deps.lanes.inContainer(lane) ? deps.lanes.docker : undefined;
+    if (docker) return { ...await docker.preview(lane, store.getProject(lane.project)!), branch: lane.branch, worktree: lane.worktree };
     const present = await access(lane.worktree).then(() => true, () => false);
     const git = (args: string[]) => run("git", args, { cwd: present ? lane.worktree : store.getProject(lane.project)!.path, timeout: 30_000 }).then((r) => r.stdout, () => "");
     const uncommitted = present ? (await git(["status", "--porcelain"])).split("\n").filter(Boolean).length : 0;
@@ -245,6 +248,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     // Only a branch the lane made is ever deleted with it. One the owner pointed the lane at is theirs.
     if (deleteBranch && !lane.direct && !lane.branch.startsWith("lane/")) throw new Refused(`${lane.branch} is your own branch, not one this lane made, so it is kept. Delete the lane without deleting the branch.`, 400, "own_branch");
     const repo = store.getProject(lane.project)!.path;
+    const docker = deps.lanes.inContainer(lane) ? deps.lanes.docker : undefined;
+    if (docker) {
+      // The container (and with it the agent, its terminal and anything else it ran), its image, the checkout.
+      await docker.remove(lane, store.getProject(lane.project)!, { deleteBranch });
+      if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", `Deleted by you: container and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
+      return store.getLane(lane.id);
+    }
     await runtime.stop(lane.id).catch(() => {});
     if (await access(lane.worktree).then(() => true, () => false)) await runtime.teardown(lane.id);
     if (!lane.direct) await runtime.dropDatabase(lane).catch(() => {});
@@ -277,7 +287,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = store.getLane(laneParam(req.params));
     if (!lane) throw new NotFound("no such lane");
     if (!["cleaned", "failed", "paused"].includes(lane.state)) throw new Refused(lane.state === "merged" ? "Clean up a merged lane first, then archive it." : "Only a cleaned-up, failed or paused lane can be archived.", 409);
-    if (lane.state !== "cleaned") {
+    if (lane.state !== "cleaned" && deps.lanes.inContainer(lane)) {
+      // Its container stops; the checkout stays, and delete removes both.
+      await run("docker", ["stop", "--time", "5", lane.terminal], { timeout: 60_000 }).catch(() => {});
+    } else if (lane.state !== "cleaned") {
       await runtime.stop(lane.id).catch(() => {});
       await run("systemctl", ["--user", "stop", lane.hostUnit ?? hostUnit(lane.id)], { timeout: 30_000 }).catch(() => {});
       await new Terminals(run).kill(lane.terminal).catch(() => {});
@@ -286,6 +299,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return store.getLane(lane.id);
   });
   app.get("/api/lanes", async () => store.listLanes());
+  /**
+   * How `contextlanes open` attaches to the lane's terminal: tmux on this machine, or in the Docker runtime
+   * the `docker exec -it` argv into the lane's container (the CLI runs it inside the control container).
+   */
+  app.get<{ Params: { project: string; n: string }; Querystring: { term?: string } }>("/api/lanes/:project/:n/attach", async (req) => {
+    const lane = store.getLane(laneParam(req.params));
+    if (!lane) throw new NotFound("no such lane");
+    const docker = deps.lanes.inContainer(lane) ? deps.lanes.docker : undefined;
+    if (!docker) return { runtime: "host" as const, session: lane.terminal };
+    if (["cleaned", "archived"].includes(lane.state)) throw new Refused(`${lane.id} is deleted; its container is gone.`, 409, "no_container");
+    await docker.ensureTerminal(lane).catch(() => {});
+    const term = /^[\w.+-]{1,64}$/.test(req.query.term ?? "") ? req.query.term! : "xterm-256color";
+    return { runtime: "docker" as const, session: lane.terminal, docker: docker.attachArgv(lane, term) };
+  });
   app.get("/api/board", async () => boardLanes(store));
   app.get<{ Params: { project: string } }>("/api/projects/:project/board", async req => boardLanes(store, ProjectId.parse(req.params.project)));
   app.get<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/status", async (req) => {
@@ -521,6 +548,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       },
     }, (socket, req) => {
       const lane = store.getLane(laneParam(req.params))!;
+      // The watch-only web terminal of a lane container goes through that container in v4 phase 5.
+      if (deps.lanes.inContainer(lane)) { socket.close(1011, "The web terminal of a Docker lane arrives in v4 phase 5. Use: contextlanes open"); return; }
       try {
         if (!run.terminal) throw new Error("terminal runner unavailable");
         // Only the browser opens this socket, and the browser watches: tmux attaches read-only and input is dropped.
@@ -536,6 +565,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const lane = laneParam(req.params);
     if (isBaseline(lane)) throw new Refused("This is a bench baseline lane, which runs without ContextLanes tools.");
     requireFeature(config, toolFeature(req.params.tool));
+    refuseToolInDocker(config, req.params.tool);
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);

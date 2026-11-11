@@ -87,6 +87,24 @@ const payloads = {
   "permission.answered": z.object({ requestId: z.string(), optionId: z.string().nullable(), by: z.enum(["web", "phone", "telegram", "cli", "auto", "terminal"]), message: z.string().max(4000).optional() }),
   /** Auto mode turned on or off for the lane. */
   "lane.auto": z.object({ on: z.boolean() }),
+  /**
+   * The Docker runtime (docs/V4.md 3.3): the lane's container as the control service made it or last found
+   * it. The latest one with an id is how commands reach the lane (user, PATH, uid). failed names the step.
+   */
+  "lane.container": z.object({
+    state: z.enum(["creating", "running", "stopped", "missing", "removed", "failed"]),
+    name: z.string(),
+    id: z.string().optional(),
+    /** The remote user commands run as, and its uid and gid (the folder's owner, unless the project's config says otherwise). */
+    user: z.string().optional(), uid: z.number().int().nonnegative().optional(), gid: z.number().int().nonnegative().optional(),
+    /** PATH inside the lane: the tools first. */
+    path: z.string().optional(),
+    /** The image the Dev Container CLI built for this lane (vsc-…-uid), removed with the lane. */
+    image: z.string().optional(),
+    /** Which step failed: checkout, environment, mounts, network, terminal. */
+    step: z.enum(["checkout", "environment", "mounts", "network", "terminal"]).optional(),
+    message: z.string().max(4000).optional(),
+  }),
   "recipe.requested": z.object({ hash: z.string() }),
   "recipe.approved": z.object({ hash: z.string() }),
   "env.status": z.object({ service: z.string(), up: z.boolean(), port: z.number().int().optional(), url: z.string().optional(), state: ServiceState.optional(), detail: z.string().optional() }),

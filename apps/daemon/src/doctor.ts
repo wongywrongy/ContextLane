@@ -53,7 +53,7 @@ export async function doctor(deps: DoctorDeps): Promise<DoctorReport> {
     else add({ id: "domain", title: "Links from other devices", state: "warn", found: "no domain: links work only on this machine", fix: "Set [previews] domain and add one wildcard entry in your reverse proxy (docs/PROXY.md)." });
   }
 
-  const driver = docker ? "none yet (lanes arrive in v4 phase 3)" : config.supervisor.driver === "process" ? "process" : "systemd";
+  const driver = docker ? "docker (each lane's processes run in its container)" : config.supervisor.driver === "process" ? "process" : "systemd";
   return {
     version: deps.version, node: process.versions.node, platform: `${process.platform}-${process.arch}`, supervisor: driver, sandbox: docker ? "containers" : config.sandbox.mode, runtime: config.runtime.mode,
     previews: { mode: p.mode, domain: p.domain ?? null, bind: p.bind, port: p.localPort }, checks,
