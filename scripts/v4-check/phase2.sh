@@ -128,6 +128,7 @@ container_ours() { [ "$(label_of "$CONTAINER" com.docker.compose.project)" = "$C
 cl() { docker exec -i -e "CONTEXTLANES_CWD=$P" "$CONTAINER" contextlanes "$@"; }
 # Evaluates a JavaScript expression over the JSON on stdin (d), in the control container's Node.
 # The expression is fixed text in this script; extra arguments arrive as a[0], a[1]...
+# UNVERIFIED: with node -e, process.argv[1] is the first extra argument (from memory).
 jsq() {
   local expr="$1"; shift
   docker exec -i "$CONTAINER" node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const d=JSON.parse(s);const a=process.argv.slice(1);const r=($expr);process.stdout.write(typeof r==='string'?r:JSON.stringify(r));})" "$@"
@@ -207,6 +208,7 @@ check2() {
     else stop=1; bad "a volume named $VOL exists and is not this stack's (project '$vp'). Left as it is; remove it yourself if unused: docker volume rm $VOL"; fi
   fi
   local other
+  # UNVERIFIED: the publish= filter of docker ps, from memory; the 127.0.0.1 probe below catches a miss.
   other="$(docker ps --filter "publish=$ROUTER_PORT" --format '{{.Names}}' 2>/dev/null | grep -vx "$CONTAINER" || true)"
   if [ -n "$other" ]; then stop=1; bad "port $ROUTER_PORT is published by another container: $(echo "$other" | tr '\n' ' '). Stop it or change its port first"; fi
   if ! container_running_ours && timeout 3 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$ROUTER_PORT" 2>/dev/null; then

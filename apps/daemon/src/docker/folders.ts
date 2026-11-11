@@ -8,7 +8,9 @@ import type { ControlInfo } from "./control.js";
 import { HELPER_LABEL, HELPER_PREFIX } from "./names.js";
 import { checkProjectPath } from "./paths.js";
 
-/** Seconds a helper may take to start, on top of the command's own timeout. */
+/** How `docker run --mount` says the folder is not there. */
+const MISSING_SOURCE = /bind source path does not exist|no such file or directory/i;
+/** Time a helper may take to start, on top of the command's own timeout. */
 const START_MS = 15_000;
 
 /**
@@ -88,7 +90,8 @@ export class DockerFolders {
     try { out = (await this.helper(statArgv(image, this.checkPath(path)), { timeout: 15_000 })).stdout.trim(); }
     catch (err) {
       const said = String((err as Error).message);
-      if (/bind source path does not exist|no such file or directory/i.test(said)) throw new Refused(`${path} does not exist on this machine.`, 400, "no_folder");
+      // UNVERIFIED: Docker's wording for a missing bind source, from memory; change MISSING_SOURCE if it differs.
+      if (MISSING_SOURCE.test(said)) throw new Refused(`${path} does not exist on this machine.`, 400, "no_folder");
       throw new Refused(`A helper container could not read ${path}: ${said}`, 502, "helper_failed");
     }
     const m = /^(\d+):(\d+)$/.exec(out);
