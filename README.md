@@ -118,7 +118,7 @@ This checkout is a ContextLanes lane: its own branch, its own copy of the app on
 - `contextlanes url [service]` — the service's link, and nothing else (default service: web)
 - `contextlanes recipe` — the recipe, its hash and whether it is approved
 
-Services get `$PORT` and must listen on 127.0.0.1 (`$HOST`). They also get `$LANE_URL` and `$LANE_HOSTNAME` (their own link), and `$LANE_URL_<NAME>` for every service, usable in the recipe's commands and env values.
+Services get `$PORT` and must listen on `$HOST`: 127.0.0.1 on a host install, 0.0.0.0 in a lane's own container (Vite: `--host $HOST`). They also get `$LANE_URL` and `$LANE_HOSTNAME` (their own link), and `$LANE_URL_<NAME>` for every service, usable in the recipe's commands and env values.
 
 Exit codes: 0 done, 1 failed, 2 wrong usage, 3 ContextLanes not reachable, 4 waiting on the owner. Exit 4 means the recipe is new or changed and only the owner can approve it: say so, and continue with work that does not need the app. Never try to approve it yourself.
 ```
