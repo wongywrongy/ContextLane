@@ -76,7 +76,7 @@ export function SettingsPage() {
   const saveNotifications = async (patch: Partial<NonNullable<SetupSettings["notifications"]>>) => { await postJson("/api/setup/settings", { notifications: { ...n, ...patch } }); reload(); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
   return <main className="pg narrow">
-    <PageHeader title="Settings" meta="saved to ~/.config/contextlanes/config.toml" />
+    <PageHeader title="Settings" />
     <div className="setw">
       <nav className="setnav" aria-label="Settings">{([["machine", "This machine"], ["access", "Access"], ["projects", "Projects"], ["notifications", "Notifications"], ["lanes", "Lanes"], ["schedules", "Scheduled lanes"], ["data", "Data"]] as const).map(([id, label]) => <a key={id} href={`#${id}`} aria-current={at === id ? "true" : undefined} onClick={() => setAt(id)}>{label}</a>)}</nav>
       <div className="col">
@@ -201,7 +201,7 @@ export function ModelsPage() {
     <Section title="Agents" help="Claude Code and Codex run their own terminal interface in each lane. Other agents use ACP. Every lane keeps approval controls on; agents that cannot ask first are listed as not supported. Limited agents work with the gap their row names." end={<><button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button><Action small ghost run={() => postJson("/api/setup/agents/check", {})} done={() => { reload(); reloadUsage(); }}>Check again</Action></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    <Section title="Local models" meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+    <Section title="Local models" optional={!models.length} meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
       {(local ?? models.map((m) => ({ ...m, label: m.label ?? null, roles: m.roles ?? [], state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m}
         save={async (change) => { await postJson("/api/setup/settings", { localModels: models.map((x) => x.name === m.name && x.url === m.url ? { ...x, ...change } : x) }); reloadSettings(); reloadLocal(); }}
         remove={async () => { await postJson("/api/setup/settings", { localModels: models.filter((x) => !(x.name === m.name && x.url === m.url)) }); reloadSettings(); }} />)}
@@ -269,7 +269,7 @@ function RoutingSection({ settings, agents, reload }: { settings: SetupSettings 
   const store = (next: RoutingRule[]) => postJson("/api/setup/settings", { routing: next }).then(reload);
   const save = (next: RoutingRule[]) => { setError(""); void store(next).catch((e) => setError(errorMessage(e))); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
-  return <Section title="Routing" help="Words in a new lane's task pick its agent and model; the first matching rule wins. Use it to send, say, docs and fixtures to a local model.">
+  return <Section title="Routing" optional={!rules.length} help="Words in a new lane's task pick its agent and model; the first matching rule wins. Use it to send, say, docs and fixtures to a local model.">
     {rules.map((r, i) => <div className="sec-r" key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) auto auto", gap: 14, alignItems: "center" }}>
       <span>{r.words.join(", ")}</span><span className="mono" style={{ fontSize: 13 }}>{AGENT_NAMES[r.agent] ?? r.agent}{r.model ? ` → ${r.model}` : ""}</span><span className="mono muted" style={{ fontSize: 12 }}>{r.label ?? ""}</span>
       <button className="lnk" onClick={() => save(rules.filter((_, j) => j !== i))}>Remove</button>

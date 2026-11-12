@@ -10,7 +10,7 @@ corepack pnpm check
 corepack pnpm dev
 ```
 
-`pnpm check` is the clean-checkout verification entry point. It covers TypeScript, the production build and the ordinary test suite. The suite uses fake runners and agent fixtures where host services or credentials are not required. A passing unit suite does not establish a real provider, device, or production deployment result.
+`pnpm check` is the clean-checkout verification entry point. It covers TypeScript, the production build and the ordinary test suite. The suite uses fake runners and agent fixtures where host services or credentials are not required. A passing unit suite does not establish a real provider, device, or production deployment result. The installer tests execute the shell and Git against temporary repositories, with package builds and systemd substituted; one test also executes the built installation entry point.
 
 To run the built app instead of development servers:
 
@@ -34,7 +34,7 @@ After a build, run an individual test file with `corepack pnpm exec vitest run <
 | Repair budgets and owner authority | `apps/daemon/test/repair-loop.test.ts`, `apps/daemon/test/host-repair.test.ts` |
 | Filesystem and credentials | `apps/daemon/test/safefs.test.ts`, `apps/daemon/test/auth.test.ts`, `apps/daemon/test/sandbox.real.test.ts` |
 | Shared worktree retention | `apps/daemon/test/worktree-retention.test.ts`, `apps/daemon/test/confine-git.test.ts` |
-| Setup and updates | `apps/daemon/test/setup.test.ts`, `apps/daemon/test/update.test.ts` |
+| Setup and updates | `apps/daemon/test/installer.test.ts`, `apps/daemon/test/setup.test.ts`, `apps/daemon/test/update.test.ts` |
 
 Check the actual test filenames when adding coverage. Test observable behavior and meaningful failure cases, including interrupted delivery, stale evidence and rejected permissions.
 
@@ -51,6 +51,8 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/abso
 ```
 
 `CONTEXTLANES_REAL_BROWSER=1` enables the real preview-browser test. The Postgres test uses `CONTEXTLANES_REAL_POSTGRES`; read `apps/daemon/test/databases.real.test.ts` before supplying disposable admin/app URLs. Do not point fixtures at production databases.
+
+`CHROMIUM_BIN=/absolute/path/to/chrome node scripts/check-v2.mjs /tmp/contextlanes-ui` checks the main pages at desktop and phone widths, including keyboard access to the secondary lane controls. `node scripts/check-contrast.mjs` checks both themes.
 
 Browser smoke scripts use seeded data or fake agents. Phone-sized Chromium verifies layout and browser behavior, not physical-phone notifications or provider account integration. Record skipped checks and environment failures separately from application failures.
 

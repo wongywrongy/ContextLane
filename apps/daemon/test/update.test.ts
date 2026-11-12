@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readlink, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -164,6 +164,19 @@ describe("contextlanes update", () => {
     await expect(readlink(join(f.base, "current"))).rejects.toThrow();
   });
 
+  it("does not deploy a build that changes tracked source", async () => {
+    const f = await fixture(), u = await f.updater(); await commit(f.work, "Build mutation");
+    const deps = (u as unknown as { deps: { run: Runner } }).deps, original = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      const result = await original(cmd, args, opts);
+      if (cmd === "npm" && args.at(-1) === "build") await writeFile(join(opts!.cwd!, "CHANGES.md"), "mutated by build");
+      return result;
+    };
+    await expect(u.update()).rejects.toThrow(/build changed tracked source/);
+    await expect(readlink(join(f.base, "current"))).rejects.toThrow();
+    expect(f.calls.some(c => c.includes("restart"))).toBe(false);
+  });
+
   it("retries a partial release without pruning unrelated live or stale worktrees", async () => {
     const f = await fixture();
     const live = join(f.root, "other-live"), stale = join(f.root, "other-stale");
@@ -187,13 +200,61 @@ describe("contextlanes update", () => {
     expect(await readFile(join(live, "CHANGES.md"), "utf8")).toBe("First version\n");
   });
 
-  it("switches back by itself, restoring the database, when the new version does not come up", async () => {
-    const f = await fixture({ migrateOnStart: true, neverHealthy: true });
+  it("switches back without restoring data when the failed candidate kept the schema", async () => {
+    const f = await fixture({ neverHealthy: true });
+    const older = join(f.root, "older"); await mkdir(older); await symlink(older, join(f.base, "previous"));
     await commit(f.work, "Second version");
     await expect((await f.updater()).update()).rejects.toThrow(`Back on ${f.first.slice(0, 12)}`);
     expect(await realpath(join(f.base, "current"))).toBe(f.app);
     expect(userVersion(f.database)).toBe(3);
+    expect(await realpath(join(f.base, "previous"))).toBe(older);
     expect(f.calls.slice(-3)).toEqual(["systemctl --user restart contextlanes.service", "systemctl --user stop contextlanes.service", "systemctl --user start contextlanes.service"]);
+  });
+
+  it("preserves newer data and stops for an owner decision after a failed migration startup", async () => {
+    const f = await fixture({ migrateOnStart: true, neverHealthy: true });
+    const second = await commit(f.work, "Failed startup after migration");
+    await writeFile(join(f.base, "update.json"), JSON.stringify({ branch: "main", history: [] }));
+    await git(f.work, "push", "-q", "origin", "HEAD:candidate");
+    const u = await f.updater();
+    await expect(u.update({ branch: "candidate" })).rejects.toThrow(/daemon is stopped/);
+    expect(await realpath(join(f.base, "current"))).toBe(join(f.base, "releases", second.slice(0, 12)));
+    expect(userVersion(f.database)).toBe(4);
+    { const db = new DatabaseSync(f.database); db.exec("INSERT INTO lane VALUES ('newer-work')"); db.close(); }
+    expect(f.calls.at(-1)).toBe("systemctl --user stop contextlanes.service");
+    const state = JSON.parse(await readFile(join(f.base, "update.json"), "utf8"));
+    expect(state.branch).toBe("main"); expect(state.history).toHaveLength(1);
+    expect(await u.rollback()).toBe(1);
+    { const db = new DatabaseSync(f.database); expect(db.prepare("SELECT id FROM lane WHERE id = 'newer-work'").get()).toBeDefined(); db.close(); }
+    expect(await u.rollback({ yes: true })).toBe(0);
+    expect(userVersion(f.database)).toBe(3);
+  });
+
+  it("keeps the saved update channel when a different branch fails health checks", async () => {
+    const f = await fixture({ neverHealthy: true });
+    await writeFile(join(f.base, "update.json"), JSON.stringify({ branch: "main", history: [] }));
+    await commit(f.work, "Unhealthy candidate"); await git(f.work, "push", "-q", "origin", "HEAD:candidate");
+    await expect((await f.updater()).update({ branch: "candidate" })).rejects.toThrow(/Back on/);
+    expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).branch).toBe("main");
+  });
+
+  it("saves an explicit channel even when its commit is already running", async () => {
+    const f = await fixture(); await git(f.work, "push", "-q", "origin", "HEAD:stable");
+    expect(await (await f.updater()).update({ branch: "stable" })).toBe(0);
+    expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).branch).toBe("stable");
+  });
+
+  it("refuses dirty or mismatched prepared builds without changing the selected channel", async () => {
+    const f = await fixture(), sha = await commit(f.work, "Prepared release"), u = await f.updater();
+    await u.update();
+    const release = await realpath(join(f.base, "current"));
+    await writeFile(join(release, "CHANGES.md"), "unreviewed edits");
+    await expect(u.adopt(release, "candidate")).rejects.toThrow(/not a clean, finished build/);
+    await git(release, "checkout", "--", "CHANGES.md");
+    await writeFile(join(release, ".contextlanes-built"), JSON.stringify({ sha: f.first }));
+    await expect(u.adopt(release, "candidate")).rejects.toThrow(/not a clean, finished build/);
+    expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).branch).toBeUndefined();
+    expect(await git(release, "rev-parse", "HEAD")).toBe(sha);
   });
 
   it("rolls back one version, asking first when the database format changed", async () => {
@@ -208,6 +269,27 @@ describe("contextlanes update", () => {
     expect(userVersion(f.database)).toBe(3);
     expect(f.logs.at(-2)).toBe(`Back on ${f.first.slice(0, 12)}. The database was restored.`);
     expect(f.logs.at(-1)).toBe("Open ContextLanes: https://neo.tail1234.ts.net (on this machine: http://127.0.0.1:4600)");
+  });
+
+  it("restores the earlier update channel and rollback chain instead of selecting a rejected candidate", async () => {
+    const f = await fixture(), u = await f.updater();
+    const second = await commit(f.work, "Stable release"); await u.update({ branch: "main" });
+    await commit(f.work, "Candidate release"); await git(f.work, "push", "-q", "origin", "HEAD:candidate");
+    await u.update({ branch: "candidate" });
+    expect(await u.rollback()).toBe(0);
+    expect(await realpath(join(f.base, "current"))).toBe(join(f.base, "releases", second.slice(0, 12)));
+    expect(await realpath(join(f.base, "previous"))).toBe(f.app);
+    expect(JSON.parse(await readFile(join(f.base, "update.json"), "utf8")).branch).toBe("main");
+    expect(await u.rollback()).toBe(0);
+    expect(await realpath(join(f.base, "current"))).toBe(f.app);
+    await expect(readlink(join(f.base, "previous"))).rejects.toThrow();
+  });
+
+  it("refuses database rollback when its recorded transition is missing", async () => {
+    const f = await fixture(), u = await f.updater(); await commit(f.work, "Release"); await u.update();
+    await writeFile(join(f.base, "update.json"), JSON.stringify({ history: [] }));
+    await expect(u.rollback({ yes: true })).rejects.toThrow(/No matching update history/);
+    expect(f.calls.at(-1)).toBe("systemctl --user restart contextlanes.service");
   });
 
   it("follows the default branch when the branch it tracked is gone", async () => {
@@ -234,7 +316,7 @@ describe("contextlanes update", () => {
     const release = join(f.base, "releases", "chosen");
     await git(f.app, "fetch", "-q", "origin");
     await git(f.app, "worktree", "add", "-q", "--detach", release, "origin/main");
-    await writeFile(join(release, ".contextlanes-built"), "{}");
+    await writeFile(join(release, ".contextlanes-built"), JSON.stringify({ sha: await git(release, "rev-parse", "HEAD") }));
     await mkdir(join(release, "apps/daemon/dist"), { recursive: true }); await writeFile(join(release, "apps/daemon/dist/main.js"), "// built");
     await git(f.work, "push", "-q", "origin", "HEAD:next");
     expect(await (await f.updater()).adopt(release, "next")).toBe(0);

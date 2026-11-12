@@ -62,8 +62,27 @@ try {
     for (const [name, route] of routes) {
       await page.goto(`${url}${route}`); await page.waitForTimeout(600); await page.evaluate(() => document.fonts.ready);
       if (name === "board") { assert.equal(await page.locator('.board-column').count(), 5); await page.getByText('ctx 45%', { exact: true }).waitFor(); }
-      if (name === "lane") await page.locator(".tmux-status").getByText("7d 25%", { exact: true }).waitFor();
-      if (name === "models") await page.getByText("7d 25%", { exact: true }).waitFor();
+      if (name === "lane") {
+        await page.locator(".tmux-status").getByText("7d 25%", { exact: true }).waitFor();
+        const inspector = page.getByRole('complementary', { name: 'Lane details' });
+        assert.equal(await inspector.getByRole('button', { name: 'Delete this lane…' }).isVisible(), false);
+        await inspector.getByText('Copy details', { exact: true }).click();
+        await inspector.getByRole('button', { name: /contextlanes term/ }).waitFor();
+        await inspector.getByText('Copy details', { exact: true }).click();
+        const actions = inspector.getByText('Lane actions', { exact: true });
+        await actions.focus(); await page.keyboard.press('Enter');
+        await inspector.getByRole('button', { name: 'Restart the agent' }).waitFor();
+        await inspector.getByRole('button', { name: 'Delete this lane…' }).waitFor();
+        await actions.click();
+      }
+      if (name === "models") {
+        await page.getByText("7d 25%", { exact: true }).waitFor();
+        const local = page.locator('details.optional-section').filter({ hasText: 'Local models' });
+        assert.equal(await local.evaluate(el => el.open), false);
+        await local.locator(':scope > summary').click();
+        await local.getByText('Add an endpoint', { exact: true }).waitFor();
+        await local.locator(':scope > summary').click();
+      }
       if (name === "projects") await page.locator('.project-need').waitFor();
       await noOverflow(); await page.screenshot({ path: join(screenshots, `${name}-${width}.png`), fullPage: true });
     }

@@ -20,10 +20,9 @@ Linux with a systemd user session, Node 22.13 or newer (24 recommended), git, tm
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wongywrongy/ContextLane/main/install.sh | sh
-contextlanes setup
 ```
 
-`setup` prints a one-time sign-in link and QR code. Open it, connect an agent, and add a project. To keep user services running after logout, enable linger on the host with `sudo loginctl enable-linger "$USER"`.
+The installer runs `setup` and prints a one-time sign-in link and QR code. Open it, connect an agent, and add a project. To keep user services running after logout, enable linger on the host with `sudo loginctl enable-linger "$USER"`.
 
 ## Work
 
@@ -46,9 +45,11 @@ contextlanes update --check
 contextlanes update --rollback
 ```
 
-Updates build beside the running release, back up the database and check daemon health before completing. Settings are in `~/.config/contextlanes/config.toml`; data is in `~/.local/share/contextlanes`. Logs: `journalctl --user -u contextlanes`.
+Updates build beside the running release, back up the database and check daemon health before completing. Recovery preserves newer data and stops for an owner decision if restoring an older database would be necessary. Settings are in `~/.config/contextlanes/config.toml`; data is in `~/.local/share/contextlanes`. Logs: `journalctl --user -u contextlanes`.
 
 ## Documentation
+
+- [Installation and recovery](docs/INSTALLATION.md): native service, existing Docker deployments, updates and backups
 
 - [Recipes](docs/RECIPES.md): app setup, services, previews and checks
 - [Architecture](docs/ARCHITECTURE.md): processes, lifecycle and trust boundaries

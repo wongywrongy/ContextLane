@@ -2,7 +2,14 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { AGENTS, type LaneState, type StepKind } from "@contextlanes/protocol";
 
 /** A section: the one container every group of content lives in. */
-export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string; help?: ReactNode }) {
+export function Section(props: { title: ReactNode; meta?: ReactNode; end?: ReactNode; tone?: "you"; icon?: ReactNode; children?: ReactNode; footer?: ReactNode; id?: string; help?: ReactNode; optional?: boolean }) {
+  // Keep unused configuration one click away. Configured services keep their status visible.
+  if (props.optional) return <details className="sec optional-section" id={props.id}>
+    <summary><span>{props.title}</span><span className="m">Optional</span></summary>
+    {props.help || props.end ? <div className="sec-h">{props.help ? <Help>{props.help}</Help> : null}{props.end ? <div className="e">{props.end}</div> : null}</div> : null}
+    {props.children}
+    {props.footer ? <div className="sec-f">{props.footer}</div> : null}
+  </details>;
   return (
     <section className={`sec${props.tone ? ` ${props.tone}` : ""}`} id={props.id}>
       <div className="sec-h">

@@ -6,6 +6,8 @@ This document describes the active contract. Dated build history is retained in 
 
 Follow-up acceptance exposed two release blockers in the initial candidate: queued native repair prompts reset the retry budget, and Git pruning inside the sandbox could delete valid worktree registrations. The corrections require fresh native acceptance; healthy service probes and passing unit tests alone are insufficient.
 
+The supported daily installation is the [managed native user service](INSTALLATION.md). Installer reruns preserve the update channel, interrupted first builds can resume, and a failed startup requiring database restoration stops for an owner decision. Existing Docker sessions/data remain a separate installation until deliberately retired.
+
 ## Current capabilities
 
 | Capability | Contract |
@@ -38,6 +40,8 @@ A recipe with no checks can still be reviewed and approved, but is explicitly un
 - Local-model endpoints and optional preview modes require their actual services and credentials. Fake transports establish API behavior only.
 - A checkpoint based on a commit SHA or tag cannot open a PR without a named target branch. Create publication work against a branch; there is no retarget control. Child approval also invalidates a pending parent checkpoint until integration is checked again.
 - The benchmark coordinator does not resume after daemon restart. Its native lanes survive; keep the daemon running during measurement.
+
+The [installation/UI review](RELEASE-REVIEW.md) records the latest local checks and their environment limitations.
 
 ## Acceptance still required
 
