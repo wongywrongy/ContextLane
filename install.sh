@@ -10,6 +10,8 @@ contextlanes_repo="${CONTEXTLANES_REPO:-https://github.com/wongywrongy/ContextLa
 contextlanes_branch="${CONTEXTLANES_BRANCH:-main}"
 contextlanes_root="${CONTEXTLANES_INSTALL_DIR:-$HOME/.local/share/contextlanes/app}"
 contextlanes_base="$(dirname "$contextlanes_root")"
+# Do not infer that shared worktrees are gone during installation or update.
+git_run() { git -c gc.auto=0 -c maintenance.auto=false -c gc.worktreePruneExpire=never "$@"; }
 pnpm_run() { npm exec --yes --package=pnpm@10.28.0 -- pnpm "$@"; }
 build_here() {
   pnpm_run install --frozen-lockfile --ignore-scripts
@@ -21,17 +23,16 @@ if [ -e "$contextlanes_root" ]; then
   if [ -e "$contextlanes_root/.git" ] && grep -qs '^# Installed by ContextLanes' "$HOME/.config/systemd/user/contextlanes.service"; then
     # An existing install: build the newest version beside it, then let the updater switch over.
     echo "ContextLanes is already installed in $contextlanes_root. Updating it; lanes keep running."
-    case "$(git -C "$contextlanes_root" remote get-url origin)" in
-      *wongywrongy/rootlane*) git -C "$contextlanes_root" remote set-url origin "$contextlanes_repo" ;;
+    case "$(git_run -C "$contextlanes_root" remote get-url origin)" in
+      *wongywrongy/rootlane*) git_run -C "$contextlanes_root" remote set-url origin "$contextlanes_repo" ;;
     esac
-    git -C "$contextlanes_root" fetch --prune --quiet origin '+refs/heads/*:refs/remotes/origin/*'
-    sha="$(git -C "$contextlanes_root" rev-parse --verify "refs/remotes/origin/$contextlanes_branch")"
+    git_run -C "$contextlanes_root" fetch --prune --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+    sha="$(git_run -C "$contextlanes_root" rev-parse --verify "refs/remotes/origin/$contextlanes_branch")"
     release="$contextlanes_base/releases/$(printf %s "$sha" | cut -c1-12)"
     if [ ! -f "$release/.contextlanes-built" ]; then
-      git -C "$contextlanes_root" worktree remove --force "$release" 2>/dev/null || true
-      git -C "$contextlanes_root" worktree prune
+      git_run -C "$contextlanes_root" worktree remove --force "$release" 2>/dev/null || true
       mkdir -p "$contextlanes_base/releases"
-      git -C "$contextlanes_root" worktree add --detach --quiet "$release" "$sha"
+      git_run -C "$contextlanes_root" worktree add --detach --quiet "$release" "$sha"
       (cd "$release" && build_here)
       printf '{"sha":"%s"}\n' "$sha" > "$release/.contextlanes-built"
     fi
@@ -41,7 +42,7 @@ if [ -e "$contextlanes_root" ]; then
   exit 1
 fi
 mkdir -p "$contextlanes_base"
-git clone --branch "$contextlanes_branch" "$contextlanes_repo" "$contextlanes_root"
+git_run clone --branch "$contextlanes_branch" "$contextlanes_repo" "$contextlanes_root"
 cd "$contextlanes_root"
 build_here
 CONTEXTLANES_MANAGED=1 node apps/daemon/dist/install-main.js

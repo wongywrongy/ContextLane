@@ -6,6 +6,7 @@ import { BUILT_MARKER, MANAGED_MARKER, exists, linkTarget, runningRelease, setLi
 import type { Runner } from "./run.js";
 import { backupDatabase } from "./backup.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { GIT_MAINTENANCE_GUARDS } from "./sandbox.js";
 
 export class UpdateError extends Error {}
 
@@ -55,7 +56,7 @@ export class Updater {
     this.log(this.deps.publicUrl ? `Open ContextLanes: ${this.deps.publicUrl} (on this machine: ${local})` : `Open ContextLanes: ${local} (this machine only; run contextlanes setup to reach it over Tailscale)`);
   }
   private async git(cwd: string, args: string[], timeout = 120_000): Promise<string> {
-    return (await this.deps.run("git", ["-C", cwd, ...args], { timeout })).stdout.trim();
+    return (await this.deps.run("git", ["-C", cwd, ...GIT_MAINTENANCE_GUARDS, ...args], { timeout })).stdout.trim();
   }
 
   async update(options: { check?: boolean; branch?: string } = {}): Promise<number> {
@@ -191,7 +192,6 @@ export class Updater {
       if (built) { this.log(`Using the ${shortSha(sha)} build from an earlier attempt.`); return; }
       await this.git(this.l.repo, ["worktree", "remove", "--force", release]).catch(() => {});
       await rm(release, { recursive: true, force: true });
-      await this.git(this.l.repo, ["worktree", "prune"]);
     }
     await mkdir(this.l.releases, { recursive: true });
     await this.git(this.l.repo, ["worktree", "add", "--detach", "--quiet", release, sha]);
@@ -312,7 +312,6 @@ export class Updater {
       if (i < KEEP_RELEASES || keep.has(entry.path) || inUse) continue;
       await this.git(this.l.repo, ["worktree", "remove", "--force", entry.path]).catch(() => rm(entry.path, { recursive: true, force: true }));
     }
-    await this.git(this.l.repo, ["worktree", "prune"]).catch(() => {});
   }
 
   private async state(): Promise<State> {

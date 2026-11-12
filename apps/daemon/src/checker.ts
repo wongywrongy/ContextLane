@@ -157,13 +157,16 @@ export class Checker {
   private retry(lane: Lane, checks: CheckResult[]): void {
     const { store, bus, repair } = this.deps;
     if (store.getLane(lane.id)?.state !== "working" || !repair) return;
-    const history = store.eventsOfType(["checkpoint.created", "checkpoint.repair_requested", "review.requested", "agent.message", "permission.answered"], { lanes: [lane.id] });
-    const reset = history.findLast(e => e.type === "checkpoint.created" || e.type === "review.requested" || e.type === "agent.message" && e.payload.role === "user" || e.type === "permission.answered" && e.payload.requestId.startsWith("checkpoint-repair-"))?.seq ?? 0;
+    const history = store.eventsOfType(["checkpoint.created", "checkpoint.repair_requested", "owner.guidance"], { lanes: [lane.id] });
+    // Native hooks echo daemon prompts as user messages. Only a durable owner-authenticated
+    // decision can grant another budget; transport delivery and model observations cannot.
+    const reset = history.reduce((seq, e) => e.type === "checkpoint.created" || e.type === "owner.guidance" ? Math.max(seq, e.seq) : seq, 0);
     const attempt = history.filter(e => e.type === "checkpoint.repair_requested" && e.seq > reset).length + 1;
     const detail = checks.filter(c => !c.passed).map(c => `${c.name}: ${c.detail}`).join("\n");
     if (attempt > 2) {
-      const events = store.tx(() => [store.appendEvent(lane.id, { type: "permission.requested", payload: {
-        requestId: `checkpoint-repair-${randomUUID()}`, kind: "question", title: "Checks still fail after two automatic repairs. Inspect the failures and send guidance to continue.", detail,
+      const requestId = `checkpoint-repair-${randomUUID()}`;
+      const events = store.tx(() => [store.appendEvent(lane.id, { type: "checkpoint.repair_paused", payload: { requestId } }), store.appendEvent(lane.id, { type: "permission.requested", payload: {
+        requestId, kind: "question", title: "Checks still fail after two automatic repairs. Inspect the failures and send guidance to continue.", detail,
         options: [{ id: "reviewed", label: "Ready to continue", kind: "allow_once" }],
       } }), store.setLaneState(lane.id, "needs_you", "Required checks need your guidance")]);
       for (const event of events) bus.publish(event);

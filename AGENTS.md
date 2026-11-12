@@ -21,6 +21,8 @@ Run `pnpm check` before a commit. Add regression coverage for changed behavior; 
 - A lane checkout is agent-controlled. Daemon file access must use `apps/daemon/src/safefs.ts`; do not follow links out of a checkout or open devices/FIFOs.
 - Run lane commands through `sandbox()` and daemon git/gh through `confineGit`. A permission decision is not a filesystem or network boundary.
 - Owner decisions require owner credentials. Agents cannot approve recipes, enable Auto or widen permissions. Auto chooses only one-time approvals and holds uncertain requests.
+- Native prompt hooks are observations, not proof of owner input. Automatic prompt echoes must not reset repair budgets or acknowledge owner-only questions.
+- Never prune shared Git worktree registrations from a restricted filesystem view. Hidden checkouts are not missing checkouts; preserve registrations when visibility is incomplete.
 - Review checks run in a disposable snapshot of an exact commit and approved recipe. Reject tracked-source mutations in the snapshot and live commit/recipe drift. Failed, missing, or stale required checks cannot become a successful review. Confirm the actual PR merge or parent integration before marking a lane merged or allowing cleanup.
 - Unknown usage remains unknown. Label estimates as estimates; helper output size is not measured cloud-token savings.
 - Keep task instructions focused on acceptance criteria and context unavailable from the code. Do not require plans, context-management rituals, or broad documentation reads for every task.

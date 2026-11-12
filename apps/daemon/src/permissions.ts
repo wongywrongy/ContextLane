@@ -15,11 +15,17 @@ export type AnswerBy = EventPayload<"permission.answered">["by"];
 export function answerPermission(deps: Deps, lane: string, requestId: string, optionId: string | null, by: AnswerBy, message?: string): { commandId: string; delivered: boolean } {
   const { store, bus } = deps;
   const request = store.permission(lane, requestId)!;
+  const repairPause = store.eventsOfType(["checkpoint.repair_paused"], { lanes: [lane] }).some(e => e.payload.requestId === requestId);
+  const owner = ["web", "phone", "telegram", "cli"].includes(by);
+  if (repairPause && (!owner || optionId !== "reviewed" || request.kind !== "question" || store.answered(lane, requestId))) throw new Error("Repair pauses require a pending owner acknowledgement.");
   const cli = store.getLane(lane)?.kind === "cli";
   const commandId = randomUUID();
   const command = { kind: "answer" as const, requestId, optionId };
   const events = store.tx(() => {
     const events: LaneEvent[] = [store.appendEvent(lane, { type: "permission.answered", payload: { requestId, optionId, by, ...(message ? { message } : {}) } })];
+    if (repairPause && optionId === "reviewed" && request.kind === "question") {
+      events.push(store.appendEvent(lane, { type: "owner.guidance", payload: { kind: "repair_ack", requestId } }));
+    }
     if (request.kind !== "question" && !cli) events.push(store.appendEvent(lane, { type: "agent.command", payload: { commandId, command } }));
     if (store.getLane(lane)?.state === "needs_you" && !store.inbox().some((i) => i.lane === lane && ["permission", "question"].includes(i.kind))) events.push(store.setLaneState(lane, "working"));
     return events;

@@ -230,7 +230,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     // The owner asked for it, so uncommitted changes go too (--force); the branch stays unless asked.
     if (!lane.direct) {
       if (await access(lane.worktree).then(() => true, () => false)) await run("git", ["worktree", "remove", "--force", lane.worktree], { cwd: repo, timeout: 120_000 });
-      await run("git", ["worktree", "prune"], { cwd: repo, timeout: 30_000 }).catch(() => {});
+      // worktree remove unregisters this checkout only. Hidden sibling checkouts must never be pruned.
       if (deleteBranch) await run("git", ["branch", "-D", lane.branch], { cwd: repo, timeout: 30_000 }).catch(() => {});
     }
     if (lane.state !== "archived") bus.publish(store.setLaneState(lane.id, "archived", lane.direct ? "Direct lane stopped; checkout and branch kept." : `Deleted by you: agent stopped and checkout removed${deleteBranch ? ", branch deleted" : `, branch ${lane.branch} kept`}.`));
@@ -319,11 +319,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const body = PromptRequest.parse(req.body);
     if (store.getLane(lane)!.kind === "cli" && body.images.length) throw new Refused("Attach images through the agent's own terminal.", 400);
     const prompt = await attach(config, store.getLane(lane)!, body);
-    for (const item of store.inbox().filter(i => i.lane === lane && i.id.startsWith(`${lane}#checkpoint-repair-`))) {
-      answerPermission({ store, bus, send: (id, message) => deps.hosts.send(id, message) }, lane, item.id.slice(lane.length + 1), "reviewed", "web", "Owner supplied new guidance");
+    const commandId = randomUUID();
+    const command = { kind: "prompt" as const, ...prompt };
+    const events = store.tx(() => {
+      const message = store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } });
+      return [message, store.appendEvent(lane, { type: "owner.guidance", payload: { kind: "prompt", messageSeq: message.seq, commandId } }), store.appendEvent(lane, { type: "agent.command", payload: { commandId, command } })];
+    });
+    for (const event of events) bus.publish(event);
+    for (const pause of store.eventsOfType(["checkpoint.repair_paused"], { lanes: [lane] })) {
+      if (!store.answered(lane, pause.payload.requestId)) answerPermission({ store, bus, send: (id, message) => deps.hosts.send(id, message) }, lane, pause.payload.requestId, "reviewed", "web", "Owner supplied new guidance");
     }
-    bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } }));
-    return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...prompt }) });
+    return reply.code(202).send({ queued: true, commandId, delivered: store.getLane(lane)!.kind === "cli" || deps.hosts.send(lane, { commandId, command }) });
   });
   const outside = deps.outside ?? new OutsideAgents({ run, store, lanes: deps.lanes, data: config.paths.data, lanesDir: config.paths.lanes });
   app.get<{ Params: { project: string } }>("/api/projects/:project/outside-agents", async (req) => ({ agents: await outside.list(ProjectId.parse(req.params.project)) }));
@@ -473,7 +479,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/review/sync", async (req) => review.sync(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
     const body = RequestChanges.parse(req.body);
-    return reply.code(202).send(review.requestChanges(laneParam(req.params), body.note, body.comments));
+    const lane = laneParam(req.params);
+    const result = review.requestChanges(lane, body.note, body.comments);
+    const message = store.eventsOfType(["agent.message"], { lanes: [lane] }).at(-1)!;
+    bus.publish(store.appendEvent(lane, { type: "owner.guidance", payload: { kind: "request_changes", messageSeq: message.seq } }));
+    return reply.code(202).send(result);
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/cleanup", async (req) => review.cleanup(laneParam(req.params)));
   app.get<{ Params: { project: string } }>("/api/projects/:project/checkpoints", async (req) => store.checkpoints(ProjectId.parse(req.params.project)));
@@ -515,6 +525,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (req.params.tool === "ask_owner") {
       if (!store.getLane(lane)) throw new NotFound(`no lane ${lane}`);
       const body = AskOwnerRequest.parse(req.body);
+      if (body.requestId.startsWith("checkpoint-repair-")) throw new Refused("Repair question IDs are reserved for the daemon.", 400);
       if (!store.permission(lane, body.requestId)) {
         bus.publish(store.appendEvent(lane, { type: "permission.requested", payload: { requestId: body.requestId, title: body.question, kind: "question", options: body.options.map((label, i) => ({ id: String(i), label, kind: "allow_once" })) } }));
         if (store.getLane(lane)!.state === "working") bus.publish(store.setLaneState(lane, "needs_you"));
@@ -553,6 +564,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     if (!request) return reply.code(404).send({ error: "no such permission" });
     if (store.answered(body.lane, body.requestId)) return reply.code(409).send({ error: "permission already answered" });
     if (body.optionId !== null && !request.options.some((o) => o.id === body.optionId)) return reply.code(400).send({ error: "not an offered permission option" });
+    if (body.optionId !== "reviewed" && store.eventsOfType(["checkpoint.repair_paused"], { lanes: [body.lane] }).some(e => e.payload.requestId === body.requestId)) return reply.code(400).send({ error: "Acknowledge the failed checks or send new guidance to continue." });
     return reply.code(202).send(answerPermission({ store, bus, send: (l, m) => deps.hosts.send(l, m) }, body.lane, body.requestId, body.optionId, body.via, body.message));
   });
 

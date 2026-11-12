@@ -50,7 +50,9 @@ const payloads = {
   "lane.state": z.object({ from: LaneState, to: LaneState, reason: z.string().optional() }),
   "agent.plan": z.object({ entries: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })) }),
   "agent.thought": z.object({ text: z.string() }),
-  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional() }),
+  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional(), origin: z.literal("native").optional() }),
+  /** Daemon-only authority, recorded at authenticated owner surfaces; message roles and native echoes are observations. */
+  "owner.guidance": z.object({ kind: z.enum(["prompt", "request_changes", "repair_ack"]), messageSeq: z.number().int().positive().optional(), commandId: z.uuid().optional(), requestId: z.string().optional() }),
   "agent.command": z.object({ commandId: z.uuid(), command: LaneCommand }),
   "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
   "agent.input": z.object({ commandId: z.uuid(), phase: z.enum(["sending", "sent"]) }),
@@ -122,6 +124,8 @@ const payloads = {
   /** The lead redid a delegation's work (read the files itself, reran the checks, or never applied the patch). */
   "helper.redone": z.object({ seq: z.number().int(), kind: z.enum(["read", "edit", "check"]) }),
   "checkpoint.repair_requested": z.object({ attempt: z.number().int().positive(), detail: z.string() }),
+  /** Binds the owner's repair acknowledgement to a daemon-created pause, never an agent-chosen question ID. */
+  "checkpoint.repair_paused": z.object({ requestId: z.string() }),
   "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional(), source: z.literal("acp").default("acp") }),
   "usage.turn": TurnUsage,
   "usage.limit": UsageLimit,

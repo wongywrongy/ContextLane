@@ -8,6 +8,11 @@ import { configPath, type Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
 import type { Runner } from "./run.js";
 
+// A masked worktree is not a missing worktree. Never let Git's automatic cleanup infer deletion
+// from this namespace, including when Git is a child of gh, an agent, or a dependency script.
+const GIT_MAINTENANCE = { "gc.auto": "0", "maintenance.auto": "false", "gc.worktreePruneExpire": "never" };
+export const GIT_MAINTENANCE_GUARDS = Object.entries(GIT_MAINTENANCE).flatMap(([key, value]) => ["-c", `${key}=${value}`]);
+
 /** Outside the data folder, so a sandboxed lane host can reach it. One per data folder, so fixtures never share a socket. */
 export function socketPath(config: Config): string {
   const name = `contextlanes-${createHash("sha256").update(config.paths.data).digest("hex").slice(0, 12)}`;
@@ -69,6 +74,10 @@ export function sandbox(config: Config, opts: SandboxOptions = {}): string[] {
     // The daemon's push may need the owner's SSH agent, which usually lives under /run.
     ...(opts.ssh && process.env.SSH_AUTH_SOCK && existsSync(process.env.SSH_AUTH_SOCK) ? ["--ro-bind", process.env.SSH_AUTH_SOCK, process.env.SSH_AUTH_SOCK] : []),
     ...caches.flatMap((name) => ["--setenv", name, `/tmp/cl-cache/${name.toLowerCase()}`]),
+    // Replace inherited command-scope Git overrides: they could enable cleanup, and copying their
+    // possibly secret values into bwrap arguments would expose credentials in process listings.
+    "--unsetenv", "GIT_CONFIG_PARAMETERS", "--setenv", "GIT_CONFIG_COUNT", String(Object.keys(GIT_MAINTENANCE).length),
+    ...Object.entries(GIT_MAINTENANCE).flatMap(([key, value], index) => ["--setenv", `GIT_CONFIG_KEY_${index}`, key, "--setenv", `GIT_CONFIG_VALUE_${index}`, value]),
     "--setenv", "TMPDIR", "/tmp", "--unsetenv", "DBUS_SESSION_BUS_ADDRESS", "--unsetenv", "DOCKER_HOST", "--"];
 }
 
@@ -87,7 +96,24 @@ export async function requireSandbox(run: Runner, config: Config): Promise<void>
 }
 
 /** Settings passed to every git the daemon runs, whatever the repository's own config says. */
-export const GIT_GUARDS = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never"];
+export const GIT_GUARDS = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", ...GIT_MAINTENANCE_GUARDS];
+
+/** Locate the builtin after Git's global flags, without interpreting aliases or shell strings. */
+function gitCommandIndex(args: string[]): number {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (!arg.startsWith("-")) return index;
+    if (arg === "--") return index + 1;
+    if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"].includes(arg)) {
+      if (args[++index] === undefined) throw new Refused("Git is missing a global option value.", 400);
+      continue;
+    }
+    if (/^-(?:C|c).+|^--(?:git-dir|work-tree|namespace|config-env|exec-path|list-cmds)=/.test(arg)) continue;
+    if (["--no-pager", "--paginate", "--bare", "--no-replace-objects", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch", "--no-advice", "--version", "-v", "--help", "-h", "--exec-path", "--html-path", "--man-path", "--info-path"].includes(arg)) continue;
+    throw new Refused(`Unsupported Git global option: ${arg}`, 400);
+  }
+  return args.length;
+}
 
 /**
  * The daemon's own git and gh use the same confinement primitives as the lanes. An agent can write a lane's
@@ -103,7 +129,13 @@ export function confineGit(run: Runner, config: Config, works: () => Promise<boo
   let checked = 0;
   const confined: Runner = async (cmd, args, opts) => {
     if (cmd !== "git" && cmd !== "gh") return run(cmd, args, opts);
-    const full = cmd === "git" ? [...GIT_GUARDS, ...args] : args;
+    const commandIndex = cmd === "git" ? gitCommandIndex(args) : 0;
+    const command = args.slice(commandIndex);
+    if (cmd === "git" && (["gc", "maintenance", "prune"].includes(command[0] ?? "") || command[0] === "worktree" && command.slice(1).find((arg) => !arg.startsWith("-")) === "prune")) {
+      throw new Refused("Repository-wide Git cleanup cannot run in a sandbox that hides other worktrees. Run intentional cleanup from the owner's full host view.", 409);
+    }
+    // Caller -c flags come first: these safety settings must win over caller/global/repository config.
+    const full = cmd === "git" ? [...args.slice(0, commandIndex), ...GIT_GUARDS, ...command] : args;
     const cwd = opts?.cwd;
     const repository = cwd ? repositoryFor(cwd) : undefined;
     // A working sandbox is remembered; a failed check is retried after a minute (bwrap installed meanwhile).
@@ -115,8 +147,8 @@ export function confineGit(run: Runner, config: Config, works: () => Promise<boo
     // Lifecycle commands create/remove checkout roots, so their trusted destination parent needs
     // a temporary write grant. Ordinary git only gets its cwd and the configured repository metadata.
     const writable: string[] = [];
-    if (cmd === "git" && args[0] === "worktree" && ["add", "remove"].includes(args[1] ?? "")) {
-      const tail = args.slice(2); let target: string | undefined;
+    if (cmd === "git" && command[0] === "worktree" && ["add", "remove"].includes(command[1] ?? "")) {
+      const tail = command.slice(2); let target: string | undefined;
       for (let i = 0; i < tail.length; i++) { if (["-b", "-B"].includes(tail[i]!)) { i++; continue; } if (!tail[i]!.startsWith("-")) { target = tail[i]; break; } }
       if (target) writable.push(dirname(resolve(cwd ?? process.cwd(), target)));
     }

@@ -4,6 +4,8 @@ The current workflow is task → verified checkpoint → approval → confirmed 
 
 This document describes the active contract. Dated build history is retained in [IMPLEMENTATION-HISTORY.md](IMPLEMENTATION-HISTORY.md) and [V2.md](V2.md); older status tables and savings targets there are historical.
 
+Follow-up acceptance exposed two release blockers in the initial candidate: queued native repair prompts reset the retry budget, and Git pruning inside the sandbox could delete valid worktree registrations. The corrections require fresh native acceptance; healthy service probes and passing unit tests alone are insufficient.
+
 ## Current capabilities
 
 | Capability | Contract |
@@ -12,7 +14,7 @@ This document describes the active contract. Dated build history is retained in 
 | Inbox and controls | Durable questions, owner decisions and input; native behavior remains available in the terminal |
 | Workspaces | Branch/worktree per ordinary lane; approved recipe for setup, app services, previews and checks |
 | Checkpoints | Integrate the target, test a disposable snapshot with its own database, and bind passing evidence to that commit and approved recipe |
-| Check failures | Persist up to two repair turns with their queued commands; continued failure creates an Inbox question, and owner guidance resets the budget |
+| Check failures | Persist up to two repair turns with their queued commands; continued failure creates an Inbox question, and authenticated owner guidance resets the budget |
 | Pull requests | Approval opens a PR; `pr_open` remains until actual merge and target-branch ancestry are confirmed |
 | Child integration | Approval enters `integration_pending`; the parent receives the approved SHA, and ancestry confirms integration |
 | Cleanup | Requires verified integration and refuses unsaved or unpushed work |
@@ -20,6 +22,8 @@ This document describes the active contract. Dated build history is retained in 
 | Usage | Reported cloud/helper usage stays separate; missing values are not zero and hypothetical savings are not shown |
 
 Checks run when a checkpoint is requested; native turn completion alone does not trigger them. Setup and checks run against the pinned snapshot, with copied dependencies and a separate database. They must not modify tracked source: commit generated source before requesting checks. A changed live commit or recipe also needs fresh evidence. The repair budget survives daemon restarts, and the owner retains final approval.
+
+Native `UserPromptSubmit` events do not prove who supplied a prompt: queued system input passes through the same hook. Reset an exhausted repair cycle through the authenticated owner interface or its Inbox acknowledgement. An ordinary terminal prompt alone does not grant a new automatic repair budget.
 
 A recipe with no checks can still be reviewed and approved, but is explicitly unverified by tests. Passing checks establish only the behavior those checks cover. Model verdicts and screenshots do not replace the required checks.
 
@@ -51,4 +55,4 @@ No fixed token-reduction target is a release gate. Keep optional features when r
 
 Use [DEVELOPING.md](DEVELOPING.md) for repeatable checks. Record the commit, command, results, skipped tests and real/faked dependencies when reporting validation. The historical V2 fixtures contain real native-agent observations and fake benchmark totals; the totals verify harness accounting only.
 
-This revision does not include a production rollout, real account benchmark or new physical-phone acceptance. Those outcomes must be recorded separately when performed.
+The initial candidate failed follow-up acceptance. Corrected code must pass a fresh target-host acceptance run before deployment readiness is claimed. A real account benchmark and physical-phone acceptance remain separate checks.

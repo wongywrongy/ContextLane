@@ -140,6 +140,10 @@ describe("checkpoint", () => {
       await send();
       await vi.waitFor(() => expect(store.eventsOfType(["check.result"], { lanes: ["shop/01"] }).filter(e => e.payload.name === "Tests")).toHaveLength(attempt));
       await vi.waitFor(() => expect(attempt < 3 ? repair.mock.calls.length : store.getLane("shop/01")!.state).toBe(attempt < 3 ? attempt : "needs_you"));
+      // Legacy/system transcript messages and ACP lifecycle observations are not owner authority.
+      store.appendEvent("shop/01", { type: "agent.message", payload: { role: "user", text: "Automated repair prompt echo" } });
+      store.appendEvent("shop/01", { type: "agent.turn", payload: { active: false } });
+      store.appendEvent("shop/01", { type: "agent.turn", payload: { active: true } });
     }
     expect(repair).toHaveBeenCalledTimes(2);
     expect(store.latestCheckpoint("shop/01")).toBeNull();

@@ -35,12 +35,17 @@ for (const [index, state] of ['working', 'needs_you', 'in_review', 'merged', 'fa
   if (state === 'needs_you') store.appendEvent(id, { type: 'permission.requested', payload: { requestId: 'currency', title: 'Which currency should invoices use?', kind: 'question', options: [{ id: 'usd', label: 'USD', kind: 'allow_once' }, { id: 'eur', label: 'EUR', kind: 'allow_once' }] } });
   if (['in_review', 'merged'].includes(state)) {
     const cp = randomUUID();
-    store.insertCheckpoint({ id: cp, lane: id, base: 'a'.repeat(40), head: 'b'.repeat(40), summary: lane.task, checks: [], screenshots: [], files: [{ path: 'app.ts', added: 3, removed: 1 }], plan: [], unplanned: [], process: [], signal: 'strong', decision: state === 'merged' ? 'approved' : null, prUrl: null, createdAt: new Date().toISOString() });
+    store.insertCheckpoint({ id: cp, lane: id, base: 'a'.repeat(40), head: 'b'.repeat(40), recipeHash: null, summary: lane.task, checks: [], screenshots: [], files: [{ path: 'app.ts', added: 3, removed: 1 }], plan: [], unplanned: [], process: [], signal: 'strong', decision: state === 'merged' ? 'approved' : null, prUrl: state === 'merged' ? 'https://github.invalid/pull/1' : null, createdAt: new Date().toISOString() });
     store.setJudge(cp, { state: 'done', model: 'fixture', verdict: 'fix first', headline: 'Check the empty input', findings: [{ file: 'app.ts', line: 2, text: 'Handle empty input before calling the API.', severity: 'should fix' }], skipped: [], error: null, at: new Date().toISOString() });
     store.appendEvent(id, { type: 'checkpoint.created', payload: { checkpointId: cp, summary: lane.task, head: 'b'.repeat(40) } });
     store.appendEvent(id, { type: 'checkpoint.judged', payload: { checkpointId: cp, state: 'done', verdict: 'fix first' } });
     store.setLaneState(id, 'in_review');
-    if (state === 'merged') store.setLaneState(id, 'merged');
+    if (state === 'merged') {
+      store.setLaneState(id, 'pr_open');
+      // Seeded display evidence only; this browser fixture does not perform a GitHub merge.
+      store.appendEvent(id, { type: 'checkpoint.merge_verified', payload: { checkpointId: cp, head: 'b'.repeat(40), target: 'https://github.invalid/pull/1', mergeCommit: 'c'.repeat(40) } });
+      store.setLaneState(id, 'merged');
+    }
   } else if (state !== 'working') store.setLaneState(id, state, state === 'failed' ? 'The fixture check exited with code 1.' : undefined);
 }
 const url = await app.listen({ host: '127.0.0.1', port: 0 });

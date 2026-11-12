@@ -31,7 +31,9 @@ After a build, run an individual test file with `corepack pnpm exec vitest run <
 | State, protocol or persisted data | `packages/protocol/test`, `apps/daemon/test/store.test.ts` |
 | Review, integration or evidence | `apps/daemon/test/review.test.ts`, `apps/daemon/test/checker.test.ts` |
 | Native CLI hooks and input | `apps/daemon/test/hooks.test.ts`, `apps/daemon/test/cli-input.test.ts` |
+| Repair budgets and owner authority | `apps/daemon/test/repair-loop.test.ts`, `apps/daemon/test/host-repair.test.ts` |
 | Filesystem and credentials | `apps/daemon/test/safefs.test.ts`, `apps/daemon/test/auth.test.ts`, `apps/daemon/test/sandbox.real.test.ts` |
+| Shared worktree retention | `apps/daemon/test/worktree-retention.test.ts`, `apps/daemon/test/confine-git.test.ts` |
 | Setup and updates | `apps/daemon/test/setup.test.ts`, `apps/daemon/test/update.test.ts` |
 
 Check the actual test filenames when adding coverage. Test observable behavior and meaningful failure cases, including interrupted delivery, stale evidence and rejected permissions.
@@ -52,8 +54,17 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs CHROMIUM_BIN=/abso
 
 Browser smoke scripts use seeded data or fake agents. Phone-sized Chromium verifies layout and browser behavior, not physical-phone notifications or provider account integration. Record skipped checks and environment failures separately from application failures.
 
+## Native repair and worktree acceptance
+
+Use disposable projects and retain evidence of these two regression checks:
+
+- Give a real native lane a deterministic failing check. After the initial failure, exactly two repair prompts may be queued; continued failure must produce an owner Inbox question. Repeated or altered prompt-hook echoes and daemon restarts must not reset that budget. Authenticated owner guidance or a valid Inbox acknowledgement must resume a new bounded cycle.
+- Create several registered worktrees, including paths hidden by the sandbox, plus a stale registration. Startup, discard and sandboxed Git operations must preserve the surviving registrations. Test the Git/bubblewrap boundary itself, not only a mocked command list. Explicit worktree removal may remove only its intended registration.
+
+Sandboxed maintenance preserves stale registrations because it cannot establish that every registered directory is visible. Perform intentional repository-wide cleanup from the owner's full host view after verifying the worktrees; do not infer deletion from sandbox visibility.
+
 ## Acceptance reporting
 
 Report the commit, exact commands, passed/failed/skipped counts and which external systems were real or faked. Use [IMPLEMENTATION.md](IMPLEMENTATION.md) for current limitations and [the benchmark guide](bench/README.md) for optional-assistance comparisons. Do not turn fixture token totals or model estimates into measured savings claims.
 
-No production rollout, physical-phone acceptance, or real account benchmark has been performed as part of this revision. Historical native-agent acceptance is retained in [V2.md](V2.md); it does not certify newer provider versions.
+The initial candidate failed follow-up native acceptance despite passing service health probes. Re-run the two regression scenarios above on the corrected candidate before claiming deployment readiness. Historical native-agent acceptance is retained in [V2.md](V2.md); it does not certify newer code or provider versions. Physical-phone acceptance and real account benchmarks require separate evidence.

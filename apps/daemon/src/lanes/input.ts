@@ -8,7 +8,10 @@ import type { Runner } from "../run.js";
 
 type Deps = { store: Store; bus: EventBus; config: Config; run: Runner };
 
-/** CLI input shares the durable command queue with ACP. Only a native Stop makes a lane ready. */
+/** CLI input shares the durable command queue with ACP. Only a native Stop makes a lane ready.
+ * Delivery is not owner input: owner.guidance is recorded by authenticated routes before queuing,
+ * never inferred here (or by native echo hooks) from a successfully pasted prompt.
+ */
 export class CliInputs {
   private running = new Map<string, Promise<void>>();
   private dirty = new Set<string>();

@@ -32,6 +32,17 @@ describe("daemon git", () => {
     expect(calls[0]).toEqual(["git", ...GIT_GUARDS, "diff"]);
   });
 
+  it("rejects repository-wide cleanup before spawning and gives guards precedence over global flags", async () => {
+    const calls: string[][] = [];
+    const run = confineGit(async (cmd, args) => { calls.push([cmd, ...args]); return { stdout: "" }; }, Config.parse({}), async () => false);
+    for (const args of [["worktree", "prune"], ["-C", "/repo", "worktree", "prune"], ["--git-dir=/repo/.git", "gc"], ["-cmaintenance.auto=true", "maintenance", "run"]]) {
+      await expect(run("git", args)).rejects.toThrow(/full host view/);
+    }
+    expect(calls).toHaveLength(0);
+    await run("git", ["-C", "/repo", "-c", "gc.auto=1", "fetch", "origin"]);
+    expect(calls[0]).toEqual(["git", "-C", "/repo", "-c", "gc.auto=1", ...GIT_GUARDS, "fetch", "origin"]);
+  });
+
   const bwrap = spawnSync("bwrap", ["--dev-bind", "/", "/", "--", "true"]).status === 0;
   it.skipIf(!bwrap)("code planted in a lane repository cannot reach the data folder or run as a hook", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "cl-confine-")));

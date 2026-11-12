@@ -164,6 +164,29 @@ describe("contextlanes update", () => {
     await expect(readlink(join(f.base, "current"))).rejects.toThrow();
   });
 
+  it("retries a partial release without pruning unrelated live or stale worktrees", async () => {
+    const f = await fixture();
+    const live = join(f.root, "other-live"), stale = join(f.root, "other-stale");
+    await git(f.app, "worktree", "add", "-b", "other-live", live);
+    await git(f.app, "worktree", "add", "-b", "other-stale", stale);
+    await rm(stale, { recursive: true });
+    await utimes(join(f.app, ".git/worktrees/other-stale/gitdir"), new Date(0), new Date(0));
+    const second = await commit(f.work, "Retry the build"), u = await f.updater();
+    const deps = (u as unknown as { deps: { run: Runner } }).deps, original = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "npm" && args.at(-1) === "build") throw new Error("interrupted build");
+      return original(cmd, args, opts);
+    };
+    await expect(u.update()).rejects.toThrow(/did not build/);
+    deps.run = original;
+    expect(await u.update()).toBe(0);
+    expect(await realpath(join(f.base, "current"))).toBe(join(f.base, "releases", second.slice(0, 12)));
+    const registrations = await git(f.app, "worktree", "list", "--porcelain");
+    expect(registrations).toContain(`worktree ${live}\n`);
+    expect(registrations).toContain(`worktree ${stale}\n`);
+    expect(await readFile(join(live, "CHANGES.md"), "utf8")).toBe("First version\n");
+  });
+
   it("switches back by itself, restoring the database, when the new version does not come up", async () => {
     const f = await fixture({ migrateOnStart: true, neverHealthy: true });
     await commit(f.work, "Second version");
