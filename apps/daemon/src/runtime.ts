@@ -1,11 +1,10 @@
 import { createLaneDatabase, databaseEnv, dropLaneDatabase, laneDatabaseName } from "./databases.js";
 import { randomBytes } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
-import { copyFile, lstat, mkdir } from "node:fs/promises";
-import { mkdirInside } from "./safefs.js";
+import { mkdir } from "node:fs/promises";
+import { copyFileInside, copyTreeInside } from "./safefs.js";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
-import type { EnvironmentView, Lane, LogLine, Project, Recipe, RecipeService, RecipeView, ServiceStatus } from "@contextlanes/protocol";
+import type { EnvironmentView, Lane, LaneDatabase, LogLine, Project, Recipe, RecipeService, RecipeView, ServiceStatus } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -17,7 +16,7 @@ import { sandbox } from "./sandbox.js";
 
 const PROBES = 24;
 const LOOPBACK = /^(127\.\d+\.\d+\.\d+|\[::1\]|\[::ffff:127\.\d+\.\d+\.\d+\])$/;
-const RUNS_IN = ["working", "needs_you", "in_review", "paused", "failed"];
+const RUNS_IN = ["working", "needs_you", "in_review", "pr_open", "integration_pending", "paused", "failed"];
 
 export type RuntimeDeps = { store: Store; bus: EventBus; config: Config; run: Runner; fetch?: typeof fetch; freePort?: () => Promise<number>; previews?: Previews };
 
@@ -147,11 +146,36 @@ export class Runtime {
       if (!this.deps.store.recipeAlreadyRequested(lane.id, view.hash)) this.deps.bus.publish(this.deps.store.appendEvent(lane.id, { type: "recipe.requested", payload: { hash: view.hash } }));
       return;
     }
-    const services: ServiceStatus[] = await Promise.all(view.recipe.services.map(async (s) => ({ name: s.name, unit: "", port: await (this.deps.freePort ?? freePort)(), url: null, state: "stopped", detail: null, probes: [], ms: null, lastFailure: null, healthPath: s.health.path, healthStatus: s.health.status })));
+    const previous = this.deps.store.environment(lane.id);
+    if (previous?.recipeHash === view.hash && previous.setup) return;
+    if (previous?.services.some((s) => s.state !== "stopped")) await this.stop(lane.id);
+    const services: ServiceStatus[] = await Promise.all(view.recipe.services.map(async (s) => ({ name: s.name, unit: "", port: previous?.services.find((p) => p.name === s.name)?.port ?? await (this.deps.freePort ?? freePort)(), url: null, state: "stopped", detail: null, probes: [], ms: null, lastFailure: null, healthPath: s.health.path, healthStatus: s.health.status })));
     const ports = Object.fromEntries(services.map((s) => [`PORT_${s.name.toUpperCase().replaceAll("-", "_")}`, String(s.port)]));
     const setup = await this.prepare(lane, project, view.recipe, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id, ...ports, ...(services[0] ? { PORT: String(services[0].port) } : {}) });
     this.deps.store.saveEnvironment({ lane: lane.id, recipeHash: view.hash, services, setup, startedAt: null, error: null });
     this.deps.bus.publish(this.deps.store.appendEvent(lane.id, { type: "env.status", payload: { service: "setup", up: true, state: "healthy" } }));
+  }
+
+  /** Checks use the prepared lane's database and ports, and never repeat an already completed setup. */
+  async checkEnvironment(lane: Lane, recipe: Recipe | null): Promise<Record<string, string>> {
+    if (!recipe) return this.environmentVariables(lane, null, null);
+    await this.starting.get(lane.id);
+    const view = await laneRecipe(this.deps.store, this.deps.store.getProject(lane.project)!, lane);
+    const approved = this.approved(lane, view);
+    if (JSON.stringify(approved) !== JSON.stringify(recipe)) throw new Refused("The recipe changed before checks started. Run checks again with the current recipe.");
+    await this.prepareWorkspace(lane);
+    const env = this.deps.store.environment(lane.id);
+    if (!env?.setup || env.recipeHash !== view!.hash) throw new Refused("The environment changed before checks started. Run checks again.");
+    return this.environmentVariables(lane, recipe, env);
+  }
+
+  private environmentVariables(lane: Lane, recipe: Recipe | null, env: EnvironmentView | null): Record<string, string> {
+    const services = recipe?.services.flatMap((r) => env?.services.find((s) => s.name === r.name) ?? []) ?? [];
+    return { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id,
+      ...Object.fromEntries(services.map((s) => [`PORT_${s.name.toUpperCase().replaceAll("-", "_")}`, String(s.port)])),
+      ...(services[0] ? { PORT: String(services[0].port) } : {}),
+      ...(recipe?.database && env?.setup?.database ? databaseEnv(this.deps.config, recipe.database, env.setup.database, lane.worktree) : {}),
+    };
   }
 
   async teardown(id: string): Promise<void> {
@@ -159,7 +183,7 @@ export class Runtime {
     const view = await laneRecipe(this.deps.store, this.deps.store.getProject(lane.project)!, lane);
     if (!view?.recipe?.scripts.teardown) return;
     const recipe = this.approved(lane, view);
-    const result = await oneshot(this.deps.run, lane.worktree, scriptArgs(recipe.scripts.teardown!), { PATH: process.env.PATH ?? "/usr/bin:/bin", CONTEXTLANES_LANE: id }, 600, sandbox(this.deps.config));
+    const result = await oneshot(this.deps.run, lane.worktree, scriptArgs(recipe.scripts.teardown!), this.environmentVariables(lane, recipe, this.deps.store.environment(id)), 600, sandbox(this.deps.config, { worktree: lane.worktree, repository: this.deps.store.getProject(lane.project)!.path }));
     this.deps.bus.publish(this.deps.store.appendEvent(id, { type: "env.status", payload: { service: "teardown", up: result.ok, state: result.ok ? "stopped" : "failed", detail: result.output.slice(-600) } }));
     if (!result.ok) throw new Refused(`Teardown failed; checkout kept. ${result.output}`);
   }
@@ -196,27 +220,23 @@ export class Runtime {
     return view ? this.approved(lane, view) : null;
   }
 
-  /**
-   * Run a service from a temporary checkout of another commit, for the "before" screenshot. The
-   * checkout holds nothing of value, so it is removed by force whatever happens.
-   */
+  /** Checks execute in a separate checkout of the recorded commit, with their own prepared database. */
+  async withCheckSnapshot<T>(lane: Lane, recipe: Recipe, head: string, use: (snapshot: Lane, env: Record<string, string>) => Promise<T>): Promise<T> {
+    return this.withDisposableWorkspace(lane, recipe, head, "check", async (snapshot, env) => use(snapshot, env));
+  }
+
+  /** Run the baseline service from a disposable checkout of another commit for before screenshots. */
   async fromCommit<T>(lane: Lane, recipe: Recipe, commit: string, use: (port: number) => Promise<T>): Promise<T> {
     const { run, store, config } = this.deps;
     const project = store.getProject(lane.project)!;
-    const service = recipe.services.find((s) => s.name === "web") ?? recipe.services[0]!;
-    // Beside the lanes: services for this checkout run in the sandbox, which hides the data folder.
-    const dir = join(config.paths.lanes, ".before", randomBytes(6).toString("hex"));
-    const units: string[] = [];
-    await mkdir(dirname(dir), { recursive: true });
-    await run("git", ["worktree", "add", "--detach", dir, commit], { cwd: project.path });
-    try {
-      const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, await (this.deps.freePort ?? freePort)()] as const)));
-      const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
-      await this.prepare({ ...lane, worktree: dir }, project, recipe, shared);
+    const service = recipe.services.find((s) => s.name === "web") ?? recipe.services[0];
+    if (!service) throw new Refused("The recipe has no service for a baseline screenshot.");
+    return this.withDisposableWorkspace(lane, recipe, commit, "before", async (snapshot, shared, ports, units) => {
       for (const each of recipe.services) {
         const unit = `contextlanes-env-before-${randomBytes(4).toString("hex")}`;
-        await run("systemd-run", serviceArgs(unit, dir, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }, sandbox(this.deps.config)));
+        // systemd may have started a unit even when the command's response is lost.
         units.push(unit);
+        await run("systemd-run", serviceArgs(unit, snapshot.worktree, each, { ...shared, [each.port.env]: String(ports[each.name]!), PORT: String(ports[each.name]!) }, sandbox(config, { worktree: snapshot.worktree, repository: project.path })));
       }
       const deadline = Date.now() + service.health.timeoutSeconds * 1000;
       for (;;) {
@@ -225,10 +245,46 @@ export class Runtime {
         if (Date.now() >= deadline) throw new Error(`${service.name} did not become healthy from ${commit.slice(0, 7)}.`);
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      return await use(ports[service.name]!);
+      return use(ports[service.name]!);
+    });
+  }
+
+  /** Disposable checkouts never reuse a live lane's database or persist an environment row. */
+  private async withDisposableWorkspace<T>(lane: Lane, recipe: Recipe, commit: string, kind: "before" | "check", use: (snapshot: Lane, env: Record<string, string>, ports: Record<string, number>, units: string[]) => Promise<T>): Promise<T> {
+    const { run, store, config } = this.deps;
+    const project = store.getProject(lane.project)!;
+    const nonce = randomBytes(12).toString("hex");
+    // Outside the data folder so scoped sandbox commands can mount the disposable checkout.
+    const dir = join(config.paths.lanes, `.${kind}`, nonce);
+    const snapshot = { ...lane, id: `${lane.id}_${kind}_${nonce}`, worktree: dir };
+    const units: string[] = [];
+    let database: LaneDatabase | null = null;
+    let failure: unknown;
+    let failed = false;
+    await mkdir(dirname(dir), { recursive: true });
+    await run("git", ["worktree", "add", "--detach", dir, commit], { cwd: project.path });
+    try {
+      const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, await (this.deps.freePort ?? freePort)()] as const)));
+      const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: snapshot.id,
+        ...(recipe.services[0] ? { PORT: String(ports[recipe.services[0].name]) } : {}),
+        ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])),
+      };
+      // Retain ownership before any migration can fail; never adopt another run's database.
+      database = recipe.database ? await createLaneDatabase(run, config, recipe.database, snapshot, project.path, { reuse: false }) : null;
+      if (recipe.database && database) Object.assign(shared, databaseEnv(config, recipe.database, database, dir));
+      await this.prepare(snapshot, project, recipe, shared, database);
+      return await use(snapshot, shared, ports, units);
+    } catch (err) {
+      failed = true; failure = err;
+      throw err;
     } finally {
-      await Promise.allSettled(units.map((unit) => run("systemctl", ["--user", "stop", unit])));
-      await run("git", ["worktree", "remove", "--force", dir], { cwd: project.path }).catch(() => {});
+      const stopped = await Promise.allSettled(units.map((unit) => run("systemctl", ["--user", "stop", unit])));
+      const removed = await Promise.allSettled([
+        ...(database ? [dropLaneDatabase(run, config, database)] : []),
+        run("git", ["worktree", "remove", "--force", dir], { cwd: project.path }),
+      ]);
+      const errors = [...stopped, ...removed].flatMap((r) => r.status === "rejected" ? [r.reason] : []);
+      if (errors.length) throw new AggregateError([...(failed ? [failure] : []), ...errors], `${kind === "before" ? "Baseline" : "Check snapshot"} cleanup failed for ${dir}${database?.kind === "postgres" ? ` (${database.name})` : ""}.`);
     }
   }
 
@@ -265,7 +321,7 @@ export class Runtime {
     const carried = changed ? previous.services.filter((s) => recipe.services.some((r) => r.name === s.name)).map((s) => ({ ...s, state: "stopped" as const })) : previous?.services ?? [];
     const env: EnvironmentView = previous && !changed ? { ...previous, error: null } : { lane: id, recipeHash: view!.hash, services: carried, setup: null, startedAt: null, error: null };
     const ports = Object.fromEntries(await Promise.all(recipe.services.map(async (s) => [s.name, env.services.find((x) => x.name === s.name)?.port ?? await (this.deps.freePort ?? freePort)()] as const)));
-    const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: id, ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
+    const shared = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: id, ...(recipe.services[0] ? { PORT: String(ports[recipe.services[0].name]) } : {}), ...Object.fromEntries(Object.entries(ports).map(([name, port]) => [`PORT_${name.toUpperCase().replaceAll("-", "_")}`, String(port)])) };
 
     if (!env.setup) {
       try { env.setup = await this.prepare(lane, project, recipe, shared); }
@@ -289,7 +345,7 @@ export class Runtime {
       const port = ports[service.name]!;
       const row: ServiceStatus = { name: service.name, unit, port, url: null, state: "starting", detail: null, probes: [], ms: null, lastFailure: old?.lastFailure ?? null, healthPath: service.health.path, healthStatus: service.health.status };
       store.saveEnvironment({ ...current, services: [...current.services.filter((s) => s.name !== service.name), row] });
-      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config))); }
+      try { await this.deps.run("systemd-run", serviceArgs(unit, lane.worktree, service, { ...shared, [service.port.env]: String(port), PORT: String(port) }, sandbox(this.deps.config, { worktree: lane.worktree, repository: project.path }))); }
       catch (err) { this.update(env, row, { state: "failed", detail: err instanceof Error ? err.message.slice(0, 300) : "The service unit could not start." }); continue; }
       this.deps.bus.publish(store.appendEvent(id, { type: "env.status", payload: { service: service.name, up: false, port, state: "starting" } }));
     }
@@ -304,41 +360,27 @@ export class Runtime {
   }
 
   /** Copy selected ignored files, bring dependencies across, then run the recipe's setup steps. */
-  private async prepare(lane: Lane, project: Project, recipe: Recipe, env: Record<string, string>): Promise<NonNullable<EnvironmentView["setup"]>> {
+  private async prepare(lane: Lane, project: Project, recipe: Recipe, env: Record<string, string>, preparedDatabase?: LaneDatabase | null): Promise<NonNullable<EnvironmentView["setup"]>> {
     const { run } = this.deps;
     const started = Date.now();
     const listed = recipe.copy.length ? await run("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...recipe.copy.map((pattern) => `:(glob)${pattern}`)], { cwd: project.path }) : { stdout: "" };
     const ignored: string[] = [];
     for (const file of listed.stdout.split("\0").filter(Boolean)) {
-      const source = join(project.path, file);
-      if (file.startsWith("/") || file.split("/").includes("..")) continue;
-      let linked = false, at = project.path;
-      for (const part of file.split("/")) { at = join(at, part); if ((await lstat(at)).isSymbolicLink()) { linked = true; break; } }
-      if (linked || !(await lstat(source)).isFile()) continue;
-      const target = join(lane.worktree, file);
-      // The checkout is the agent's: never write through a folder it replaced with a link.
-      await mkdirInside(lane.worktree, dirname(file));
-      await copyFile(source, target, fsConstants.COPYFILE_EXCL).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; });
-      ignored.push(file);
+      const copied = await copyFileInside(project.path, lane.worktree, file).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; return true; });
+      if (copied) ignored.push(file);
     }
-    let cache: "none" | "linked" | "copied" = "none";
+    let cache: "none" | "copied" = "none";
     for (const path of recipe.cache) {
-      const source = join(project.path, path);
-      const target = join(lane.worktree, path);
-      const present = async (p: string) => lstat(p).then(() => true, () => false);
-      if (!(await present(source)) || await present(target)) continue;
-      await mkdirInside(lane.worktree, dirname(path));
-      // Hard links are instant; another filesystem falls back to a copy.
-      try { await run("cp", ["-al", source, target]); cache = cache === "copied" ? cache : "linked"; }
-      catch { await run("cp", ["-a", "--reflink=auto", source, target]); cache = "copied"; }
+      // Writable dependencies must not share inodes with the main checkout or another lane.
+      if (await copyTreeInside(project.path, lane.worktree, path)) cache = "copied";
     }
     // The database comes before setup steps, which often migrate it.
-    const database = recipe.database ? await createLaneDatabase(run, this.deps.config, recipe.database, lane, project.path) : null;
+    const database = preparedDatabase !== undefined ? preparedDatabase : recipe.database ? await createLaneDatabase(run, this.deps.config, recipe.database, lane, project.path) : null;
     const stepEnv = recipe.database && database ? { ...env, ...databaseEnv(this.deps.config, recipe.database, database, lane.worktree) } : env;
     const seconds = Math.round((Date.now() - started) / 100) / 10;
     const steps = [...recipe.setup, ...(recipe.scripts.setup ? [{ name: "Setup script", command: scriptArgs(recipe.scripts.setup), timeoutSeconds: 600 }] : [])];
     for (const step of steps) {
-      const result = await oneshot(run, lane.worktree, step.command, stepEnv, step.timeoutSeconds, sandbox(this.deps.config));
+      const result = await oneshot(run, lane.worktree, step.command, stepEnv, step.timeoutSeconds, sandbox(this.deps.config, { worktree: lane.worktree, repository: project.path }));
       if (!result.ok) throw new Error(`${step.name} failed: ${result.output.trim().slice(-600)}`);
     }
     const disk = await run("du", ["-sb", lane.worktree]).then((r) => Number(r.stdout.split(/\s/)[0]), () => null);

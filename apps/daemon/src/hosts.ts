@@ -105,6 +105,9 @@ export class HostLinks {
         const body = HostEvent.parse(msg);
         if (!store.eventBySource(lane, body.eventId)) {
           let incoming = body.event as NewLaneEvent;
+          // This namespace belongs to daemon-created repair questions. A host must not
+          // replace their title/options or turn them into Auto-approvable tool requests.
+          if (incoming.type === "permission.requested" && incoming.payload.requestId.startsWith("checkpoint-repair-")) throw new Error("Repair question IDs are reserved for the daemon.");
           // Auto mode: ContextLanes answers what the guard passes; the rest waits for you with the reason.
           const verdict = incoming.type === "permission.requested" && store.getLane(lane)!.auto ? autoVerdict(store, lane, incoming.payload) : null;
           if (verdict && "held" in verdict && incoming.type === "permission.requested") incoming = { ...incoming, payload: { ...incoming.payload, held: verdict.held } };
@@ -113,7 +116,8 @@ export class HostLinks {
           const state = store.getLane(lane)!.state;
           if (event.type === "permission.requested" && verdict && "optionId" in verdict) answerPermission({ store, bus, send: (l, m) => this.send(l, m) }, lane, event.payload.requestId, verdict.optionId, "auto");
           else if (event.type === "permission.requested" && state === "working") bus.publish(store.setLaneState(lane, "needs_you"));
-          if (event.type === "agent.error" && ["working", "needs_you", "setting_up"].includes(state)) bus.publish(store.setLaneState(lane, "failed", event.payload.message));
+          const repairPaused = state === "needs_you" && store.eventsOfType(["checkpoint.repair_paused"], { lanes: [lane] }).some(e => !store.answered(lane!, e.payload.requestId));
+          if (event.type === "agent.error" && ["working", "needs_you", "setting_up"].includes(state) && !repairPaused) bus.publish(store.setLaneState(lane, "failed", event.payload.message));
           // One failed turn (a rate limit, a dropped connection) is not the end: when the agent takes a new turn, the lane is working again.
           if (event.type === "agent.turn" && event.payload.active && state === "failed") bus.publish(store.setLaneState(lane, "working", "The agent started a new turn"));
         }

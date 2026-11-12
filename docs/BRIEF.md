@@ -1,45 +1,32 @@
-# ContextLanes — product brief
+# Product brief
 
-## The five W's
+ContextLanes helps one developer run parallel coding tasks on an always-on Linux machine and decide what is ready to integrate. Agents handle implementation; the surrounding workflow supplies isolated workspaces, bounded permissions, reproducible checks, review evidence and truthful integration status.
 
-- **Who:** one developer running Claude Code, Codex and local models in parallel across a handful of their own repos, often away from the desk.
-- **What:** an open-source, self-hosted workspace for agent **lanes**. Start a lane (agent, model, worktree, terminal, running app), talk to it, approve and interrupt it, and see its steps and thinking, where in the code it is working and what it costs. Then review and merge with evidence.
-- **When:** starting work (brief lanes for a goal), while it runs (glance, answer, approve), at review (merge or send back), overnight (scheduled lanes), end of week (insights: what happened, what to change).
-- **Where:** an always-on machine on your Tailscale network, opened from any browser, your phone, Telegram or the CLI. Local models run on that machine's GPUs.
-- **Why:** parallel agents get lost across terminals; review is the bottleneck, not writing; context fills with tool definitions and re-reads; ports, previews and approvals are still manual.
+## Core workflow
 
-## Where it wins
+1. Define the desired behavior and how to verify it.
+2. Start a lane with a branch, checkout, agent and approved environment recipe.
+3. Let the agent work; answer genuine questions and permission requests through one inbox.
+4. Verify the final commit with the configured checks. Inspect the diff, output and optional screenshots or independent review.
+5. Request fixes or approve the result. Track the pull request or parent integration until it is actually merged; then clean up.
 
-1. A running app per lane with its own private link.
-2. Review packets: checks, before and after screenshots, plan vs done, process signal, diff.
-3. One inbox across Claude, Codex and local agents, with enough context to answer from a phone.
-4. Collision warnings on a real architecture view when two lanes touch the same module, with a merge order.
-5. Measured token savings and evidence-based insights per project.
+Parallel work should reduce the owner's coordination burden. Parent lanes can propose bounded child tasks and inspect their results. A child finishing a turn is not proof that it satisfied its task.
 
-Chat, terminals and phone remotes are table stakes; we borrow them.
+## Product boundaries
 
-## Boundary
+Keep the native agents' capabilities and session behavior. Add workflow enforcement where a prompt is insufficient: permission boundaries, check execution, evidence freshness and integration tracking. GitHub owns PR policy and CI. The user's editor remains available for direct work.
 
-All-in-one for agent-driven work on your own repos: work starts, gets steered, checked and merged here. Not an IDE (open in your editor), not the agents themselves, not GitHub (PRs and CI stay there), not deploys or production monitoring, not a team SaaS, not a model gateway. The test for a new feature: does it shorten the start → answer → check → merge loop?
+Code maps, briefs, local helpers, judges and usage views are optional. Keep them only when they improve verified results or reduce effort on representative work. Do not fill context with information agents can discover, impose a plan on every task, or treat model opinion as passing evidence.
 
-## How we will know it works
+## Success criteria
 
-- Under 5 minutes from an agent getting stuck to your answer, when you are around
-- Under 5 minutes to review a checkpoint
-- 30% fewer cloud tokens per lane on the same tasks
-- 3 to 5 lanes in parallel without conflicts
-- No ports, previews or env files set up by hand
+| Outcome | Evidence to collect |
+|---|---|
+| Work continues without the browser | Native sessions survive disconnects and daemon restarts; failures become visible |
+| Reviews are trustworthy | Required checks pass on the exact reviewed commit; changed code or recipes invalidate old evidence |
+| Completion means integration | PR creation, pending parent integration, confirmed merge and cleanup remain distinct |
+| Parallelism is useful | Representative concurrent tasks reach verified integration, with conflicts and owner interventions recorded |
+| Setup is repeatable | An approved recipe recreates services, ports, environment and checks for another lane |
+| Assistance pays for itself | Compare completion quality, wall time, owner effort and reported cloud usage with assistance enabled and disabled |
 
-## Local models
-
-- **Helper:** Claude or Codex stays the lead on every lane and hands reading, small edits and test runs to a local model through the `delegate` tool. Each kind stays on only while it pays: tokens saved and how often the lead redid the work are tracked.
-- **Insights:** a scheduled local-model job (nightly and after each merge) reads the event log, git, CodeGraph and test results and writes a weekly summary and suggestions. Each suggestion cites its evidence and offers one action; nothing is applied without a click.
-
-## Scope
-
-- **Phase 1:** lanes and lane hosts, Claude and Codex over ACP, Work, Inbox and terminals, phone and Telegram, setup.
-- **Phase 2:** recipes and lane setup, a private link per lane, review packets, merge and cleanup.
-- **Phase 3:** code map and briefs, Architecture and collision warnings, local helper, Insights.
-- **Phase 4:** overview graph polish, schedules, more agents, routing.
-
-See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the build plan and gates.
+There is no promised token-reduction percentage. Short fixtures establish implementation behavior; real tasks, real device delivery and sustained daily use establish product outcomes. [Current status](IMPLEMENTATION.md) keeps those forms of evidence separate.

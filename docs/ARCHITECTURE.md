@@ -1,189 +1,67 @@
-# ContextLanes — architecture
+# Architecture
 
-ContextLanes is one small service on an always-on machine. It turns a task into a **lane**: a branch and worktree, a terminal, a running copy of the app and an agent session. It carries that lane through to a merged change. Everything hard is borrowed: agents speak ACP, shells are tmux, apps run as systemd units, code is mapped by CodeGraph, and access rides on Tailscale.
+ContextLanes coordinates coding work on one Linux host. A lane owns a task, branch/worktree, agent session and optional app environment. The daemon records observations and owner decisions, executes checks, and tracks integration. Native agents remain responsible for coding and their own conversational context.
 
-## Processes
+## Processes and code
 
-```mermaid
-flowchart TB
-  subgraph clients[Clients]
-    web[Browser · phone web app]
-    cli[contextlanes CLI]
-    tg[Telegram · ntfy]
-  end
-  ts[Tailscale Serve]
-  subgraph machine[Always-on machine]
-    daemon[Daemon<br/>Fastify · SQLite · SSE]
-    subgraph lane1[Lane 01]
-      host1[Lane host<br/>systemd unit]
-      agent1[Agent over ACP<br/>claude-agent-acp]
-      tmux1[tmux session]
-      app1[App services<br/>systemd units]
-    end
-    toolbox[Toolbox MCP server]
-    local[Ollama · llama.cpp]
-  end
-  web --> ts --> daemon
-  cli --> daemon
-  tg --> daemon
-  daemon <-- Unix socket, JSON lines --> host1
-  host1 <-- ACP over stdio --> agent1
-  agent1 -- MCP --> toolbox --> daemon
-  daemon --> tmux1
-  daemon --> app1
-  toolbox -. delegate .-> local
-```
-
-| Process | Lifetime | Job |
+| Component | Lifetime and responsibility | Source |
 |---|---|---|
-| Daemon (`apps/daemon`) | systemd user service | HTTP API, live stream, event log, lane manager, runtime, checker, notifier |
-| Lane host (`apps/lanehost`) | one systemd unit per lane | Holds the agent's ACP session; survives daemon restarts |
-| Agent | child of the lane host | Claude Code, Codex, OpenCode… each with its own login |
-| Toolbox (`packages/toolbox`) | started by the agent over MCP stdio | Lets the agent use the lane: services, logs, previews, ask the owner, checkpoint, briefs, delegate |
-| tmux session | one per lane | Your shell in the worktree; never the agent's |
-| App services | systemd units per lane | The lane's running copy of the app, on its own ports |
+| Daemon | systemd user service; authenticated HTTP, SQLite, event streams, environments, review | `apps/daemon` |
+| Native CLI lane | Claude Code or Codex in tmux; native hooks report turns, tools and permissions | `apps/daemon/src/lanes/cli.ts`, `hooks.ts`, `lanes/input.ts` |
+| ACP lane host | Separate systemd process holding an agent session; survives daemon restart | `apps/lanehost` |
+| Toolbox | Lane-scoped MCP tools for environments, checkpoints, optional context and child tasks | `packages/toolbox` |
+| App services | systemd units with recipe-provided commands, lane ports and database configuration | `apps/daemon/src/runtime.ts` |
+| Browser and CLI | Observe events, send input and perform authenticated owner actions | `apps/web`, `apps/cli` |
 
-Other pieces the daemon runs, each in its own module under `apps/daemon/src`: `codemap.ts` (CodeGraph index per project, in a sandboxed worker), `collisions.ts` (two lanes changing one module), `briefs.ts` and `helper.ts` (module briefs and `delegate`, on a local model, one job per GPU in `localmodels.ts`), `insights.ts`, `ask.ts`, `bench.ts`, `handoff.ts`, `second-review.ts`, `registry.ts` (ACP registry), `schedules.ts` (scheduled lanes as systemd user timers), `skills.ts` (project skills copied into each new lane), `databases.ts` (each lane's Postgres or SQLite copy) and the PTY host (`bin/pty-host.py`, one process per terminal).
+Claude Code and Codex default to native CLI lanes. ACP remains available for supported agents. Native terminal attachments share the lane's tmux session; detaching a browser or CLI client does not kill it. CLI input waits for observed turn completion. ACP hosts retain their session while reconnecting to the daemon.
 
-## Data
+## State and evidence
 
-The six core tables, three notification transport tables, hashed owner-session table and expiring setup-link table live in SQLite (`node:sqlite`, WAL). Lane state and work remain event-derived.
+SQLite uses WAL. Events have gap-free per-lane sequence numbers; replayed host observations are deduplicated by source ID. Commands are durable until acknowledged. Owner permission answers are recorded once. Lane state changes go through the store alongside their events.
 
-| Table | Holds |
+| State | Meaning |
 |---|---|
-| `project` | A repo on this machine: path, remote, approved recipe hash |
-| `lane` | One task in one worktree: agent, model, mode, branch, worktree, tmux session, state, colour |
-| `event` | Every update in order, `(lane, seq)` gap-free |
-| `checkpoint` | A change ready for review: base, head, checks, screenshots, decision |
-| `environment` | A lane's running services: units, ports, hostnames, health |
-| `approval` | Recipes approved by the owner, by hash |
-| `push_subscription` | Private browser push endpoints and encryption keys |
-| `notification_action` | Hashed, single-choice notification capabilities |
-| `notification_cursor` | Last processed Telegram polling offset |
+| `setting_up` | Checkout, agent or environment is being prepared |
+| `working` | Work may continue; an idle agent is still not a verified result |
+| `needs_you` | A question or permission is waiting |
+| `in_review` | A checkpoint is ready for an owner decision |
+| `pr_open` | The approved commit has a pull request; it is not confirmed merged |
+| `integration_pending` | A child commit was approved for its parent; integration is not yet confirmed |
+| `merged` | The approved change's actual integration has been verified |
+| `cleaned` | Lane processes and disposable checkout resources have been removed |
 
-### Lane lifecycle
+`draft`, `paused`, `failed` and `archived` cover preparation and interrupted work. See `packages/protocol/src/states.ts` for permitted transitions.
 
-```mermaid
-stateDiagram-v2
-  [*] --> draft
-  draft --> setting_up
-  setting_up --> working
-  setting_up --> failed
-  failed --> setting_up: retry
-  working --> needs_you: asks
-  needs_you --> working: you answer
-  working --> in_review: checkpoint
-  in_review --> working: changes requested
-  in_review --> merged: approve
-  merged --> cleaned
-  working --> paused
-  paused --> working
-```
+A requested checkpoint resolves and integrates its target base, then runs configured checks in a disposable worktree pinned to the resulting commit. The snapshot gets its own prepared database, copied dependencies and recipe setup. Checks cannot borrow uncommitted source from the live lane. If setup or checks modify tracked source, generated source must be committed before requesting another checkpoint. Live commit or recipe drift also invalidates the result.
 
-A lane waits on you only in `needs_you` and `in_review`. `archived` can be reached from any open state.
+Failed checks return their output to the agent for at most two repair turns per review cycle. The repair request and queued command are persisted atomically; continued failure creates a durable Inbox question. Owner guidance resets the repair budget. Native Stop events alone do not request checkpoints.
 
-### Events
+A successful checkpoint binds the diff, checks and screenshots to a commit, its integrated base and the approved recipe hash. Approval rejects changed commits, changed recipes, stale bases and missing/failed configured checks. It pushes the reviewed SHA without a post-review rebase. A recipe without checks is displayed as having no checks; owner approval does not manufacture test coverage.
 
-| Type | When |
-|---|---|
-| `lane.created`, `lane.state` | The lane manager creates or moves a lane |
-| `agent.plan`, `agent.thought`, `agent.message` | ACP plan updates and streamed text, joined into one step per run |
-| `tool.call`, `tool.update` | ACP tool calls with kind, title and files |
-| `permission.requested`, `permission.answered` | An agent asks; you answer from web, phone, Telegram or CLI |
-| `recipe.requested`, `recipe.approved` | A lane needs a recipe approved; the owner approved it |
-| `env.status`, `check.result`, `checkpoint.created`, `checkpoint.decided` | Runtime, checker and the owner's decision |
-| `helper.delegated` | The local helper did work, with tokens saved |
-| `usage` | Context window use reported by the agent |
-| `agent.command`, `agent.command.result` | Durable owner controls and host acknowledgements |
-| `agent.session`, `agent.turn`, `agent.error` | Reported settings, active prompt IDs and failures |
-| `notification.sent`, `notification.failed` | Delivery evidence; never permission decisions |
+Approval opens a PR and enters `pr_open`. GitHub remains responsible for CI and the merge action. Reconciliation confirms the PR's approved head/base and verifies its merge commit against the fetched target branch before setting `merged`. A child enters `integration_pending` until its approved commit is an ancestor of the parent's head. Approving a child invalidates any pending parent checkpoint; the parent must integrate and produce fresh evidence. Cleanup rechecks integration and unsaved work. Code: `checker.ts`, `review.ts`, `sublanes.ts`.
 
-## Interfaces
+## Environments and optional assistance
 
-**HTTP** (loopback; Tailscale Serve in front):
+An owner approves the exact recipe bytes. The recipe supplies setup commands, services, ports, health checks, checks and optional database copies. Services bind to loopback; previews use configured local or tailnet routing. A `.localhost` preview works only on the browser's own machine, so remote phones need a tailnet preview mode. See [RECIPES.md](RECIPES.md).
 
-| Route | Purpose |
-|---|---|
-| `GET /api/health` | Version and host |
-| `GET /api/machine`, `POST /api/machine/updates`, `GET /api/data/export` | Machine/backup observations, fetch-only CLI update check, redacted JSON download |
-| `GET /api/usage?project=&since=` | Per-lane and UTC-day token/cost totals, with reported agent limits |
-| `GET /api/resources` | Project service counts and measured GPU facts; Run's environment response also includes worktree/TLS facts and outside listeners |
-| `POST /api/tickets` | A one-use, 30-second ticket for one stream or terminal path |
-| `GET /api/projects`, `POST /api/projects` | List and register repos |
-| `GET /api/projects/:project/lanes` | Lanes in a project |
-| `GET /api/projects/:project/activity?since=` | Timeline events and preceding lifecycle/turn states |
-| `GET /api/projects/:project/stream` | Server-sent events for every lane in the project |
-| `POST /api/lanes` | Start a lane |
-| `GET /api/lanes/:project/:n/events?after=` | Event history |
-| `POST /api/lanes/:project/:n/prompt` | Message the agent |
-| `POST /api/lanes/:project/:n/cancel`, `/mode`, `/model` | Interrupt or change an agent setting; commands survive daemon restart |
-| `GET /api/lanes/:project/:n/terminal` | WebSocket: attach a PTY tmux client; browser disconnect detaches only that client |
-| `POST /api/lanes/:project/:n/tools/:tool` | Toolbox calls from the agent |
-| `GET /api/projects/:project/recipe`, `POST …/recipe/approve` | The project's recipe; approve by hash (owner session only) |
-| `GET /api/projects/:project/environments` | Run page: recipes, environments and what can be cleaned up |
-| `GET /api/lanes/:project/:n/env`, `POST …/env/start`, `/stop`, `/restart`, `GET …/logs` | A lane's services and journald logs |
-| `POST /api/lanes/:project/:n/checkpoint` | Start the checker |
-| `GET /api/projects/:project/checkpoints`, `GET /api/checkpoints/:id/shots/:file`, `GET /api/checkpoints/:id/diff` | Review packets |
-| `POST /api/lanes/:project/:n/approve`, `/request-changes`, `/cleanup` | The owner's decisions (owner session only) |
-| `GET /api/inbox`, `POST /api/answers` | What waits on you, and your answer |
-| `GET /api/stream` | Global event stream for the Inbox |
-| `GET /api/notifications` | Public notification configuration and VAPID public key, with no credentials |
-| `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | Register or remove this browser's push endpoint |
+Code maps and collision warnings observe overlapping work; they do not guarantee merge compatibility. Briefs, helpers, judges, independent reviewers and insights are optional consumers of project data and events. Independent review uses a fresh read-only session pinned to the checkpoint head, including when the same provider performs both implementation and review. Model findings remain advisory. Native cloud usage, provider-reported helper usage and paired benchmark results are separate measurements; none is replaced with a hypothetical savings estimate.
 
-**Lane host socket** (`$XDG_RUNTIME_DIR/contextlanes-<hash>/lanes.sock`, JSON lines):
-- host → daemon: `{"hello":"<lane>","token":"<lane token>"}`, then `{"eventId":"<uuid>","event":{"type":"...","payload":{...}}}`.
-- daemon → host: `{"ready":true}`, durable `{"commandId":"<uuid>","command":{"kind":"prompt|answer|cancel|mode|model",...}}` and `{"ack":"<eventId>"}`.
-- The host retains observations until acknowledged; `(lane, source_id)` deduplicates replay in SQLite without seq gaps. Commands are `agent.command` events, pending until `agent.command.result`. The surviving host suppresses repeated command IDs. Permission answers are validated against the outstanding request and recorded with their command in one transaction.
-- Only the daemon writes owner decisions and commands. The socket is mode 0600; host observations cannot forge `permission.answered`, user messages or lane transitions. New permission events move the lane to `needs_you`; the final pending answer moves it back with a `lane.state` event.
+Automatic plan and context-management prompts are absent. Optional long-turn check-ins are passive observations, off by default; they do not inject messages into the agent session.
 
-`[lanes].launchHosts` defaults to true. `[agents.<name>]` overrides the ACP command, argument array and environment; `[lanes.host]` and `[lanes.toolbox]` override workspace entry points. Defaults use absolute Node/script paths, so systemd does not depend on package binaries being globally linked. The host reconnects while holding the same agent process and ACP session. Agent failures become events; the host does not restart the task automatically.
+Parent lanes can propose child tasks, inspect their status and send them messages. The owner authorizes the proposal and integration decisions. Child tasks are bounded to one level; they do not acquire owner permissions or silently expand the allowed work.
 
-**Agent toolbox** (MCP): `env_status`, `env_start`, `get_logs`, `preview_url`, `ask_owner`, `checkpoint` are live; `get_brief` and `delegate` are declared for phase 3 and not given to agents (`LIVE_TOOLS`).
+## Trust boundaries
 
-**CLI:** `status`, `lanes`, `lane start`, `term`, `inbox`, `answer`, `setup`, `add`, `update` (`arch` arrives with phase 3).
+- **Owner API:** loopback is a network location, not an identity. Protected routes require a valid owner session, local CLI credential, scoped ticket or lane capability. Lane tokens grant only their lane's observation/tool operations, not owner decisions.
+- **Native hooks:** hooks transport native observations; a prompt observation does not authenticate its author. Queued repair input uses the same native hook as terminal input, so it cannot reset a repair budget or acknowledge an owner-only repair question. Authenticated owner guidance is a separate daemon event. Hooks return no decision on daemon connection failure, allowing the native CLI to fall back to its own prompts. Provider hook support and native trust remain prerequisites; see [current limits](IMPLEMENTATION.md#provider-and-operational-limits).
+- **Command permissions:** Auto is an explicit owner choice. Its fixed guard can hold commands for review; it is not a proof that an arbitrary script or dependency is safe. Model instructions cannot replace enforced restrictions.
+- **Filesystem:** lane execution uses bubblewrap with read-only host mounts, a writable lane checkout and explicit Git metadata/agent-state grants. Temporary files and package caches are private to the sandbox, and process visibility uses a private PID namespace. Known SSH/cloud credential paths are masked; selected native-agent credentials are deliberately copied into lane state. Other host files can remain readable. Common Git metadata remains shared between a repository's worktrees. The daemon runs outside that boundary, so every read/write of an agent-controlled path must use safe filesystem helpers. Those helpers pin directories, reject unsupported file types and prevent following paths outside the permitted root.
+- **Host network:** lanes retain the host network, including access to local services. This is not an isolated cloud VM and there is no egress allowlist. Local services must authenticate requests; credentials intentionally supplied to a lane remain usable by that lane.
+- **Daemon git/gh:** commands use confined runners with executable git hooks/fsmonitor disabled. A restricted filesystem view cannot safely prune shared worktree registrations: hidden directories are not evidence of deleted worktrees. Automatic maintenance is disabled and registrations are preserved for owner-directed cleanup from a full host view. The daemon is the privileged side of this relationship; do not execute agent-provided commands there.
+- **Installation and updates:** CLI credential delivery requires a fresh nonce/HMAC proof from the listener and rejects redirects. Releases are built beside the running one; database backup and health checks protect the switch. Lane sessions are not restarted as part of a normal daemon update. Failed startup never silently restores an older database: uncertain schema compatibility stops the daemon for an owner decision. [Installation and recovery](INSTALLATION.md) defines the managed layout and retained Docker boundary.
 
-**Terminal wire:** browser messages are validated `TerminalInput` values: `{"type":"input","data":"..."}` or `{"type":"resize","cols":100,"rows":30}`. Output is raw UTF-8 terminal text. The server starts at 80×24 and xterm sends its fitted size on connection and resize (1–500 columns, 1–200 rows). Input messages are bounded; a slow browser is disconnected rather than buffering indefinitely. Reconnect attaches to the existing session; tmux copy mode retains older history. Terminal I/O does not mutate lane state or create agent events.
+The [sandbox implementation](../apps/daemon/src/sandbox.ts), [filesystem helpers](../apps/daemon/src/safefs.ts), [HTTP auth](../apps/daemon/src/http/auth.ts) and [permission rules](../apps/daemon/src/permissions.ts) are the source of truth for these boundaries. Host-level isolation and real external effects require separate verification; a passing fake-runner test cannot establish them.
 
-Each terminal runs in its own PTY host process (`apps/daemon/bin/pty-host.py`, Python standard library: `openpty`, `setsid`, `TIOCSWINSZ`), the pattern VS Code uses for its pty host. No native module is loaded into the daemon, and a crashed terminal closes alone.
+## Verification and history
 
-## Security
-
-- The daemon binds `127.0.0.1`, and Tailscale Serve proxies to it, so every request arrives from loopback. A local process can send any header, so loopback addresses, `Host` and Tailscale headers prove nothing. Only a credential says who a request is from: a browser session token (`Authorization: Bearer`, kept in localStorage), `<data>/setup-token` from the CLI, a single-use ticket for a stream or terminal, a lane token, or a notification action token. Every route except health, setup status and the sign-in routes answers 401 without one. A Tailscale login that is not the configured owner gets 403; the owner's login signs nobody in.
-- Sessions are in localStorage because storage belongs to one host and port. A lane preview is the app's hostname on another port, and cookies would be sent to it; it cannot read this.
-- A lane token is accepted only on that lane's toolbox routes and on its socket connection. Agents never approve their own permissions or recipes: answers come only through `/api/answers`, and recipe approval, merge, request changes and cleanup all need an owner credential.
-- Every command started for a lane runs inside `bwrap` (`apps/daemon/src/sandbox.ts`), which hides the data folder except the releases, the config folder, all of `/run` and the tmux sockets. systemd's `InaccessiblePaths=` is not used: it has no effect in user units on Ubuntu 24.04, and could not leave the release readable. A lane does not start unless the sandbox is proven to hide `setup-token`.
-- The daemon itself runs outside the sandbox, and an agent controls everything in its checkout, symlinks included. So the daemon reads, copies and writes lane files only through `apps/daemon/src/safefs.ts`: real path inside the checkout, no final symlink, no FIFO or device, a size cap. Its own git and gh run inside `bwrap` too (`confineGit`), with hooks, fsmonitor and other config-run programs turned off.
-- Agents from the ACP registry are installed only when their arguments and environment contain nothing that turns off permission prompts; downloads must match the registry's sha256.
-- Limits: agents still run as the owner's Unix user, with write access to the home folder. They can edit dotfiles, `~/.ssh/authorized_keys` and git configuration, and the daemon's own git commands or the owner's next shell then run that outside the sandbox. They cannot read other lanes' process environments, or the daemon's, because each lane has its own user namespace. IMPLEMENTATION.md, Credentials and sandbox, has the full list.
-- Terminal WebSockets also check that the browser origin matches the request host. Daemon configuration rejects other bind addresses; Vite development and preview also bind loopback.
-- Notification action bearers grant exactly one recorded lane/request/option, not general API access. A conflicting Tailscale owner is still refused. Telegram callbacks additionally require the configured sender and chat. Replays cannot answer twice; no action expiration, quiet-hour timer or delivery retry supplies an answer. Push subscriptions and action hashes are private; database files use mode 0600.
-- Previews are reachable on the tailnet only. Services are started on 127.0.0.1, and one found listening on another address is stopped by the next probe (every 5 seconds); the "before" services the checker starts for screenshots are short-lived and not probed.
-- Cleanup refuses unpushed commits and uncommitted changes to tracked files, and nothing force-pushes. It does remove the checkout's ignored files (`.env`, local databases, build output) with it.
-
-**Notifications:** the daemon observes pending request events, records `notification.sent` / `notification.failed`, and retries deferred work after quiet hours and on restart. ntfy and Telegram use injected HTTP fetch; Web Push uses an injected VAPID transport. Telegram polls outbound and persists its cursor; it never needs an inbound public bot webhook. Provider credentials remain in configuration and are excluded from public status routes.
-
-## Setup and installation
-
-The daemon serves the built `apps/web/dist` SPA as well as `/api`; unknown API routes never become HTML. Static paths are confined to that directory, assets are immutable and the service worker is not cached. Live event streams end during `preClose`, so a browser cannot hold a daemon restart open. Host startup refuses an active lane socket or non-socket path; only stale sockets are removed.
-
-`SetupManager` writes validated configuration atomically with mode 0600, then applies it to the running managers. Saved projects are re-registered idempotently at startup, and notifier changes close the old transport before starting the new one. Commands remain injected through `Runner`, including agent status/install, Git validation and Tailscale Serve. Model probes are loopback-only and reject redirects.
-
-The CLI proves local shell access by reading `<data>/setup-token` (0600) automatically and sends it on every request. The local control endpoint additionally requires a loopback peer and hostname and refuses Origin/Tailscale headers. It persists the shell owner, checks linger, enables/reuses Serve through Runner, then mints an origin-bound ten-minute sign-in link. Only link hashes are persisted; one atomic delete consumes a link, including under concurrent requests. Secrets are carried in URL fragments, removed on landing, and never sent in request URLs or referrers. Initial typed-code/passkey claim endpoints no longer exist. A shell owner is distinct from the optional Tailscale owner identity; no application API opens before one is established.
-
-Browser setup steps are sign in, a Ready agent, an added project and a working lane. Repository discovery first reads Claude Code and Codex session history, then walks home five levels deep (at most 6,000 folders or 3 seconds), stopping at each repository and skipping hidden folders, node_modules, symlinks and folders with more than 300 subfolders. Folder browsing canonicalizes paths and confines them to home. Explicit path registration accepts `~`, verifies Git through Runner, and remains owner-only, as do scan/browse/branch and fixed-command login-terminal endpoints. Login terminals use the same PTY host and never accept a shell command from a request. Closing one stops the login command, not any lane.
-
-Passkeys can be added only to the owner’s configured HTTPS address after sign-in. WebAuthn uses single-use five-minute challenges bound to origin/RP, required user verification and persisted counters, which cannot move backwards. Thirty-day random session tokens are kept in the browser's localStorage; only hashes are stored. These authentication expirations never answer agent permissions. Existing passkeys remain valid at their original RP. Notification and local endpoint settings live in Settings and Models. Serve’s URL is persisted for notification links; existing routes are preserved.
-
-`install.sh` bootstraps a new checkout, builds and invokes the installer entry point; on a machine that already has it, it builds the newest commit beside the running one and hands over to the updater. The installer writes an absolute-Node user unit and executable wrappers that point at `~/.local/share/contextlanes/current`; it replaces only files carrying its own marker line, refuses unrelated files and never stops lane hosts. `contextlanes update` builds each version in `releases/<commit>`, backs up the database, swaps the `current` link, restarts the daemon and switches back if the new version does not report healthy within 30 seconds (IMPLEMENTATION.md, Updating). Normal installation needs systemd user services, Node, npm, Git, tmux and bubblewrap. A failed optional native terminal build does not prevent the daemon from starting.
-
-## Decisions
-
-| Decision | Why |
-|---|---|
-| TypeScript everywhere | Every borrowed SDK has TypeScript (ACP, Claude Agent SDK, Codex SDK, CodeGraph, Playwright); one language for daemon, host, CLI and web |
-| `node:sqlite` instead of a native database module | No extra native database dependency; same SQL. `better-sqlite3` can replace it behind `Store` if needed |
-| ACP for every agent | One client for Claude Code, Codex, OpenCode and more; native SDKs only as a fallback |
-| One lane host per lane under systemd | Agents survive daemon restarts and upgrades |
-| tmux for terminals | Persistent, attachable from the browser and any terminal |
-| Subdomain per lane service | Paths break single-page apps and hot reload |
-| Local helper as an MCP tool | Works with subscription logins; Claude Code cannot route subagents to other providers |
+[DEVELOPING.md](DEVELOPING.md) lists repeatable checks and their prerequisites. [IMPLEMENTATION.md](IMPLEMENTATION.md) separates current behavior from acceptance still outstanding. The [original implementation record](IMPLEMENTATION-HISTORY.md) and [V2 record](V2.md) preserve dated results; neither is required startup context for an agent.

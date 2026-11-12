@@ -20,35 +20,36 @@ export function Inspector({ lane, events, openTerminal }: { lane: Lane; events: 
   };
   const used = usage?.type === "usage" ? usage.payload : null;
   const share = used && used.contextSize ? Math.min(1, used.contextUsed / used.contextSize) : 0;
-  const ringColour = share > .85 ? "var(--bad)" : share > .6 ? "var(--you)" : "var(--ok)";
   return <aside className="pane r" aria-label="Lane details">
-    {/* Shown once the agent reports it (or when Restart with a summary is offered): unknown stays silent. */}
-    {used || ((READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state)) ? <section className="ps">
-      <div className="ps-h"><span className="lbl">Context</span>{compactions ? <span className="e mono muted">{compactions} compaction{compactions === 1 ? "" : "s"}</span> : null}</div>
-      {used ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <svg className="ring" viewBox="0 0 36 36" role="img" aria-label={`Context ${Math.round(share * 100)}% used`}><circle cx="18" cy="18" r="14" fill="none" stroke="var(--line)" strokeWidth="5" /><circle cx="18" cy="18" r="14" fill="none" stroke={ringColour} strokeWidth="5" strokeDasharray={`${share * 88} 88`} transform="rotate(-90 18 18)" /></svg>
-        <div><b style={{ fontSize: 18 }}>{Math.round(share * 100)}%</b><div className="muted" style={{ fontSize: 13 }}>{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div></div>
-      </div> : null}
-      {used && share > .8 ? <div style={{ marginTop: 10 }}><Glyph g="idle">Nearly full · the agent compacts it on its own</Glyph></div> : null}
-      {(READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state) ? <button className="btn ghost sm" style={{ width: "100%", marginTop: 12 }} onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
-    </section> : null}
+    {used ? <details className="ps inspector-disclosure">
+      <summary>Context <span className="mono muted">{Math.round(share * 100)}%</span></summary>
+      <div className="muted inspector-note">{compact(used.contextUsed)} of {compact(used.contextSize)} tokens{used.costUsd !== undefined ? ` · ${new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(used.costUsd)}` : ""}</div>
+      {compactions ? <div className="muted inspector-note">{compactions} compaction{compactions === 1 ? "" : "s"}</div> : null}
+      {share > .8 ? <div className="inspector-note"><Glyph g="idle">The agent compacts context automatically</Glyph></div> : null}
+    </details> : null}
     {READY.run ? <EnvironmentBlock lane={lane} events={events} /> : null}
     <section className="ps">
-      <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Your access</span></div>
-      <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open the lane's terminal</button>
-      {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open the folder in your editor</a> : null}
-      <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
-      <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
-      <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
-      {(READY.handoff && lane.kind !== "cli") ? <><div className="ps-h" style={{ margin: "14px 0 6px" }}><span className="lbl">Continue elsewhere</span></div>
+      <div className="ps-h" style={{ marginBottom: 6 }}><span className="lbl">Access</span></div>
+      <button className="act" onClick={openTerminal}><Tile family="run" icon="execute" small />Open terminal</button>
+      {editor ? <a className="act" href={editorLink(editor, lane.worktree)}><Tile family="look" icon="read" small />Open in editor</a> : null}
+      <details className="inspector-disclosure">
+        <summary>Copy details</summary>
+        <button className="act" onClick={() => void copy(`contextlanes term ${lane.id}`, "Command")} title="Copy the command that opens this lane's terminal from any shell"><Tile family="run" icon="execute" small /><span className="mono" style={{ fontSize: 12.5 }}>contextlanes term {lane.id}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+        <button className="act" onClick={() => void copy(lane.worktree, "Folder")} title={`Copy the folder: ${lane.worktree}`}><Tile family="look" icon="read" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.worktree.split("/").slice(-2).join("/")}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+        <button className="act" onClick={() => void copy(lane.branch, "Branch name")} title="Copy the branch name"><Tile family="change" icon="subagent" small /><span className="mono" style={{ fontSize: 12.5, overflowWrap: "anywhere", textAlign: "left" }}>{lane.branch}</span><span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>copy</span></button>
+      </details>
+      {(!["merged", "archived"].includes(lane.state) || (READY.handoff && lane.kind !== "cli")) ? <details className="inspector-disclosure" open={lane.state === "failed"}>
+        <summary>Lane actions</summary>
+        {(READY.handoff && lane.kind !== "cli") && ["working", "needs_you"].includes(lane.state) ? <button className="act" onClick={() => setHandoff("fresh")}>Restart with a summary</button> : null}
+        {(READY.handoff && lane.kind !== "cli") ? <>
         <button className="act" disabled={!["working", "needs_you"].includes(lane.state)} onClick={() => setHandoff("agent")}><Tile family="team" icon="handoff" small />Hand off to another agent</button>
         <button className="act" onClick={() => setHandoff("fork")}><Tile family="team" icon="subagent" small />Copy into a new lane</button></> : null}
-      {["working", "needs_you", "failed"].includes(lane.state) ? <button className="act" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setCopied("Agent restarted. It reports in within a minute."), (e) => setCopied(errorMessage(e))); }}><Tile family="run" icon="execute" small />Restart the agent</button> : null}
-      {lane.state !== "merged" && lane.state !== "archived" ? <button className="act" onClick={() => setDeleting(true)}><Tile family="you" icon="delete" small />Delete this lane…</button> : null}
+        {["working", "needs_you", "failed"].includes(lane.state) ? <button className="act" onClick={() => { if (window.confirm("Stop this lane's agent and start it again from the lane's first task? The checkout stays as it is.")) void postJson(`/api/lanes/${lane.id}/restart`, {}).then(() => setCopied("Agent restarted. It reports in within a minute."), (e) => setCopied(errorMessage(e))); }}><Tile family="run" icon="execute" small />Restart the agent</button> : null}
+        {lane.state !== "merged" && lane.state !== "archived" ? <button className="act" onClick={() => setDeleting(true)}><Tile family="you" icon="delete" small />Delete this lane…</button> : null}
+        {["cleaned", "failed", "paused"].includes(lane.state) ? <button className="act" onClick={() => void postJson(`/api/lanes/${lane.id}/archive`, {}).then(() => setCopied("Archived. Show archived lanes in the list to find it again."), (e) => setCopied(errorMessage(e)))}><Tile family="look" icon="checkpoint" small />Archive this lane</button> : null}
+      </details> : null}
       {deleting ? <DeleteDialog lane={lane} onClose={() => setDeleting(false)} /> : null}
-      {["cleaned", "failed", "paused"].includes(lane.state) ? <button className="act" onClick={() => void postJson(`/api/lanes/${lane.id}/archive`, {}).then(() => setCopied("Archived. Show archived lanes in the list to find it again."), (e) => setCopied(errorMessage(e)))}><Tile family="look" icon="checkpoint" small />Archive this lane</button> : null}
       {copied ? <p role="status" className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>{copied}</p> : null}
-      <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>Lane {laneNumber(lane.id)} · {lane.terminal}</p>
     </section>
     {handoff ? <HandoffDialog lane={lane} kind={handoff} onClose={() => setHandoff(null)} /> : null}
   </aside>;

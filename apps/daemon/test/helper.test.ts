@@ -19,22 +19,24 @@ async function fixture(opts: { model?: boolean; answer?: (prompt: string) => str
   store.addProject({ id: "shop", name: "Shop", path: worktree });
   const lane = store.insertLane({ id: "shop/01", n: 1, project: "shop", goal: null, task: "x", agent: "codex", model: null, mode: "ask", branch: "b", worktree, terminal: "t", hostUnit: null, base: "main", state: "working", colour: "lc1" }) as Lane;
   const prompts: string[] = [];
-  const fetch = (async (_u: string, init?: RequestInit) => { if (!init?.body) return Response.json({ models: [] }); const p = (JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages.at(-1)!.content; prompts.push(p); return Response.json({ model: "qwen3-coder", choices: [{ message: { content: opts.answer?.(p) ?? "test.log:3001 FAIL test_due_date: expected UTC" } }] }); }) as unknown as typeof globalThis.fetch;
+  const fetch = (async (_u: string, init?: RequestInit) => { if (!init?.body) return Response.json({ models: [] }); const p = (JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages.at(-1)!.content; prompts.push(p); return Response.json({ model: "qwen3-coder", usage: { prompt_tokens: 8100, completion_tokens: 120 }, choices: [{ message: { content: opts.answer?.(p) ?? "test.log:3001 FAIL test_due_date: expected UTC" } }] }); }) as unknown as typeof globalThis.fetch;
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") }, localModels: opts.model === false ? [] : [{ name: "qwen3-coder", provider: "ollama", url: "http://127.0.0.1:11434" }] });
   const run: Runner = async (cmd, args, o) => cmd === "systemd-run" ? { stdout: "FAILED test_due_date\n1 failed, 40 passed in 1.2s\n" } : runCommand(cmd, args, o);
   const runtime = { recipeFor: async () => ({ checks: [{ name: "Tests", command: ["pytest", "-q"], timeoutSeconds: 60 }] }) } as unknown as Runtime;
-  const helper = new Helper({ config, store, bus, models: new LocalModels({ config, run, fetch }), run, runtime });
+  const models = new LocalModels({ config, run, fetch });
+  const helper = new Helper({ config, store, bus, models, run, runtime });
   const turnEnd = () => bus.publish(store.appendEvent(lane.id, { type: "agent.turn", payload: { active: false } }));
-  return { store, lane, helper, prompts, worktree, turnEnd, bus, root };
+  return { store, lane, helper, prompts, worktree, turnEnd, bus, root, config, models, run, runtime };
 }
 
 describe("local helper", () => {
-  it("read: answers from the files, records the tokens it saved, and counts a redo when the lead reads them anyway", async () => {
+  it("read: answers from files, reports model usage without claiming savings, and counts work repeated by the lead", async () => {
     const f = await fixture();
     const r = await f.helper.delegate(f.lane, { kind: "read", task: "Which test fails and why?", files: ["test.log"] });
     expect(r.result).toContain("test_due_date");
-    expect(r.tokensSaved).toBeGreaterThan(5000);
-    expect(f.store.events(f.lane.id).at(-1)).toMatchObject({ type: "helper.delegated", payload: { kind: "read", model: "qwen3-coder", files: ["test.log"] } });
+    expect(r).not.toHaveProperty("tokensSaved");
+    expect(f.store.events(f.lane.id).at(-1)).toMatchObject({ type: "helper.delegated", payload: { kind: "read", model: "qwen3-coder", files: ["test.log"], inputTokens: 8100, outputTokens: 120 } });
+    expect(f.store.events(f.lane.id).at(-1)!.payload).not.toHaveProperty("tokensSaved");
     await expect(f.helper.delegate(f.lane, { kind: "read", task: "x", files: ["../../etc/passwd"] })).rejects.toThrow(/outside this lane's checkout/);
     // A symlink the agent planted to a file outside its checkout is not read.
     await symlink("/etc/hostname", join(f.worktree, "host.txt"));
@@ -70,7 +72,8 @@ describe("local helper", () => {
       if (i < 2) f.store.appendEvent(f.lane.id, { type: "helper.redone", payload: { seq: e.seq, kind: "read" } });
     }
     const read = (await f.helper.status()).find((s) => s.kind === "read")!;
-    expect(read).toMatchObject({ uses: 6, state: "off", savedThisWeek: 6000, reason: "Redone 33% of the last 6 times (limit 25%)." });
+    expect(read).toMatchObject({ uses: 6, state: "off", reason: "Redone 33% of the last 6 times (limit 25%)." });
+    expect(read).not.toHaveProperty("savedThisWeek");
     await expect(f.helper.delegate(f.lane, { kind: "read", task: "x", files: ["fees.py"] })).rejects.toThrow(/off: Redone 33%/);
     await f.helper.setKind("read", true);
     expect((await f.helper.status()).find((s) => s.kind === "read")!.state).toBe("near");
@@ -81,5 +84,17 @@ describe("local helper", () => {
   it("is off with no local model, so agents are not offered delegate", async () => {
     const f = await fixture({ model: false });
     expect(await f.helper.available()).toBe(false);
+  });
+
+  it("detects repeated work after daemon reconstruction and never re-counts an earlier turn", async () => {
+    const f = await fixture();
+    await f.helper.delegate(f.lane, { kind: "read", task: "Find the failure", files: ["test.log"] });
+    const bus = new EventBus();
+    new Helper({ ...f, bus });
+    bus.publish(f.store.appendEvent(f.lane.id, { type: "tool.call", payload: { callId: "after-restart", kind: "read", title: "Read test.log", files: [join(f.worktree, "test.log")] } }));
+    bus.publish(f.store.appendEvent(f.lane.id, { type: "agent.turn", payload: { active: false } }));
+    await vi.waitFor(() => expect(f.store.eventsOfType(["helper.redone"])).toHaveLength(1));
+    bus.publish(f.store.appendEvent(f.lane.id, { type: "agent.turn", payload: { active: false } }));
+    expect(f.store.eventsOfType(["helper.redone"])).toHaveLength(1);
   });
 });

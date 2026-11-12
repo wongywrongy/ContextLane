@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 const src = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 // One test run for the whole repo. Workspace packages resolve to their TypeScript source,
-// so tests never need a build first.
+// Most tests run from source; the CodeGraph integration test also exercises its built worker.
 export default defineConfig({
   resolve: {
     alias: {

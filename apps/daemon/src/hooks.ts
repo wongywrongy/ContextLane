@@ -55,11 +55,15 @@ export class Hooks {
     if (event === "UserPromptSubmit") {
       this.terminalAnswers(id);
       const last = store.eventsOfType(["agent.message"], { lanes: [id] }).findLast((e) => e.payload.role === "user");
-      const before = store.eventsOfType(["agent.turn"], { lanes: [id] }).at(-1);
+      const turns = store.eventsOfType(["agent.turn"], { lanes: [id] });
+      const before = turns.at(-1);
       const input = store.eventsOfType(["agent.input"], { lanes: [id] }).findLast((e) => e.payload.phase === "sending");
-      const sent = input && input.seq > (before?.seq ?? 0) ? store.eventsOfType(["agent.command"], { lanes: [id] }).find((e) => e.payload.commandId === input.payload.commandId) : null;
+      // Repeated native prompt hooks can follow the first active turn. Correlation is for
+      // display/delivery only: neither a match nor an unmatched terminal prompt proves owner input.
+      const idle = turns.findLast(e => !e.payload.active);
+      const sent = input && input.seq > (idle?.seq ?? 0) ? store.eventsOfType(["agent.command"], { lanes: [id] }).find((e) => e.payload.commandId === input.payload.commandId) : null;
       const delivered = sent?.payload.command.kind === "prompt" && cliPromptText(sent.payload.command).trim() === p.prompt?.trim() ? sent.payload.commandId : null;
-      if (p.prompt && !delivered && (before || last?.payload.text !== p.prompt)) emit({ type: "agent.message", payload: { role: "user", text: p.prompt } });
+      if (p.prompt && !delivered && (before || last?.payload.text !== p.prompt)) emit({ type: "agent.message", payload: { role: "user", text: p.prompt, origin: "native" } });
       emit({ type: "agent.turn", payload: { active: true, ...(delivered ? { commandId: delivered } : {}) } });
       if (lane.state === "failed") bus.publish(store.setLaneState(id, "working", "The CLI started a new turn"));
       return {};

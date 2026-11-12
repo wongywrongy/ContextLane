@@ -22,6 +22,11 @@ describe("lane lifecycle", () => {
     expect(canTransition("draft", "setting_up")).toBe(true);
     expect(canTransition("working", "in_review")).toBe(true);
     expect(canTransition("in_review", "working")).toBe(true);
+    expect(canTransition("in_review", "merged")).toBe(false);
+    expect(canTransition("in_review", "pr_open")).toBe(true);
+    expect(canTransition("pr_open", "merged")).toBe(true);
+    expect(canTransition("integration_pending", "merged")).toBe(true);
+    expect(canTransition("pr_open", "cleaned")).toBe(false);
     expect(canTransition("draft", "merged")).toBe(false);
     expect(canTransition("cleaned", "working")).toBe(false);
   });

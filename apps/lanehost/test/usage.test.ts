@@ -43,9 +43,10 @@ it("records ACP prompt totals, USD increments and one completed compaction, pref
   const fake = fakeAgent();
   const session = await openAgentSession({ lane: "demo/01", cwd: "/tmp", task: "usage", agentId: "claude-code", agent: { command: "unused", args: [], env: { CLAUDE_CONFIG_DIR: dir } }, token: "test", connect: (client) => client.connect(fake.app) }, (e) => events.push(NewLaneEvent.parse(e) as NewLaneEvent));
   try {
-    await vi.waitFor(() => expect(events.filter((e) => e.type === "usage.turn")).toHaveLength(1));
+    await vi.waitFor(() => expect(events.filter((e) => e.type === "agent.turn" && !e.payload.active)).toHaveLength(1));
     await session.command({ commandId: randomUUID(), command: { kind: "prompt", text: "usage", immediate: false } });
-    await vi.waitFor(() => expect(events.filter((e) => e.type === "usage.turn")).toHaveLength(2));
+    await vi.waitFor(() => expect(events.filter((e) => e.type === "agent.turn" && !e.payload.active)).toHaveLength(2));
+    expect(events.flatMap(e => e.type === "usage.turn" ? ["usage"] : e.type === "agent.turn" ? [e.payload.active ? "active" : "done"] : [])).toEqual(["active", "usage", "done", "active", "usage", "done"]);
     const turns = events.filter((e) => e.type === "usage.turn").map((e) => e.payload as TurnUsage);
     for (const turn of turns) expect(turn).toMatchObject({ source: "acp", sessionId: "fake-session", inputTokens: 100, outputTokens: 20, cacheReadTokens: 50, cacheWriteTokens: 10, costUsd: .25 });
     expect(turns[0]!.turnId).not.toBe(turns[1]!.turnId);
@@ -98,8 +99,9 @@ it("emits only the current turn from a matching Claude log when ACP omits token 
   const events: NewLaneEvent[] = [];
   const session = await openAgentSession({ lane: "demo/01", cwd: "/tmp", task: "fallback", agentId: "claude-code", agent: { command: "unused", args: [], env: { CLAUDE_CONFIG_DIR: dir } }, token: "test", connect: (client) => client.connect(fake.app) }, (e) => events.push(e));
   try {
-    await vi.waitFor(() => expect(events.filter((e) => e.type === "usage.turn")).toHaveLength(1));
+    await vi.waitFor(() => expect(events.filter((e) => e.type === "agent.turn" && !e.payload.active)).toHaveLength(1));
     expect(events.find((e) => e.type === "usage.turn")?.payload).toMatchObject({ source: "claude-log", inputTokens: 11, outputTokens: 7, cacheReadTokens: null, cacheWriteTokens: null });
+    expect(events.findIndex(e => e.type === "usage.turn")).toBeLessThan(events.findIndex(e => e.type === "agent.turn" && !e.payload.active));
   } finally { session.close(); }
 });
 

@@ -42,7 +42,10 @@ async function main(): Promise<void> {
   mkdirSync(dirname(socketPath(config)), { recursive: true, mode: 0o700 });
   await hosts.listen(socketPath(config));
   // Every git and gh the daemon runs goes through the lane sandbox (see confineGit).
-  const run = confineGit(runCommand, config);
+  const run = confineGit(runCommand, config, undefined, (cwd) => {
+    const lane = store.listLanes().find((l) => l.worktree === cwd);
+    return lane ? store.getProject(lane.project)?.path : store.listProjects().find((p) => p.path === cwd)?.path;
+  });
   const lanes = new LaneManager({ store, bus, config, run });
   const setup = new SetupManager(config, store, run, { changed: async () => { await notifier.close(); notifier = makeNotifier(); notifier.start(); } });
   await setup.initialize();

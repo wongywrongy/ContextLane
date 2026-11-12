@@ -353,6 +353,19 @@ it("installs an absolute user service without replacing unrelated files", async 
   await expect(installService({ ...options, root: "bad\npath" })).rejects.toThrow("line breaks");
   await writeFile(join(f.root, ".local/bin/contextlanes"), "user work"); await expect(installService(options)).rejects.toThrow("Refusing to overwrite"); expect(await readFile(join(f.root, ".local/bin/contextlanes"), "utf8")).toBe("user work");
 });
+it("checks all installer destinations before changing any managed files", async () => {
+  const f = await fixture(), options = { root: join(f.root, "first"), home: f.root, node: process.execPath, run: f.run };
+  await installService(options);
+  const unit = join(f.root, ".config/systemd/user/contextlanes.service");
+  const wrapper = join(f.root, ".local/bin/contextlanes");
+  const originalUnit = await readFile(unit, "utf8"), originalWrapper = await readFile(wrapper, "utf8");
+  await writeFile(join(f.root, ".config/systemd/user/contextlanes-backup.timer"), "owner's timer");
+  const calls = f.calls.length;
+  await expect(installService({ ...options, root: join(f.root, "second") })).rejects.toThrow(/Refusing to overwrite/);
+  expect(f.calls).toHaveLength(calls);
+  expect(await readFile(unit, "utf8")).toBe(originalUnit);
+  expect(await readFile(wrapper, "utf8")).toBe(originalWrapper);
+});
 it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("passes the generated installer unit through systemd's real parser, including spaces and specifiers", async () => {
   const f = await fixture();
   const root = join(f.root, "app with spaces%$"); await mkdir(root);

@@ -181,6 +181,7 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
           const costBefore = sessionCost;
           let reportedCost = false;
           let promptUsage: Usage | null | undefined;
+          let ended: NewLaneEvent | null = null;
           emit({ type: "agent.turn", payload: { active: true, commandId } });
           const tick = setInterval(() => coalescer.flush(), 100);
           inFlight.clear();
@@ -214,13 +215,13 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
             const result = await done;
             promptUsage = result.usage;
             coalescer.flush();
-            emit({ type: "agent.turn", payload: { active: false, stopReason: steering && result.stopReason === "cancelled" ? "steered" : result.stopReason, commandId } });
+            ended = { type: "agent.turn", payload: { active: false, stopReason: steering && result.stopReason === "cancelled" ? "steered" : result.stopReason, commandId } };
           } catch (err) {
             if (!stopped) emit({ type: "agent.error", payload: { message: err instanceof Error ? err.message : String(err) } });
           } finally {
             steering = false;
             clearInterval(tick); coalescer.flush();
-            const fallback = promptUsage ? null : await logs.read();
+            const fallback = promptUsage ? null : await logs.read().catch(() => null);
             const tokens = promptUsage ? { inputTokens: promptUsage.inputTokens, outputTokens: promptUsage.outputTokens,
               cacheReadTokens: promptUsage.cachedReadTokens ?? null, cacheWriteTokens: promptUsage.cachedWriteTokens ?? null }
               : fallback ? usageDelta(fallback.tokens, before?.tokens) : null;
@@ -228,6 +229,8 @@ export async function openAgentSession(opts: Omit<LaneHostOptions, "socketPath">
               source: promptUsage || !tokens ? "acp" : fallback!.source,
               ...(tokens ?? { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null }),
               ...(reportedCost ? { costUsd: sessionCost >= costBefore ? sessionCost - costBefore : sessionCost, costSource: "acp" } : {}) } });
+            // Completion consumers (benchmarks and independent reviews) must see final usage first.
+            if (ended) emit(ended);
           }
         }
       } finally { running = false; }

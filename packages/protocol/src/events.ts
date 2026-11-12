@@ -50,7 +50,9 @@ const payloads = {
   "lane.state": z.object({ from: LaneState, to: LaneState, reason: z.string().optional() }),
   "agent.plan": z.object({ entries: z.array(z.object({ text: z.string(), status: z.enum(["pending", "in_progress", "completed"]) })) }),
   "agent.thought": z.object({ text: z.string() }),
-  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional() }),
+  "agent.message": z.object({ text: z.string(), role: z.enum(["agent", "user"]), files: z.array(z.string()).optional(), images: z.number().int().optional(), origin: z.literal("native").optional() }),
+  /** Daemon-only authority, recorded at authenticated owner surfaces; message roles and native echoes are observations. */
+  "owner.guidance": z.object({ kind: z.enum(["prompt", "request_changes", "repair_ack"]), messageSeq: z.number().int().positive().optional(), commandId: z.uuid().optional(), requestId: z.string().optional() }),
   "agent.command": z.object({ commandId: z.uuid(), command: LaneCommand }),
   "agent.command.result": z.object({ commandId: z.uuid(), ok: z.boolean(), error: z.string().optional() }),
   "agent.input": z.object({ commandId: z.uuid(), phase: z.enum(["sending", "sent"]) }),
@@ -93,8 +95,10 @@ const payloads = {
   "service.proposed": ServiceProposal,
   "check.result": z.object({ name: z.string(), passed: z.boolean(), detail: z.string().optional() }),
   "checkpoint.created": z.object({ checkpointId: z.string(), summary: z.string(), head: z.string() }),
-  /** The approved checkpoint was rebased or merged onto its base; a retry after a failed push continues from this head. */
+  /** Legacy observation: older versions changed the checkpoint head during approval. Never used to bypass a fresh review. */
   "checkpoint.updated": z.object({ checkpointId: z.string(), head: z.string() }),
+  /** Observed GitHub merge or verified ancestor in the parent branch, never merely an approval. */
+  "checkpoint.merge_verified": z.object({ checkpointId: z.string(), head: z.string(), target: z.string(), mergeCommit: z.string() }),
   /** The local judge started, finished or failed on a checkpoint. */
   "checkpoint.judged": z.object({ checkpointId: z.string(), state: z.enum(["running", "done", "failed", "off"]), verdict: z.enum(["merge", "fix first", "do not merge"]).nullable() }),
   "checkpoint.decided": z.object({ checkpointId: z.string(), decision: z.enum(["approved", "changes"]), note: z.string().optional(), prUrl: z.string().optional() }),
@@ -111,10 +115,17 @@ const payloads = {
   /** The owner asked for a note to this lane once `first` merges. `delivered` once sent. */
   "collision.planned": z.object({ module: z.string(), first: z.string(), message: z.string() }),
   "collision.told": z.object({ module: z.string(), first: z.string() }),
-  "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(), tokensSaved: z.number().int().nonnegative(),
-    task: z.string().optional(), files: z.array(z.string()).optional(), resultTokens: z.number().int().optional(), ms: z.number().optional() }),
+  "helper.delegated": z.object({ kind: z.enum(["read", "edit", "check"]), model: z.string(),
+    // Legacy compression estimates stay readable, but new jobs report model usage rather than hypothetical savings.
+    tokensSaved: z.number().int().nonnegative().optional(), resultTokens: z.number().int().optional(),
+    inputTokens: z.number().int().nonnegative().nullable().optional(), outputTokens: z.number().int().nonnegative().nullable().optional(),
+    task: z.string().optional(), files: z.array(z.string()).optional(), ms: z.number().optional(),
+    command: z.string().nullable().optional(), patch: z.string().max(100_000).nullable().optional() }),
   /** The lead redid a delegation's work (read the files itself, reran the checks, or never applied the patch). */
   "helper.redone": z.object({ seq: z.number().int(), kind: z.enum(["read", "edit", "check"]) }),
+  "checkpoint.repair_requested": z.object({ attempt: z.number().int().positive(), detail: z.string() }),
+  /** Binds the owner's repair acknowledgement to a daemon-created pause, never an agent-chosen question ID. */
+  "checkpoint.repair_paused": z.object({ requestId: z.string() }),
   "usage": z.object({ contextUsed: z.number().int().nonnegative(), contextSize: z.number().int().nonnegative(), costUsd: z.number().nonnegative().optional(), source: z.literal("acp").default("acp") }),
   "usage.turn": TurnUsage,
   "usage.limit": UsageLimit,

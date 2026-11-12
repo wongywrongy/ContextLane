@@ -12,33 +12,41 @@ import type { Runner } from "./run.js";
  * section of the review packet and the review lane is archived. It never approves anything.
  */
 export class SecondReviews {
+  private starting = new Set<string>();
   constructor(private deps: { store: Store; bus: EventBus; lanes: LaneManager; run: Runner }) {
     deps.bus.subscribeAll((e) => this.observe(e));
   }
 
-  /** Shown before starting: the diff read twice (once whole, once while checking) plus the agent's own overhead. */
+  /** Only the diff's estimated input size; total review usage depends on the agent's investigation. */
   async estimate(checkpointId: string): Promise<{ tokens: number }> {
     const c = this.deps.store.checkpoint(checkpointId);
     if (!c) throw new NotFound("no such checkpoint");
     const lane = this.deps.store.getLane(c.lane)!;
-    const diff = await this.deps.run("git", ["diff", "--no-color", c.base, c.head], { cwd: lane.worktree }).then((r) => r.stdout, () => "");
-    return { tokens: Math.round((estimateTokens(diff) * 2 + 15_000) / 1000) * 1000 };
+    const project = this.deps.store.getProject(lane.project)!;
+    const diff = (await this.deps.run("git", ["diff", "--no-color", c.base, c.head], { cwd: project.path })).stdout;
+    return { tokens: estimateTokens(diff) };
   }
 
   async start(checkpointId: string, agent: string): Promise<Checkpoint> {
+    if (this.starting.has(checkpointId)) throw new Refused("A second review is already starting.");
+    this.starting.add(checkpointId);
+    try { return await this.startReview(checkpointId, agent); }
+    finally { this.starting.delete(checkpointId); }
+  }
+
+  private async startReview(checkpointId: string, agent: string): Promise<Checkpoint> {
     const { store, lanes } = this.deps;
     const c = store.checkpoint(checkpointId);
     if (!c) throw new NotFound("no such checkpoint");
     if (c.decision) throw new Refused("This checkpoint has been decided already.");
     if (c.secondReview?.state === "running") throw new Refused("A second review is already running.");
     const lane = store.getLane(c.lane)!;
-    if (agent === lane.agent) throw new Refused("Choose a different agent from the one that wrote the change.");
-    const prompt = [`Review a change another coding agent made, before its owner merges it. You are read-only: do not edit files or run anything that changes them.`,
+    const prompt = [`Independently review this checkpoint in your fresh session, before its owner merges it. You are read-only: do not edit files or run anything that changes them. Assess the actual diff and evidence; do not assume the author's summary or reported checks are correct.`,
       `The change is ${c.base}..${c.head} in this checkout (run: git diff ${c.base} ${c.head}). The agent's summary: ${c.summary}`,
       c.plan.length ? `Its plan: ${c.plan.map((p) => `${p.status === "completed" ? "[done]" : "[open]"} ${p.text}`).join("; ")}` : "",
       c.checks.length ? `Checks: ${c.checks.map((x) => `${x.name} ${x.passed ? "passed" : "failed"}`).join(", ")}` : "",
       `Reply with findings only, most serious first, one per line: "blocker", "should fix" or "nit" — file:line — what is wrong and why. Then one line: "Verdict: merge", "Verdict: merge after fixes" or "Verdict: do not merge".`].filter(Boolean).join("\n\n");
-    const review = await lanes.start({ project: lane.project, task: `Second review of ${lane.id.split("/")[1]} by ${agent}`, agent, kind: "acp", mode: "plan", base: lane.branch, goal: lane.goal ?? undefined }, { firstPrompt: prompt });
+    const review = await lanes.start({ project: lane.project, task: `Second review of ${lane.id.split("/")[1]} by ${agent}`, agent, kind: "acp", mode: "plan", base: c.head, goal: lane.goal ?? undefined }, { firstPrompt: prompt });
     store.setSecondReview(c.id, { agent, lane: review.id, state: review.state === "failed" ? "failed" : "running", text: null, at: new Date().toISOString() });
     return store.checkpoint(c.id)!;
   }
@@ -47,6 +55,8 @@ export class SecondReviews {
     // The review ends when its agent finishes a turn, or when its lane fails (not signed in, never connected).
     const failed = e.type === "lane.state" && e.payload.to === "failed";
     if (!failed && (e.type !== "agent.turn" || e.payload.active)) return;
+    if (e.type === "agent.turn" && e.payload.stopReason === "steered") return;
+    const completed = e.type === "agent.turn" && (!e.payload.stopReason || e.payload.stopReason === "end_turn");
     const { store, bus } = this.deps;
     const reviewLane = store.getLane(e.lane);
     if (!reviewLane) return;
@@ -55,7 +65,7 @@ export class SecondReviews {
     const events: LaneEvent[] = [];
     for (;;) { const page = store.events(e.lane, events.at(-1)?.seq ?? 0); if (!page.length) break; events.push(...page); }
     const text = events.filter((x): x is Extract<LaneEvent, { type: "agent.message" }> => x.type === "agent.message" && x.payload.role === "agent").map((x) => x.payload.text).join("").trim();
-    store.setSecondReview(c.id, { ...c.secondReview!, state: text ? "done" : "failed", text: text || null, at: new Date().toISOString() });
+    store.setSecondReview(c.id, { ...c.secondReview!, state: completed && text ? "done" : "failed", text: text || null, at: new Date().toISOString() });
     bus.publish(store.setLaneState(e.lane, "archived", "second review written"));
     void this.deps.run("systemctl", ["--user", "stop", reviewLane.hostUnit ?? hostUnit(reviewLane.id)]).catch(() => {});
   }
