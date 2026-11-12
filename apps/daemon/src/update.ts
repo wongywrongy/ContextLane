@@ -329,10 +329,14 @@ export class Updater {
     } catch { return null; }
   }
 
-  /** Keep current, previous, the newest few and any release a running process still uses. */
+  /** Keep rollback history, current, previous, the newest few and releases still in use. */
   private async prune(): Promise<void> {
     if (!(await exists(this.l.releases))) return;
     const keep = new Set([await linkTarget(this.l.current), await linkTarget(this.l.previous)].filter(Boolean));
+    for (const history of (await this.state()).history) {
+      keep.add(history.fromPath);
+      if (history.previousPath) keep.add(history.previousPath);
+    }
     const lines = await this.deps.processes().catch(() => []);
     const entries = await Promise.all((await readdir(this.l.releases)).map(async (name) => {
       const path = join(this.l.releases, name);

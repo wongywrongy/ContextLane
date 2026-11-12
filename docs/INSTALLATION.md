@@ -62,7 +62,7 @@ contextlanes status
 journalctl --user -u contextlanes -n 50
 ```
 
-The updater builds beside the running release, records the build commit, backs up SQLite and switches `current` atomically. A reused or explicitly adopted build must match its commit metadata and have no tracked source edits. Release metadata is a provenance check, not a signed attestation of generated artifacts.
+The updater builds beside the running release, records the build commit, backs up SQLite and switches `current` atomically. Release cleanup keeps the newest three builds plus releases required by retained update history or running processes. A reused or explicitly adopted build must match its commit metadata and have no tracked source edits. Release metadata is a provenance check, not a signed attestation of generated artifacts.
 
 A failed build leaves the current release alone. Failed startup returns to the old release only when the database schema is known to match the preupdate snapshot. A schema change or uncertain compatibility stops the daemon and preserves the candidate, newer database and recovery history for an owner decision. A failed candidate does not become the saved update channel. Rollback restores the prior channel and rollback chain recorded by the new updater, so a rejected candidate is not offered as the next rollback target. Older history entries do not contain a prior-channel field; inspect and restore that channel explicitly when recovering a legacy update. Missing transition history blocks a database rollback rather than guessing compatibility.
 

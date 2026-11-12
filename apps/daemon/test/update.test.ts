@@ -285,6 +285,49 @@ describe("contextlanes update", () => {
     await expect(readlink(join(f.base, "previous"))).rejects.toThrow();
   });
 
+  it("retains the complete recorded rollback chain while pruning unrelated cached releases", async () => {
+    const f = await fixture(), u = await f.updater();
+    const chain: string[] = [];
+    for (const name of ["Stable release", "Next release", "Current release"]) {
+      const sha = await commit(f.work, name);
+      await u.update({ branch: "main" });
+      chain.push(join(f.base, "releases", sha.slice(0, 12)));
+    }
+    const before = JSON.parse(await readFile(join(f.base, "update.json"), "utf8"));
+    // Legacy transitions lack previousPath; fromPath must keep their rollback targets alive.
+    for (const history of before.history) delete history.previousPath;
+    await writeFile(join(f.base, "update.json"), JSON.stringify(before));
+    const obsolete = join(f.base, "releases", "obsolete-cache"), rejected = join(f.base, "releases", "rejected-cache");
+    for (const path of [obsolete, rejected]) await git(f.app, "worktree", "add", "-q", "--detach", path, f.first);
+    for (const [index, path] of [obsolete, ...chain, rejected].entries()) await utimes(path, 1000 + index, 1000 + index);
+
+    const candidate = await commit(f.work, "Candidate release");
+    await git(f.work, "push", "-q", "origin", "HEAD:candidate");
+    expect(await u.update({ branch: "candidate" })).toBe(0);
+    const registrations = await git(f.app, "worktree", "list", "--porcelain");
+    for (const path of chain) {
+      expect(await realpath(path)).toBe(path);
+      expect(registrations).toContain(`worktree ${path}\n`);
+    }
+    await expect(realpath(obsolete)).rejects.toThrow();
+    expect(await realpath(rejected)).toBe(rejected);
+    expect(await realpath(join(f.base, "current"))).toBe(join(f.base, "releases", candidate.slice(0, 12)));
+    { const db = new DatabaseSync(f.database); db.exec("INSERT INTO lane VALUES ('newer-work')"); db.close(); }
+
+    const rollbackChain = [...chain].reverse().concat(f.app);
+    for (const [index, path] of rollbackChain.entries()) {
+      expect(await u.rollback()).toBe(0);
+      expect(await realpath(join(f.base, "current"))).toBe(path);
+      const previous = rollbackChain[index + 1];
+      if (previous) expect(await realpath(join(f.base, "previous"))).toBe(previous);
+      else await expect(readlink(join(f.base, "previous"))).rejects.toThrow();
+      const state = JSON.parse(await readFile(join(f.base, "update.json"), "utf8"));
+      expect(state.history).toEqual(before.history.slice(0, before.history.length - index));
+      expect(state.branch).toBe(index < chain.length ? "main" : undefined);
+      { const db = new DatabaseSync(f.database); expect(db.prepare("SELECT id FROM lane WHERE id = 'newer-work'").get()).toBeDefined(); db.close(); }
+    }
+  });
+
   it("refuses database rollback when its recorded transition is missing", async () => {
     const f = await fixture(), u = await f.updater(); await commit(f.work, "Release"); await u.update();
     await writeFile(join(f.base, "update.json"), JSON.stringify({ history: [] }));
@@ -341,13 +384,14 @@ describe("contextlanes update", () => {
 
   it("keeps current, previous, the newest releases and any a running lane still uses", async () => {
     const f = await fixture();
-    const old = ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"];
+    const old = ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd", "eeeeeeeeeeee"];
     for (const [i, name] of old.entries()) { await mkdir(join(f.base, "releases", name), { recursive: true }); await utimes(join(f.base, "releases", name), 1000 + i, 1000 + i); }
     f.setProcesses([`node ${join(f.base, "releases", "aaaaaaaaaaaa")}/apps/lanehost/dist/main.js --lane shop/01`]);
+    await symlink(join(f.base, "releases", "bbbbbbbbbbbb"), join(f.base, "previous"));
     const second = await commit(f.work, "Second version");
     await (await f.updater()).update();
     const left = await (await import("node:fs/promises")).readdir(join(f.base, "releases"));
-    expect(left.sort()).toEqual(["aaaaaaaaaaaa", "cccccccccccc", "dddddddddddd", second.slice(0, 12)].sort());
+    expect(left.sort()).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb", "dddddddddddd", "eeeeeeeeeeee", second.slice(0, 12)].sort());
   });
 
   it("leaves a source checkout to git", async () => {
