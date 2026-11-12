@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Updater, layoutOf, runCommand, type Runner } from "@contextlanes/daemon";
 import { installService } from "../src/install.js";
+import { createHmac } from "node:crypto";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const clean of cleanups.splice(0).reverse()) await clean(); });
@@ -34,6 +35,7 @@ async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boole
   await git(root, "clone", "-q", "--branch", "main", remote, app);
   await mkdir(join(app, "apps/daemon/dist"), { recursive: true }); await writeFile(join(app, "apps/daemon/dist/main.js"), "// built");
   const data = join(root, "data"); await mkdir(data);
+  const token = "test-owner-credential"; await writeFile(join(data, "setup-token"), token);
   const database = join(data, "contextlanes.sqlite");
   { const db = new DatabaseSync(database); db.exec("CREATE TABLE lane (id TEXT); INSERT INTO lane VALUES ('shop/01'); PRAGMA user_version = 3;"); db.close(); }
   const calls: string[] = [];
@@ -50,8 +52,12 @@ async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boole
     }
     return { stdout: "" };
   };
-  const health = async (url: string | URL | Request) => {
+  const health = async (url: string | URL | Request, init?: RequestInit) => {
     if (!running) throw new Error("down");
+    if (String(url).endsWith("/api/setup/prove")) {
+      const { nonce } = JSON.parse(String(init?.body));
+      return Response.json({ proof: createHmac("sha256", token).update(`contextlanes-cli:${nonce}`).digest("base64url") });
+    }
     if (String(url).endsWith("/api/lanes")) return Response.json([{ state: "working" }, { state: "needs_you" }, { state: "merged" }]);
     const version = options.neverHealthy && running !== app ? "crashed" : await versionOf(running);
     return Response.json({ ok: true, version, host: "neo" });
@@ -66,6 +72,42 @@ async function fixture(options: { migrateOnStart?: boolean; neverHealthy?: boole
 }
 
 describe("contextlanes update", () => {
+  it("never sends owner credentials to a listener that cannot prove its identity", async () => {
+    const f = await fixture(), second = await commit(f.work, "Second version"), u = await f.updater();
+    const requests: { url: string; init?: RequestInit }[] = [];
+    (u as unknown as { deps: { fetch: typeof fetch } }).deps.fetch = async (url, init) => {
+      requests.push({ url: String(url), ...(init ? { init } : {}) });
+      return Response.json(String(url).endsWith("/api/setup/prove") ? { proof: "wrong" } : { ok: true, version: second.slice(0, 12) });
+    };
+    await u.update();
+    expect(requests.filter((r) => r.url.endsWith("/api/setup/prove"))).toHaveLength(2);
+    expect(requests.some((r) => r.url.endsWith("/api/lanes"))).toBe(false);
+    expect(requests.some((r) => new Headers(r.init?.headers).has("authorization"))).toBe(false);
+    expect(requests.every((r) => r.init?.redirect === "error")).toBe(true);
+  });
+
+  it("requires a fresh proof for each owner request and refuses proof redirects", async () => {
+    const f = await fixture(), u = await f.updater();
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const deps = (u as unknown as { deps: { fetch: typeof fetch } }).deps, original = deps.fetch;
+    deps.fetch = async (url, init) => {
+      requests.push({ url: String(url), ...(init ? { init } : {}) });
+      return original(url, init);
+    };
+    const inspect = () => (u as unknown as { activeLanes: () => Promise<number | null> }).activeLanes();
+    expect(await inspect()).toBe(2); expect(await inspect()).toBe(2);
+    const proofs = requests.filter((r) => r.url.endsWith("/api/setup/prove"));
+    expect(proofs).toHaveLength(2);
+    expect(proofs[0]!.init?.body).not.toBe(proofs[1]!.init?.body);
+    expect(requests.filter((r) => r.url.endsWith("/api/lanes")).every((r) => r.init?.redirect === "error")).toBe(true);
+    requests.length = 0;
+    deps.fetch = async (url, init) => { requests.push({ url: String(url), ...(init ? { init } : {}) }); return new Response(null, { status: 307, headers: { location: "https://example.invalid/" } }); };
+    expect(await inspect()).toBeNull();
+    expect(requests).toHaveLength(1);
+    expect(new Headers(requests[0]!.init?.headers).has("authorization")).toBe(false);
+    expect(requests[0]!.init?.redirect).toBe("error");
+  });
+
   it("builds the new version beside the running one, backs up the database, switches and restarts", async () => {
     const f = await fixture();
     const second = await commit(f.work, "Second version");

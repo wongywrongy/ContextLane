@@ -246,7 +246,7 @@ export class SetupManager {
     const host = this.config.lanes.host;
     const entry = { at: Date.now(), result: cached?.result ?? null, running: null as Promise<void> | null };
     // The probe starts agent code, so it runs in the lanes' sandbox: it can read the agent's own sign-in, not ours.
-    const [bin, ...wrap] = sandbox(this.config);
+    const [bin, ...wrap] = sandbox(this.config, { providerCredentials: true });
     entry.running = this.run(bin!, [...wrap, host.command, ...host.args, "--probe", `--agent-spec=${JSON.stringify(spec)}`], { cwd: this.home, timeout: 45_000 })
       .then((r) => readProbe(r.stdout))
       .then((result) => { entry.result = result; }, (err: Error) => { entry.result = brokenProbe(err.message); })

@@ -311,19 +311,17 @@ function RegistryDialog({ onClose }: { onClose: () => void }) {
 }
 
 const HELPER_WORDS: Record<HelperStatus["kind"], [string, string, IconName]> = { read: ["Read", "logs, test output, big files", "read"], edit: ["Edit", "renames, fixtures, small specs", "edit"], check: ["Check", "run tests, sort failures", "test"] };
-const tokensK = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-
-/** Local helper (models.webp): work Claude and Codex hand off with delegate, on only while it pays. */
+/** Optional bounded helper jobs, with observed rework rather than hypothetical savings. */
 function HelperSection() {
   const [kinds, , reload] = useJson<HelperStatus[]>("/api/helper");
   const [error, setError] = useState("");
   const toggle = (kind: HelperStatus["kind"], on: boolean) => { setError(""); void postJson("/api/helper", { kind, on }).then(reload, (e) => setError(errorMessage(e))); };
-  return <Section title="Local helper" help="Small jobs (reading files, summarising logs) that Claude and Codex hand to your local model with delegate. A kind of job stays on only while it pays off; green is the cloud tokens it saved this week, estimated. One job per GPU at a time." footer={error ? <span role="alert" style={{ fontSize: 13 }}>{error}</span> : undefined}>
+  return <Section title="Local helper" help="Optional jobs that the agent can delegate to a configured local model. Uses and repeated work are observed from lane events. Repeated work can turn a kind off; the owner can enable it again. These counts do not establish token savings." footer={error ? <span role="alert" style={{ fontSize: 13 }}>{error}</span> : undefined}>
     {(kinds ?? []).map((k) => { const [name, what, icon] = HELPER_WORDS[k.kind]; return <div className="sec-r lmrow" key={k.kind}>
       <Tile family="team" icon={icon} small />
       <span><b>{name}</b><span className="muted" style={{ display: "block", fontSize: 12.5 }}>{what}</span></span>
       <span className="mono" style={{ fontSize: 13 }}>{k.model ?? "—"}</span>
-      <span className="mono" style={{ fontSize: 12.5 }}>{k.uses} {k.uses === 1 ? "use" : "uses"}{k.redoneRate !== null ? ` · ${Math.round(k.redoneRate * 100)}% redone` : ""}{k.savedThisWeek ? <b style={{ marginLeft: 14, color: "var(--ok-ink)", fontSize: 14 }}>{tokensK(k.savedThisWeek)}</b> : null}</span>
+      <span className="mono" style={{ fontSize: 12.5 }}>{k.uses} {k.uses === 1 ? "use" : "uses"}{k.redoneRate !== null ? ` · ${Math.round(k.redoneRate * 100)}% redone` : ""}</span>
       <span style={{ textAlign: "right" }}>
         <Glyph g={k.state === "on" ? "done" : k.state === "near" ? "wait" : "idle"}>{k.state === "on" ? "On" : k.state === "near" ? "Near the limit" : "Off"}</Glyph>
         {k.reason ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{k.reason}</span> : null}

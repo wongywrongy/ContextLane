@@ -16,7 +16,8 @@ async function fixture(answer: unknown, withModel = true, now?: () => number) {
   ask("shop/02", "q1"); store.appendEvent("shop/02", { type: "permission.answered", payload: { requestId: "q1", optionId: "0", by: "web" } }); ask("shop/02", "q2");
   for (let i = 0; i < 5; i++) store.appendEvent("shop/01", { type: "tool.call", payload: { callId: `r${i}`, kind: "read", title: "Read", files: ["/w1/solver/model.py"] } });
   store.appendEvent("shop/01", { type: "usage.turn", payload: { turnId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c11", sessionId: "s", source: "acp", inputTokens: 1000, outputTokens: 500, cacheReadTokens: 8500, cacheWriteTokens: 0 } });
-  store.setLaneState("shop/01", "in_review"); store.setLaneState("shop/01", "merged");
+  store.setLaneState("shop/01", "in_review"); store.setLaneState("shop/01", "pr_open"); store.setLaneState("shop/01", "merged");
+  store.appendEvent("shop/01", { type: "checkpoint.merge_verified", payload: { checkpointId: "fixture-checkpoint", head: "b", target: "main", mergeCommit: "c" } });
   const fetch = (async () => Response.json({ model: "qwen3-coder", choices: [{ message: { content: JSON.stringify(answer) } }] })) as unknown as typeof globalThis.fetch;
   const config = Config.parse({ paths: { data: join(root, "data") }, localModels: withModel ? [{ name: "qwen3-coder", provider: "ollama", url: "http://127.0.0.1:11434" }] : [] });
   const run: Runner = async () => ({ stdout: "" });
@@ -30,10 +31,33 @@ describe("insights", () => {
   it("computes the week's numbers itself", async () => {
     const i = await fixture({}, false);
     const v = await i.view("shop");
-    expect(v.facts).toMatchObject({ merges: 1, cloudTokens: 10_000, localShare: 0 });
+    expect(v.facts).toMatchObject({ merges: 1, cloudTokens: 10_000 });
+    expect(v.facts).not.toHaveProperty("localShare");
     expect(v.stats.map((s) => [s.id, s.value])).toEqual(expect.arrayContaining([["merges", "1"], ["cloud", "10k"], ["reads:solver/model.py", "5"], [expect.stringMatching(/^question:/), "2"]]));
     expect(v.today).toEqual([expect.objectContaining({ lane: "shop/01", tokens: 10_000, cacheShare: expect.closeTo(0.895, 2) })]);
     await expect(i.generate("shop")).rejects.toThrow(/Add a local model/);
+  });
+
+  it("counts cache creation in both daily and weekly totals and keeps incomplete usage unknown", async () => {
+    const i = await fixture({}, false);
+    const usage = { sessionId: "claude", source: "claude-log" as const, inputTokens: 100, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 5000 };
+    i.store.appendEvent("shop/02", { type: "usage.turn", payload: { ...usage, turnId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c12" } });
+    let v = await i.view("shop");
+    expect(v.facts.cloudTokens).toBe(15_350);
+    expect(v.today.find(t => t.lane === "shop/02")).toMatchObject({ tokens: 5350, cacheShare: 200 / 5300 });
+    i.store.appendEvent("shop/02", { type: "usage.turn", payload: { ...usage, turnId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c13", inputTokens: null } });
+    v = await i.view("shop");
+    expect(v.facts.cloudTokens).toBeNull();
+    expect(v.stats.some(s => s.id === "cloud")).toBe(false);
+    expect(v.today.find(t => t.lane === "shop/02")).toMatchObject({ tokens: null, cacheShare: null });
+    expect(v.today.find(t => t.lane === "shop/01")!.tokens).toBe(10_000);
+  });
+
+  it("counts verified checkpoint integrations once, not a legacy merged state", async () => {
+    const i = await fixture({}, false);
+    i.store.setLaneState("shop/02", "in_review"); i.store.setLaneState("shop/02", "pr_open"); i.store.setLaneState("shop/02", "merged");
+    i.store.appendEvent("shop/01", { type: "checkpoint.merge_verified", payload: { checkpointId: "fixture-checkpoint", head: "b", target: "main", mergeCommit: "c" } });
+    expect((await i.view("shop")).week.merges).toBe(1);
   });
 
   it("keeps only sentences and suggestions whose numbers and evidence are real", async () => {

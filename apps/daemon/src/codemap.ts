@@ -9,7 +9,7 @@ import { sandbox } from "./sandbox.js";
 import { Tidy } from "./tidy.js";
 
 export const CODEMAP_WORKER = fileURLToPath(new URL("./codemap-worker.js", import.meta.url));
-const OPEN = ["setting_up", "working", "needs_you", "in_review", "failed", "paused"];
+const OPEN = ["setting_up", "working", "needs_you", "in_review", "pr_open", "integration_pending", "failed", "paused"];
 
 /**
  * The project's code map (CodeGraph, run by codemap-worker in the sandbox) and where each open lane
@@ -50,7 +50,7 @@ export class CodeMaps {
     const { run, config, store } = this.deps;
     const view = await readRecipe(store, store.getProject(project)!, root).catch(() => null);
     const arch = view?.recipe?.architecture ? JSON.stringify(view.recipe.architecture) : "";
-    const [bin, ...wrap] = sandbox(config);
+    const [bin, ...wrap] = sandbox(config, { worktree: root, repository: root });
     try {
       const out = await run(bin!, [...wrap, process.execPath, this.deps.worker ?? CODEMAP_WORKER, root, arch], { timeout: 600_000, env: { CODEGRAPH_TELEMETRY: "0", DO_NOT_TRACK: "1", NODE_NO_WARNINGS: "1" } });
       this.cache.set(project, { at: Date.now(), map: CodeMap.parse(JSON.parse(out.stdout)), error: null });

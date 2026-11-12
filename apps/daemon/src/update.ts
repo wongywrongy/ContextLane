@@ -5,6 +5,7 @@ import { installService } from "./install.js";
 import { BUILT_MARKER, MANAGED_MARKER, exists, linkTarget, runningRelease, setLink, shortSha, type Layout } from "./layout.js";
 import type { Runner } from "./run.js";
 import { backupDatabase } from "./backup.js";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export class UpdateError extends Error {}
 
@@ -37,7 +38,7 @@ const KEEP_RELEASES = 3;
 const KEEP_BACKUPS = 5;
 const OLD_REPO = /github\.com[/:]wongywrongy\/rootlane(\.git)?\/?$/i;
 const NEW_REPO = "https://github.com/wongywrongy/ContextLane.git";
-const ACTIVE = ["setting_up", "working", "needs_you", "in_review"];
+const ACTIVE = ["setting_up", "working", "needs_you", "in_review", "pr_open", "integration_pending"];
 
 /**
  * contextlanes update: fetch, build the new version in its own folder, back up the database,
@@ -267,7 +268,7 @@ export class Updater {
     const deadline = (this.deps.healthSeconds ?? 30) * 2;
     for (let i = 0; i < deadline; i++) {
       try {
-        const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/health`);
+        const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/health`, { redirect: "error", signal: AbortSignal.timeout(5000) });
         if (res.ok && ((await res.json()) as { version?: string }).version === shortSha(sha)) return true;
       } catch { /* not up yet */ }
       await this.deps.sleep(500);
@@ -276,9 +277,21 @@ export class Updater {
   }
   private async activeLanes(): Promise<number | null> {
     try {
-      // The same proof the CLI uses: the owner's setup token, readable only by the daemon's user.
+      // A restarted daemon's port may belong to another process. Prove knowledge of the token
+      // before transmitting it, as the CLI does; neither request may follow a redirect.
       const token = (await readFile(join(this.deps.data, "setup-token"), "utf8").catch(() => "")).trim();
-      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`, token ? { headers: { authorization: `Bearer ${token}` } } : undefined);
+      if (!token) return null;
+      const nonce = randomBytes(32).toString("base64url");
+      const proofResponse = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/setup/prove`, {
+        method: "POST", redirect: "error", signal: AbortSignal.timeout(5000), headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce }),
+      });
+      if (!proofResponse.ok) return null;
+      const { proof } = await proofResponse.json() as { proof?: unknown };
+      if (typeof proof !== "string") return null;
+      const expected = createHmac("sha256", token).update(`contextlanes-cli:${nonce}`).digest();
+      const actual = Buffer.from(proof, "base64url");
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`, { redirect: "error", signal: AbortSignal.timeout(5000), headers: { authorization: `Bearer ${token}` } });
       if (!res.ok) return null;
       return ((await res.json()) as { state: string }[]).filter((l) => ACTIVE.includes(l.state)).length;
     } catch { return null; }

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Runtime } from "../runtime.js";
@@ -11,7 +12,7 @@ import type { Runner } from "../run.js";
 import { Terminals } from "../terminal/tmux.js";
 import { branchName, hostUnit, terminalSession, worktreePath } from "./naming.js";
 import { requireSandbox, sandbox, socketPath } from "../sandbox.js";
-import { checkCliArgs, launchCli } from "./cli.js";
+import { agentHome, checkCliArgs, launchCli } from "./cli.js";
 
 /**
  * Turns a task into a lane: branch + worktree, a tmux session, then (when enabled) a lane host
@@ -137,7 +138,7 @@ export class LaneManager {
       if (config.lanes.launchHosts) {
         const notes = req.baseline || lane.kind === "cli" ? "" : await readFile(join(config.paths.data, "notes", `${project.id}.md`), "utf8").catch(() => "");
         const text = taskText(lane, req.adoption, extra.firstPrompt ?? (req.task !== title ? req.task : undefined), notes, req.baseline || lane.kind === "cli" ? "" : toolsHint(config));
-        if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline);
+        if (lane.kind === "cli") await launchCli(lane, config, this.deps.run, store.mintLaneToken(id), text, req.cliArgs, false, req.baseline, project.path);
         else await this.launch(lane, text);
       }
       if (store.getLane(id)!.state === "setting_up") this.emit(store.setLaneState(id, "working"));
@@ -159,8 +160,10 @@ export class LaneManager {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, `task-${Date.now()}.md`);
     await writeFile(file, text, { mode: 0o600 });
+    const privateDir = join(config.paths.data, "acp", lane.id.replace("/", "-"));
+    const home = ["claude-code", "codex"].includes(lane.agent) ? await agentHome(lane.agent, privateDir) : {};
     const since = store.lastSeq(lane.id);
-    await run("systemd-run", hostCommand(lane, config, undefined, undefined, "", file), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(lane.id) } });
+    await run("systemd-run", hostCommand(lane, config, undefined, undefined, "", file, store.getProject(lane.project)!.path, home), { env: { CONTEXTLANES_LANE_TOKEN: store.mintLaneToken(lane.id) } });
     this.launched.set(lane.id, { at: Date.now(), since });
     this.watch(lane, since);
   }
@@ -232,7 +235,7 @@ export class LaneManager {
     }
     if (["failed", "needs_you"].includes(store.getLane(id)!.state)) this.emit(store.setLaneState(id, "working", "agent restarted"));
     try {
-      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true, !!store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline);
+      if (lane.kind === "cli") await launchCli(store.getLane(id)!, this.deps.config, this.deps.run, store.mintLaneToken(id), text, undefined, true, !!store.eventsOfType(["lane.created"], { lanes: [id] })[0]?.payload.baseline, store.getProject(lane.project)!.path);
       else await this.launch(store.getLane(id)!, text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -272,15 +275,12 @@ export class LaneManager {
   }
 }
 
-/**
- * What a new lane's agent is told about the ContextLanes tools. Agents rarely reach for an MCP tool from its
- * description alone (none was called in the first lanes on neo), so the first message names when each pays off.
- */
+/** Optional coordination tools; source files and runnable checks remain authoritative. */
 export function toolsHint(config: Config): string {
   const helper = config.localModels.some((m) => !m.roles?.length || m.roles.includes("helper"));
   return [
-    "ContextLanes tools (MCP server \"contextlanes\"): get_brief before reading the files of each module you change, for its current facts and constraints; ask_owner when only the owner can decide; checkpoint when the work is committed and ready for review; split_lanes when what is left has 2 to 5 independent parts that touch different files, so they run in parallel in their own checkouts and merge back into yours.",
-    helper ? "delegate sends bounded work to a local model on this machine and keeps it out of your context: use kind read to answer a narrow question about several files, and check to run the project's checks and get the failures sorted." : "",
+    "Optional ContextLanes tools (MCP server \"contextlanes\"): get_brief for prior project decisions; verify its claims against source code. ask_owner for decisions requiring owner input. split_lanes for 2 to 5 independent tasks with separate file ownership and concrete acceptance checks. Run the agreed checks and use checkpoint when committed work is ready for review.",
+    helper ? "delegate offers a local model for a narrow read question or the project's approved checks; verify its results." : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -293,14 +293,16 @@ export function taskText(lane: Lane, adoption?: ServiceProposal, firstPrompt?: s
 }
 
 /** systemd-run arguments for a lane host. Kept separate so it can be tested and documented. */
-export function hostCommand(lane: Lane, config: Config, adoption?: ServiceProposal, firstPrompt?: string, notes = "", taskFile?: string): string[] {
+export function hostCommand(lane: Lane, config: Config, adoption?: ServiceProposal, firstPrompt?: string, notes = "", taskFile?: string, repository?: string, agentEnvironment: Record<string, string> = {}): string[] {
   const task = taskText(lane, adoption, firstPrompt, notes);
   const toolbox = { name: "contextlanes", command: config.lanes.toolbox.command, args: config.lanes.toolbox.args,
     env: Object.entries({ ...config.lanes.toolbox.env, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}` }).map(([name, value]) => ({ name, value })) };
   return ["--user", `--unit=${lane.hostUnit ?? hostUnit(lane.id)}`, "--collect", `--working-directory=${lane.worktree}`,
-    `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, "--setenv=CONTEXTLANES_LANE_TOKEN", ...Object.entries(config.lanes.host.env ?? {}).map(([key, value]) => `--setenv=${key}=${value}`),
+    `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`, "--setenv=CONTEXTLANES_LANE_TOKEN", ...Object.entries({ ...config.lanes.host.env, ...agentEnvironment }).map(([key, value]) => `--setenv=${key}=${value}`),
     // name=value keeps a task that starts with "-" a value; $$ keeps systemd from expanding $ in the task or JSON.
-    ...[...sandbox(config, { socket: true }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, taskFile ? `--task-file=${taskFile}` : `--task=${task}`, `--agent=${lane.agent}`,
+    ...[...sandbox(config, { socket: true, worktree: lane.worktree, providerCredentials: !Object.keys(agentEnvironment).length, ...(repository ? { repository } : {}),
+      readable: [join(config.paths.lanes, ".attachments", lane.id.replace("/", "-"))].filter((path) => taskFile || existsSync(path)),
+      ...(Object.values(agentEnvironment)[0] ? { agentHome: Object.values(agentEnvironment)[0] } : {}) }), config.lanes.host.command, ...config.lanes.host.args, `--lane=${lane.id}`, taskFile ? `--task-file=${taskFile}` : `--task=${task}`, `--agent=${lane.agent}`,
       `--socket=${socketPath(config)}`, `--mode=${lane.mode}`,
       `--toolbox=${JSON.stringify(toolbox)}`, ...(lane.model ? [`--model=${lane.model}`] : []), ...(lane.effort ? [`--effort=${lane.effort}`] : []),
       ...(config.agents[lane.agent] ? [`--agent-spec=${JSON.stringify(config.agents[lane.agent])}`] : [])].map((arg) => arg.replaceAll("$", "$$$$"))];

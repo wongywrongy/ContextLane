@@ -76,9 +76,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const cliInputs = new CliInputs({ store, bus, config, run });
   app.addHook("onClose", () => cliInputs.close());
   const runtime = deps.runtime ?? new Runtime({ store, bus, config, run });
-  const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime });
   const sublanes = new Sublanes({ store, bus, lanes: deps.lanes, hosts: deps.hosts, run });
+  const checker = deps.checker ?? new Checker({ store, bus, config, run, runtime, sublanes, repair: (id, message) => {
+    deps.hosts.send(id, message);
+  } });
   const review = new Review({ store, bus, hosts: deps.hosts, run, runtime, sublanes });
+  app.addHook("onClose", async () => { await checker.close(); });
+  let refreshing = false;
+  const reviewTimer = setInterval(() => {
+    if (refreshing) return;
+    refreshing = true;
+    void review.refresh().catch(err => app.log.error(err)).finally(() => { refreshing = false; });
+  }, 30_000);
+  reviewTimer.unref();
+  app.addHook("onClose", async () => { clearInterval(reviewTimer); });
   const auth = new Auth(store, config);
   const resources = deps.resources ?? new Resources(store, run);
   const streams = new Set<ServerResponse>();
@@ -308,6 +319,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const body = PromptRequest.parse(req.body);
     if (store.getLane(lane)!.kind === "cli" && body.images.length) throw new Refused("Attach images through the agent's own terminal.", 400);
     const prompt = await attach(config, store.getLane(lane)!, body);
+    for (const item of store.inbox().filter(i => i.lane === lane && i.id.startsWith(`${lane}#checkpoint-repair-`))) {
+      answerPermission({ store, bus, send: (id, message) => deps.hosts.send(id, message) }, lane, item.id.slice(lane.length + 1), "reviewed", "web", "Owner supplied new guidance");
+    }
     bus.publish(store.appendEvent(lane, { type: "agent.message", payload: { text: body.text, role: "user", ...(prompt.files.length ? { files: prompt.files } : {}), ...(prompt.images.length ? { images: prompt.images.length } : {}) } }));
     return reply.code(202).send({ queued: true, ...deps.hosts.command(lane, { kind: "prompt", ...prompt }) });
   });
@@ -361,7 +375,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   app.post<{ Params: { project: string; id: string } }>("/api/projects/:project/insights/:id/dismiss", async (req) => { await insights.dismiss(ProjectId.parse(req.params.project), z.uuid().parse(req.params.id)); return { dismissed: true }; });
   const ask = new Ask({ store, codemaps, briefs, models: localModels });
   app.post<{ Params: { project: string } }>("/api/projects/:project/ask", async (req) => ask.ask(ProjectId.parse(req.params.project), AskRequest.parse(req.body).question));
-  const bench = new Bench({ config, store, bus, lanes: deps.lanes, run });
+  const bench = new Bench({ config, store, bus, lanes: deps.lanes, run, runtime });
   app.post("/api/bench", async (req) => bench.start(BenchRequest.parse(req.body).tasks));
   app.get<{ Params: { id: string } }>("/api/bench/:id", async (req) => (await bench.get(z.uuid().parse(req.params.id))) ?? Promise.reject(new NotFound("no such bench run")));
   const handoffs = new Handoffs({ config, store, bus, hosts: deps.hosts, lanes: deps.lanes, run });
@@ -370,7 +384,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const secondReviews = new SecondReviews({ store, bus, lanes: deps.lanes, run });
   const judge = deps.judge ?? new Judge({ store, bus, models: localModels, diff: (c) => checker.diff(c) });
   if (!deps.judge) judge.start();
-  new Nudges({ store, bus, hosts: deps.hosts }).start();
+  const stopNudges = new Nudges({ store, bus, hosts: deps.hosts }).start();
+  app.addHook("onClose", async () => { stopNudges(); });
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/judge", async (req, reply) => reply.code(202).send(judge.again(req.params.id)));
   app.get<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.estimate(z.uuid().parse(req.params.id)));
   app.post<{ Params: { id: string } }>("/api/checkpoints/:id/second-review", async (req) => secondReviews.start(z.uuid().parse(req.params.id), SecondReviewRequest.parse(req.body).agent));
@@ -445,7 +460,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     catch (err) {
       if (!(err instanceof Refused) || !/Commit your changes first|no commits to review/.test(err.message)) throw err;
       // Checked first, so a refused request leaves nothing queued for a later agent.
-      if (!deps.hosts.connected(id)) throw new Refused(`${err.message} The agent is not connected to do it; restart the agent, or commit in the lane's terminal.`, 409);
+      const connected = store.getLane(id)!.kind === "cli" ? await deps.lanes.cliConnected(id) : deps.hosts.connected(id);
+      if (!connected) throw new Refused(`${err.message} The agent is not connected to do it; restart the agent, or commit in the lane's terminal.`, 409);
       const text = "The owner asked for review. Finish the step you are on, commit your work on this branch with a clear message (nothing unrelated), then call the checkpoint tool with a short summary of what changed and why.";
       // Shown in the lane's steps as the owner's message, like any other.
       bus.publish(store.appendEvent(id, { type: "agent.message", payload: { role: "user", text } }));
@@ -454,6 +470,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     }
   });
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/approve", async (req) => review.approve(laneParam(req.params)));
+  app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/review/sync", async (req) => review.sync(laneParam(req.params)));
   app.post<{ Params: { project: string; n: string } }>("/api/lanes/:project/:n/request-changes", async (req, reply) => {
     const body = RequestChanges.parse(req.body);
     return reply.code(202).send(review.requestChanges(laneParam(req.params), body.note, body.comments));

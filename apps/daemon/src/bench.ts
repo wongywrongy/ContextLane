@@ -8,7 +8,7 @@ import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
 import { NotFound, Refused, type LaneManager } from "./lanes/manager.js";
 import type { Runner } from "./run.js";
-import { oneshot } from "./runtime.js";
+import { oneshot, Runtime } from "./runtime.js";
 import { sandbox } from "./sandbox.js";
 
 /**
@@ -19,7 +19,7 @@ import { sandbox } from "./sandbox.js";
  * The owner still answers every permission the lanes ask for; the bench never approves anything.
  */
 export class Bench {
-  constructor(private deps: { config: Config; store: Store; bus: EventBus; lanes: LaneManager; run: Runner; poll?: number }) {}
+  constructor(private deps: { config: Config; store: Store; bus: EventBus; lanes: LaneManager; run: Runner; runtime?: Runtime; poll?: number }) {}
   private file(id: string) { return join(this.deps.config.paths.data, "bench", `${id}.json`); }
   async get(id: string): Promise<BenchResult | null> { return readFile(this.file(id), "utf8").then((t) => JSON.parse(t) as BenchResult, () => null); }
   private saving: Promise<void> = Promise.resolve();
@@ -78,13 +78,16 @@ export class Bench {
           const turns = events.filter((e): e is Extract<LaneEvent, { type: "usage.turn" }> => e.type === "usage.turn");
           const known = turns.length && turns.every(e => e.payload.inputTokens !== null && e.payload.outputTokens !== null && (e.payload.source === "codex-log" || e.payload.cacheReadTokens !== null && e.payload.cacheWriteTokens !== null));
           row.tokens = known ? turns.reduce((n, e) => n + (e.payload.inputTokens ?? 0) + (e.payload.outputTokens ?? 0) + (e.payload.cacheReadTokens ?? 0) + (e.payload.cacheWriteTokens ?? 0), 0) : null;
-          if (failed || Date.now() > deadline || turn?.payload.stopReason) throw new Error(failed ? "The lane failed." : turn?.payload.stopReason || `No result within ${t.timeoutMinutes} minutes.`);
+          const stopped = turn?.payload.stopReason;
+          if (failed || Date.now() > deadline || stopped && stopped !== "end_turn") throw new Error(failed ? "The lane failed." : stopped && stopped !== "end_turn" ? stopped : `No result within ${t.timeoutMinutes} minutes.`);
           break;
         }
         await new Promise((r) => setTimeout(r, this.deps.poll ?? 5000));
       }
       row.state = "checking"; progress(row);
-      const result = await oneshot(run, lane.worktree, t.check, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, 600, sandbox(config));
+      const runtime = this.deps.runtime ?? new Runtime({ store, bus: this.deps.bus, config, run });
+      const recipe = await runtime.recipeFor(lane);
+      const result = await oneshot(run, lane.worktree, t.check, await runtime.checkEnvironment(lane, recipe), 600, sandbox(config, { worktree: lane.worktree, repository: store.getProject(lane.project)!.path }));
       row.passed = result.ok; row.state = "done"; row.detail = result.ok ? null : result.output.trim().split("\n").slice(-3).join(" ").slice(0, 300);
     } catch (err) {
       row.minutes = Math.round((Date.now() - started) / 6000) / 10;

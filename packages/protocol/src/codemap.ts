@@ -184,11 +184,11 @@ export type Suggestion = z.infer<typeof Suggestion>;
 export type InsightsView = {
   project: string; generatedAt: string | null; model: string | null; error: { at: string; message: string } | null; canWrite: boolean;
   week: { from: string; to: string; events: number; merges: number };
-  facts: { merges: number; cloudTokens: number; localShare: number | null; medianWaitMinutes: number | null };
+  facts: { merges: number; cloudTokens: number | null; medianWaitMinutes: number | null };
   stats: InsightStat[];
   summary: { text: string; cites: string[] }[];
   suggestions: Suggestion[];
-  today: { lane: string; task: string; tokens: number; cacheShare: number | null; local: boolean }[];
+  today: { lane: string; task: string; tokens: number | null; cacheShare: number | null; local: boolean }[];
   startsWith: { notes: { facts: number; tokens: number }; briefs: number; handoffs: number };
 };
 

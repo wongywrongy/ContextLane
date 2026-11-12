@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm typecheck && pnpm build && pnpm test",
     "dev": "pnpm --parallel --filter @contextlanes/daemon --filter @contextlanes/web dev"
   },
   "devDependencies": {

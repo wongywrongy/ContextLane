@@ -36,7 +36,7 @@ describe("daemon git", () => {
   it.skipIf(!bwrap)("code planted in a lane repository cannot reach the data folder or run as a hook", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "cl-confine-")));
     cleanups.push(root);
-    const data = join(root, "data"); const repo = join(root, "repo"); const proof = join(root, "proof");
+    const data = join(root, "data"); const repo = join(root, "repo"); const proof = join(repo, "proof");
     await mkdir(data); await mkdir(repo); await mkdir(proof);
     await writeFile(join(data, "setup-token"), "secret-token");
     const git = (...args: string[]) => runCommand("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: repo });

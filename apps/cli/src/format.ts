@@ -3,12 +3,12 @@ import type { InboxItem, Lane, LaneState , ProjectMap } from "@contextlanes/prot
 /** Text versions of the state glyphs, so the CLI keeps "meaning is never colour alone". */
 const GLYPH: Record<LaneState, string> = {
   draft: "·", setting_up: "◌", working: "●", needs_you: "◆", in_review: "◆",
-  merged: "✓", cleaned: "✓", failed: "■", paused: "‖", archived: "○",
+  pr_open: "○", integration_pending: "○", merged: "✓", cleaned: "✓", failed: "■", paused: "‖", archived: "○",
 };
 
 const LABEL: Record<LaneState, string> = {
   draft: "draft", setting_up: "setting up", working: "working", needs_you: "needs you", in_review: "in review",
-  merged: "merged", cleaned: "cleaned up", failed: "failed", paused: "paused", archived: "archived",
+  pr_open: "PR open", integration_pending: "awaiting integration", merged: "merged", cleaned: "cleaned up", failed: "failed", paused: "paused", archived: "archived",
 };
 
 export function formatLanes(lanes: Lane[]): string {

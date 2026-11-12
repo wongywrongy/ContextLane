@@ -65,7 +65,7 @@ export function Fact(props: { g: string; children: ReactNode; detail?: ReactNode
 /** Lane states map onto the seven glyphs of the legend: shape and colour, plus a word. */
 export const GLYPH: Record<LaneState, [glyph: "work" | "think" | "wait" | "fail" | "done" | "idle" | "pause", label: string]> = {
   draft: ["idle", "Draft"], setting_up: ["think", "Setting up"], working: ["work", "Working"], needs_you: ["wait", "Needs you"],
-  in_review: ["wait", "In review"], merged: ["done", "Merged"], cleaned: ["done", "Cleaned up"], failed: ["fail", "Failed"],
+  in_review: ["wait", "In review"], pr_open: ["idle", "PR open"], integration_pending: ["idle", "Awaiting integration"], merged: ["done", "Merged"], cleaned: ["done", "Cleaned up"], failed: ["fail", "Failed"],
   paused: ["pause", "Paused"], archived: ["idle", "Archived"],
 };
 export function Glyph({ g, children }: { g: string; children?: ReactNode }) {
