@@ -5,6 +5,8 @@ import { installService } from "./install.js";
 import { BUILT_MARKER, MANAGED_MARKER, exists, linkTarget, runningRelease, setLink, shortSha, type Layout } from "./layout.js";
 import type { Runner } from "./run.js";
 import { backupDatabase } from "./backup.js";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { GIT_MAINTENANCE_GUARDS } from "./sandbox.js";
 
 export class UpdateError extends Error {}
 
@@ -29,7 +31,7 @@ export type UpdateDeps = {
   publicUrl?: string | null;
 };
 
-type History = { from: string; to: string; fromPath: string; toPath: string; at: string; backup: string | null; userVersion: number | null };
+type History = { from: string; to: string; fromPath: string; toPath: string; at: string; backup: string | null; userVersion: number | null; previousPath?: string | null; branchBefore?: string | null };
 type State = { branch?: string; history: History[] };
 
 const SERVICE = "contextlanes.service";
@@ -37,7 +39,7 @@ const KEEP_RELEASES = 3;
 const KEEP_BACKUPS = 5;
 const OLD_REPO = /github\.com[/:]wongywrongy\/rootlane(\.git)?\/?$/i;
 const NEW_REPO = "https://github.com/wongywrongy/ContextLane.git";
-const ACTIVE = ["setting_up", "working", "needs_you", "in_review"];
+const ACTIVE = ["setting_up", "working", "needs_you", "in_review", "pr_open", "integration_pending"];
 
 /**
  * contextlanes update: fetch, build the new version in its own folder, back up the database,
@@ -54,7 +56,7 @@ export class Updater {
     this.log(this.deps.publicUrl ? `Open ContextLanes: ${this.deps.publicUrl} (on this machine: ${local})` : `Open ContextLanes: ${local} (this machine only; run contextlanes setup to reach it over Tailscale)`);
   }
   private async git(cwd: string, args: string[], timeout = 120_000): Promise<string> {
-    return (await this.deps.run("git", ["-C", cwd, ...args], { timeout })).stdout.trim();
+    return (await this.deps.run("git", ["-C", cwd, ...GIT_MAINTENANCE_GUARDS, ...args], { timeout })).stdout.trim();
   }
 
   async update(options: { check?: boolean; branch?: string } = {}): Promise<number> {
@@ -69,7 +71,10 @@ export class Updater {
       const state = await this.state();
       const branch = await this.branch(state, options.branch);
       const to = await this.git(this.l.repo, ["rev-parse", `refs/remotes/origin/${branch}`]);
-      if (to === from) { this.log(`Already up to date (${shortSha(from)} on ${branch}).`); if (!options.check) this.openAt(); return 0; }
+      if (to === from) {
+        if (!options.check && options.branch) { state.branch = branch; await this.saveState(state); }
+        this.log(`Already up to date (${shortSha(from)} on ${branch}).`); if (!options.check) this.openAt(); return 0;
+      }
       if (await this.isAncestor(to, from)) { this.log(`This copy (${shortSha(from)}) is newer than ${branch} (${shortSha(to)}). Nothing to update.`); return 0; }
       const changes = (await this.git(this.l.repo, ["log", "--no-decorate", "--format=%h %s", `${from}..${to}`])).split("\n").filter(Boolean);
       this.log(`${changes.length} new ${changes.length === 1 ? "change" : "changes"} on ${branch}:`);
@@ -80,23 +85,26 @@ export class Updater {
       if (dirty) throw new UpdateError(`Files in the running copy were changed by hand, so nothing was updated:\n${dirty}\nUndo or commit them in ${running}, then run contextlanes update again.`);
       const release = join(this.l.releases, shortSha(to));
       await this.build(release, to);
-      if (options.branch || state.branch) { state.branch = branch; await this.saveState(state); }
-      return this.switchTo(release, { from, fromPath: running, to });
+      const result = await this.switchTo(release, { from, fromPath: running, to });
+      if (options.branch || state.branch) { const updated = await this.state(); updated.branch = branch; await this.saveState(updated); }
+      return result;
     });
   }
 
-  /** install.sh on an existing copy: the new release is already built. */
-  /** Switch to a release install.sh already built; `branch` is the one the installer was told to follow. */
+  /** Adopt an explicitly prepared build; change its update channel only after a successful switch. */
   async adopt(release: string, branch?: string): Promise<number> {
     if (!this.l.managed) return this.unmanaged();
     return this.locked(async () => {
-      if (branch) { const state = await this.state(); state.branch = branch; await this.saveState(state); }
       const running = await runningRelease(this.l);
       const from = await this.git(running, ["rev-parse", "HEAD"]);
       const to = await this.git(release, ["rev-parse", "HEAD"]);
-      if (!(await exists(join(release, BUILT_MARKER)))) throw new UpdateError(`${release} is not a finished build.`);
-      if (to === from) { this.log(`Already running ${shortSha(to)}.`); return 0; }
-      return this.switchTo(release, { from, fromPath: running, to });
+      if (!(await this.built(release, to))) throw new UpdateError(`${release} is not a clean, finished build of ${shortSha(to)}.`);
+      if (branch && (!/^[\w./-]+$/.test(branch) || branch.startsWith("-"))) throw new UpdateError(`Invalid update branch: ${branch}`);
+      let result = 0;
+      if (to === from) this.log(`Already running ${shortSha(to)}.`);
+      else result = await this.switchTo(release, { from, fromPath: running, to });
+      if (branch) { const state = await this.state(); state.branch = branch; await this.saveState(state); }
+      return result;
     });
   }
 
@@ -107,14 +115,18 @@ export class Updater {
       const from = await this.git(running, ["rev-parse", "HEAD"]);
       const state = await this.state();
       const last = state.history.at(-1);
-      const target = await linkTarget(this.l.previous) ?? last?.fromPath ?? null;
+      const target = last?.to === from ? last.fromPath : await linkTarget(this.l.previous);
       if (!target || target === running || !(await exists(join(target, "apps/daemon/dist/main.js")))) { this.log("There is no earlier version to go back to."); return 1; }
       const to = await this.git(target, ["rev-parse", "HEAD"]);
-      const undoing = last && last.to === from ? last : null;
+      const undoing = last && last.to === from && last.from === to ? last : null;
       const now = this.userVersion();
-      const restore = undoing?.backup && now !== null && undoing.userVersion !== null && now > undoing.userVersion ? undoing : null;
+      if (!undoing && await exists(this.database)) throw new UpdateError("No matching update history establishes database compatibility with this rollback target. Preserve the database and recover manually.");
+      if (undoing && await exists(this.database) && (now === null || undoing.userVersion === null || now !== undoing.userVersion) && !undoing.backup) {
+        throw new UpdateError("Cannot establish database compatibility and no preupdate backup is available. Preserve the database and recover manually.");
+      }
+      const restore = undoing?.backup && (now === null || undoing.userVersion === null || now !== undoing.userVersion) ? undoing : null;
       if (restore && !options.yes) {
-        this.log(`Going back to ${shortSha(to)} also restores the database saved on ${restore.at}, because the newer version changed its format. Lane history recorded since then is lost.`);
+        this.log(`Going back to ${shortSha(to)} requires restoring the database saved on ${restore.at}, because its current format is different or cannot be verified. Lane history recorded since then is lost.`);
         this.log("Run contextlanes update --rollback --yes to continue.");
         return 1;
       }
@@ -122,10 +134,14 @@ export class Updater {
       await this.service("stop");
       if (restore) await this.restore(restore.backup!);
       await setLink(this.l.current, target);
-      await setLink(this.l.previous, running);
+      const previous = undoing?.previousPath ?? (state.history.at(-2)?.to === to ? state.history.at(-2)!.fromPath : null);
+      if (previous && await exists(previous)) await setLink(this.l.previous, previous); else await unlink(this.l.previous).catch(() => {});
       await this.service("start");
       if (!(await this.healthy(to))) throw new UpdateError(`ContextLanes did not start on ${shortSha(to)}. Read: journalctl --user -u contextlanes -n 50`);
       if (undoing) state.history.pop();
+      if (undoing?.branchBefore !== undefined) {
+        if (undoing.branchBefore === null) delete state.branch; else state.branch = undoing.branchBefore;
+      }
       await this.saveState(state);
       this.log(`Back on ${shortSha(to)}.${restore ? " The database was restored." : ""}`);
       this.openAt();
@@ -135,7 +151,7 @@ export class Updater {
 
   private unmanaged(): number {
     this.log("This copy runs from a source checkout, not an installed release, so update it yourself:");
-    this.log("  git pull && pnpm install && pnpm build && systemctl --user restart contextlanes");
+    this.log("  git pull && corepack pnpm install --frozen-lockfile && corepack pnpm build && systemctl --user restart contextlanes");
     return 1;
   }
 
@@ -143,23 +159,31 @@ export class Updater {
     await this.ensureLayout(v.fromPath);
     const before = await this.activeLanes();
     const backup = await this.backup(v.from);
+    const previous = await linkTarget(this.l.previous);
+    const history: History = { from: v.from, to: v.to, fromPath: v.fromPath, toPath: release, at: new Date().toISOString(), backup: backup?.file ?? null, userVersion: backup?.userVersion ?? null, previousPath: previous, branchBefore: (await this.state()).branch ?? null };
     await setLink(this.l.previous, v.fromPath);
     await setLink(this.l.current, release);
     this.log(`Restarting ContextLanes on ${shortSha(v.to)}…`);
     const started = await this.service("restart").then(() => this.healthy(v.to), () => false);
     if (!started) {
-      this.log(`The new version did not start, so ContextLanes is going back to ${shortSha(v.from)}.`);
-      await this.service("stop").catch(() => {});
+      // A failed health probe does not prove the candidate accepted no new work.
+      // Never replace a newer database automatically, even during startup recovery.
+      await this.service("stop");
       const now = this.userVersion();
-      if (backup && now !== null && backup.userVersion !== null && now > backup.userVersion) await this.restore(backup.file);
+      if (await exists(this.database) && (!backup || now === null || backup.userVersion === null || now !== backup.userVersion)) {
+        const state = await this.state(); state.history.push(history); state.history = state.history.slice(-20); await this.saveState(state);
+        throw new UpdateError(`The candidate failed health checks and database compatibility is uncertain. The daemon is stopped; current, the database and the preupdate backup are preserved. Review the newer work before deciding whether to restore with contextlanes update --rollback --yes.`);
+      }
+      this.log(`The new version did not start, so ContextLanes is going back to ${shortSha(v.from)} without restoring the database.`);
       await setLink(this.l.current, v.fromPath);
+      if (previous) await setLink(this.l.previous, previous); else await unlink(this.l.previous).catch(() => {});
       await this.service("start").catch(() => {});
       const back = await this.healthy(v.from);
       throw new UpdateError(back ? `Back on ${shortSha(v.from)}. Nothing else changed. To see why ${shortSha(v.to)} failed: journalctl --user -u contextlanes -n 50`
         : `ContextLanes did not come back on ${shortSha(v.from)} either. Read: journalctl --user -u contextlanes -n 50`);
     }
     const state = await this.state();
-    state.history.push({ from: v.from, to: v.to, fromPath: v.fromPath, toPath: release, at: new Date().toISOString(), backup: backup?.file ?? null, userVersion: backup?.userVersion ?? null });
+    state.history.push(history);
     state.history = state.history.slice(-20);
     await this.saveState(state);
     await this.prune();
@@ -186,11 +210,10 @@ export class Updater {
 
   private async build(release: string, sha: string): Promise<void> {
     if (await exists(release)) {
-      const built = await exists(join(release, BUILT_MARKER)) && (await this.git(release, ["rev-parse", "HEAD"]).catch(() => "")) === sha;
-      if (built) { this.log(`Using the ${shortSha(sha)} build from an earlier attempt.`); return; }
+      if (await this.built(release, sha)) { this.log(`Using the ${shortSha(sha)} build from an earlier attempt.`); return; }
+      if (await exists(join(release, BUILT_MARKER))) throw new UpdateError(`The saved build at ${release} was changed or has invalid metadata. Preserve it and investigate before retrying.`);
       await this.git(this.l.repo, ["worktree", "remove", "--force", release]).catch(() => {});
       await rm(release, { recursive: true, force: true });
-      await this.git(this.l.repo, ["worktree", "prune"]);
     }
     await mkdir(this.l.releases, { recursive: true });
     await this.git(this.l.repo, ["worktree", "add", "--detach", "--quiet", release, sha]);
@@ -206,6 +229,16 @@ export class Updater {
       throw new UpdateError(`${shortSha(sha)} did not build, so nothing changed and the running version keeps going.\n${lastLines(err)}`);
     }
     await writeFile(join(release, BUILT_MARKER), `${JSON.stringify({ sha, at: new Date().toISOString() })}\n`);
+    if (!(await this.built(release, sha))) throw new UpdateError(`The build changed tracked source or HEAD in ${release}. The running version is unchanged; preserve the build and investigate.`);
+  }
+
+  private async built(release: string, sha: string): Promise<boolean> {
+    try {
+      const marker = JSON.parse(await readFile(join(release, BUILT_MARKER), "utf8")) as { sha?: string };
+      return marker.sha === sha && await exists(join(release, "apps/daemon/dist/main.js"))
+        && await this.git(release, ["rev-parse", "HEAD"]) === sha
+        && await this.git(release, ["status", "--porcelain", "--untracked-files=no"]) === "";
+    } catch { return false; }
   }
 
   /**
@@ -267,7 +300,7 @@ export class Updater {
     const deadline = (this.deps.healthSeconds ?? 30) * 2;
     for (let i = 0; i < deadline; i++) {
       try {
-        const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/health`);
+        const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/health`, { redirect: "error", signal: AbortSignal.timeout(5000) });
         if (res.ok && ((await res.json()) as { version?: string }).version === shortSha(sha)) return true;
       } catch { /* not up yet */ }
       await this.deps.sleep(500);
@@ -276,18 +309,34 @@ export class Updater {
   }
   private async activeLanes(): Promise<number | null> {
     try {
-      // The same proof the CLI uses: the owner's setup token, readable only by the daemon's user.
+      // A restarted daemon's port may belong to another process. Prove knowledge of the token
+      // before transmitting it, as the CLI does; neither request may follow a redirect.
       const token = (await readFile(join(this.deps.data, "setup-token"), "utf8").catch(() => "")).trim();
-      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`, token ? { headers: { authorization: `Bearer ${token}` } } : undefined);
+      if (!token) return null;
+      const nonce = randomBytes(32).toString("base64url");
+      const proofResponse = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/setup/prove`, {
+        method: "POST", redirect: "error", signal: AbortSignal.timeout(5000), headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce }),
+      });
+      if (!proofResponse.ok) return null;
+      const { proof } = await proofResponse.json() as { proof?: unknown };
+      if (typeof proof !== "string") return null;
+      const expected = createHmac("sha256", token).update(`contextlanes-cli:${nonce}`).digest();
+      const actual = Buffer.from(proof, "base64url");
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+      const res = await this.deps.fetch(`http://127.0.0.1:${this.deps.port}/api/lanes`, { redirect: "error", signal: AbortSignal.timeout(5000), headers: { authorization: `Bearer ${token}` } });
       if (!res.ok) return null;
       return ((await res.json()) as { state: string }[]).filter((l) => ACTIVE.includes(l.state)).length;
     } catch { return null; }
   }
 
-  /** Keep current, previous, the newest few and any release a running process still uses. */
+  /** Keep rollback history, current, previous, the newest few and releases still in use. */
   private async prune(): Promise<void> {
     if (!(await exists(this.l.releases))) return;
     const keep = new Set([await linkTarget(this.l.current), await linkTarget(this.l.previous)].filter(Boolean));
+    for (const history of (await this.state()).history) {
+      keep.add(history.fromPath);
+      if (history.previousPath) keep.add(history.previousPath);
+    }
     const lines = await this.deps.processes().catch(() => []);
     const entries = await Promise.all((await readdir(this.l.releases)).map(async (name) => {
       const path = join(this.l.releases, name);
@@ -299,7 +348,6 @@ export class Updater {
       if (i < KEEP_RELEASES || keep.has(entry.path) || inUse) continue;
       await this.git(this.l.repo, ["worktree", "remove", "--force", entry.path]).catch(() => rm(entry.path, { recursive: true, force: true }));
     }
-    await this.git(this.l.repo, ["worktree", "prune"]).catch(() => {});
   }
 
   private async state(): Promise<State> {

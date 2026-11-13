@@ -8,8 +8,8 @@
  * (`git:*`) that covered `git push --force`. So commands are read whole, including chained, piped and nested
  * ones, and anything that matches waits for you. A false alarm costs one tap; a miss can cost a branch.
  *
- * What the guard cannot see: what a script in the checkout does when run (`./build.sh`), or data an allowed
- * request sends out. The lane sandbox still hides your tokens, and pushes to the lane's own branch are normal.
+ * This is a conservative review aid, not a shell parser or a security boundary. It cannot see what a
+ * checkout script does, aliases resolved by a shell, or data an allowed program sends over the network.
  */
 
 export type GuardInput = {
@@ -127,14 +127,66 @@ function outsidePath(token: string, ctx: GuardContext): string | null {
 }
 
 function checkCommand(cmd: string, ctx: GuardContext): string | null {
-  for (const [re, why] of COMMAND_RULES) if (re.test(cmd)) return why;
-  // Pushing the lane's own branch is normal; pushing straight to the base branch is not.
-  if (ctx.base && /^git\s+push\b/.test(cmd)) {
-    const base = ctx.base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`(\\s|:|/)${base}(\\s|$)`).test(cmd) || /\sHEAD:(main|master)\b/.test(cmd)) return `pushes straight to ${ctx.base}`;
-  }
   const words = tokens(cmd);
   const program = words[0]?.split("/").pop() ?? "";
+  if (/[\\$`'"]/.test(program)) return "uses a dynamically constructed command whose effects need review";
+  if (!["git", "gh"].includes(program) && /\b(?:git\s+(?:[-\w./]+\s+)*push\b|gh\s+api\b)/.test(cmd)) return "wraps a git or GitHub operation whose effects need review";
+  // Match the actual executable name, including /usr/bin/git. Git's global flags precede its
+  // subcommand; do not let `git -C . push --force` slip past rules anchored at `git push`.
+  let args = words.slice(1);
+  if (program === "git") {
+    while (args[0]?.startsWith("-")) {
+      const flag = args[0];
+      if (["--no-pager", "--paginate", "--no-optional-locks"].includes(flag)) { args = args.slice(1); continue; }
+      if (flag === "-C" || flag.startsWith("-C")) {
+        const dir = flag === "-C" ? args[1] : flag.slice(2);
+        if (!dir || !inside(expand(dir, ctx), ctx)) return "changes git's working directory outside this lane's checkout";
+        args = args.slice(flag === "-C" ? 2 : 1); continue;
+      }
+      // Config overrides can install aliases/helpers, and repository overrides change what is mutated.
+      return "uses git options whose effects need review";
+    }
+    const known = new Set(["add", "am", "apply", "bisect", "blame", "branch", "checkout", "cherry-pick", "clean", "clone", "commit", "config", "describe", "diff", "fetch", "format-patch", "grep", "init", "log", "ls-files", "ls-remote", "ls-tree", "merge", "merge-base", "mv", "notes", "pull", "push", "range-diff", "rebase", "reflog", "remote", "reset", "restore", "rev-list", "rev-parse", "revert", "rm", "shortlog", "show", "show-ref", "stash", "status", "switch", "tag", "worktree", "filter-branch", "filter-repo", "update-ref"]);
+    if (!args[0] || !known.has(args[0])) return "uses an unknown git command or alias whose effects need review";
+  }
+  const normalized = [program, ...args].join(" ");
+  for (const [re, why] of COMMAND_RULES) if (re.test(normalized)) return why;
+  if (program === "git") {
+    if (["branch", "tag"].includes(args[0] ?? "") && args.slice(1).some((w) => /^--(?:delete|force|move|copy)(?:=|$)|^-[^-]*[dDfFmMcC]/.test(w))) return "deletes or moves a branch or tag shared with your other checkouts";
+    if (args[0] === "update-ref" || args[0] === "reflog" && args.some((w) => ["expire", "delete", "drop"].includes(w))) return "rewrites the repository's history";
+    if (args[0] === "worktree" && args[1] !== "list") return "changes a checkout, possibly another lane's";
+    if (args[0] === "config" && !args.slice(1).some((w) => ["--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l", "get", "list"].includes(w))) return "changes git settings whose effects need review";
+  }
+  // Pushing the lane's own branch is normal; pushing straight to the base branch is not.
+  if (ctx.base && /^git\s+push\b/.test(normalized)) {
+    const base = ctx.base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(\\s|:|/)${base}(\\s|$)`).test(normalized) || /\sHEAD:(main|master)\b/.test(normalized)) return `pushes straight to ${ctx.base}`;
+  }
+  if (program === "git" && args[0] === "push") {
+    // Combined short flags (-uf), abbreviated long flags and configured default destinations are
+    // ambiguous. Auto only accepts an explicit remote and refspec with ordinary transport flags.
+    const values: string[] = [];
+    for (const arg of args.slice(1)) {
+      if (["-u", "--set-upstream", "--porcelain", "--verbose", "-v", "--quiet", "-q", "--dry-run", "-n"].includes(arg)) continue;
+      if (arg.startsWith("-")) return "uses push options whose effects need review";
+      if (arg.startsWith("+") || arg.startsWith(":")) return "force-pushes or deletes a branch on the remote";
+      values.push(arg);
+    }
+    if (values.length < 2 || values.some((v) => /[$`*]/.test(v))) return "pushes to a destination that needs review";
+  }
+  if (program === "gh") {
+    if (args[0]?.startsWith("-")) return "uses GitHub options whose effects need review";
+    if (args[0] === "api") {
+      // gh switches from GET to POST when any field or input is supplied, even without -X.
+      if (args.slice(1).some((w) => /^(-[fF].*|--(?:raw-field|field|input)(?:=|$))/.test(w))) return "changes GitHub directly";
+      const method = args.findIndex((w) => w === "-X" || w === "--method");
+      if (method !== -1 && !["GET", "HEAD"].includes(args[method + 1]?.toUpperCase() ?? "")) return "changes GitHub directly";
+      if (args.some((w) => /^(?:-X.+|--method=)/.test(w) && !/^(?:-X|--method=)(?:GET|HEAD)$/i.test(w))) return "changes GitHub directly";
+    } else {
+      const readOnly: Record<string, string[]> = { pr: ["view", "list", "status", "diff", "checks", "checkout"], issue: ["view", "list", "status"], repo: ["view", "list", "clone"], run: ["view", "list", "watch"], workflow: ["view", "list"], release: ["view", "list", "download"], search: ["code", "commits", "issues", "prs", "repos"], browse: [] };
+      if (!args[0] || !(args[0] in readOnly) || (readOnly[args[0]]!.length > 0 && !readOnly[args[0]]!.includes(args[1] ?? ""))) return "uses a GitHub command whose effects need review";
+    }
+  }
   // Writing anywhere outside the checkout: a writer with an outside path, or a redirect to one.
   const inPlace = program === "sed" ? words.some((w) => /^-\w*i/.test(w) || w === "--in-place") : program === "perl" ? words.some((w) => /^-\w*i/.test(w)) : true;
   if (WRITERS.test(program) && inPlace) {
@@ -151,7 +203,7 @@ function checkCommand(cmd: string, ctx: GuardContext): string | null {
   for (const m of cmd.matchAll(/(?:^|[^<>&\d])>>?\s*(\S+)/g)) { const out = outsidePath(m[1]!, ctx); if (out) return `writes ${out}, outside this lane's checkout`; }
   // Sending data out: an upload or a request with a body to anywhere but this machine.
   if (/^(curl|wget|http|https|xh)\b/.test(program)) {
-    const sends = words.some((w) => /^(-d|--data\S*|-F|--form\S*|-T|--upload-file|--post-data|--post-file|--body-data|--body-file)$/.test(w))
+    const sends = words.some((w) => /^(-[dFT].*|--(?:data\S*|form\S*|upload-file|post-data|post-file|body-data|body-file)(?:=|$))/.test(w))
       || /\s(-X|--request|--method)\s*(POST|PUT|PATCH|DELETE)\b/i.test(cmd)
       || /^(http|https|xh)$/.test(program) && /\s(POST|PUT|PATCH|DELETE)\s/i.test(cmd);
     const url = words.slice(1).find((w) => /^[a-z]+:\/\//i.test(w) || /^[\w.-]+\.[a-z]{2,}(\/|:|$)/i.test(w));

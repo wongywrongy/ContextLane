@@ -5,9 +5,9 @@ import type { Store } from "./db/store.js";
 import type { HostLinks } from "./hosts.js";
 import { NotFound, Refused } from "./lanes/manager.js";
 
-const OPEN: Lane["state"][] = ["setting_up", "working", "needs_you", "in_review", "failed", "paused"];
+const OPEN: Lane["state"][] = ["setting_up", "working", "needs_you", "in_review", "pr_open", "integration_pending", "failed", "paused"];
 /** Lanes nearer review go first: a checkpoint waiting beats work in progress. */
-const NEARNESS: Partial<Record<Lane["state"], number>> = { in_review: 0, needs_you: 1, working: 2, paused: 3, setting_up: 4, failed: 5 };
+const NEARNESS: Partial<Record<Lane["state"], number>> = { pr_open: 0, integration_pending: 0, in_review: 0, needs_you: 1, working: 2, paused: 3, setting_up: 4, failed: 5 };
 
 /**
  * Suggested merge order. If one lane's changes are used by another lane's changed modules (code map

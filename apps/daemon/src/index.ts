@@ -10,7 +10,7 @@ export { branchName, slugify, terminalSession, worktreePath, hostUnit } from "./
 export { Terminals, attachArgs } from "./terminal/tmux.js";
 export { buildServer } from "./http/server.js";
 export { Previews, previewLabel } from "./previews.js";
-export { Checker, processSignal, unplannedFiles, parseNumstat } from "./checker.js";
+export { Checker, processSignal, parseNumstat } from "./checker.js";
 export { Runtime, publicBindings, serviceArgs } from "./runtime.js";
 export { runCommand, type Runner, type TerminalProcess } from "./run.js";
 export { Notifier, quietNow } from "./notifications/notifier.js";

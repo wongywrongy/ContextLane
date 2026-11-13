@@ -14,7 +14,7 @@ import { laneEnv, type LaneTarget } from "../docker/exec.js";
 import { LANE_AGENT_HOME, LANE_DIR, LANE_TMUX_SOCKET, LANE_TOOLS } from "../docker/names.js";
 
 /** Keep login and customizations, but let native trust/login refresh write only inside this lane. */
-async function agentHome(agent: string, dir: string): Promise<Record<string, string>> {
+export async function agentHome(agent: string, dir: string): Promise<Record<string, string>> {
   const claude = agent === "claude-code";
   const source = claude ? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude") : process.env.CODEX_HOME ?? join(homedir(), ".codex");
   const target = join(dir, "agent");
@@ -130,9 +130,11 @@ export async function wireNotes(agent: string, dir: string, baseline: boolean): 
 }
 
 /** tmux executes multiple arguments directly. The private descriptor keeps the token out of ps. */
-export async function launchCli(lane: Lane, config: Config, run: Runner, token: string, prompt: string, extra?: string[], resume = false, baseline = false): Promise<void> {
+export async function launchCli(lane: Lane, config: Config, run: Runner, token: string, prompt: string, extra?: string[], resume = false, baseline = false, repository?: string): Promise<void> {
   const dir = join(config.paths.data, "cli", lane.id.replace("/", "-"));
   await mkdir(dir, { recursive: true, mode: 0o700 });
+  const attachments = join(config.paths.lanes, ".attachments", lane.id.replace("/", "-"));
+  await mkdir(attachments, { recursive: true, mode: 0o700 });
   const file = join(dir, "launch.json");
   const home = await agentHome(lane.agent, dir);
   const hooks = await wireHooks(lane, dir);
@@ -145,7 +147,7 @@ export async function launchCli(lane: Lane, config: Config, run: Runner, token: 
   }
   await writeFile(task, prompt, { mode: 0o600 });
   const first = Buffer.byteLength(prompt) > 64_000 ? `Read ${task} for your task, then carry it out.` : prompt;
-  const prefix = sandbox(config, { laneData: dir, agentHome: join(dir, "agent") });
+  const prefix = sandbox(config, { worktree: lane.worktree, ...(repository ? { repository } : {}), readable: [attachments], laneData: dir, agentHome: join(dir, "agent") });
   const bin = await laneCommandDir(dir);
   const env = { ...home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}:${join(homedir(), ".local/bin")}`, CONTEXTLANES_LANE: lane.id, CONTEXTLANES_URL: `http://127.0.0.1:${config.listen.port}`, CONTEXTLANES_LANE_TOKEN: token };
   const mcp = await wireToolbox(lane, config, dir, baseline, run, prefix, env);

@@ -23,7 +23,7 @@ describe("contextlanes bench", () => {
       setTimeout(() => {
         store.appendEvent(lane.id, { type: "agent.turn", payload: { active: true } });
         store.appendEvent(lane.id, { type: "usage.turn", payload: { turnId: `6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c1${n}`, sessionId: "s", source: "acp", inputTokens: req.baseline ? 90_000 : 50_000, outputTokens: 10_000, cacheReadTokens: 0, cacheWriteTokens: 0 } });
-        store.appendEvent(lane.id, { type: "agent.turn", payload: { active: false } });
+        store.appendEvent(lane.id, { type: "agent.turn", payload: { active: false, stopReason: "end_turn" } });
       }, 20);
       return lane;
     } } as unknown as LaneManager;

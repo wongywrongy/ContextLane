@@ -181,6 +181,8 @@ export const Checkpoint = z.object({
   lane: LaneId,
   base: z.string(),
   head: z.string(),
+  /** Exact approved recipe used for these checks; absent on legacy checkpoints, null when no recipe exists. */
+  recipeHash: z.string().nullable().optional(),
   summary: z.string(),
   checks: z.array(CheckResult),
   screenshots: z.array(Screenshot),

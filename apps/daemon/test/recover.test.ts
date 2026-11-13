@@ -18,6 +18,6 @@ describe("startup recovery", () => {
     const done = await recover({ store, bus: new EventBus(), config: Config.parse({ paths: { data: "/tmp/cl-recover", lanes: "/tmp/cl-recover/lanes" } }), run });
     expect(["shop/01", "shop/02", "shop/03", "shop/04"].map((id) => store.getLane(id)!.state)).toEqual(["archived", "failed", "working", "working"]);
     expect(done).toContain("stopped contextlanes-env-before-ab12.service");
-    expect(calls).toContain("git worktree prune");
+    expect(calls).not.toContain("git worktree prune");
   });
 });

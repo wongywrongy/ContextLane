@@ -1,6 +1,6 @@
 # ContextLanes — visual system
 
-The v2 screenshots live in [mockups/v2/](mockups/v2/). The v2 plan in [V2.md](V2.md) supersedes the earlier cream canvas boards. Shared tokens and page classes live in `apps/web/src/styles/app.css`; `tokens.css` declares the self-hosted fonts. Claude Design boards still need to be redone to match.
+The v2 reference screenshots live in [mockups/v2/](mockups/v2/); they predate the current disclosure refinements. The v2 plan in [V2.md](V2.md) supersedes the earlier cream canvas boards. Shared tokens and page classes live in `apps/web/src/styles/app.css`; `tokens.css` declares the self-hosted fonts. Claude Design boards still need to be redone to match.
 
 ## Principles
 
@@ -75,9 +75,11 @@ The web app shows lanes and takes two decisions: answering a question or permiss
 
 **Add repositories:** a checklist of repositories your agents already work in (Claude Code and Codex session history, newest first, with their marks) and ones found in your home folder, each with path and branch, nothing preselected. Repositories that cannot be used yet say why in one sentence (owned by another user, no commits). Large data folders are skipped and named. Choose a folder swaps the list for a folder browser inside the same dialog: breadcrumbs, folders with a git tag and an Add button on each repository, and a path field that accepts `~` and paths outside home.
 
-**Work · one lane:** the native CLI terminal is the main pane for CLI lanes; ACP keeps Progress as its initial view. The lane navigation stays at the left and its inspector at the right. Each pane can show Terminal, Diff, Preview, Progress or Steps. Split the selected pane right or down, change its view or close it; up to four equal-share panes are saved per lane in guarded localStorage. Phone splits stack. A status line below shows the lane colour/number, agent, state glyph and word, reported context and any waiting question. The composer remains visible and shows its real queue. A failed lane explains why above its controls.
+**Work · one lane:** the native CLI terminal is the main pane for CLI lanes; ACP keeps Progress as its initial view. The lane navigation stays at the left and its inspector at the right. The inspector keeps terminal/editor access visible; copy helpers and lane actions use labeled native disclosures. Failed lanes open their recovery actions. Reported context is a compact percentage with token details on demand. Each pane can show Terminal, Diff, Preview, Progress or Steps. Split the selected pane right or down, change its view or close it; up to four equal-share panes are saved per lane in guarded localStorage. Phone splits stack. A status line below shows the lane colour/number, agent, state glyph and word, reported context and any waiting question. The composer remains visible and shows its real queue. A failed lane explains why above its controls.
 
 **Inbox:** list on the left (kind tile, lane badge, project, title, age; the selected one has an amber edge), the selected item on the right (lane and agent, the request in a sentence, the command if any, every option as a button, what led here, open the lane). Filter chips by kind.
+
+**Models:** ready agents first. Unconfigured local models and routing remain available in collapsed Optional sections. Configured endpoints stay expanded so failures and workload remain visible.
 
 **Setup:** two columns. Left: what to run on the machine (`contextlanes setup`) and why an always-on machine. Right: numbered steps with Done / Now / Next: sign in, connect an agent, add projects, start your first lane, then the optional phone and local-model steps. Only the current step is open; done steps can be reopened with Change.
 

@@ -8,8 +8,8 @@ import { Empty, Fact, Glyph, LaneBadge, PageHeader, Section, Tile, agoText, type
 
 const TYPES: Record<Suggestion["type"], [string, IconName]> = { process: ["Process", "message"], code: ["Code", "edit"], tokens: ["Tokens", "read"], next: ["Next", "checkpoint"], notes: ["Notes", "plan"] };
 const k = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-/** "2 of 3" from the judged stat's detail ("3 checkpoints judged: 2 merge, …"). */
-const firstPass = (detail: string) => { const m = /(\d+) checkpoints judged: (\d+) merge/.exec(detail); return m ? `${m[2]} of ${m[1]}` : "–"; };
+/** "2 of 3" counts verdicts, without claiming the changes passed on their first attempt. */
+const judgeReady = (detail: string) => { const m = /(\d+) checkpoints judged: (\d+) merge/.exec(detail); return m ? `${m[2]} of ${m[1]}` : "–"; };
 const day = (iso: string) => new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 
 /**
@@ -43,7 +43,8 @@ export function InsightsPage() {
     await postJson(`/api/projects/${project}/notes`, { text: `${current.text.trim()}\n${text}`.trim() }, "PUT");
     setMessage("Added to project notes. New lanes start with it."); reload();
   };
-  const totalToday = view.today.reduce((n, t) => n + t.tokens, 0);
+  const totalToday = view.today.every(t => t.tokens !== null) ? view.today.reduce((n, t) => n + t.tokens!, 0) : null;
+  const largestToday = Math.max(1, ...view.today.map(t => t.tokens ?? 0));
   return <main className="pg stack">
     <PageHeader title="Insights" meta="the last week of lanes, and what to change"
       end={view.model ? <Fact g="done" detail={view.generatedAt ? agoText(view.generatedAt) : undefined}>{`Written by ${view.model}`}</Fact> : view.canWrite ? <Fact g="idle">Not written yet</Fact> : <Fact g="idle">No local model</Fact>} />
@@ -72,18 +73,17 @@ export function InsightsPage() {
         </div>
         <div className="facts4">
           <div><b>{view.facts.merges}</b><span>{view.facts.merges === 1 ? "merge" : "merges"}</span></div>
-          <div><b>{k(view.facts.cloudTokens)}</b><span>cloud tokens</span></div>
-          {view.facts.localShare === null ? null : <div><b>{Math.round(view.facts.localShare * 100)}%</b><span>of tokens on your GPUs</span></div>}
+          {view.facts.cloudTokens === null ? null : <div><b>{k(view.facts.cloudTokens)}</b><span>reported agent tokens</span></div>}
           {view.facts.medianWaitMinutes === null ? null : <div><b>{Math.round(view.facts.medianWaitMinutes)}m</b><span>median wait for you</span></div>}
-          {stat("judged") ? <div title={stat("judged")!.detail}><b>{firstPass(stat("judged")!.detail)}</b><span>judged ready first time</span></div> : null}
+          {stat("judged") ? <div title={stat("judged")!.detail}><b>{judgeReady(stat("judged")!.detail)}</b><span>judge marked ready</span></div> : null}
         </div>
       </div>
     </Section>
-    <Section title="Usage today" help={view.today.length ? "Dark is new input and output; grey is read from the agent's cache. Agents do not report how their context splits into rules, tools, files and conversation." : undefined} meta={view.today.length ? `${k(totalToday)} tokens` : undefined}>
-      {!view.today.length ? <Empty icon="execute" family="run">No usage reported today</Empty> : view.today.map((t) => { const lane = work.lanes.find((l) => l.id === t.lane); const pct = totalToday ? t.tokens / Math.max(...view.today.map((x) => x.tokens)) : 0; return <div className="urow2" key={t.lane}>
+    <Section title="Usage today" help={view.today.length ? "Native agent usage includes input, output, cache reads and cache creation. Totals are omitted when a turn's usage is incomplete. Cache percentages refer to input tokens only." : undefined} meta={view.today.length && totalToday !== null ? `${k(totalToday)} reported tokens` : undefined}>
+      {!view.today.length ? <Empty icon="execute" family="run">No usage reported today</Empty> : view.today.map((t) => { const lane = work.lanes.find((l) => l.id === t.lane); const pct = t.tokens === null ? 0 : t.tokens / largestToday; return <div className="urow2" key={t.lane}>
         <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>{lane ? <LaneBadge id={lane.id} colour={lane.colour} /> : null}<b style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.task}</b></span>
-        <span className="ubar" aria-hidden="true" style={{ width: `${Math.max(4, pct * 100)}%` }}><i className="c" style={{ width: `${(t.cacheShare ?? 0) * 100}%` }} /><i className="f" style={{ width: `${(1 - (t.cacheShare ?? 0)) * 100}%` }} /></span>
-        <span className="mono" style={{ textAlign: "right" }}><b>{k(t.tokens)}</b>{t.cacheShare !== null ? <span className="muted"> {Math.round(t.cacheShare * 100)}% cache</span> : null}</span>
+        <span className="ubar" aria-hidden="true" style={{ width: `${pct * 100}%` }}><i className="f" style={{ width: "100%" }} /></span>
+        <span className="mono" style={{ textAlign: "right" }}>{t.tokens === null ? <span className="muted">Incomplete usage</span> : <b>{k(t.tokens)}</b>}{t.cacheShare !== null ? <span className="muted"> {Math.round(t.cacheShare * 100)}% input cached</span> : null}</span>
       </div>; })}
     </Section>
     <Section title="What every lane starts with" help="Kept short on purpose: every line here costs tokens in every new lane.">

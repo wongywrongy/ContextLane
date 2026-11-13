@@ -7,6 +7,14 @@ const systemdExecQuote = (text: string) => systemdQuote(text.replace(/\$/g, () =
 const shellQuote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
 const MARKER = "# Installed by ContextLanes";
 
+/** Check every managed destination before changing the service or any command wrapper. */
+export async function assertInstallTargets(home: string): Promise<void> {
+  await Promise.all([
+    ...["contextlanes", "contextlanes-lanehost", "contextlanes-toolbox"].map((name) => join(home, ".local/bin", name)),
+    ...["contextlanes.service", "contextlanes-backup.service", "contextlanes-backup.timer"].map((name) => join(home, ".config/systemd/user", name)),
+  ].map(async (path) => { await ownedContent(path); }));
+}
+
 /**
  * The commands in ~/.local/bin, and where systemd runs (systemd: true, the default) the user service and
  * nightly backups. Without systemd, `contextlanes daemon` runs it in the foreground under any supervisor.
@@ -15,6 +23,7 @@ export async function installService(options: { root: string; home: string; node
   const { root, home, node, run } = options;
   const systemd = options.systemd ?? true;
   if (/[\0\r\n]/.test(root)) throw new Error("Use an installation path without line breaks or null characters.");
+  await assertInstallTargets(home);
   const config = options.config ?? join(home, ".config/contextlanes/config.toml");
   const bin = join(home, ".local/bin");
   const unit = join(home, ".config/systemd/user/contextlanes.service");
@@ -42,12 +51,16 @@ export async function installBackupTimer({ root, home, node, run, config = join(
   await run("systemctl", ["--user", "daemon-reload"]);
   await run("systemctl", ["--user", "enable", "--now", "contextlanes-backup.timer"]);
 }
-/** Writes a file this installer owns. Ours carry the marker line; anything else is left alone. */
-async function writeOwned(path: string, content: string, mode: number): Promise<void> {
+async function ownedContent(path: string): Promise<string | null> {
   let current: string | null = null;
   try { current = await readFile(path, "utf8"); } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
-  if (current === content) return;
   if (current !== null && !current.split("\n").slice(0, 2).includes(MARKER)) throw new Error(`Refusing to overwrite ${path}; move it aside before installing`);
+  return current;
+}
+/** Writes a file this installer owns. Ours carry the marker line; anything else is left alone. */
+async function writeOwned(path: string, content: string, mode: number): Promise<void> {
+  const current = await ownedContent(path);
+  if (current === content) return;
   if (current === null) await writeFile(path, content, { mode, flag: "wx" });
   else { await writeFile(`${path}.tmp`, content, { mode }); await rename(`${path}.tmp`, path); }
 }

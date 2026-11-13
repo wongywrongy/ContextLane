@@ -5,7 +5,7 @@ import type { Store } from "./db/store.js";
 import { NotFound, Refused } from "./lanes/manager.js";
 import type { LocalModels } from "./localmodels.js";
 
-const OPEN = ["setting_up", "working", "needs_you", "in_review", "failed", "paused"];
+const OPEN = ["setting_up", "working", "needs_you", "in_review", "pr_open", "integration_pending", "failed", "paused"];
 
 /**
  * ⌘K Ask: answers a question about a project from what ContextLanes already knows — project notes,

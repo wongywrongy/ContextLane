@@ -24,20 +24,35 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("builds a checkpoint from 
   try {
     await mkdir(repo);
     await git(repo, "init", "-b", "main");
+    const origin = join(root, "origin.git");
+    await git(repo, "init", "--bare", "-b", "main", origin);
+    await git(repo, "remote", "add", "origin", origin);
     await writeFile(join(repo, "server.cjs"), page("red"));
-    await writeFile(join(repo, RECIPE_FILE), JSON.stringify({ services: [{ name: "web", command: [process.execPath, "server.cjs"] }], checks: [{ name: "Passes", command: ["/usr/bin/true"] }, { name: "Fails", command: ["/usr/bin/false"] }] }));
+    await writeFile(join(repo, RECIPE_FILE), JSON.stringify({ services: [{ name: "web", command: [process.execPath, "server.cjs"] }], checks: [{ name: "Passes", command: ["/usr/bin/true"] },
+      { name: "Blue page", command: [process.execPath, "-e", "require('node:assert/strict').match(require('node:fs').readFileSync('server.cjs', 'utf8'), /<h1>blue<\\/h1>/)"] }] }));
     await git(repo, "add", "."); await git(repo, "commit", "-m", "Fixture");
+    await git(repo, "push", "origin", "main");
     await git(repo, "worktree", "add", "-b", "lane/01", worktree);
-    await writeFile(join(worktree, "server.cjs"), page("blue"));
-    await git(worktree, "commit", "-am", "Make it blue");
+    await writeFile(join(worktree, "server.cjs"), page("orange"));
+    await git(worktree, "commit", "-am", "Incomplete colour change");
     store.addProject({ id: "fixture", name: "Fixture", path: repo });
     store.insertLane({ id: "fixture/01", n: 1, project: "fixture", goal: null, task: "T", agent: "codex", model: null, mode: "ask", branch: "lane/01", worktree, terminal: "t", hostUnit: null, base: "main", state: "working", colour: "lc1" });
     store.approveRecipe("fixture", (await readRecipe(store, store.getProject("fixture")!, worktree))!.hash);
 
-    await checker.begin("fixture/01", "Blue");
+    await checker.begin("fixture/01", "Incomplete");
+    await vi.waitFor(() => expect(store.eventsOfType(["check.result"], { lanes: ["fixture/01"] })).toContainEqual(expect.objectContaining({ payload: expect.objectContaining({ name: "Blue page", passed: false }) })), { timeout: 20_000, interval: 200 });
+    expect(store.getLane("fixture/01")!.state).toBe("working");
+    expect(store.latestCheckpoint("fixture/01")).toBeNull();
+
+    // Repair the source, retaining the approved recipe and its failing acceptance check.
+    await writeFile(join(worktree, "server.cjs"), page("blue"));
+    await git(worktree, "commit", "-am", "Make it blue");
+    await vi.waitFor(async () => expect(await checker.begin("fixture/01", "Blue")).toEqual({ started: true }), { timeout: 10_000, interval: 200 });
     await vi.waitFor(() => expect(store.getLane("fixture/01")!.state).toBe("in_review"), { timeout: 40_000, interval: 200 });
     const checkpoint = store.latestCheckpoint("fixture/01")!;
-    expect(checkpoint.checks.map((c) => [c.name, c.passed])).toEqual([["Passes", true], ["Fails", false]]);
+    expect(checkpoint.checks.map((c) => [c.name, c.passed])).toEqual([["Passes", true], ["Blue page", true]]);
+    expect(checkpoint.head).toBe((await git(worktree, "rev-parse", "HEAD")).stdout.trim());
+    expect(checkpoint.recipeHash).toBe((await readRecipe(store, store.getProject("fixture")!, worktree))!.hash);
     expect(checkpoint.files).toEqual([{ path: "server.cjs", added: 1, removed: 1 }]);
     const [shot] = checkpoint.screenshots;
     expect(shot).toMatchObject({ path: "/", before: "0-before.png", after: "0-after.png", url: "https://fixture.invalid:4700/", note: null });

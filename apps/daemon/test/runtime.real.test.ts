@@ -43,10 +43,12 @@ it.runIf(process.env.CONTEXTLANES_REAL_HOSTS === "1")("runs a lane's service as 
     const web = env.services[0]!;
     expect(env.error).toBeNull();
     expect(web).toMatchObject({ state: "healthy", name: "web" });
-    expect(env.setup).toMatchObject({ ignored: [".env.local"], cache: "linked", steps: 1 });
+    expect(env.setup).toMatchObject({ ignored: [".env.local"], cache: "copied", steps: 1 });
     expect(await readFile(join(worktree, ".env.local"), "utf8")).toBe("SECRET=real\n");
     expect(await readFile(join(worktree, "marker"), "utf8")).toBe("ran");
-    expect((await stat(join(worktree, "node_modules/dep/index.js"))).ino).toBe((await stat(join(repo, "node_modules/dep/index.js"))).ino);
+    expect((await stat(join(worktree, "node_modules/dep/index.js"))).ino).not.toBe((await stat(join(repo, "node_modules/dep/index.js"))).ino);
+    await writeFile(join(worktree, "node_modules/dep/index.js"), "// lane edit\n");
+    expect(await readFile(join(repo, "node_modules/dep/index.js"), "utf8")).toBe("// dep\n");
     expect(await (await fetch(`http://127.0.0.1:${web.port}/`)).text()).toBe("hello");
     await vi.waitFor(async () => {
       const lines = (await runtime.logs("fixture/01", "web", 50)).map((l) => l.text);

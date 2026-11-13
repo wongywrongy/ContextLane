@@ -17,7 +17,17 @@ const repo = join(root, 'billing'), lanes = join(root, 'lanes'), remote = join(r
 const gitIn = (cwd, ...args) => exec('git', ['-c', 'user.name=CL', '-c', 'user.email=cl@example.invalid', ...args], { cwd });
 const git = (...args) => gitIn(repo, ...args);
 // Real git against a throwaway bare remote; gh is the only fake, so nothing leaves this folder.
-const run = async (cmd, args, options) => cmd === 'gh' ? { stdout: args[1] === 'create' ? 'https://github.invalid/pr/1\n' : '' } : runCommand(cmd, args, options);
+let pullRequest = null;
+const run = async (cmd, args, options) => {
+  if (cmd !== 'gh') return runCommand(cmd, args, options);
+  if (args[0] === 'pr' && args[1] === 'create') {
+    const branch = args[args.indexOf('--head') + 1];
+    pullRequest = { url: 'https://github.invalid/pr/1', state: 'OPEN', headRefOid: (await gitIn(remote, 'rev-parse', branch)).stdout.trim(), baseRefName: args[args.indexOf('--base') + 1], mergeCommit: null };
+    return { stdout: `${pullRequest.url}\n` };
+  }
+  if (args[0] === 'pr' && args[1] === 'view' && pullRequest) return { stdout: JSON.stringify(pullRequest) };
+  throw new Error('No fixture pull request exists; only create and view are supported.');
+};
 run.terminal = runCommand.terminal;
 const SERVER = `const http = require("node:http"); console.log("listening"); http.createServer((req, res) => { console.log(req.method, req.url, 200); res.setHeader("content-type", "text/html"); res.end("<h1>Billing</h1>"); }).listen(Number(process.env.PORT), process.env.HOST);`;
 
@@ -68,7 +78,8 @@ const work = async (lane, name) => {
 };
 try {
   store.addProject({ id: 'billing', name: 'Billing', path: repo });
-  for (const task of ['Billing phase 0', 'Solver tests']) started.push((await manager.start({ project: 'billing', task, agent: 'codex' })).id);
+  // This seeded browser check exercises the ACP review view without launching an external provider.
+  for (const task of ['Billing phase 0', 'Solver tests']) started.push((await manager.start({ kind: 'acp', project: 'billing', task, agent: 'codex' })).id);
 
   const first = store.getLane(started[0]);
   await work(first, 'Invoices');
@@ -82,12 +93,12 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`${base}/p/billing/run`);
-    await page.getByRole('heading', { name: 'Environments' }).waitFor();
+    await page.getByRole('heading', { name: 'Run', exact: true }).waitFor();
 
     if (width === 1440) {
-      await page.getByRole('button', { name: 'Review recipe' }).first().click();
+      await page.getByRole('button', { name: 'Review and approve' }).first().click();
       await page.getByRole('button', { name: 'Approve this recipe' }).click();
-      await page.getByRole('button', { name: 'Start environment' }).first().click();
+      await page.getByRole('button', { name: 'Start the app' }).first().click();
       await page.locator('.svc').first().waitFor({ timeout: 30_000 });
       await page.getByRole('button', { name: 'Logs' }).first().click();
       await page.locator('.logs .term').getByText('listening').waitFor();
@@ -98,8 +109,8 @@ try {
     await page.getByText('Environment', { exact: true }).waitFor();
     if (width === 1440) await page.locator('.pane.r').getByText('api').waitFor();
     if (width === 1440) {
-      await page.getByRole('button', { name: 'Send checkpoint to review' }).click();
-      await page.getByText('Checks started').waitFor();
+      await page.getByRole('button', { name: 'Ask for review', exact: true }).click();
+      await page.getByText('Checks running · the lane moves to Review when they finish.').waitFor();
       await until(() => store.getLane(first.id).state === 'in_review');
     }
     await page.goto(`${base}/`);
@@ -133,15 +144,30 @@ try {
 
   await work(first, 'Named');
   await page.goto(`${base}/p/billing/work?lane=${encodeURIComponent(first.id)}`);
-  await page.getByRole('button', { name: 'Send checkpoint to review' }).click();
+  await page.getByRole('button', { name: 'Ask for review', exact: true }).click();
   await until(() => store.getLane(first.id).state === 'in_review');
   await page.goto(`${base}/p/billing/review`);
   await page.getByRole('heading', { name: 'Billing phase 0 · checkpoint 2' }).waitFor();
-  await page.getByRole('button', { name: 'Approve and merge' }).click();
-  await until(() => store.getLane(first.id).state === 'merged');
+  await page.getByRole('button', { name: 'Approve and open PR' }).click();
+  await until(() => store.getLane(first.id).state === 'pr_open');
   assert.equal(store.latestCheckpoint(first.id).prUrl, 'https://github.invalid/pr/1');
   assert.equal((await gitIn(remote, 'log', '--oneline', 'main')).stdout.trim().split('\n').length, 1, 'main must not move');
   assert.ok((await gitIn(remote, 'log', '--oneline', first.branch)).stdout.includes('Named'));
+  const checkpoint = store.latestCheckpoint(first.id);
+  assert.equal((await gitIn(remote, 'rev-parse', first.branch)).stdout.trim(), checkpoint.head);
+  const premature = await app.inject({ method: 'POST', url: `/api/lanes/${first.id}/cleanup`, headers: { authorization: `Bearer ${session}` } });
+  assert.equal(premature.statusCode, 409, 'an open PR must keep its checkout');
+  await page.getByRole('button', { name: 'Check merge status' }).click();
+  assert.equal(store.getLane(first.id).state, 'pr_open');
+
+  // The owner merges externally; the app only verifies that the reviewed head reached the target.
+  await git('merge', '--no-ff', checkpoint.head, '-m', 'Merge reviewed invoice');
+  await git('push', 'origin', 'main');
+  pullRequest.state = 'MERGED';
+  pullRequest.mergeCommit = { oid: (await git('rev-parse', 'main')).stdout.trim() };
+  await page.getByRole('button', { name: 'Check merge status' }).click();
+  await until(() => store.getLane(first.id).state === 'merged');
+  assert.ok(store.eventsOfType(['checkpoint.merge_verified'], { lanes: [first.id] }).some(event => event.payload.head === checkpoint.head));
 
   await page.goto(`${base}/p/billing/run`);
   await page.getByRole('button', { name: 'Clean up 1 lane' }).click();

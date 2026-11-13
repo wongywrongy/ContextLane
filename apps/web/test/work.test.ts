@@ -5,6 +5,12 @@ import { environmentFrom, isIdle, loadHistory, mergeEvents, queuedPrompts, steps
 const base: Lane = { id: "demo/01", project: "demo", goal: "Goal", task: "Task", agent: "codex", model: null, mode: "ask", branch: "lane/task", worktree: "/tmp/task", terminal: "cl-demo-01", hostUnit: null, base: null, state: "working", colour: "lc1", createdAt: "2026-01-01T10:00:00Z" };
 const event = (seq: number, type: LaneEvent["type"], payload: unknown, at = "2026-01-01T11:00:00Z") => ({ lane: base.id, seq, at, type, payload }) as LaneEvent;
 
+it("shows reported helper usage and rework without presenting historical estimates as savings", () => {
+  const events = [event(1, "helper.delegated", { kind: "read", model: "local", tokensSaved: 9000, inputTokens: 100, outputTokens: 20 }), event(2, "helper.redone", { seq: 1, kind: "read" })];
+  expect(stepsFor(events)[0]!.text).toBe("local · 100 input / 20 output tokens reported · work repeated by the agent");
+  expect(stepsFor([event(3, "helper.delegated", { kind: "read", model: "legacy", tokensSaved: 9000 })])[0]!.text).toBe("legacy");
+});
+
 it("merges reconnect history once and loads beyond the first 500 events", async () => {
   const first = Array.from({ length: 500 }, (_, i) => event(i + 1, "agent.message", { role: "agent", text: "line" }));
   const next = event(501, "agent.message", { role: "agent", text: "last" });

@@ -22,7 +22,7 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
   const repo = join(root, "repo"); const worktree = join(root, "lane");
   await mkdir(repo); await mkdir(worktree);
   const calls: string[][] = [];
-  const state = { active: opts.active ?? "active", ss: opts.ss ?? "", health: opts.health ?? 200, cpFails: false };
+  const state = { active: opts.active ?? "active", ss: opts.ss ?? "", health: opts.health ?? 200 };
   const run: Runner = async (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "git" && args[0] === "ls-files") return { stdout: (opts.ignored ?? []).join("\0") };
@@ -31,7 +31,6 @@ async function setup(opts: Options = {}, recipe: unknown = RECIPE) {
     if (cmd === "cat") return { stdout: "4242\n" };
     if (cmd === "ss") return { stdout: state.ss };
     if (cmd === "du") return { stdout: `2048\t${worktree}\n` };
-    if (cmd === "cp" && args[0] === "-al" && state.cpFails) throw new Error("Invalid cross-device link");
     if (cmd === "journalctl") return { stdout: `${JSON.stringify({ __REALTIME_TIMESTAMP: "1793000000000000", MESSAGE: "GET /health 200" })}\n` };
     if (cmd === "systemd-run" && args.includes("--wait") && opts.setupFails) throw Object.assign(new Error("exit 1"), { stdout: "migration 12 failed\n" });
     return { stdout: "" };
@@ -74,29 +73,34 @@ describe("recipe gate", () => {
 });
 
 describe("lane setup", () => {
-  it("copies ignored env files, links the cache, runs setup and records it", async () => {
+  it("copies ignored env files and independent dependencies, runs setup and records it", async () => {
     const { repo, worktree, runtime, calls, approve } = await setup({ ignored: [".env", "apps/web/.env.local", "linked/.env"] });
     await writeFile(join(repo, ".env"), "SECRET=1");
     await mkdir(join(repo, "apps/web"), { recursive: true }); await writeFile(join(repo, "apps/web/.env.local"), "LOCAL=1");
     await mkdir(join(repo, "linked")); await symlink("/etc/passwd", join(repo, "linked/.env"));
     await mkdir(join(repo, "node_modules"));
+    await writeFile(join(repo, "node_modules", "dependency.js"), "original");
     await approve();
     const env = await runtime.start("shop/01");
     expect(env.error).toBeNull();
     expect(await readFile(join(worktree, "apps/web/.env.local"), "utf8")).toBe("LOCAL=1");
-    expect(env.setup).toMatchObject({ ignored: [".env", "apps/web/.env.local"], cache: "linked", steps: 1, disk: 2048 });
-    expect(calls.filter((c) => c[0] === "cp")).toEqual([["cp", "-al", join(repo, "node_modules"), join(worktree, "node_modules")]]);
+    expect(env.setup).toMatchObject({ ignored: [".env", "apps/web/.env.local"], cache: "copied", steps: 1, disk: 2048 });
+    expect(await readFile(join(worktree, "node_modules", "dependency.js"), "utf8")).toBe("original");
+    await writeFile(join(worktree, "node_modules", "dependency.js"), "lane change");
+    expect(await readFile(join(repo, "node_modules", "dependency.js"), "utf8")).toBe("original");
     expect(calls.find((c) => c[0] === "systemd-run" && c.includes("--wait"))!.slice(-2)).toEqual(["pnpm", "migrate"]);
   });
 
-  it("falls back to copying when links cannot cross filesystems, and keeps an existing env file", async () => {
-    const { repo, worktree, runtime, calls, state, approve } = await setup({ ignored: [".env"] });
+  it("keeps existing ignored files and dependencies on a repeated setup", async () => {
+    const { repo, worktree, runtime, approve } = await setup({ ignored: [".env"] });
     await writeFile(join(repo, ".env"), "NEW=1"); await writeFile(join(worktree, ".env"), "KEEP=1");
     await mkdir(join(repo, "node_modules"));
-    state.cpFails = true;
+    await writeFile(join(repo, "node_modules", "dependency.js"), "source");
+    await mkdir(join(worktree, "node_modules"));
+    await writeFile(join(worktree, "node_modules", "dependency.js"), "keep");
     await approve();
-    expect((await runtime.start("shop/01")).setup!.cache).toBe("copied");
-    expect(calls.filter((c) => c[0] === "cp").at(-1)).toEqual(["cp", "-a", "--reflink=auto", join(repo, "node_modules"), join(worktree, "node_modules")]);
+    expect((await runtime.start("shop/01")).setup!.cache).toBe("none");
+    expect(await readFile(join(worktree, "node_modules", "dependency.js"), "utf8")).toBe("keep");
     expect(await readFile(join(worktree, ".env"), "utf8")).toBe("KEEP=1");
   });
 

@@ -35,7 +35,7 @@ export function sharing(events: LaneEvent[], lane: string): { module: string; ot
   return [...open].map(([module, others]) => ({ module, others }));
 }
 
-const clean = (c: Checkpoint) => c.checks.every((check) => check.passed) && !c.unplanned.length;
+const clean = (c: Checkpoint) => c.checks.length > 0 && c.checks.every((check) => check.passed);
 
 function duration(from: string, to: string): string {
   const minutes = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 60_000));
@@ -52,8 +52,10 @@ export function ReviewPage() {
   useEffect(reload, [reload, changes]);
   const latest = (lane: string) => checkpoints?.find((c) => c.lane === lane);
   const ready = lanes.filter((l) => l.state === "in_review" && latest(l.id));
+  const published = lanes.filter((l) => ["pr_open", "integration_pending"].includes(l.state) && latest(l.id));
+  const reviewable = [...ready, ...published];
   const waiting = lanes.filter((l) => l.state === "needs_you" || l.state === "working");
-  const lane = ready.find((l) => l.id === params.get("lane")) ?? ready[0] ?? null;
+  const lane = reviewable.find((l) => l.id === params.get("lane")) ?? reviewable[0] ?? null;
   const checkpoint = lane ? latest(lane.id)! : null;
   const number = checkpoint ? checkpoints!.filter((c) => c.lane === checkpoint.lane).length : 0;
   return <div className="rvw">
@@ -65,6 +67,9 @@ export function ReviewPage() {
         </button>; })}
         {checkpoints && !ready.length ? <Glyph g="idle">None ready</Glyph> : null}
       </div>
+      {published.length ? <div><span className="lbl">Awaiting merge <span>{published.length}</span></span>
+        {published.map(l => <button data-list-item data-lane={l.id} key={l.id} aria-current={l.id === lane?.id ? "true" : undefined} className={`rvi${l.id === lane?.id ? " on" : ""}`} onClick={() => setParams({ lane: l.id })}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><small>{l.state === "pr_open" ? "PR open on GitHub" : "Awaiting parent integration"}</small></button>)}
+      </div> : null}
       {waiting.length ? <div>
         <span className="lbl">Not ready <span>{waiting.length}</span></span>
         {waiting.map((l) => <Link key={l.id} className="rvi" to={`/p/${project}/work?lane=${encodeURIComponent(l.id)}`}><LaneBadge id={l.id} colour={l.colour} /><b>{l.task}</b><i className={clsx("g", l.state === "needs_you" ? "wait" : "work")} role="img" aria-label={l.state === "needs_you" ? "Needs you" : "Working"} /><small>{l.state === "needs_you" ? "needs you" : "working"}</small></Link>)}
@@ -74,7 +79,7 @@ export function ReviewPage() {
       {error ? <p role="alert">{error.message} <button className="btn ghost sm" onClick={reload}>Try again</button></p> : null}
       {lane && checkpoint ? <Packet key={checkpoint.id} lane={lane} checkpoint={checkpoint} number={number} decided={reload} parent={lanes.find((l) => l.id !== lane.id && l.branch === lane.base && ["working", "needs_you", "in_review", "setting_up"].includes(l.state)) ?? null} />
         : <section className="sec"><Empty icon="checkpoint" family="you">Nothing to review</Empty>
-          <div className="sec-r"><ol className="flow" aria-label="How work reaches review"><li>Agent works in a lane</li><li>Ask for review</li><li>Checks and screenshots</li><li>You merge or send back</li></ol></div></section>}
+          <div className="sec-r"><ol className="flow" aria-label="How work reaches review"><li>Agent works in a lane</li><li>Ask for review</li><li>Checks and screenshots</li><li>You approve or send back</li></ol></div></section>}
     </main>
   </div>;
 }
@@ -84,13 +89,14 @@ const SEVERITY = { blocker: ["fail", "Blocker"], "should fix": ["wait", "Should 
 
 /** The left list's mark for a checkpoint: the judge's verdict when there is one, else whether the checks pass. */
 function mark(c: Checkpoint): [string, string] {
+  if (!c.checks.length) return ["idle", "No checks"];
   const j = c.judge;
   if (j?.state === "done" && j.verdict) return [VERDICT[j.verdict][0], VERDICT[j.verdict][1]];
   if (j?.state === "running") return ["think", "Judging"];
   return clean(c) ? ["done", "Checks pass"] : ["wait", "Look closer"];
 }
 
-function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; checkpoint: Checkpoint; number: number; decided: () => void; parent: Lane | null }) {
+function Packet({ lane, checkpoint, number, decided, parent: legacyParent }: { lane: Lane; checkpoint: Checkpoint; number: number; decided: () => void; parent: Lane | null }) {
   const [history, setHistory] = useState<LaneEvent[]>([]);
   useEffect(() => {
     const abort = new AbortController();
@@ -100,7 +106,10 @@ function Packet({ lane, checkpoint, number, decided, parent }: { lane: Lane; che
   // A finding opens its file's diff below.
   const [focus, setFocus] = useState<{ file: string; n: number } | null>(null);
   const { comments, setComments, add, clear } = useReviewComments(lane.id);
-  const { environments } = useProjectWork();
+  const { environments, lanes, events } = useProjectWork();
+  // Native child lanes may start from any approved ref; their explicit relationship determines the action.
+  const child = [...events, ...history].findLast(e => e.lane === lane.id && e.type === "lane.child");
+  const parent = child?.type === "lane.child" ? lanes.find(l => l.id === child.payload.parent) ?? null : legacyParent;
   const preview = environments?.lanes.find(e => e.lane === lane.id)?.environment?.services.find(s => s.state === "healthy" && s.url)?.url;
   const shots = checkpoint.screenshots;
   const base = lane.base ?? "main";
@@ -167,15 +176,14 @@ function Evidence({ lane, checkpoint, history }: { lane: Lane; checkpoint: Check
   const done = checkpoint.plan.filter((p) => p.status === "completed").length;
   const tested = checkpoint.process.find((p) => p.label.startsWith("Ran the tests"));
   const shared = sharing(history, lane.id);
-  return <Section title="Evidence" meta={`${checkpoint.checks.length} ${checkpoint.checks.length === 1 ? "check" : "checks"}${checkpoint.plan.length ? ` · plan ${done} of ${checkpoint.plan.length}` : ""}`}>
+  return <Section title="Evidence" meta={`${checkpoint.checks.length} ${checkpoint.checks.length === 1 ? "check" : "checks"}`}>
     {checkpoint.checks.map((check) => <CheckRow key={check.name} check={check} />)}
     {!checkpoint.checks.length ? <div className="rvr"><Fact g="idle" detail="add them to the recipe on Run">No checks</Fact></div> : null}
     {tested ? <div className="rvr"><i className={clsx("g", tested.ok ? "done" : "wait")} role="img" aria-label={tested.ok ? "Yes" : "No"} /><span>{tested.ok ? "Tests ran after the last change" : "No tests after the last change"}</span></div> : null}
     {shots.length ? <div className="rvr"><i className={clsx("g", previewed ? "done" : "wait")} role="img" aria-label={previewed ? "Passed" : "Look closer"} /><span>{previewed ? "Preview works" : "No preview picture"}</span><span className="r">{clock(checkpoint.createdAt)}</span></div> : null}
     {checkpoint.plan.length ? <button className="frow" style={{ fontFamily: "inherit", fontSize: 14 }} aria-expanded={plan} onClick={() => setPlan(!plan)}><i className={clsx("g", done === checkpoint.plan.length ? "done" : "wait")} aria-hidden="true" /><span>Plan {done} of {checkpoint.plan.length} done</span><span className="n muted" style={{ marginLeft: "auto" }}>{plan ? "hide" : "show"}</span></button>
-      : <div className="rvr"><Fact g="idle">No plan written</Fact></div>}
+      : null}
     {plan ? checkpoint.plan.map((p, i) => <div className="rvr" key={i} style={{ paddingLeft: 38 }}><i className={clsx("g", p.status === "completed" ? "done" : p.status === "in_progress" ? "think" : "idle")} role="img" aria-label={p.status.replace("_", " ")} /><span>{p.text}</span></div>) : null}
-    {checkpoint.unplanned.length ? <div className="rvr you"><i className="g wait" role="img" aria-label="Look closer" /><span>Not in the plan: {checkpoint.unplanned.slice(0, 3).join(", ")}{checkpoint.unplanned.length > 3 ? ` and ${checkpoint.unplanned.length - 3} more` : ""}</span></div> : null}
     {shared.map((c) => <div className="rvr" key={c.module}><i className="g wait" role="img" aria-label="Look closer" /><span>Shares {c.module} with {c.others.map(laneNumber).join(" and ")}</span><span className="r"><Link className="lnk" to={`/p/${lane.project}/architecture`}>Architecture →</Link></span></div>)}
   </Section>;
 }
@@ -255,7 +263,7 @@ function Decision({ lane, checkpoint, comments, clear, decided, parent }: { lane
   const [asking, setAsking] = useState(false);
   const failing = checkpoint.checks.filter((c) => !c.passed).length;
   const [agents] = useJson<DetectedAgent[]>("/api/setup/agents");
-  const reviewer = (agents ?? []).find((a) => a.status === "Ready" && a.id !== lane.agent && a.id !== "opencode")?.id ?? (agents ?? []).find((a) => a.status === "Ready" && a.id !== lane.agent)?.id ?? null;
+  const reviewer = (agents ?? []).find((a) => a.status === "Ready" && a.id === lane.agent)?.id ?? (agents ?? []).find((a) => a.status === "Ready")?.id ?? null;
   const [estimate] = useJson<{ tokens: number }>(reviewer && !checkpoint.secondReview ? `/api/checkpoints/${checkpoint.id}/second-review` : null);
   const send = async (path: string, body: unknown) => {
     setBusy(true); setError("");
@@ -263,8 +271,20 @@ function Decision({ lane, checkpoint, comments, clear, decided, parent }: { lane
     catch (err) { setError(errorMessage(err)); }
     finally { setBusy(false); }
   };
+  const requestDialog = asking ? <Dialog title="Request changes" meta={`back to ${AGENT_NAMES[lane.agent] ?? lane.agent} in this lane`} onClose={() => setAsking(false)}
+    footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || (!note.trim() && !comments.length)} onClick={() => void send("request-changes", { note, comments })}>Send to the agent</button></>}>
+    {comments.length ? <p>{comments.length} comments will be sent with this note.</p> : null}
+    <textarea className="in" rows={5} autoFocus aria-label="What should change" placeholder="What should change" value={note} onChange={(e) => setNote(e.target.value)} />
+    {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}
+  </Dialog> : null;
+  if (["pr_open", "integration_pending"].includes(lane.state)) return <><Section title={lane.state === "pr_open" ? "Pull request open" : "Awaiting parent integration"}>
+    <div className="rva">{checkpoint.prUrl ? <a className="btn" href={checkpoint.prUrl} target="_blank" rel="noreferrer">Open pull request</a> : <span className="note">The parent must integrate the approved commit.</span>}
+      {lane.state === "pr_open" ? <button className="btn ghost" disabled={busy} onClick={() => setAsking(true)}>Request changes</button> : null}
+      <button className="btn ghost" disabled={busy} aria-busy={busy || undefined} onClick={() => void send("review/sync", {})}>{busy ? "Checking…" : "Check merge status"}</button>
+      {error ? <span role="alert" className="note">{error}</span> : <span className="note">Cleanup becomes available after integration is verified.</span>}
+    </div></Section>{requestDialog}</>;
   return <section className="sec" aria-label="Decision"><div className="rva">
-    <button className={clsx("btn", checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" && "ghost")} disabled={busy} aria-busy={(busy && !asking) || undefined} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Rebasing and pushing…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and merge"}</button>
+    <button className={clsx("btn", checkpoint.judge?.verdict && checkpoint.judge.verdict !== "merge" && "ghost")} disabled={busy || failing > 0 || checkpoint.recipeHash === undefined} aria-busy={(busy && !asking) || undefined} onClick={() => void send("approve", {})}>{busy && !asking ? parent ? "Sending to the parent…" : "Opening pull request…" : parent ? `Approve into lane ${laneNumber(parent.id)}` : "Approve and open PR"}</button>
     <button className="btn ghost" disabled={busy} onClick={() => {
       // The judge's blockers and should-fixes start the note, one per line; edit before sending.
       const found = (checkpoint.judge?.findings ?? []).filter((f) => f.severity !== "nit");
@@ -272,13 +292,8 @@ function Decision({ lane, checkpoint, comments, clear, decided, parent }: { lane
       setAsking(true);
     }}>Request changes</button>
     {reviewer && !checkpoint.secondReview ? <button className="btn ghost" disabled={busy} onClick={() => void postJson(`/api/checkpoints/${checkpoint.id}/second-review`, { agent: reviewer }).then(decided, (e) => setError(errorMessage(e)))}>Ask {AGENT_NAMES[reviewer] ?? reviewer} to review</button> : null}
-    {error && !asking ? <span role="alert" className="note">{error}</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">second review ≈ {Math.round(estimate.tokens / 1000)}k tokens</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">{parent ? `lane ${laneNumber(parent.id)}'s agent merges it into its branch` : `opens a pull request into ${lane.base ?? "main"}`}</span>}
+    {error && !asking ? <span role="alert" className="note">{error}</span> : checkpoint.recipeHash === undefined ? <span className="note">Request changes and create a fresh checkpoint to verify this older review.</span> : reviewer && !checkpoint.secondReview && estimate ? <span className="note mono">≈ {Math.round(estimate.tokens / 1000)}k tokens of diff input</span> : failing ? <span className="note"><Glyph g="fail">{failing} {failing === 1 ? "check" : "checks"} failed</Glyph></span> : <span className="note">{parent ? `lane ${laneNumber(parent.id)}'s agent merges it into its branch` : `opens a pull request into ${lane.base ?? "main"}`}</span>}
   </div>
-  {asking ? <Dialog title="Request changes" meta={`back to ${AGENT_NAMES[lane.agent] ?? lane.agent} in this lane`} onClose={() => setAsking(false)}
-    footer={<><button className="btn ghost" onClick={() => setAsking(false)}>Cancel</button><button className="btn" disabled={busy || (!note.trim() && !comments.length)} onClick={() => void send("request-changes", { note, comments })}>Send to the agent</button></>}>
-    {comments.length ? <p>{comments.length} comments will be sent with this note.</p> : null}
-    <textarea className="in" rows={5} autoFocus aria-label="What should change" placeholder="What should change" value={note} onChange={(e) => setNote(e.target.value)} />
-    {error ? <p role="alert" style={{ marginBottom: 0 }}>{error}</p> : null}
-  </Dialog> : null}
+  {requestDialog}
   </section>;
 }

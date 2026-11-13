@@ -1,5 +1,7 @@
 import { signedIn } from "./signed-in.js";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,6 +41,21 @@ describe("recipe schema", () => {
 });
 
 describe("recipe approval", () => {
+  it("does not read recipes outside the checkout or block on special files", async () => {
+    const { root, view } = await setup();
+    const other = await mkdtemp(join(tmpdir(), "cl-other-")); roots.push(other);
+    await writeFile(join(other, "private"), "private-value");
+    await symlink(join(other, "private"), join(root, RECIPE_FILE));
+    expect(await view()).toBeNull();
+    await rm(join(root, RECIPE_FILE));
+    await promisify(execFile)("mkfifo", [join(root, RECIPE_FILE)]);
+    expect(await view()).toBeNull();
+    await rm(join(root, RECIPE_FILE));
+    await symlink(other, join(root, ".superset"));
+    await writeFile(join(other, "config.json"), RECIPE);
+    expect(await view()).toBeNull();
+  });
+
   it("approves exact bytes from the owner's session, and a changed recipe needs approval again", async () => {
     const { root, store, approve, view } = await setup();
     await writeFile(join(root, RECIPE_FILE), RECIPE);

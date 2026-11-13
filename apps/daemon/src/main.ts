@@ -72,7 +72,10 @@ async function main(): Promise<void> {
   const folders = docker ? new DockerFolders({ run: runCommand, control: () => control, store }) : undefined;
   // Every git and gh the daemon runs goes through confineGit: the lane sandbox on the host, a helper
   // container per call in the Docker runtime.
-  const run = confineGit(folders ? folders.runner() : runCommand, config);
+  const run = confineGit(folders ? folders.runner() : runCommand, config, undefined, (cwd) => {
+    const lane = store.listLanes().find((l) => l.worktree === cwd);
+    return lane ? store.getProject(lane.project)?.path : store.listProjects().find((p) => p.path === cwd)?.path;
+  });
   // Lane containers. dataFile: a file in ./data that one helper mounts read-only (the Dev Container CLI's passwd line).
   const dockerLanes = docker && folders ? new DockerLanes({ docker: runCommand, git: run, folders, store, bus, config, control: () => control,
     dataFile: async (name, content) => {

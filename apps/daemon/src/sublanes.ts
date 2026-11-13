@@ -107,7 +107,7 @@ export class Sublanes {
     return { lanes: this.children(parentId).map((c) => {
       const lane = store.getLane(c.lane);
       const cp = store.latestCheckpoint(c.lane);
-      return { lane: c.lane, title: c.title, state: lane?.state ?? "gone", checkpoint: cp?.summary ?? null, verdict: cp?.judge?.verdict ?? null, merged: lane?.state === "merged" };
+      return { lane: c.lane, title: c.title, state: lane?.state ?? "gone", checkpoint: cp?.summary ?? null, verdict: cp?.judge?.verdict ?? null, merged: !!lane && ["merged", "cleaned"].includes(lane.state) };
     }) };
   }
 
@@ -141,11 +141,24 @@ export class Sublanes {
    */
   approveIntoParent(lane: Lane, parent: Lane, checkpointId: string): LaneEvent[] {
     const { store, hosts } = this.deps;
-    const text = `Sub-lane ${n(lane.id)} ("${lane.task}") was approved. Merge its branch into yours now: git merge --no-ff ${lane.branch} (it is in this repository already). Resolve any conflicts, run the tests, commit, and carry on.`;
+    const checkpoint = store.checkpoint(checkpointId);
+    if (!checkpoint) throw new NotFound("no checkpoint");
+    const text = `Sub-lane ${n(lane.id)} ("${lane.task}") was approved. Merge its branch into yours now: git merge --no-ff ${checkpoint.head} (it is in this repository already). Resolve any conflicts, run the tests, commit, and carry on.`;
     const events = store.tx(() => {
+      const result: LaneEvent[] = [];
+      // The owner's child approval authorizes new parent work, so its old review no longer covers the result.
+      if (parent.state === "in_review") {
+        const previous = store.latestCheckpoint(parent.id);
+        const note = `Integrate approved child ${lane.id} and create a new checkpoint`;
+        if (previous && !previous.decision) {
+          store.decideCheckpoint(previous.id, "changes");
+          result.push(store.appendEvent(parent.id, { type: "checkpoint.decided", payload: { checkpointId: previous.id, decision: "changes", note } }));
+        }
+        result.push(store.setLaneState(parent.id, "working", note));
+      }
       store.decideCheckpoint(checkpointId, "approved");
-      return [store.appendEvent(lane.id, { type: "checkpoint.decided", payload: { checkpointId, decision: "approved" } }),
-        store.setLaneState(lane.id, "merged", `approved into lane ${n(parent.id)}`),
+      return [...result, store.appendEvent(lane.id, { type: "checkpoint.decided", payload: { checkpointId, decision: "approved" } }),
+        store.setLaneState(lane.id, "integration_pending", `Approved; waiting for lane ${n(parent.id)} to integrate ${checkpoint.head.slice(0, 8)}`),
         store.appendEvent(parent.id, { type: "agent.message", payload: { role: "user", text } })];
     });
     hosts.command(parent.id, { kind: "prompt", text, immediate: false, files: [], images: [] });

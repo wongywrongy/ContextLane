@@ -57,12 +57,13 @@ export function stepsFor(events: LaneEvent[]): Step[] {
     else if (event.type === "helper.delegated") {
       const p = event.payload;
       const what = p.kind === "read" ? `read ${p.files?.length ? p.files.map((f) => f.split("/").at(-1)).join(", ") : "files"}` : p.kind === "check" ? "ran the checks" : `wrote a patch for ${p.files?.map((f) => f.split("/").at(-1)).join(", ") ?? "files"}`;
-      const k = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-      steps.push({ seq: event.seq, at: event.at, family: "team", title: `Your local model ${what} for the agent`, type: "status", text: `${p.model} · about ${k(p.tokensSaved)} fewer tokens for the cloud agent to read`, event });
+      const usage = p.inputTokens != null && p.outputTokens != null ? ` · ${p.inputTokens.toLocaleString()} input / ${p.outputTokens.toLocaleString()} output tokens reported` : "";
+      const redone = events.some(e => e.type === "helper.redone" && e.payload.seq === event.seq && e.lane === event.lane);
+      steps.push({ seq: event.seq, at: event.at, family: "team", title: `Your local model ${what} for the agent`, type: "status", text: `${p.model}${usage}${redone ? " · work repeated by the agent" : ""}`, event });
     }
     else if (event.type === "lane.handoff") steps.push({ seq: event.seq, at: event.at, family: "team", title: event.payload.from === event.payload.to ? "Fresh session from a handoff" : `Handed off to ${event.payload.to}`, type: "status", text: `${event.payload.chars.toLocaleString()} characters of handoff`, event });
     else if (event.type === "lane.auto") steps.push({ seq: event.seq, at: event.at, family: "you", title: event.payload.on ? "Auto on" : "Auto off", type: "status", text: event.payload.on ? "ContextLanes approves the agent's requests, except dire ones, which wait for you" : "Every request waits for you again", event });
-    else if (event.type === "lane.nudged") steps.push({ seq: event.seq, at: event.at, family: "you", title: event.payload.kind === "plan" ? "ContextLanes asked for a plan" : event.payload.kind === "checkin" ? "ContextLanes asked for a status check" : "ContextLanes: context over 70%", type: "status", text: event.payload.kind === "plan" ? "Many steps and no plan yet" : event.payload.kind === "checkin" ? "45 minutes into one turn: what is done, what is left, anything blocking" : "Asked the agent to commit what works and stay focused", event });
+    else if (event.type === "lane.nudged") steps.push({ seq: event.seq, at: event.at, family: "you", title: event.payload.kind === "checkin" ? "Long-running turn" : "Earlier workflow reminder", type: "status", text: event.payload.text, event });
     else if (event.type === "lane.split") steps.push({ seq: event.seq, at: event.at, family: "team", title: `Split into ${event.payload.children.length} sub-lanes`, type: "status", text: event.payload.children.map((c) => `${c.lane.slice(c.lane.lastIndexOf("/") + 1)} ${c.title}`).join(" · "), event });
     else if (event.type === "lane.forked") steps.push({ seq: event.seq, at: event.at, family: "team", title: `Forked into lane ${event.payload.to.slice(event.payload.to.lastIndexOf("/") + 1)}`, type: "status", event });
     else if (event.type === "agent.error") steps.push({ seq: event.seq, at: event.at, family: "run", title: "Problem", type: "status", text: event.payload.message, event });
