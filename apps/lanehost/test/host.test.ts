@@ -13,6 +13,21 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const command = (value: LaneCommand) => ({ commandId: randomUUID(), command: value });
 
+it("runs the shared real-host fixture in Codex's safe mode with the current task wrapper", async () => {
+  const fake = fakeAgent();
+  const events: NewLaneEvent[] = [];
+  const session = await openAgentSession({ lane: "demo/01", cwd: "/tmp", task: "permission\n\n---\n\nOptional ContextLanes tools (MCP server \"contextlanes\"): checkpoint", agentId: "codex", mode: "ask", agent: { command: "unused", args: [] },
+    connect: client => client.connect(fake.app) }, event => events.push(event));
+  cleanup.push(async () => session.close());
+  await vi.waitFor(() => expect(events.some(event => event.type === "permission.requested")).toBe(true));
+  expect(fake.turns).toEqual(["permission"]);
+  expect(fake.modes).toEqual(["read-only"]);
+  const request = events.find(event => event.type === "permission.requested");
+  if (request?.type !== "permission.requested") throw new Error("missing permission");
+  await session.command(command({ kind: "answer", requestId: request.payload.requestId, optionId: "yes" }));
+  await vi.waitFor(() => expect(events.some(event => event.type === "agent.message" && event.payload.text === "Finished permission.")).toBe(true));
+});
+
 it("uses the SDK agent app for streaming, indefinite permissions, MCP, queued prompts, cancel, modes and models", async () => {
   const fake = fakeAgent();
   const events: NewLaneEvent[] = [];

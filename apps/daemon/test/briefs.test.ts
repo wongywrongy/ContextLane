@@ -80,7 +80,7 @@ describe("module briefs", () => {
     expect(without).toMatch(/get_brief.*ask_owner.*checkpoint/);
     expect(without).not.toContain("delegate");
     const withHelper = toolsHint(Config.parse({ features: ALL_FEATURES, localModels: [{ name: "qwen3-coder:30b", provider: "ollama", url: "http://127.0.0.1:11434", roles: ["helper"] }] }));
-    expect(withHelper).toContain("delegate sends bounded work to a local model");
+    expect(withHelper).toContain("delegate offers a local model");
     expect(taskText(lane, undefined, undefined, "UTC.", withHelper)).toBe(`Project notes from the owner. Keep to them unless the task says otherwise:\nUTC.\n\n---\n\nAdd invoices\n\n---\n\n${withHelper}`);
     expect(taskText(lane)).toBe("Add invoices");
   });

@@ -47,7 +47,7 @@ describe.skipIf(!enabled)("real sandbox", () => {
     const unit = `cl-sandbox-${process.pid}`;
     const out = join(root, "seen");
     try {
-      await exec("systemd-run", serviceArgs(unit, root, { name: "web", command: ["/bin/sh", "-c", `cat ${join(config.paths.data, "setup-token")} > ${out} 2>&1; sleep 30`], env: {} } as never, {}, sandbox(config)));
+      await exec("systemd-run", serviceArgs(unit, root, { name: "web", command: ["/bin/sh", "-c", `cat ${join(config.paths.data, "setup-token")} > ${out} 2>&1; sleep 30`], env: {} } as never, {}, sandbox(config, { worktree: root })));
       await new Promise((resolve) => setTimeout(resolve, 500));
       const seen = await exec("cat", [out]);
       expect(seen.stdout).not.toContain("owner-secret");

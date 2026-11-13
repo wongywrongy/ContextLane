@@ -11,8 +11,9 @@ import { supervisorFor } from "./supervisor/index.js";
 /**
  * Run once at startup, before the HTTP server listens: put right what a restart (crash, update, power
  * cut) left half done. A lane caught setting up becomes working if its agent host is running, else
- * failed with a reason; screenshot "before" checkouts and their services are removed; git forgets
- * worktrees whose folders are gone. Each step is best-effort and logged; none stops the daemon starting.
+ * failed with a reason; screenshot "before" checkouts and their services are removed. Stale Git
+ * registrations are retained: the sandbox cannot distinguish hidden worktrees from deleted ones.
+ * Each step is best-effort and logged; none stops the daemon starting.
  */
 export async function recover(deps: { store: Store; bus: EventBus; config: Config; run: Runner }): Promise<string[]> {
   const { store, bus, config, run } = deps;
@@ -49,6 +50,5 @@ export async function recover(deps: { store: Store; bus: EventBus; config: Confi
   }
   const before = join(config.paths.lanes, ".before");
   if ((await readdir(before).catch(() => [])).length) { await rm(before, { recursive: true, force: true }); done.push("removed old before-checkouts"); }
-  for (const project of store.listProjects()) await run("git", ["worktree", "prune"], { cwd: project.path, timeout: 30_000 }).catch(() => {});
   return done;
 }

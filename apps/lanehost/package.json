@@ -5,7 +5,7 @@
   "type": "module",
   "description": "One small process per lane that holds the agent's ACP session and survives daemon restarts.",
   "exports": {
-    "./usage": { "types": "./dist/usage.d.ts", "default": "./dist/usage.js" },
+    "./usage": { "source": "./src/usage.ts", "types": "./dist/usage.d.ts", "default": "./dist/usage.js" },
     ".": {
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",

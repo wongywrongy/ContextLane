@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { copyInside, readInside, writeInside } from "../src/safefs.js";
+import { copyFileInside, copyInside, copyTreeInside, readInside, withDirectoryInside, writeInside } from "../src/safefs.js";
 import { endpoint } from "../src/localmodels.js";
 
 const roots: string[] = [];
@@ -53,6 +53,44 @@ describe("files in a checkout an agent controls", () => {
     await mkdir(join(f.lane, "y")); await symlink(f.secret, join(f.lane, "y/SKILL.md"));
     await expect(writeInside(f.lane, "y/SKILL.md", "overwrite")).rejects.toThrow(/symlink/);
     expect(await readFile(f.secret, "utf8")).toBe("owner-secret");
+  });
+
+  it("keeps directory operations on the opened folder when its pathname changes", async () => {
+    const f = await fixture();
+    await withDirectoryInside(f.lane, "src", async (path) => {
+      await rename(join(f.lane, "src"), join(f.lane, "saved"));
+      await symlink(join(f.root, "data"), join(f.lane, "src"));
+      await writeFile(join(path, "safe.txt"), "inside");
+      expect(await readFile(join(path, "a.ts"), "utf8")).toContain("a = 1");
+    });
+    expect(await readFile(join(f.lane, "saved/safe.txt"), "utf8")).toBe("inside");
+    await expect(readFile(join(f.root, "data/safe.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readInside(f.lane, "src/setup-token", 100)).toBeNull();
+    await expect(writeInside(f.lane, "src/setup-token", "changed")).rejects.toThrow(/symlink/);
+    expect(await readFile(f.secret, "utf8")).toBe("owner-secret");
+  });
+
+  it("refuses a replaced checkout root and source parents when copying", async () => {
+    const f = await fixture(), target = join(f.root, "target"); await mkdir(target);
+    await symlink(join(f.root, "data"), join(f.lane, "external"));
+    expect(await copyFileInside(f.lane, target, "external/setup-token")).toBe(false);
+    await rename(f.lane, join(f.root, "saved")); await symlink(join(f.root, "data"), f.lane);
+    expect(await readInside(f.lane, "setup-token", 100)).toBeNull();
+    expect(await copyInside(f.lane, target, "setup-token")).toBe(false);
+    await expect(writeInside(f.lane, "setup-token", "changed")).rejects.toThrow();
+    expect(await readFile(f.secret, "utf8")).toBe("owner-secret");
+  });
+
+  it("copies dependency trees independently and preserves links without reading their targets", async () => {
+    const f = await fixture(), target = join(f.root, "target"); await mkdir(target);
+    await symlink(f.secret, join(f.lane, "src/alias"));
+    expect(await copyTreeInside(f.lane, target, "src")).toBe(true);
+    await writeFile(join(target, "src/a.ts"), "new dependency");
+    expect(await readFile(join(f.lane, "src/a.ts"), "utf8")).toContain("a = 1");
+    expect(await readlink(join(target, "src/alias"))).toBe(f.secret);
+    expect(await copyTreeInside(f.lane, target, "src")).toBe(false);
+    expect(await readFile(join(target, "src/a.ts"), "utf8")).toBe("new dependency");
+    await expect(copyFileInside(f.lane, target, "src/a.ts")).rejects.toMatchObject({ code: "EEXIST" });
   });
 
   it("keeps a local model's base path", () => {

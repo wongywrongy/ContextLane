@@ -159,7 +159,7 @@ export function ModelsPage() {
     <Section title="Agents" help="Claude Code and Codex run their own terminal interface in each lane. Other agents use ACP. Every lane keeps approval controls on; agents that cannot ask first are listed as not supported. Limited agents work with the gap their row names." end={<>{features.acp ? <button className="btn ghost sm" onClick={() => setRegistry(true)}>Add from ACP registry</button> : null}<Action small ghost run={() => postJson("/api/setup/agents/check", {})} done={() => { reload(); reloadUsage(); }}>Check again</Action></>}>
       <div className="sec-b">{usageError ? <p role="alert">Limits could not be checked. Choose Check again.</p> : null}<AgentRows agents={agents} error={error} reload={reload} limits={usage?.limits ?? []} /></div>
     </Section>
-    {features.helper ? <Section title="Local models" meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
+    {features.helper ? <Section title="Local models" optional={!models.length} meta="this machine or your tailnet" help="Ollama or llama.cpp endpoints. Module briefs, the local helper, Insights, Ask, Tidy and the review judge use them. Each job goes to a free endpoint with its role; with no roles ticked an endpoint takes every job. With no endpoint ticked for the judge, the Insights model judges." end={<button className="btn ghost sm" onClick={reloadLocal}>Check again</button>}>
       {(local ?? models.map((m) => ({ ...m, label: m.label ?? null, roles: m.roles ?? [], state: null }))).map((m) => <LocalRow key={m.name + m.url} m={m}
         save={async (change) => { await postJson("/api/setup/settings", { localModels: models.map((x) => x.name === m.name && x.url === m.url ? { ...x, ...change } : x) }); reloadSettings(); reloadLocal(); }}
         remove={async () => { await postJson("/api/setup/settings", { localModels: models.filter((x) => !(x.name === m.name && x.url === m.url)) }); reloadSettings(); }} />)}
@@ -243,7 +243,7 @@ function RoutingSection({ settings, agents, reload }: { settings: SetupSettings 
   const store = (next: RoutingRule[]) => postJson("/api/setup/settings", { routing: next }).then(reload);
   const save = (next: RoutingRule[]) => { setError(""); void store(next).catch((e) => setError(errorMessage(e))); };
   const v = (f: FormData, key: string) => String(f.get(key) ?? "").trim();
-  return <Section title="Routing" help="Words in a new lane's task pick its agent and model; the first matching rule wins. Use it to send, say, docs and fixtures to a local model.">
+  return <Section title="Routing" optional={!rules.length} help="Words in a new lane's task pick its agent and model; the first matching rule wins. Use it to send, say, docs and fixtures to a local model.">
     {rules.map((r, i) => <div className="sec-r" key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr) auto auto", gap: 14, alignItems: "center" }}>
       <span>{r.words.join(", ")}</span><span className="mono" style={{ fontSize: 13 }}>{AGENT_NAMES[r.agent] ?? r.agent}{r.model ? ` → ${r.model}` : ""}</span><span className="mono muted" style={{ fontSize: 12 }}>{r.label ?? ""}</span>
       <button className="lnk" onClick={() => save(rules.filter((_, j) => j !== i))}>Remove</button>
@@ -285,19 +285,17 @@ function RegistryDialog({ onClose }: { onClose: () => void }) {
 }
 
 const HELPER_WORDS: Record<HelperStatus["kind"], [string, string, IconName]> = { read: ["Read", "logs, test output, big files", "read"], edit: ["Edit", "renames, fixtures, small specs", "edit"], check: ["Check", "run tests, sort failures", "test"] };
-const tokensK = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-
-/** Local helper (models.webp): work Claude and Codex hand off with delegate, on only while it pays. */
+/** Optional bounded helper jobs, with observed rework rather than hypothetical savings. */
 function HelperSection() {
   const [kinds, , reload] = useJson<HelperStatus[]>("/api/helper");
   const [error, setError] = useState("");
   const toggle = (kind: HelperStatus["kind"], on: boolean) => { setError(""); void postJson("/api/helper", { kind, on }).then(reload, (e) => setError(errorMessage(e))); };
-  return <Section title="Local helper" help="Small jobs (reading files, summarising logs) that Claude and Codex hand to your local model with delegate. A kind of job stays on only while it pays off; green is the cloud tokens it saved this week, estimated. One job per GPU at a time." footer={error ? <span role="alert" style={{ fontSize: 13 }}>{error}</span> : undefined}>
+  return <Section title="Local helper" help="Optional jobs that the agent can delegate to a configured local model. Uses and repeated work are observed from lane events. Repeated work can turn a kind off; the owner can enable it again. These counts do not establish token savings." footer={error ? <span role="alert" style={{ fontSize: 13 }}>{error}</span> : undefined}>
     {(kinds ?? []).map((k) => { const [name, what, icon] = HELPER_WORDS[k.kind]; return <div className="sec-r lmrow" key={k.kind}>
       <Tile family="team" icon={icon} small />
       <span><b>{name}</b><span className="muted" style={{ display: "block", fontSize: 12.5 }}>{what}</span></span>
       <span className="mono" style={{ fontSize: 13 }}>{k.model ?? "—"}</span>
-      <span className="mono" style={{ fontSize: 12.5 }}>{k.uses} {k.uses === 1 ? "use" : "uses"}{k.redoneRate !== null ? ` · ${Math.round(k.redoneRate * 100)}% redone` : ""}{k.savedThisWeek ? <b style={{ marginLeft: 14, color: "var(--ok-ink)", fontSize: 14 }}>{tokensK(k.savedThisWeek)}</b> : null}</span>
+      <span className="mono" style={{ fontSize: 12.5 }}>{k.uses} {k.uses === 1 ? "use" : "uses"}{k.redoneRate !== null ? ` · ${Math.round(k.redoneRate * 100)}% redone` : ""}</span>
       <span style={{ textAlign: "right" }}>
         <Glyph g={k.state === "on" ? "done" : k.state === "near" ? "wait" : "idle"}>{k.state === "on" ? "On" : k.state === "near" ? "Near the limit" : "Off"}</Glyph>
         {k.reason ? <span className="muted" style={{ display: "block", fontSize: 12 }}>{k.reason}</span> : null}

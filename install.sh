@@ -16,6 +16,13 @@ contextlanes_repo="${CONTEXTLANES_REPO:-https://github.com/wongywrongy/ContextLa
 contextlanes_branch="${CONTEXTLANES_BRANCH:-main}"
 contextlanes_root="${CONTEXTLANES_INSTALL_DIR:-$HOME/.local/share/contextlanes/app}"
 contextlanes_base="$(dirname "$contextlanes_root")"
+case "$contextlanes_root" in
+  /*/app) ;;
+  *) echo 'CONTEXTLANES_INSTALL_DIR must be an absolute path ending in /app.' >&2; exit 1 ;;
+esac
+contextlanes_pending="$contextlanes_base/.contextlanes-installing"
+# Do not infer that shared worktrees are gone during installation or update.
+git_run() { git -c gc.auto=0 -c maintenance.auto=false -c gc.worktreePruneExpire=never "$@"; }
 pnpm_run() { npm exec --yes --package=pnpm@10.28.0 -- pnpm "$@"; }
 build_here() {
   pnpm_run install --frozen-lockfile --ignore-scripts
@@ -24,38 +31,50 @@ build_here() {
 }
 
 if [ -e "$contextlanes_root" ]; then
-  if [ -e "$contextlanes_root/.git" ] && grep -qs '^# Installed by ContextLanes' "$HOME/.config/systemd/user/contextlanes.service"; then
-    # An existing install: build the newest version beside it, then let the updater switch over.
-    echo "ContextLanes is already installed in $contextlanes_root. Updating it; lanes keep running."
-    case "$(git -C "$contextlanes_root" remote get-url origin)" in
-      *wongywrongy/rootlane*) git -C "$contextlanes_root" remote set-url origin "$contextlanes_repo" ;;
-    esac
-    git -C "$contextlanes_root" fetch --prune --quiet origin '+refs/heads/*:refs/remotes/origin/*'
-    sha="$(git -C "$contextlanes_root" rev-parse --verify "refs/remotes/origin/$contextlanes_branch")"
-    release="$contextlanes_base/releases/$(printf %s "$sha" | cut -c1-12)"
-    if [ ! -f "$release/.contextlanes-built" ]; then
-      git -C "$contextlanes_root" worktree remove --force "$release" 2>/dev/null || true
-      git -C "$contextlanes_root" worktree prune
-      mkdir -p "$contextlanes_base/releases"
-      git -C "$contextlanes_root" worktree add --detach --quiet "$release" "$sha"
-      (cd "$release" && build_here)
-      printf '{"sha":"%s"}\n' "$sha" > "$release/.contextlanes-built"
+  if [ -f "$contextlanes_pending" ] && [ "$(cat "$contextlanes_pending")" = "$contextlanes_root" ] && [ -e "$contextlanes_root/.git" ]; then
+    [ -z "$(git_run -C "$contextlanes_root" status --porcelain --untracked-files=no)" ] || { echo 'The interrupted install has local edits. Preserve them before retrying.' >&2; exit 1; }
+    echo "Resuming the interrupted install in $contextlanes_root."
+  elif [ -e "$contextlanes_root/.git" ] && grep -qs '^# Installed by ContextLanes' "$HOME/.config/systemd/user/contextlanes.service"; then
+    # One updater owns locking, build, backup, switch and recovery. Preserve its saved channel.
+    release="$contextlanes_base/current"
+    [ -e "$release" ] || release="$contextlanes_root"
+    echo "ContextLanes is already installed. Running its supported updater."
+    if [ -n "${CONTEXTLANES_BRANCH:-}" ]; then
+      exec node "$release/apps/daemon/dist/update-main.js" --branch "$CONTEXTLANES_BRANCH"
     fi
-    exec node "$release/apps/daemon/dist/update-main.js" --adopt "$release"
+    exec node "$release/apps/daemon/dist/update-main.js"
+  else
+    echo "Refusing to overwrite $contextlanes_root. For a source checkout, see docs/DEVELOPING.md." >&2
+    exit 1
   fi
-  echo "Refusing to overwrite $contextlanes_root. Keep your existing checkout and follow README.md for a source install." >&2
+else
+  mkdir -p "$contextlanes_base"
+  git_run clone --branch "$contextlanes_branch" "$contextlanes_repo" "$contextlanes_root"
+  (umask 077; printf '%s\n' "$contextlanes_root" > "$contextlanes_pending")
+fi
+cd "$contextlanes_root"
+sha="$(git_run rev-parse HEAD)"
+build_here
+if [ "$(git_run rev-parse HEAD)" != "$sha" ] || [ -n "$(git_run status --porcelain --untracked-files=no)" ]; then
+  echo 'The build changed tracked source or HEAD. Preserve the checkout and investigate before installing.' >&2
   exit 1
 fi
-mkdir -p "$contextlanes_base"
-git clone --branch "$contextlanes_branch" "$contextlanes_repo" "$contextlanes_root"
-cd "$contextlanes_root"
-build_here
-CONTEXTLANES_MANAGED=1 CONTEXTLANES_SYSTEMD="$contextlanes_systemd" node apps/daemon/dist/install-main.js
-[ "$contextlanes_systemd" = 1 ] || exit 0
+printf '{"sha":"%s"}\n' "$sha" > .contextlanes-built
+# A retried installation follows the branch actually cloned, even if the shell lost its override.
+CONTEXTLANES_BRANCH="$(git_run symbolic-ref --short HEAD)" CONTEXTLANES_MANAGED=1 CONTEXTLANES_SYSTEMD="$contextlanes_systemd" node apps/daemon/dist/install-main.js
+[ "$contextlanes_systemd" = 1 ] || { rm -f "$contextlanes_pending"; exit 0; }
 contextlanes_attempt=0
 until "$HOME/.local/bin/contextlanes" status >/dev/null 2>&1; do
   contextlanes_attempt=$((contextlanes_attempt + 1))
   [ "$contextlanes_attempt" -lt 20 ] || { echo 'Service did not start. Read: journalctl --user -u contextlanes -n 50' >&2; exit 1; }
   sleep 1
 done
+rm -f "$contextlanes_pending"
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo 'Add ~/.local/bin to PATH in your shell profile: export PATH="$HOME/.local/bin:$PATH"' ;;
+esac
+if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != yes ]; then
+  echo 'To keep the service running after logout: sudo loginctl enable-linger "$(id -un)"'
+fi
 "$HOME/.local/bin/contextlanes" setup

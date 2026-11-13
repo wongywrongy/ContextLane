@@ -20,6 +20,7 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
       sessions.push(params);
       return { sessionId: "fake-session", modes: { currentModeId: "default", availableModes: [
         { id: "default", name: "Ask" }, { id: "acceptEdits", name: "Accept edits" }, { id: "plan", name: "Plan" }, { id: "bypassPermissions", name: "Bypass permissions" }, { id: "agent", name: "Auto review" },
+        { id: "read-only", name: "Read-only" }, { id: "workspace-write", name: "Workspace access" },
       ] }, configOptions: configs() };
     })
     .onRequest(methods.agent.session.setMode, ({ params }) => { modes.push(params.modeId); return {}; })
@@ -27,7 +28,7 @@ export function fakeAgent(onPrompt?: () => Promise<void>) {
     .onNotification(methods.agent.session.cancel, () => cancel?.())
     .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
       // A new lane's first message ends with the ContextLanes tools hint; the fake agent acts on the task before it.
-      const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("").replace(/\n\n---\n\nContextLanes tools[\s\S]*$/, "");
+      const text = params.prompt.map((p) => p.type === "text" ? p.text : "").join("").replace(/\n\n---\n\n(?:Optional )?ContextLanes tools[\s\S]*$/, "");
       turns.push(text);
       await onPrompt?.();
       if (text === "cost" || text === "foreign-cost") {

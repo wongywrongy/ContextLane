@@ -19,6 +19,10 @@ const ModelOutput = z.object({
 type Saved = { generatedAt: string; model: string; summary: InsightsView["summary"]; suggestions: Suggestion[] };
 const k = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 const median = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2; };
+const usageTotal = (u: Extract<LaneEvent, { type: "usage.turn" }>["payload"]): number | null => {
+  if (u.inputTokens === null || u.outputTokens === null || u.cacheReadTokens === null || u.cacheWriteTokens === null && u.source !== "codex-log") return null;
+  return u.inputTokens + u.outputTokens + u.cacheReadTokens + (u.cacheWriteTokens ?? 0);
+};
 
 /**
  * Insights: what the last week of lanes says about a project. Every number is computed here from the
@@ -42,7 +46,7 @@ export class Insights {
 
   /** Nightly (after 02:00, once a day) and five minutes after a merge, for every project. */
   start(): void {
-    this.deps.bus.subscribeAll((e) => { if (e.type === "lane.state" && e.payload.to === "merged") { const lane = this.deps.store.getLane(e.lane); if (lane) this.due.set(lane.project, this.now() + 5 * 60_000); } });
+    this.deps.bus.subscribeAll((e) => { if (e.type === "checkpoint.merge_verified") { const lane = this.deps.store.getLane(e.lane); if (lane) this.due.set(lane.project, this.now() + 5 * 60_000); } });
     this.timer = setInterval(() => void this.tick().catch((err) => console.error("Insights failed:", err)), 60_000);
     this.timer.unref();
   }
@@ -80,17 +84,15 @@ export class Insights {
     const events = this.events(lanes, since);
     const lane = (id: string) => lanes.find((l) => l.id === id);
     const n = (id: string) => id.slice(id.lastIndexOf("/") + 1);
-    const merges = events.filter((e) => e.type === "lane.state" && e.payload.to === "merged");
+    const merges = [...new Map(events.filter((e): e is Extract<LaneEvent, { type: "checkpoint.merge_verified" }> => e.type === "checkpoint.merge_verified").map(e => [e.payload.checkpointId, e])).values()];
     const turns = events.filter((e): e is Extract<LaneEvent, { type: "usage.turn" }> => e.type === "usage.turn");
-    const cloud = turns.reduce((s, e) => s + (e.payload.inputTokens ?? 0) + (e.payload.outputTokens ?? 0) + (e.payload.cacheReadTokens ?? 0) + (e.payload.cacheWriteTokens ?? 0), 0);
-    const helped = events.filter((e): e is Extract<LaneEvent, { type: "helper.delegated" }> => e.type === "helper.delegated");
-    const local = helped.reduce((s, e) => s + e.payload.tokensSaved + (e.payload.resultTokens ?? 0), 0);
+    const cloud = turns.length && turns.every(e => usageTotal(e.payload) !== null) ? turns.reduce((s, e) => s + usageTotal(e.payload)!, 0) : null;
     const asks = events.filter((e): e is Extract<LaneEvent, { type: "permission.requested" }> => e.type === "permission.requested");
-    const waits = asks.flatMap((a) => { const ans = events.find((e) => e.type === "permission.answered" && e.lane === a.lane && e.payload.requestId === a.payload.requestId); return ans ? [(Date.parse(ans.at) - Date.parse(a.at)) / 60_000] : []; });
+    const waits = asks.flatMap((a) => { const ans = events.find((e) => e.type === "permission.answered" && e.lane === a.lane && e.payload.requestId === a.payload.requestId && e.payload.by !== "auto"); return ans ? [(Date.parse(ans.at) - Date.parse(a.at)) / 60_000] : []; });
     const stats: InsightStat[] = [];
     const add = (s: InsightStat) => { stats.push(s); return s.id; };
     add({ id: "merges", label: "merges", value: String(merges.length), detail: merges.map((m) => `lane ${n(m.lane)}`).join(", ") || "none" });
-    add({ id: "cloud", label: "cloud tokens", value: k(cloud), detail: `${turns.length} agent turns with reported usage` });
+    if (cloud !== null) add({ id: "cloud", label: "reported agent tokens", value: k(cloud), detail: `${turns.length} agent turns with complete reported usage` });
     // Questions the agents asked, grouped by wording: the same question twice is a missing project note.
     const questions = new Map<string, Extract<LaneEvent, { type: "permission.requested" }>[]>();
     for (const a of asks.filter((x) => x.payload.kind === "question")) { const key = a.payload.title.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(" ").filter((w) => w.length > 3).slice(0, 6).join(" "); questions.set(key, [...(questions.get(key) ?? []), a]); }
@@ -110,8 +112,6 @@ export class Insights {
     if (collisions.length) add({ id: "collisions", label: "collisions", value: String(collisions.length), detail: collisions.map((c) => c.type === "collision.detected" ? `${c.payload.module} (${c.payload.lanes.map(n).join(" and ")})` : "").join(", ") });
     // Big tool outputs the lead read itself: candidates for the helper.
     for (const e of events.filter((x): x is Extract<LaneEvent, { type: "tool.update" }> => x.type === "tool.update" && !!x.payload.summary && x.payload.summary.length > 40_000).slice(0, 2)) add({ id: `output:${e.lane}#${e.seq}`, label: "tokens of output", value: k(estimateTokens(e.payload.summary!)), detail: `lane ${n(e.lane)} read ${k(estimateTokens(e.payload.summary!))} tokens of command output itself` });
-    // Plan entries left pending in merged lanes: work nobody owns.
-    for (const m of merges) { const plan = events.filter((e) => e.lane === m.lane && e.type === "agent.plan").at(-1); if (plan?.type === "agent.plan") for (const p of plan.payload.entries.filter((x) => x.status !== "completed").slice(0, 2)) add({ id: `plan:${m.lane}#${plan.seq}`, label: "task unowned", value: "1", detail: `"${p.text}" was left in lane ${n(m.lane)}'s plan when it merged` }); }
     // What the review judge found this week: how often work passed first time, and where findings keep landing.
     const judged = store.checkpoints(project).filter((c) => Date.parse(c.createdAt) >= since && c.judge?.state === "done" && c.judge.verdict);
     if (judged.length) {
@@ -127,16 +127,23 @@ export class Insights {
     }
     if (waits.length) add({ id: "wait", label: "median wait for you", value: `${Math.round(median(waits)!)}m`, detail: `${waits.length} answered questions and permissions` });
     const today = new Date(now); today.setHours(0, 0, 0, 0);
-    const byLane = new Map<string, { tokens: number; cache: number; input: number }>();
-    for (const t of turns.filter((e) => Date.parse(e.at) >= today.getTime())) { const v = byLane.get(t.lane) ?? { tokens: 0, cache: 0, input: 0 }; v.tokens += (t.payload.inputTokens ?? 0) + (t.payload.outputTokens ?? 0) + (t.payload.cacheReadTokens ?? 0); v.cache += t.payload.cacheReadTokens ?? 0; v.input += (t.payload.inputTokens ?? 0) + (t.payload.cacheReadTokens ?? 0); byLane.set(t.lane, v); }
+    const byLane = new Map<string, { tokens: number | null; cache: number; input: number }>();
+    for (const t of turns.filter((e) => Date.parse(e.at) >= today.getTime())) {
+      const v = byLane.get(t.lane) ?? { tokens: 0, cache: 0, input: 0 };
+      const total = usageTotal(t.payload);
+      v.tokens = v.tokens === null || total === null ? null : v.tokens + total;
+      v.cache += t.payload.cacheReadTokens ?? 0;
+      v.input += (t.payload.inputTokens ?? 0) + (t.payload.cacheReadTokens ?? 0) + (t.payload.cacheWriteTokens ?? 0);
+      byLane.set(t.lane, v);
+    }
     const notes = await this.deps.briefs.notes(project);
     const briefs = await readdir(join(this.deps.config.paths.data, "briefs", project)).then((f) => f.filter((x) => x.endsWith(".json")).length, () => 0);
     const handoffs = await readdir(join(this.deps.config.paths.data, "handoffs", project)).then((f) => f.length, () => 0);
     return {
       week: { from: new Date(since).toISOString(), to: new Date(now).toISOString(), events: events.length, merges: merges.length },
-      facts: { merges: merges.length, cloudTokens: cloud, localShare: cloud + local ? local / (cloud + local) : null, medianWaitMinutes: median(waits) },
+      facts: { merges: merges.length, cloudTokens: cloud, medianWaitMinutes: median(waits) },
       stats,
-      today: [...byLane].map(([id, v]) => ({ lane: id, task: lane(id)?.task ?? id, tokens: v.tokens, cacheShare: v.input ? v.cache / v.input : null, local: false })).sort((a, b) => b.tokens - a.tokens),
+      today: [...byLane].map(([id, v]) => ({ lane: id, task: lane(id)?.task ?? id, tokens: v.tokens, cacheShare: v.tokens !== null && v.input ? v.cache / v.input : null, local: false })).sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1)),
       startsWith: { notes: { facts: notes.split("\n").filter((l) => l.trim()).length, tokens: estimateTokens(notes) }, briefs, handoffs },
     };
   }

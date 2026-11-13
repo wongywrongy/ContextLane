@@ -55,7 +55,7 @@ export const COPY_JS = `const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const [project, checkout, ...patterns] = process.argv.slice(1);
-const listed = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...patterns.map((p) => ":(glob)" + p)], { cwd: project, maxBuffer: 16 * 1024 * 1024 });
+const listed = execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "gc.worktreePruneExpire=never", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...patterns.map((p) => ":(glob)" + p)], { cwd: project, maxBuffer: 16 * 1024 * 1024 });
 const copied = [];
 for (const file of listed.toString("utf8").split("\\0").filter(Boolean)) {
   if (file.startsWith("/") || file.split("/").includes("..")) continue;

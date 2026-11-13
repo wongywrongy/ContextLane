@@ -54,7 +54,7 @@ describe("collision warnings", () => {
     expect(f.collisions.active("s")[0]!.planned).toBe(true);
     await f.collisions.check();
     expect(f.sent).toEqual([]);
-    f.store.setLaneState("s/02", "in_review"); f.store.setLaneState("s/02", "merged");
+    f.store.setLaneState("s/02", "in_review"); f.store.setLaneState("s/02", "pr_open"); f.store.setLaneState("s/02", "merged");
     await f.collisions.check(); await f.collisions.check();
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).toMatchObject({ lane: "s/01", text: expect.stringContaining("Rebase this branch onto main") });

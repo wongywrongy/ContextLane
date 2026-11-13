@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { estimateTokens, type HelperKind, type HelperStatus, type Lane, type LaneEvent } from "@contextlanes/protocol";
+import { type HelperKind, type HelperStatus, type Lane, type LaneEvent } from "@contextlanes/protocol";
 import type { EventBus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Store } from "./db/store.js";
@@ -24,8 +24,6 @@ const MAX_FILE = 200_000;
  * permissions still apply. A kind switches itself off when the lead keeps redoing its work.
  */
 export class Helper {
-  /** Delegations waiting for their lane's turn to end, to see whether the lead redid the work. */
-  private pending = new Map<string, { seq: number; kind: HelperKind; files: string[]; command: string | null; patch: string | null; seen: LaneEvent[] }[]>();
   constructor(private deps: { config: Config; store: Store; bus: EventBus; models: LocalModels; run: Runner; runtime: Runtime }) {
     deps.bus.subscribeAll((e) => void this.observe(e).catch(() => {}));
   }
@@ -33,7 +31,7 @@ export class Helper {
   private overridesFile() { return join(this.deps.config.paths.data, "helper.json"); }
   private async overrides(): Promise<Partial<Record<HelperKind, boolean>>> { return readFile(this.overridesFile(), "utf8").then((t) => JSON.parse(t), () => ({})); }
 
-  /** Per kind, across all projects (one GPU, one helper): uses, redo rate over the last 20, cloud tokens saved this week, and whether it is on. */
+  /** Per kind: uses, observed redo rate over the last 20, and whether it is on. */
   async status(): Promise<HelperStatus[]> {
     const limit = this.deps.config.helper.redoLimit;
     const overrides = await this.overrides();
@@ -41,7 +39,6 @@ export class Helper {
     const model = chosen ?? this.deps.models.pick("helper", this.deps.config.helper.model);
     const answering = chosen ? await this.deps.models.reachable(chosen) : false;
     const events = this.events();
-    const weekAgo = Date.now() - 7 * 86400_000;
     return KINDS.map((kind) => {
       const uses = events.filter((e): e is Extract<LaneEvent, { type: "helper.delegated" }> => e.type === "helper.delegated" && e.payload.kind === kind);
       const recent = uses.slice(-WINDOW);
@@ -50,7 +47,7 @@ export class Helper {
       const auto = recent.length >= 5 && rate > limit ? "off" : recent.length >= 5 && rate > limit - 0.05 ? "near" : "on";
       const owner = overrides[kind];
       const state = !model || !answering ? "off" : owner === false ? "off" : owner === true ? (auto === "off" ? "near" : auto) : auto;
-      return { kind, model: model?.name ?? null, uses: uses.length, redoneRate: recent.length ? rate : null, savedThisWeek: uses.filter((u) => Date.parse(u.at) > weekAgo).reduce((n, u) => n + u.payload.tokensSaved, 0),
+      return { kind, model: model?.name ?? null, uses: uses.length, redoneRate: recent.length ? rate : null,
         state, reason: !model ? "No local model is set up." : !answering ? `${model.name} is not answering.` : owner === false ? "Turned off by you." : auto === "off" && owner !== true ? `Redone ${Math.round(rate * 100)}% of the last ${recent.length} times (limit ${Math.round(limit * 100)}%).` : null };
     });
   }
@@ -78,7 +75,7 @@ export class Helper {
     return parts.join("\n\n");
   }
 
-  async delegate(lane: Lane, body: { kind: HelperKind; task: string; files: string[] }): Promise<{ result: string; tokensSaved: number }> {
+  async delegate(lane: Lane, body: { kind: HelperKind; task: string; files: string[] }): Promise<{ result: string }> {
     const status = (await this.status()).find((s) => s.kind === body.kind)!;
     if (status.state === "off") throw new Refused(`The local helper's ${body.kind} is off: ${status.reason ?? "turned off"} Do this yourself.`);
     const model = (await this.deps.models.forJob("helper", this.deps.config.helper.model))!;
@@ -89,7 +86,7 @@ export class Helper {
       if (!checks.length) throw new Refused("This lane's approved recipe has no checks to run. Run the tests yourself.");
       const outputs: string[] = [];
       for (const c of checks) {
-        const r = await oneshot(this.deps.run, lane.worktree, c.command, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, c.timeoutSeconds, sandbox(this.deps.config));
+        const r = await oneshot(this.deps.run, lane.worktree, c.command, { PATH: process.env.PATH ?? "/usr/bin:/bin", HOST: "127.0.0.1", CONTEXTLANES_LANE: lane.id }, c.timeoutSeconds, sandbox(this.deps.config, { worktree: lane.worktree, repository: this.deps.store.getProject(lane.project)!.path }));
         outputs.push(`=== ${c.name} (${c.command.join(" ")}): ${r.ok ? "passed" : "FAILED"} in ${Math.round(r.ms / 100) / 10}s\n${r.output}`);
       }
       command = checks.map((c) => c.command.join(" ")).join(" && ");
@@ -107,6 +104,7 @@ export class Helper {
     let patch: string | null = null;
     if (body.kind === "edit") {
       patch = (/```(?:diff|patch)?\n([\s\S]*?)```/.exec(result)?.[1] ?? result).trim() + "\n";
+      if (patch.length > 100_000) throw new Refused("The helper returned a patch that is too large. Make a smaller request.");
       const dir = join(this.deps.config.paths.lanes, ".attachments", lane.id.replace("/", "-"));
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const file = join(dir, `helper-${Date.now()}.patch`);
@@ -114,32 +112,34 @@ export class Helper {
       const applies = await this.deps.run("git", ["apply", "--check", file], { cwd: lane.worktree }).then(() => true, () => false);
       result = applies ? `This patch applies cleanly. Review it, then apply it yourself (for example: git apply ${file}).\n\n${patch}` : `The helper's patch does not apply to the current files; make the change yourself.\n\n${patch}`;
     }
-    const tokensSaved = Math.max(0, estimateTokens(input) - estimateTokens(result));
-    const e = this.deps.store.appendEvent(lane.id, { type: "helper.delegated", payload: { kind: body.kind, model: answer.model, tokensSaved, task: body.task.slice(0, 300), files: body.files.slice(0, 20), resultTokens: estimateTokens(result), ms: answer.ms } });
+    const e = this.deps.store.appendEvent(lane.id, { type: "helper.delegated", payload: { kind: body.kind, model: answer.model, inputTokens: answer.inputTokens, outputTokens: answer.outputTokens,
+      task: body.task.slice(0, 300), files: body.files.slice(0, 20), command, patch, ms: answer.ms } });
     this.deps.bus.publish(e);
-    this.pending.set(lane.id, [...(this.pending.get(lane.id) ?? []), { seq: e.seq, kind: body.kind, files: body.files, command, patch, seen: [] }]);
-    return { result, tokensSaved };
+    return { result };
   }
 
   /** Redone means: read — the lead reads the same files itself in that turn; check — it runs the same command; edit — the patch was never applied. */
   private async observe(e: LaneEvent): Promise<void> {
-    const waiting = this.pending.get(e.lane);
-    if (!waiting?.length) return;
-    if (e.type !== "agent.turn" || e.payload.active) { for (const w of waiting) if (e.seq > w.seq) w.seen.push(e); return; }
-    this.pending.delete(e.lane);
+    if (e.type !== "agent.turn" || e.payload.active) return;
+    // Reconstruct the completed turn from durable observations, including when the daemon restarted mid-turn.
+    const events = this.deps.store.eventsOfType(["agent.turn", "helper.delegated", "helper.redone", "tool.call"], { lanes: [e.lane] }).filter(x => x.seq <= e.seq);
+    const previousEnd = events.findLast(x => x.seq < e.seq && x.type === "agent.turn" && !x.payload.active)?.seq ?? 0;
+    const waiting = events.filter((x): x is Extract<LaneEvent, { type: "helper.delegated" }> => x.type === "helper.delegated" && x.seq > previousEnd);
     const lane = this.deps.store.getLane(e.lane);
-    for (const w of waiting) {
-      const calls = w.seen.filter((x): x is Extract<LaneEvent, { type: "tool.call" }> => x.type === "tool.call");
+    for (const delegation of waiting) {
+      if (this.deps.store.eventsOfType(["helper.redone"], { lanes: [e.lane] }).some(x => x.payload.seq === delegation.seq)) continue;
+      const w = delegation.payload;
+      const calls = events.filter((x): x is Extract<LaneEvent, { type: "tool.call" }> => x.type === "tool.call" && x.seq > delegation.seq);
       let redone = false;
-      if (w.kind === "read") redone = calls.some((c) => c.payload.kind === "read" && c.payload.files.some((f) => w.files.some((g) => f.endsWith(g))));
+      if (w.kind === "read" && lane) redone = calls.some((c) => c.payload.kind === "read" && c.payload.files.some((f) => w.files?.some((g) => resolve(lane.worktree, f) === resolve(lane.worktree, g))));
       if (w.kind === "check") redone = !!w.command && calls.some((c) => c.payload.kind === "execute" && w.command!.split(" && ").some((cmd) => c.payload.title.includes(cmd)));
       if (w.kind === "edit" && w.patch && lane) {
         const dir = join(this.deps.config.paths.lanes, ".attachments", lane.id.replace("/", "-"));
-        const file = join(dir, `redo-${w.seq}.patch`);
+        const file = join(dir, `redo-${delegation.seq}.patch`);
         await writeFile(file, w.patch, { mode: 0o600 });
         redone = !(await this.deps.run("git", ["apply", "--reverse", "--check", file], { cwd: lane.worktree }).then(() => true, () => false));
       }
-      if (redone) this.deps.bus.publish(this.deps.store.appendEvent(e.lane, { type: "helper.redone", payload: { seq: w.seq, kind: w.kind } }));
+      if (redone) this.deps.bus.publish(this.deps.store.appendEvent(e.lane, { type: "helper.redone", payload: { seq: delegation.seq, kind: w.kind } }));
     }
   }
 

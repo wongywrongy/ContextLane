@@ -1,7 +1,6 @@
-import { constants as fsConstants } from "node:fs";
-import { copyFile, lstat } from "node:fs/promises";
-import { mkdirInside } from "./safefs.js";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { copyFileInside } from "./safefs.js";
+import { join } from "node:path";
 import type { LaneDatabase, RecipeDatabase } from "@contextlanes/protocol";
 import type { Config } from "./config.js";
 import { Refused } from "./lanes/manager.js";
@@ -9,9 +8,11 @@ import type { Runner } from "./run.js";
 
 /** `<template>_<project>_<nn>`, at most 63 characters, lowercase letters, digits and underscores. */
 export function laneDatabaseName(template: string, laneId: string): string {
-  const [project, n] = laneId.split("/");
-  const tail = `_${(project ?? "lane").replace(/[^a-z0-9]+/g, "_")}_${n ?? "00"}`;
-  return `${template.slice(0, 63 - tail.length)}${tail}`.replace(/_+/g, "_");
+  const plain = `${template}_${laneId.replaceAll("/", "_")}`.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/_+/g, "_");
+  const name = /^[a-z_]/.test(plain) ? plain : `db_${plain}`;
+  // Truncating only the template collides for long project names or related templates. Keep a
+  // digest of both inputs, including a disposable baseline's random identity, when shortening.
+  return name.length <= 63 ? name : `${name.slice(0, 46)}_${createHash("sha256").update(JSON.stringify([template, laneId])).digest("hex").slice(0, 16)}`;
 }
 
 /** libpq reads these; passing the URL as an argument would show its password in the process list. */
@@ -34,18 +35,16 @@ async function psql(run: Runner, admin: string, sql: string, database?: string):
 }
 
 /** Create the lane's copy (or keep one made before) and return what setup steps and services get. */
-export async function createLaneDatabase(run: Runner, config: Config, db: RecipeDatabase, lane: { id: string; worktree: string }, projectPath: string): Promise<LaneDatabase> {
+export async function createLaneDatabase(run: Runner, config: Config, db: RecipeDatabase, lane: { id: string; worktree: string }, projectPath: string, options: { reuse?: boolean } = {}): Promise<LaneDatabase> {
   if (db.kind === "sqlite") {
-    const source = join(projectPath, db.file);
-    if (!(await lstat(source).then((s) => s.isFile(), () => false))) throw new Refused(`The recipe's database file ${db.file} is not in the main checkout.`);
-    const target = join(lane.worktree, db.file);
-    await mkdirInside(lane.worktree, dirname(db.file));
-    await copyFile(source, target, fsConstants.COPYFILE_EXCL).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; });
+    const copied = await copyFileInside(projectPath, lane.worktree, db.file).catch((err: NodeJS.ErrnoException) => { if (err.code !== "EEXIST") throw err; return true; });
+    if (!copied) throw new Refused(`The recipe's database file ${db.file} is not a regular file in the main checkout.`);
     return { kind: "sqlite", name: db.file, template: null };
   }
   const pg = postgres(config);
   const name = laneDatabaseName(db.template, lane.id);
   const exists = await psql(run, pg.admin, `SELECT 1 FROM pg_database WHERE datname = '${name}'`);
+  if (exists && options.reuse === false) throw new Refused(`The temporary database ${name} already exists; it was left unchanged.`);
   if (!exists) {
     await psql(run, pg.admin, `CREATE DATABASE "${name}" TEMPLATE "${db.template}" OWNER "${pg.role}"`).catch((err: { stderr?: string; message?: string }) => {
       const detail = String(err.stderr ?? err.message ?? "").trim().split("\n").at(-1) ?? "";
@@ -55,7 +54,13 @@ export async function createLaneDatabase(run: Runner, config: Config, db: Recipe
     });
     // A copy keeps the template's table owners. Hand what the admin login owns to the app login, so the
     // lane can use and migrate its own tables without the admin's privileges.
-    await psql(run, pg.admin, `REASSIGN OWNED BY CURRENT_USER TO "${pg.role}"`, name);
+    try { await psql(run, pg.admin, `REASSIGN OWNED BY CURRENT_USER TO "${pg.role}"`, name); }
+    catch (err) {
+      // Creation succeeded but setup did not: only remove the database created by this call.
+      try { await psql(run, pg.admin, `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`); }
+      catch (cleanup) { throw new AggregateError([err, cleanup], `Database initialization failed, and ${name} could not be removed.`); }
+      throw err;
+    }
   }
   return { kind: "postgres", name, template: db.template };
 }

@@ -273,14 +273,14 @@ describe("http api", () => {
     expect((await tool(child.id, "lane_start", { requestId: randomUUID(), task: "Grandchild" })).statusCode).toBe(409);
     expect((await app.inject({ url: `/api/lanes/${child.id}/tools` })).json().tools).not.toContain("lane_start");
     // Approve the sub-lane: it goes to the parent's agent to merge, not to origin.
-    store.insertCheckpoint({ id: "k", lane: "shop/02", base: "a", head: "", summary: "Invoice routes", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
+    store.insertCheckpoint({ id: "k", lane: "shop/02", base: "", head: "", recipeHash: null, summary: "Invoice routes", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
     store.setLaneState("shop/02", "in_review");
     const approved = await app.inject({ method: "POST", url: "/api/lanes/shop/02/approve" });
     expect(approved.statusCode).toBe(200);
     expect(approved.json()).toEqual({ prUrl: null });
-    expect(store.getLane("shop/02")!.state).toBe("merged");
+    expect(store.getLane("shop/02")!.state).toBe("integration_pending");
     expect(calls.some((c) => c.startsWith("git push"))).toBe(false);
-    expect(store.pendingCommands(parent.id).map((c) => c.payload.command)).toContainEqual(expect.objectContaining({ kind: "prompt", text: expect.stringContaining(`git merge --no-ff ${child.branch}`) }));
+    expect(store.pendingCommands(parent.id).map((c) => c.payload.command)).toContainEqual(expect.objectContaining({ kind: "prompt", text: expect.stringContaining("git merge --no-ff ") }));
     // Declined: the agent is told to carry on alone.
     const again = { ...body, requestId: "6e0c8a8e-8a1c-4a4b-9d7f-0f2b4a6b1c14" };
     await tool(parent.id, "split_lanes", again);
@@ -322,6 +322,7 @@ describe("http api", () => {
     expect((await app.inject({ url: "/api/projects/shop/board" })).json()).toMatchObject([{ lane: { id: lane.id }, contextPct: null, verdict: null, preview: null, mergedAt: null }]);
     store.appendEvent(lane.id, { type: "usage", payload: { contextUsed: 50, contextSize: 100 } });
     store.setLaneState(lane.id, "in_review");
+    store.setLaneState(lane.id, "pr_open");
     const merged = store.setLaneState(lane.id, "merged");
     expect((await app.inject({ url: "/api/board" })).json()).toMatchObject([{ contextPct: 50, mergedAt: merged.at }]);
   });

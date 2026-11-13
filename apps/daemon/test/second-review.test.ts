@@ -27,20 +27,31 @@ describe("second-agent review", () => {
     const id = "11111111-2222-4333-8444-555555555555";
     store.insertCheckpoint({ id, lane: lane.id, base, head, summary: "Adds line two", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: null, prUrl: null, createdAt: new Date().toISOString() });
     const reviews = new SecondReviews({ store, bus, lanes, run });
-    expect((await reviews.estimate(id)).tokens).toBe(15_000);
-    await expect(reviews.start(id, "claude-code")).rejects.toThrow(/different agent/);
-    const c = await reviews.start(id, "codex");
+    expect((await reviews.estimate(id)).tokens).toBeGreaterThan(0);
+    expect((await reviews.estimate(id)).tokens).toBeLessThan(1000);
+    // A fresh reviewer can use the same provider and must see the checkpoint even when the author's branch moves.
+    await writeFile(join(lane.worktree, "a.txt"), "one\ntwo\nnot in checkpoint\n"); await git(lane.worktree, "commit", "-qam", "later");
+    const starting = reviews.start(id, "claude-code");
+    await expect(reviews.start(id, "codex")).rejects.toThrow(/already starting/);
+    const c = await starting;
     const reviewLane = store.getLane(c.secondReview!.lane)!;
-    expect(reviewLane).toMatchObject({ agent: "codex", mode: "plan", base: lane.branch, task: "Second review of 01 by codex" });
+    expect(reviewLane).toMatchObject({ agent: "claude-code", mode: "plan", base: head, task: "Second review of 01 by claude-code" });
+    expect((await git(reviewLane.worktree, "rev-parse", "HEAD")).stdout.trim()).toBe(head);
     bus.publish(store.appendEvent(reviewLane.id, { type: "agent.message", payload: { text: "should fix — a.txt:2 — no trailing context.\nVerdict: merge after fixes", role: "agent" } }));
     bus.publish(store.appendEvent(reviewLane.id, { type: "agent.turn", payload: { active: false } }));
-    expect(store.checkpoint(id)!.secondReview).toMatchObject({ agent: "codex", state: "done", text: expect.stringContaining("Verdict: merge after fixes") });
+    expect(store.checkpoint(id)!.secondReview).toMatchObject({ agent: "claude-code", state: "done", text: expect.stringContaining("Verdict: merge after fixes") });
     expect(store.getLane(reviewLane.id)!.state).toBe("archived");
 
     // A review whose agent never reports in fails instead of "running" forever, and can be asked again.
     store.setSecondReview(id, { agent: "codex", lane: reviewLane.id, state: "done", text: "x", at: new Date().toISOString() });
     const again = await reviews.start(id, "opencode");
+    bus.publish(store.appendEvent(again.secondReview!.lane, { type: "agent.message", payload: { text: "I started reading", role: "agent" } }));
     bus.publish(store.setLaneState(again.secondReview!.lane, "failed", "The agent has not connected"));
     expect(store.checkpoint(id)!.secondReview).toMatchObject({ agent: "opencode", state: "failed" });
+
+    const cancelled = await reviews.start(id, "codex");
+    bus.publish(store.appendEvent(cancelled.secondReview!.lane, { type: "agent.message", payload: { text: "I have only checked one file", role: "agent" } }));
+    bus.publish(store.appendEvent(cancelled.secondReview!.lane, { type: "agent.turn", payload: { active: false, stopReason: "cancelled" } }));
+    expect(store.checkpoint(id)!.secondReview).toMatchObject({ state: "failed", text: "I have only checked one file" });
   });
 });

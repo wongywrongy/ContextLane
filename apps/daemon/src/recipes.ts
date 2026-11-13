@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { readBytesInside } from "./safefs.js";
 import { parse as parseToml } from "smol-toml";
 import { Recipe, RECIPE_FILE, type Lane, type Project, type RecipeView } from "@contextlanes/protocol";
 import type { Store } from "./db/store.js";
@@ -21,16 +20,13 @@ export const RECIPE_FILES: readonly string[] = [RECIPE_FILE, ...IMPORTS.map(([pa
 export type FoundFile = { file: string; kind: "file" | "link" | "other"; data: Buffer };
 export type RecipeFiles = (files: readonly string[]) => Promise<FoundFile | null>;
 
-/** On this machine: the first file that opens, as v3 always read it. */
+/** On this machine: the first file that reads as a regular file inside the folder. */
 export function hostFiles(dir: string): RecipeFiles {
   return async (files) => {
     for (const path of files) {
-      const file = await open(join(dir, path)).catch(() => null);
-      if (!file) continue;
-      try {
-        const { buffer, bytesRead } = await file.read(Buffer.alloc(MAX_BYTES + 1), 0, MAX_BYTES + 1, 0);
-        return { file: path, kind: "file", data: buffer.subarray(0, bytesRead) };
-      } finally { await file.close(); }
+      // safefs: the checkout is agent-controlled, so a link out of it or a device is never opened.
+      const file = await readBytesInside(dir, path, MAX_BYTES + 1);
+      if (file) return { file: path, kind: "file", data: file.data };
     }
     return null;
   };

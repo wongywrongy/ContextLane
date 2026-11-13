@@ -23,6 +23,7 @@ const viaTsx = (file: string) => ({ command: process.execPath, args: ["--import"
 describe.skipIf(!tools)("a lane end to end", () => {
   const units = new Map<string, { child: ChildProcess; log: string }>();
   const roots: string[] = [];
+  let pullRequest: { url: string; state: "OPEN" | "MERGED"; headRefOid: string; baseRefName: string; mergeCommit: { oid: string } | null } | null = null;
   afterAll(async () => {
     for (const u of units.values()) u.child.kill("SIGKILL");
     for (const r of roots) await rm(r, { recursive: true, force: true });
@@ -59,7 +60,16 @@ describe.skipIf(!tools)("a lane end to end", () => {
     }
     if (cmd === "journalctl") return { stdout: [...units.values()].at(-1)?.log ?? "" };
     // gh is the only fake beyond systemd: nothing leaves the machine.
-    if (cmd === "gh") return { stdout: args[1] === "create" ? "https://github.invalid/shop/pull/1\n" : "" };
+    if (cmd === "gh") {
+      if (args[0] === "pr" && args[1] === "create") {
+        const branch = args[args.indexOf("--head") + 1]!;
+        const head = (await runCommand("git", ["rev-parse", `refs/remotes/origin/${branch}`], opts)).stdout.trim();
+        pullRequest = { url: "https://github.invalid/shop/pull/1", state: "OPEN", headRefOid: head, baseRefName: args[args.indexOf("--base") + 1]!, mergeCommit: null };
+        return { stdout: `${pullRequest.url}\n` };
+      }
+      if (args[0] === "pr" && args[1] === "view" && pullRequest) return { stdout: JSON.stringify(pullRequest) };
+      throw new Error("No fixture pull request exists; only create and view are supported.");
+    }
     return runCommand(cmd, args, opts);
   };
 
@@ -131,11 +141,28 @@ describe.skipIf(!tools)("a lane end to end", () => {
       expect((await app.inject({ method: "POST", url: `/api/lanes/${second.id}/checkpoint`, payload: { summary: "Rounded" } })).statusCode).toBe(202);
       await vi.waitFor(() => expect(store.getLane(second.id)!.state).toBe("in_review"), { timeout: 30_000, interval: 250 });
 
-      // Approve: pushed to origin, pull request opened, then cleaned up.
+      // Approval publishes exactly the reviewed commit; an open PR cannot be cleaned up.
+      const checkpoint = store.latestCheckpoint(second.id)!;
       const approved = await app.inject({ method: "POST", url: `/api/lanes/${second.id}/approve` });
       expect(approved.statusCode, approved.body).toBeLessThan(300);
-      await vi.waitFor(() => expect(store.getLane(second.id)!.state).toBe("merged"), { timeout: 30_000, interval: 250 });
+      expect(store.getLane(second.id)!.state).toBe("pr_open");
       expect((await runCommand("git", ["branch", "--list", second.branch], { cwd: join(root, "origin.git") })).stdout).toContain(second.branch.split("/").at(-1));
+      expect((await runCommand("git", ["rev-parse", second.branch], { cwd: join(root, "origin.git") })).stdout.trim()).toBe(checkpoint.head);
+      expect((await runCommand("git", ["rev-parse", "main"], { cwd: join(root, "origin.git") })).stdout.trim()).toBe(checkpoint.base);
+      expect((await app.inject({ method: "POST", url: `/api/lanes/${second.id}/cleanup` })).statusCode).toBe(409);
+      expect(existsSync(second.worktree)).toBe(true);
+      expect((await app.inject({ method: "POST", url: `/api/lanes/${second.id}/review/sync` })).json()).toMatchObject({ state: "pr_open" });
+
+      // Simulate the owner's GitHub merge with real git, then reconcile the reported merge against origin.
+      await runCommand("git", ["-c", "user.name=CL", "-c", "user.email=cl@example.invalid", "merge", "--no-ff", checkpoint.head, "-m", "Merge approved invoices"], { cwd: repo });
+      await runCommand("git", ["push", "origin", "main"], { cwd: repo });
+      if (!pullRequest) throw new Error("missing fixture pull request");
+      pullRequest.state = "MERGED";
+      pullRequest.mergeCommit = { oid: (await runCommand("git", ["rev-parse", "main"], { cwd: repo })).stdout.trim() };
+      const synced = await app.inject({ method: "POST", url: `/api/lanes/${second.id}/review/sync` });
+      expect(synced.statusCode, synced.body).toBe(200);
+      expect(synced.json()).toMatchObject({ state: "merged" });
+      expect(events(second.id)).toContainEqual(expect.objectContaining({ type: "checkpoint.merge_verified", payload: expect.objectContaining({ head: checkpoint.head, mergeCommit: pullRequest.mergeCommit.oid }) }));
       const cleaned = await app.inject({ method: "POST", url: `/api/lanes/${second.id}/cleanup` });
       expect(cleaned.statusCode, cleaned.body).toBe(200);
       expect(store.getLane(second.id)!.state).toBe("cleaned");

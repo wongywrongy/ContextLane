@@ -10,11 +10,11 @@ import { signedIn } from "./signed-in.js";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-async function fixture() {
+async function fixture(mergedPr = false) {
   const root = await mkdtemp("/tmp/cl-cli-test-"); roots.push(root);
   vi.stubEnv("CLAUDE_CONFIG_DIR", root); vi.stubEnv("CODEX_HOME", root);
   const calls: { cmd: string; args: string[] }[] = [];
-  const run: Runner = async (cmd, args) => { calls.push({ cmd, args }); return { stdout: args[0] === "symbolic-ref" ? "main\n" : args[0] === "display-message" ? "0\n" : "" }; };
+  const run: Runner = async (cmd, args) => { calls.push({ cmd, args }); return { stdout: cmd === "gh" && mergedPr ? JSON.stringify({ url: "https://github.invalid/pr/1", state: "MERGED", headRefOid: "head", baseRefName: "main", mergeCommit: { oid: "merge" } }) : args[0] === "symbolic-ref" ? "main\n" : args[0] === "display-message" ? "0\n" : "" }; };
   const config = Config.parse({ paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
   const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
   const bus = new EventBus(); const hosts = new HostLinks({ store, bus }); const lanes = new LaneManager({ store, bus, run, config });
@@ -104,9 +104,10 @@ describe("CLI lanes", () => {
     await app.close(); store.close();
   });
   it("Clean up preserves a direct checkout and branch", async () => {
-    const { app, root, calls, store } = await fixture();
+    const { app, root, calls, store } = await fixture(true);
     await app.inject({ method: "POST", url: "/api/lanes", payload: { project: "demo", task: "Interactive", direct: true } });
-    store.setLaneState("demo/01", "in_review"); store.setLaneState("demo/01", "merged");
+    store.insertCheckpoint({ id: "direct-approved", lane: "demo/01", base: "base", head: "head", recipeHash: null, summary: "Direct work", checks: [], screenshots: [], files: [], plan: [], unplanned: [], process: [], signal: "strong", decision: "approved", prUrl: "https://github.invalid/pr/1", createdAt: new Date().toISOString() });
+    store.setLaneState("demo/01", "in_review"); store.setLaneState("demo/01", "pr_open"); store.setLaneState("demo/01", "merged");
     expect((await app.inject({ method: "POST", url: "/api/lanes/demo/01/cleanup", payload: {} })).statusCode).toBe(200);
     expect(store.getLane("demo/01")!.state).toBe("cleaned");
     expect((await stat(root)).isDirectory()).toBe(true);
@@ -214,14 +215,14 @@ describe("lanes without an agent", () => {
 describe("with the sandbox turned off", () => {
   it("runs agents unconfined only because the owner said so, and every lane records it", async () => {
     const { root, calls } = await fixture();
-    const { sandbox, checkSandbox, requireSandbox, confineGit } = await import("../src/sandbox.js");
+    const { sandbox, checkSandbox, requireSandbox, confineGit, GIT_GUARDS } = await import("../src/sandbox.js");
     const config = Config.parse({ sandbox: { mode: "off" }, paths: { data: join(root, "data"), lanes: join(root, "lanes") } });
     expect(sandbox(config)).toEqual([]);
     const run: Runner = async (cmd, args) => { calls.push({ cmd, args }); return { stdout: args[0] === "symbolic-ref" ? "main\n" : "" }; };
     expect(await checkSandbox(run, config)).toBe(false);
     await expect(requireSandbox(run, config)).resolves.toBeUndefined();
     await confineGit(run, config)("git", ["status"]);
-    expect(calls.at(-1)).toEqual({ cmd: "git", args: ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never", "status"] });
+    expect(calls.at(-1)).toEqual({ cmd: "git", args: [...GIT_GUARDS, "status"] });
 
     const store = Store.open(":memory:"); store.addProject({ id: "demo", name: "Demo", path: root });
     const bus = new EventBus(); const lanes = new LaneManager({ store, bus, run, config });
